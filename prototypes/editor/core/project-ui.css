@@ -1,0 +1,52 @@
+/* SIMULATED project chip + Projects sheet (core/ProjectChip.jsx). Each shell positions .pj-chip. */
+.pj-chip {
+  display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; max-width: 220px; height: 32px; padding: 0 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--txt); font: inherit; font-size: 13px; cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.pj-chip { line-height: 32px; }
+@media (hover: hover) and (pointer: fine) { .pj-chip:hover { background: oklch(1 0 0 / 0.06); } }
+.pj-chip:focus-visible { outline: 2px solid oklch(0.97 0 0 / 0.7); outline-offset: 2px; }
+.pj-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pj-chip-status { flex: none; color: var(--txt-3); font-size: 12px; }
+.pj-chip[data-failed] .pj-chip-status { color: var(--warn); }
+
+.pj-scrim { position: fixed; inset: 0; z-index: 2147483640; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: oklch(0 0 0 / 0.35); }
+.pj-sheet {
+  width: min(520px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-raised); border-radius: var(--r-l); box-shadow: var(--surface-shadow); color: var(--txt);
+  animation: pj-in 140ms var(--ease-out);
+}
+.pj-sheet:focus { outline: none; } /* tabIndex=-1 only catches clicks on non-focusable sheet text */
+@keyframes pj-in { from { opacity: 0; transform: translateY(-4px) scale(0.99); } }
+.pj-failed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: oklch(0.8 0.13 75 / 0.12); color: var(--warn); font-size: 13px; }
+.pj-input {
+  width: 100%; height: 44px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--line-soft);
+  background: transparent; color: var(--txt); font: inherit; font-size: 15px; outline: none;
+}
+.pj-list { list-style: none; margin: 0; padding: 6px; overflow: auto; }
+.pj-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 48px; padding: 6px 10px 6px 6px; border-radius: var(--r); cursor: pointer; }
+.pj-row[data-cursor] { background: var(--bg-hover); }
+.pj-row[data-status] { cursor: default; }
+.pj-check { color: var(--accent); text-align: center; font-size: 13px; }
+.pj-row-text { display: flex; flex-direction: column; min-width: 0; }
+.pj-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pj-row[data-status] .pj-row-name { color: var(--txt-2); }
+.pj-row-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--txt-3); font-family: var(--mono); }
+.pj-row-when { font-size: 12px; color: var(--txt-3); white-space: nowrap; }
+.pj-row-status { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: var(--warn); white-space: nowrap; }
+.pj-empty { padding: 14px; color: var(--txt-3); }
+.pj-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px 10px 14px; border-top: 1px solid var(--line-soft); }
+.pj-foot-actions { display: flex; gap: 6px; }
+.pj-sim { font-size: 12px; color: var(--txt-3); }
+.pj-btn { height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: oklch(1 0 0 / 0.07); color: var(--txt); font: inherit; font-size: 13px; cursor: pointer; transition: background-color 120ms ease-out; }
+.pj-btn.primary { background: var(--accent-strong); color: white; }
+.pj-btn.quiet { background: transparent; color: var(--txt-2); }
+.pj-btn:disabled { color: var(--txt-3); cursor: default; }
+.pj-btn:active:not(:disabled) { transform: scale(0.97); }
+.pj-btn:focus-visible, .pj-link:focus-visible { outline: 2px solid oklch(0.97 0 0 / 0.7); outline-offset: 2px; }
+.pj-link { border: 0; padding: 4px 6px; margin: -4px -6px; border-radius: 5px; background: none; color: var(--txt); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.pj-new { display: flex; flex-direction: column; }
+.pj-new-label { padding: 12px 14px 0; font-size: 12px; color: var(--txt-3); }
+.pj-new .pj-input { height: 40px; }
+@media (prefers-reduced-motion: reduce) { .pj-sheet { animation: none; } }
