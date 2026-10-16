@@ -20,7 +20,7 @@ export async function syncLabviewCommands(selection: string, cacheDirectory: str
   } catch (error) {
     const current = await dependencies.discover(selection);
     const cached = await dependencies.cached(selection, current, cacheDirectory);
-    const reason = `Command sync could not inspect LabVIEW. ${error instanceof Error ? error.message : String(error)} Open this project in LabVIEW, then choose Sync commands to retry.`;
+    const reason = `Command sync could not inspect LabVIEW. ${error instanceof Error ? error.message : String(error)} Open this project in LabVIEW, then choose Refresh commands to retry.`;
     return {
       ...cached,
       warnings: [...cached.warnings, reason],

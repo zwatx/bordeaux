@@ -1,3 +1,4 @@
+import { deletionInput } from './DeletionNotice';
 import * as React from "react";
 import { CommandBranches } from "./CommandBranches";
 import "../styles/command-branches.css";
@@ -5,166 +6,355 @@ import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
-import { LabviewProjectPanel } from "./LabviewProjectSources";
+import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
+import { Glyph, continuityText, describeStop, stepTitle } from "./RoutinePanel";
 
-// Autonomous Routine — step inspector (RIGHT rail) + run transport (bottom).
+// Routine step inspector (right rail) and the bottom preview transport.
 // One inspector system, shared with the Plan page (.ctxinsp shell + form primitives).
-  const h = React.createElement;
-  const { Icon, Dropdown, ChoiceBrowser, DraftText, Seg } = UI;
-  const A = AUTO;
-  const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
+const h = React.createElement;
+const { Icon, Dropdown, ChoiceBrowser, DraftText, Seg, Toggle } = UI;
+const A = AUTO;
+const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
+const plural = (count, singular) => count + ' ' + singular + (count === 1 ? '' : /s$/.test(singular) ? 'es' : 's');
+const SECONDS = { min: 0.02, max: 15, unit: 's' };
+const OPERATORS = [['eq', 'Equals'], ['neq', 'Does not equal'], ['lt', 'Less than'], ['lte', 'At most'], ['gt', 'Greater than'], ['gte', 'At least']].map(([value, label]) => ({ value, label }));
 
-  function FieldLabel(t, right) { return h('div', { className: 'fieldlabel' }, h('span', null, t), right || null); }
+function FieldLabel(t, right) { return h('div', { className: 'fieldlabel' }, h('span', null, t), right || null); }
+const Hint = (text) => h('p', { className: 'seg-hint' }, text);
+const Section = (title, ...children) => h('section', { className: 'rt-insp-sec', 'aria-label': title }, h('h3', { className: 'cgroup-h' }, title), ...children);
+const PREVIEW_ONLY = 'Preview only. No robot runtime runs this yet.';
 
-  function StepInspector(props) {
-    const { node, paths, acq, run, robotProject } = props;
-    if (!node) return null;
-    const deployment = A.nodeDeploymentState(node, robotProject && robotProject.catalog);
-    if (!deployment.deployable) {
-      const title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step';
-      return h('div', { className: 'ctxinsp inspector-refresh' },
-        h('div', { className: 'ctxinsp-hd' },
-          h('span', { className: 'ctxinsp-ic', style: { background: 'color-mix(in srgb, #d2655f 16%, transparent)', color: '#d2655f' } }, h(Icon, { name: 'info', size: 15 })),
-          h('span', { className: 'ctxinsp-t', title }, title),
-          h('span', { className: 'ctxinsp-tag' }, 'Legacy — cannot deploy'),
-          h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
-        h('div', { className: 'ctxinsp-body' },
-          h('div', { className: 'rt-callout' }, h(Icon, { name: 'info', size: 14 }), 'This saved step has no Bordeaux beta export contract. Replace it with a Path, Decision, Command, or available Wait, or remove it before export.'),
-          h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Remove unsupported step')));
-    }
-    const set = (patch) => acq.set(node.id, patch);
-    const seg = run.segs.find((s) => s.nodeId === node.id);
-    let icon = 'dot', title = '', accent = 'var(--accent)', body = null;
+function conditionItems(catalog, value) {
+  return A.conditionPickerItems(A.authoritativeConditions(catalog), value, 'Choose a condition');
+}
+/** A registered robot condition. A saved ID the catalog lost stays visible and replaceable. */
+function ConditionPicker({ id, label, value, catalog, onChange }) {
+  const registered = A.authoritativeConditions(catalog);
+  return h(React.Fragment, null,
+    h(Dropdown, { id, label, value: value || '', items: conditionItems(catalog, value), onChange }),
+    !registered.length && Hint('Conditions come from bordeaux-catalog.json. Refresh commands after adding one.'));
+}
 
-    if (node.type === 'path') {
-      icon = 'route'; title = 'Path';
-      body = h(React.Fragment, null,
-        h(Dropdown, { id: 'routine-bound-path', label: 'Path', value: node.ref, icon: 'route',
-          items: paths.map((path) => ({ value: path.id, label: path.name })),
-          onChange: (value) => set({ ref: value }) }),
-        seg && h('div', { className: 'rt-stat' },
-          h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, fmt(seg.t1 - seg.t0)), h('span', { className: 'rt-stat-k' }, 'Duration')),
-          h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, UnitPrefs.format(seg.deriv.sample.length, 'm', 2)), h('span', { className: 'rt-stat-k' }, 'Distance')),
-          h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, '#' + seg.idxLabel), h('span', { className: 'rt-stat-k' }, 'Run order'))),
-        h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.openInEditor(node.ref) }, h(Icon, { name: 'route', size: 14 }), 'Open in path editor'),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Remove from routine'));
+function outputValueDefault(schema) {
+  if (schema.kind === 'boolean') return true;
+  if (schema.kind === 'enum') return schema.enumValues[0];
+  return schema.kind.endsWith('String') ? '0' : 0;
+}
 
-    } else if (node.type === 'builtin') {
-      icon = 'pause'; title = 'Wait'; accent = '#cf962f';
-      const durationS = node.arguments && node.arguments.durationS;
-      body = h(React.Fragment, null,
-        h(CommandParameterEditor, { key: node.id, id: 'routine-wait-' + safeControlId(node.id), label: 'Wait duration in seconds',
-          schema: { kind: 'number' }, parameter: { min: 0.02, max: 15, unit: 's' }, value: durationS,
-          onChange: (durationS) => set({ arguments: { durationS } }) }),
-        h('div', { className: 'seg-hint' }, 'Continue to the next step after this delay.'),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Delete wait'));
+/** Ends section of a command or wait. A result-consuming command must finish, so it only offers a limit that ends the routine. */
+function EndsSection({ node, routine, catalog, set }) {
+  const ends = node.ends || {};
+  const command = node.type === 'function';
+  const consumer = command && A.isResultConsumer(routine, node.id);
+  const write = (patch) => {
+    const next = { ...ends, ...patch };
+    Object.keys(next).forEach((key) => next[key] === undefined && delete next[key]);
+    set({ ends: Object.keys(next).length ? next : undefined });
+  };
+  const early = Boolean(ends.endWhen);
+  const limited = ends.timeoutS !== undefined;
+  const conflict = consumer && (early || (limited && ends.onTimeout !== 'endRoutine'));
+  return Section('Ends',
+    Hint(command ? 'When the command reports finished.' : 'When the duration passes.'),
+    consumer && h('p', { className: 'rt-insp-note' }, 'A result needs the command to finish.'),
+    conflict && h('div', { className: 'rt-insp-problem', role: 'status' }, 'This ending would skip the result its branch or repeat reads.',
+      h('button', { type: 'button', className: 'choice-change', onClick: () => write({ endWhen: undefined, ...(limited ? { onTimeout: 'endRoutine' } : {}) }) }, limited ? 'Use the limit to end the routine' : 'Remove the early end')),
+    h('div', { className: 'rt-insp-toggle' }, consumer && !early
+      // A result consumer must finish, so an early end is unavailable; a saved conflict keeps its working toggle and repair.
+      ? h('button', { className: 'toggle', type: 'button', disabled: true, 'aria-pressed': false, title: 'A result needs the command to finish.' },
+          h('span', { className: 'toggle-track' }, h('span', { className: 'toggle-thumb' })), h('span', { className: 'toggle-lbl' }, 'End early on a condition'))
+      : h(Toggle, { on: early, label: 'End early on a condition', onChange: (on) => write({ endWhen: on ? { source: 'condition', conditionId: '' } : undefined }) })),
+    early && h(ConditionPicker, { id: 'routine-ends-condition', label: 'End early when', value: ends.endWhen.conditionId, catalog, onChange: (conditionId) => write({ endWhen: { ...ends.endWhen, source: 'condition', conditionId } }) }),
+    command && h('div', { className: 'rt-insp-toggle' }, h(Toggle, { on: limited, label: 'Time limit', onChange: (on) => write(on ? A.newCommandEnds(routine, node.id) : { timeoutS: undefined, onTimeout: undefined }) })),
+    command && limited && h(React.Fragment, null,
+      h(CommandParameterEditor, { key: node.id + ':limit', id: 'routine-limit-' + safeControlId(node.id), label: 'Limit in seconds', schema: { kind: 'number' }, parameter: SECONDS, value: ends.timeoutS,
+        onChange: (timeoutS) => write({ timeoutS }) }),
+      FieldLabel('When the limit is reached'),
+      h(Seg, { ariaLabel: 'When the limit is reached', value: ends.onTimeout || '', onChange: (onTimeout) => write({ onTimeout }),
+        options: [{ v: 'continue', label: 'Continue', disabled: consumer, title: consumer ? 'A result needs the command to finish.' : undefined }, { v: 'endRoutine', label: 'End routine' }] })));
+}
 
-    } else if (node.type === 'generatedTrajectory') {
-      icon = 'route'; title = deployment.label || 'Generated trajectory'; accent = '#cf962f';
-      body = h(React.Fragment, null,
-        h('div', { className: 'rt-callout' }, h(Icon, { name: 'info', size: 14 }), 'This segment is generated and validated on the robot at runtime. Bordeaux does not fabricate desktop geometry, duration, distance, or clearance for it.'),
-        h('div', { className: 'seg-hint' }, 'Fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'validated static branch' : 'safe stop')),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Remove generated trajectory'));
+/** Stop rule of a repeat: never, a registered condition, or a typed result of a command directly inside it. */
+function RepeatStop({ node, catalog, set }) {
+  const stop = node.until;
+  const producers = node.nodes.filter((child) => child.type === 'function' && child.cat === 'command');
+  const producer = stop?.source === 'output' ? producers.find((child) => child.id === stop.nodeId) : null;
+  const command = catalog?.commands?.find((item) => item.id === producer?.invocation?.commandId);
+  const outputs = A.branchOutputs(command);
+  const output = stop?.source === 'output' ? outputs.find((item) => item.name === stop.output) : null;
+  const numeric = stop?.schema && !['boolean', 'enum'].includes(stop.schema.kind);
+  const mode = stop ? stop.source : 'never';
+  return Section('Stop early',
+    h(Seg, { ariaLabel: 'Stop early', value: mode, options: [{ v: 'never', label: 'Never' }, { v: 'condition', label: 'Condition' }, { v: 'output', label: 'Command result' }],
+      onChange: (next) => next === mode ? null : set({ until: next === 'never' ? undefined : next === 'condition' ? { source: 'condition', conditionId: '' }
+        : { source: 'output', nodeId: producers[0]?.id || '', output: '', operator: 'eq' } }) }),
+    stop?.source === 'condition' && h(ConditionPicker, { id: 'routine-repeat-condition', label: 'Stop when', value: stop.conditionId, catalog, onChange: (conditionId) => set({ until: { source: 'condition', conditionId } }) }),
+    stop?.source === 'output' && (producers.length === 0
+      ? Hint('Add a command directly inside this repeat first.')
+      : h(React.Fragment, null,
+          h(Dropdown, { id: 'routine-repeat-producer', label: 'Command in this repeat', value: stop.nodeId || '',
+            items: [...(stop.nodeId && !producer ? [{ value: stop.nodeId, label: 'Unavailable step', meta: 'Choose a command directly inside this repeat', badge: 'Missing' }] : []),
+              ...producers.map((child) => ({ value: child.id, label: stepTitle(child, [], catalog) }))],
+            onChange: (nodeId) => nodeId !== stop.nodeId && set({ until: { source: 'output', nodeId, output: '', operator: 'eq' } }) }),
+          h(Dropdown, { id: 'routine-repeat-output', label: 'Result', value: stop.output || '',
+            items: [{ value: '', label: outputs.length ? 'Choose a result' : 'This command has no branchable outputs' },
+              ...(stop.output && !output ? [{ value: stop.output, label: stop.output, meta: 'Output unavailable · sync commands or choose another', badge: 'Missing' }] : []),
+              ...outputs.map((item) => ({ value: item.name, label: item.label || item.name, meta: item.schema.kind === 'enum' ? 'Named outcomes' : item.schema.kind }))],
+            onChange: (name) => {
+              const next = outputs.find((item) => item.name === name);
+              if (!next || name === stop.output) return;
+              set({ until: { source: 'output', nodeId: stop.nodeId, output: name, schema: next.schema, operator: 'eq', value: outputValueDefault(next.schema) } });
+            } }),
+          // Structural agreement: key order alone is not a type change, so an equivalent snapshot keeps its value.
+          // One explanation, beside its repair. The repair is explicit and says what it resets; it is one Undo step.
+          stop.schema && output && !robotValueSchemasEqual(output.schema, stop.schema) && h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Result type changed' },
+            h('p', { className: 'rt-insp-problem' }, stop.schema.valueType !== output.schema.valueType
+              ? 'Saved as ' + stop.schema.valueType + '; the command now reports ' + output.schema.valueType + '.'
+              : 'This result’s values changed since it was saved.'),
+            h('button', { type: 'button', className: 'qbtn wide', onClick: () => set({ until: { ...stop, schema: output.schema, operator: 'eq', value: outputValueDefault(output.schema) } }) },
+              'Use ' + (output.schema.valueType || 'the new type') + ' and reset the value')),
+          stop.schema && h('div', { className: 'rt-stop-compare' },
+            numeric && h(Dropdown, { id: 'routine-repeat-operator', label: 'Comparison', value: stop.operator, items: OPERATORS, onChange: (operator) => set({ until: { ...stop, operator } }) }),
+            h(CommandParameterEditor, { key: node.id + ':' + stop.output, id: 'routine-repeat-value-' + safeControlId(node.id), label: numeric ? 'Value' : 'Stop when it is', schema: stop.schema,
+              parameter: output || {}, value: stop.value, onChange: (value) => set({ until: { ...stop, value } }) })))),
+    stop && Hint('Checked after each pass.'));
+}
 
-    } else if (node.type === 'decision') {
-      icon = 'branch'; title = 'Decision'; accent = '#9aa3b0';
-      const out = acq.outcomes[node.id] || 'then';
-      body = h(React.Fragment, null,
-        h('div', { className: 'rt-callout' }, 'Legacy condition: ' + (node.cond || 'Unspecified') + '. Add output branches to a command to replace this decision. Existing routes are preserved.'),
-        h('div', { className: 'grid2', style: { marginTop: '10px' } },
-          h('div', null, FieldLabel('If true'), h(DraftText, { className: 'textinput', 'aria-label': 'True branch label', value: node.thenLabel, owner: node.id, spellCheck: false, onCommit: (thenLabel) => set({ thenLabel }) })),
-          h('div', null, FieldLabel('If false'), h(DraftText, { className: 'textinput', 'aria-label': 'False branch label', value: node.elseLabel, owner: node.id, spellCheck: false, onCommit: (elseLabel) => set({ elseLabel }) }))),
-        FieldLabel('Preview branch'),
-        h(Seg, { value: out, options: [{ v: 'then', label: node.thenLabel || 'true' }, { v: 'else', label: node.elseLabel || 'false' }], onChange: (v) => acq.setOutcome(node.id, v) }),
-        h('div', { className: 'seg-hint' }, 'Choose a branch to preview. This saved decision uses the legacy condition model.'),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Delete decision'));
+function Problems({ issues, jumps }) {
+  const errors = issues.filter((issue) => issue.severity === 'error');
+  const warnings = issues.filter((issue) => issue.severity !== 'error');
+  if (!errors.length && !warnings.length && !jumps.length) return null;
+  return h('div', { className: 'rt-insp-problems', role: 'status' },
+    errors.map((issue, index) => h('p', { key: 'e' + index, className: 'rt-insp-problem' }, issue.message)),
+    warnings.map((issue, index) => h('p', { key: 'w' + index, className: 'rt-insp-warning' }, issue.message)),
+    jumps.slice(0, 1).map((issue, index) => h('p', { key: 'j' + index, className: 'rt-insp-warning' }, continuityText(issue) + ' in this preview. Reference poses only.')));
+}
 
-    } else {
-      const C = A.CATS[node.cat]; icon = C.icon; accent = C.color;
-      title = 'Command';
-      const commands = robotProject && robotProject.catalog ? robotProject.catalog.commands || [] : [];
-      const invocationId = node.invocation && node.invocation.commandId || '';
-      const selected = commands.find((command) => command.id === invocationId);
-      const parameters = selected ? (selected.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
-      const saved = node.invocation && node.invocation.arguments || {};
-      const argumentsValue = selected ? Object.fromEntries(parameters.map((parameter) => {
-        const value = Object.prototype.hasOwnProperty.call(saved, parameter.name) ? saved[parameter.name] : undefined;
-        return [parameter.name, parameterValueError(value, parameter) ? commandArguments(selected)[parameter.name] : value];
-      })) : saved;
-      body = h(React.Fragment, null,
-        h(LabviewProjectPanel, { robotProject }),
-        robotProject && robotProject.catalog
-          ? h(ChoiceBrowser, { id: 'routine-command', resetKey: node.id, label: 'Command', value: invocationId,
-              items: [{ value: '', label: 'Choose a command', meta: 'No command selected' }, ...commands.map((command) => ({
-                value: command.id, label: command.label, meta: (command.parameters || []).filter((parameter) => parameter.role === 'argument').map((parameter) => parameter.label || parameter.name).join(', ') || command.member,
-                searchText: command.id + ' ' + command.member,
-              }))], placeholder: 'Search commands', emptyText: 'No commands found in this project', icon: 'bolt', onChange: (value) => {
-              const command = commands.find((candidate) => candidate.id === value);
-              if (value === invocationId) return;
-              if (node.outputBranch?.routes.some((route) => route.nodes.length) && !confirm('Changing this command removes its output branches and their steps. Continue?')) return;
-              set({ title: command ? command.label : 'Robot command', invocation: command ? { commandId: command.id, arguments: commandArguments(command) } : null, outputBranch: undefined });
-            } })
-          : null,
-        invocationId && !selected && h('div', { className: 'cmd-project-error', role: 'status' }, 'This saved command is missing from the linked catalog.'),
-        selected && !selected.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Sync commands to load this command’s inputs before exporting.'),
-        selected && h('form', { className: 'cmd-parameters', onSubmit: (event) => event.preventDefault() },
-          parameters.length === 0 ? h('div', { className: 'cmd-empty-params' }, 'No parameters')
-            : parameters.map((parameter) => h(CommandParameterEditor, {
-                key: node.id + ':' + selected.id + ':' + parameter.name,
-                id: 'routine-command-param-' + safeControlId(parameter.name),
-                label: parameter.label || parameter.name,
-                schema: parameter.schema,
-                parameter,
-                value: argumentsValue[parameter.name],
-                onChange: (value) => set({ invocation: { commandId: selected.id, arguments: { ...argumentsValue, [parameter.name]: value } } }),
-              }))),
-        (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, set, acq }),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => acq.del(node.id) }, h(Icon, { name: 'trash', size: 15 }), 'Delete command'));
-
-    }
-
-    return h('div', { className: 'ctxinsp inspector-refresh' },
+export function StepInspector(props) {
+  const { node, paths, acq, run, robotProject } = props;
+  const routine = props.routine || { nodes: node ? [node] : [] };
+  const catalog = robotProject && robotProject.catalog;
+  const [unwrapReason, setUnwrapReason] = React.useState('');
+  React.useEffect(() => setUnwrapReason(''), [node?.id]);
+  if (!node) return null;
+  // Command and output problems are explained once, beside their recovery control (picker or branch editor).
+  const OWNED = node.type === 'function' ? ['command-unavailable', 'output-unavailable', 'output-schema-changed'] : node.type === 'repeat' ? ['stop-schema-changed'] : [];
+  const issues = (props.issues || []).filter((issue) => issue.nodeId === node.id && !OWNED.includes(issue.code));
+  const set = (patch) => acq.set(node.id, patch);
+  const seg = (run?.segs || []).find((s) => s.nodeId === node.id);
+  const remove = (label) => h('button', { className: 'delbtn', type: 'button', ...deletionInput(() => acq.del(node.id)) }, h(Icon, { name: 'trash', size: 15 }), label);
+  const deployment = A.nodeDeploymentState(node, catalog);
+  let glyph = 'info', title = 'Step', tone = null, body = null, support = false, tag = null;
+  // Steps inside a generated trajectory's fallback are retained as authored and cannot be edited or removed here.
+  if (A.locate(routine, node.id)?.readOnly) {
+    return h('div', { className: 'ctxinsp inspector-refresh routine-insp' },
       h('div', { className: 'ctxinsp-hd' },
-        h('span', { className: 'ctxinsp-ic', style: { background: 'color-mix(in srgb,' + accent + ' 16%, transparent)', color: accent } }, h(Icon, { name: icon, size: 15 })),
-        h('span', { className: 'ctxinsp-t', title }, title),
+        h('span', { className: 'ctxinsp-ic' }, h(Glyph, { name: 'info', size: 15 })),
+        h('span', { className: 'ctxinsp-t', title: stepTitle(node, paths, catalog) }, stepTitle(node, paths, catalog)),
+        h('span', { className: 'ctxinsp-tag' }, 'Read-only'),
         h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
-      // Keyed by step so an unfinished draft never moves to another step.
-      h('div', { className: 'ctxinsp-body', key: node.id }, body));
+      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Part of a generated trajectory’s fallback. It is kept as saved and cannot be changed here.')));
   }
 
-  // ---- bottom transport: the same persistent timeline model used by Plan ----
-  function RoutineTransport(props) {
-    const { run, time, playing, controls, running } = props;
-    const nSteps = run.steps.length;
-    const activeIdx = nSteps ? A.stepAt(run, time) : -1;
-    const pct = run.total > 0 ? Math.max(0, Math.min(1, time / run.total)) : 0;
-    const spans = run.steps.filter((step) => step.t1 > step.t0).map((step) => ({
-      key: step.node.id,
-      left: run.total ? step.t0 / run.total * 100 : 0,
-      width: run.total ? (step.t1 - step.t0) / run.total * 100 : 0,
-      color: step.kind === 'path' ? 'var(--accent)' : step.kind === 'gen' ? A.CATS.generate.color : (step.node.cat && A.CATS[step.node.cat] ? A.CATS[step.node.cat].color : 'var(--txt-3)'),
-      label: step.label || A.nodeTitle(step.node),
-    }));
-    const instants = run.steps.filter((step) => step.t1 <= step.t0).map((step) => ({
-      key: step.node.id,
-      left: run.total ? step.t0 / run.total * 100 : 0,
-      label: step.label || A.nodeTitle(step.node),
-    }));
+  if (node.type === 'path') {
+    glyph = 'route'; title = 'Path';
+    body = h(React.Fragment, null,
+      h(Dropdown, { id: 'routine-bound-path', label: 'Path', value: node.ref, icon: 'route',
+        items: [...(paths.some((path) => path.id === node.ref) ? [] : [{ value: node.ref, label: 'Unavailable path', meta: 'Choose another path', badge: 'Missing' }]), ...paths.map((path) => ({ value: path.id, label: path.name }))],
+        onChange: (value) => set({ ref: value }) }),
+      seg && h('div', { className: 'rt-stat' },
+        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, fmt(seg.t1 - seg.t0)), h('span', { className: 'rt-stat-k' }, 'Duration')),
+        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, UnitPrefs.format(seg.deriv.sample.length, 'm', 2)), h('span', { className: 'rt-stat-k' }, 'Distance')),
+        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, '#' + seg.idxLabel), h('span', { className: 'rt-stat-k' }, 'Run order'))),
+      paths.some((path) => path.id === node.ref) && h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.openInEditor(node.ref) }, h(Icon, { name: 'route', size: 14 }), 'Open in path editor'),
+      remove('Remove from routine'));
 
-    return h('div', { className: 'rt-transport timeline' + (running ? ' running' : '') },
-      h('div', { className: 'rt-timeline-toolbar' },
-        h('div', { className: 'rt-tp-ctl' },
-          h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart routine', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
-          h('button', { className: 'rt-tp-btn play', type: 'button', disabled: nSteps === 0, title: 'Play / pause routine', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
-        h('span', { className: 'rt-timeline-title' }, 'Routine'),
-        h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + fmt(run.total))),
-        h('span', { className: 'rt-timeline-summary' }, nSteps + (nSteps === 1 ? ' preview step' : ' preview steps')),
-        h('div', { className: 'rt-timeline-step' }, activeIdx >= 0 ? String(activeIdx + 1).padStart(2, '0') : '–', h('small', null, '/' + String(nSteps).padStart(2, '0')))),
-      h('div', { className: 'rt-timeline-editor', style: { '--routine-progress': pct } },
-        h('span', { className: 'rt-timeline-track' }),
-        spans.map((span) => h('span', { key: span.key, className: 'rt-timeline-span', title: span.label, style: { left: span.left + '%', width: span.width + '%', '--step-color': span.color } })),
-        instants.map((instant) => h('span', { key: instant.key, className: 'rt-timeline-event', title: instant.label, style: { left: instant.left + '%' } })),
-        h('input', { className: 'rt-tp-scrub', type: 'range', 'aria-label': 'Routine playback position', min: 0, max: 1000, value: Math.round(pct * 1000), onChange: (event) => controls.seek((event.target.value / 1000) * run.total) })));
+  } else if (node.type === 'builtin' && node.builtinId === 'bordeaux.wait') {
+    glyph = 'pause'; title = 'Wait'; tone = 'wait'; support = Boolean(node.ends);
+    body = h(React.Fragment, null,
+      h(CommandParameterEditor, { key: node.id, id: 'routine-wait-' + safeControlId(node.id), label: 'Wait duration in seconds',
+        schema: { kind: 'number' }, parameter: SECONDS, value: node.arguments && node.arguments.durationS,
+        onChange: (durationS) => set({ arguments: { durationS } }) }),
+      h(EndsSection, { node, routine, catalog, set }),
+      remove('Delete wait'));
+
+  } else if (node.type === 'decision') {
+    glyph = 'branch'; title = 'Branch'; support = true;
+    const out = acq.outcomes?.[node.id] || 'then';
+    body = h(React.Fragment, null,
+      h(ConditionPicker, { id: 'routine-condition', label: 'Robot condition', value: node.cond, catalog, onChange: (cond) => set({ cond }) }),
+      Hint('Checked once when the routine reaches it.'),
+      h('div', { className: 'grid2 rt-route-names' },
+        h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
+        h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
+      FieldLabel('Preview route'),
+      h(Seg, { ariaLabel: 'Preview route', value: out, options: [{ v: 'then', label: node.thenLabel || 'True' }, { v: 'else', label: node.elseLabel || 'False' }], onChange: (v) => acq.setOutcome(node.id, v) }),
+      remove('Delete branch'));
+
+  } else if (node.type === 'repeat') {
+    glyph = 'repeat'; title = 'Repeat'; support = true;
+    const passes = Math.min(node.times, acq.passes?.[node.id] ?? 1);
+    body = h(React.Fragment, null,
+      h(CommandParameterEditor, { key: node.id + ':times', id: 'routine-repeat-times-' + safeControlId(node.id), label: node.until ? 'Most passes' : 'Passes',
+        schema: { kind: 'integer' }, parameter: { min: 1, max: 50 }, value: node.times, onChange: (times) => set({ times }) }),
+      h(RepeatStop, { node, catalog, set }),
+      node.until && Section('Preview',
+        FieldLabel('Passes to preview'),
+        node.times <= 8
+          ? h(Seg, { ariaLabel: 'Passes to preview', value: passes, options: Array.from({ length: node.times }, (_, index) => ({ v: index + 1, label: String(index + 1) })), onChange: (value) => acq.setPasses(node.id, value) })
+          : h(CommandParameterEditor, { key: node.id + ':passes', id: 'routine-repeat-passes-' + safeControlId(node.id), label: 'Passes to preview', schema: { kind: 'integer' },
+              parameter: { min: 1, max: node.times }, value: passes, onChange: (value) => acq.setPasses(node.id, value) }),
+        Hint(passes < node.times ? 'Assumes the stop check is true after pass ' + passes + '.' : 'Runs every pass.')),
+      h('button', { className: 'rt-openbtn', type: 'button', onClick: () => {
+        const result = acq.edit({ kind: 'unwrapRepeat', nodeId: node.id });
+        setUnwrapReason(result.changed ? '' : result.reason || '');
+      } }, h(Glyph, { name: 'repeat', size: 14 }), 'Remove repeat, keep steps'),
+      unwrapReason && h('p', { className: 'rt-insp-problem', role: 'status' }, unwrapReason),
+      remove('Delete repeat'));
+
+  } else if (node.type === 'end') {
+    support = true;
+    if (node.scope === 'repeat') {
+      glyph = 'exit'; title = 'Exit repeat';
+      const repeat = A.locate(routine, A.locate(routine, node.id)?.repeatIds.at(-1))?.node;
+      body = h(React.Fragment, null, repeat && Hint('Continues after “' + stepTitle(repeat, paths, catalog) + '”.'), remove('Delete exit'));
+    } else {
+      glyph = 'stop'; title = 'End routine';
+      body = h(React.Fragment, null, Hint('Stops the robot and ends the routine. Later steps never run.'), remove('Delete end'));
+    }
+
+  } else if (node.type === 'generatedTrajectory') {
+    glyph = 'route'; title = deployment.label || 'Generated trajectory';
+    body = h(React.Fragment, null,
+      Hint('Generated and validated on the robot. Bordeaux shows no desktop geometry, duration or clearance for it.'),
+      Hint('Fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'validated static branch (read-only)' : 'safe stop')),
+      remove('Remove generated trajectory'));
+
+  } else if (node.type === 'function' && node.cat === 'command') {
+    glyph = 'bolt'; title = 'Command'; tone = 'cmd'; support = Boolean(node.ends || node.outputBranch);
+    const commands = catalog ? catalog.commands || [] : [];
+    const invocationId = node.invocation && node.invocation.commandId || '';
+    const selected = commands.find((command) => command.id === invocationId);
+    const parameters = selected ? (selected.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
+    const saved = node.invocation && node.invocation.arguments || {};
+    const branchSteps = A.routeSteps(node.outputBranch?.routes || []);
+    const argumentsValue = selected ? Object.fromEntries(parameters.map((parameter) => {
+      const value = Object.prototype.hasOwnProperty.call(saved, parameter.name) ? saved[parameter.name] : undefined;
+      return [parameter.name, parameterValueError(value, parameter) ? commandArguments(selected)[parameter.name] : value];
+    })) : saved;
+    body = h(React.Fragment, null,
+      catalog
+        ? h(ChoiceBrowser, { id: 'routine-command', resetKey: node.id, label: 'Command', value: invocationId,
+            items: [{ value: '', label: 'Choose a command', meta: 'No command selected' }, ...commands.map((command) => ({
+              value: command.id, label: command.label, meta: (command.parameters || []).filter((parameter) => parameter.role === 'argument').map((parameter) => parameter.label || parameter.name).join(', ') || command.member,
+              searchText: command.id + ' ' + command.member,
+            }))], placeholder: 'Search commands', emptyText: 'No commands found in this project', icon: 'bolt',
+            note: branchSteps ? 'Another command removes ' + plural(branchSteps, 'branch step') + '.' : undefined,
+            onChoose: (value) => acq.branch(node.id, value === invocationId ? { kind: 'keep' } : { kind: 'command', commandId: value }) })
+        // Without linked robot code there is no catalog to choose from; the saved command stays as authored.
+        : h(React.Fragment, null,
+            Hint(invocationId ? 'Saved command “' + invocationId + '” is kept. Link robot code to change it.' : 'Commands come from linked robot code.'),
+            h('button', { type: 'button', className: 'qbtn wide', disabled: !robotProject?.link || robotProject.status === 'loading', onClick: () => robotProject.link() },
+              robotProject?.status === 'loading' ? 'Loading…' : 'Link robot code…')),
+      catalog && invocationId && !selected && h('div', { className: 'cmd-project-error', role: 'status' }, 'This saved command is missing from the linked catalog.'),
+      selected && !selected.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Refresh commands to load this command’s inputs before exporting.'),
+      selected && h('form', { className: 'cmd-parameters', onSubmit: (event) => event.preventDefault() },
+        parameters.length === 0 ? h('div', { className: 'cmd-empty-params' }, 'No parameters')
+          : parameters.map((parameter) => h(CommandParameterEditor, {
+              key: node.id + ':' + selected.id + ':' + parameter.name,
+              id: 'routine-command-param-' + safeControlId(parameter.name),
+              label: parameter.label || parameter.name,
+              schema: parameter.schema,
+              parameter,
+              value: argumentsValue[parameter.name],
+              onChange: (value) => set({ invocation: { commandId: selected.id, arguments: { ...argumentsValue, [parameter.name]: value } } }),
+            }))),
+      h(EndsSection, { node, routine, catalog, set }),
+      (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, acq }),
+      remove('Delete command'));
+
+  } else {
+    // Retained legacy or unknown data: shown and removable, never reinterpreted as new control flow.
+    title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step'; tone = 'bad'; tag = 'Legacy — cannot deploy';
+    body = h(React.Fragment, null,
+      Hint('This saved step has no export contract. Its data is kept until you replace or remove it.'),
+      remove('Remove unsupported step'));
   }
 
-export { StepInspector, RoutineTransport };
+  return h('div', { className: 'ctxinsp inspector-refresh routine-insp' },
+    h('div', { className: 'ctxinsp-hd' },
+      h('span', { className: 'ctxinsp-ic' + (tone ? ' ' + tone : '') }, h(Glyph, { name: glyph, size: 15 })),
+      h('span', { className: 'ctxinsp-t', title }, title),
+      tag && h('span', { className: 'ctxinsp-tag' }, tag),
+      h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
+    // Keyed by step so an unfinished draft never moves to another step.
+    h('div', { className: 'ctxinsp-body', key: node.id },
+      h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id) }),
+      body,
+      support && h('p', { className: 'rt-insp-support' }, PREVIEW_ONLY)));
+}
+
+/** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, untimed commands as markers. */
+export function RoutineTransport(props) {
+  const { run, time, playing, controls, running } = props;
+  const occurrences = run.steps.filter((step) => step.kind !== 'repeat');
+  const activeIdx = run.steps.length && (running || time > 0) ? A.stepAt(run, time) : -1;
+  const active = activeIdx >= 0 ? run.steps[activeIdx] : null;
+  const ordinal = active ? run.steps.slice(0, activeIdx + 1).filter((step) => step.kind !== 'repeat').length : 0;
+  const pct = run.total > 0 ? Math.max(0, Math.min(1, time / run.total)) : 0;
+  const duration = run.duration || { maxS: run.total, unknownCount: 0, usesLimits: false };
+  const timedPlayable = run.timedPlayable !== undefined ? run.timedPlayable : run.total > 0;
+  const pass = active?.passStack?.at(-1);
+  const passes = pass && run.steps.find((step) => step.kind === 'repeat' && step.nodeId === pass.repeatId)?.passes;
+  const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity').length;
+  const totalLabel = duration.maxS !== null && duration.usesLimits ? '≤ ' + fmt(run.total) : fmt(run.total);
+  const summary = [
+    duration.usesLimits && 'Using time limits',
+    duration.unknownCount > 0 && plural(duration.unknownCount, 'command') + ' untimed',
+    jumps > 0 && plural(jumps, 'pose jump'),
+    run.truncated && 'Preview stops at 2,000 steps',
+    !timedPlayable && occurrences.length > 0 && !run.blocked && 'Untimed preview',
+  ].filter(Boolean).join(' · ');
+  const color = (step) => step.kind === 'path' || step.kind === 'gen' ? 'var(--accent)' : step.kind === 'wait' ? 'var(--warn)' : step.kind === 'event' ? '#4fbf78' : 'var(--txt-3)';
+  const at = (t) => `calc(10px + (100% - 20px) * ${run.total ? t / run.total : 0})`;
+  const width = (d) => `calc((100% - 20px) * ${run.total ? d / run.total : 0})`;
+  const marks = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'decision' || step.kind === 'end' || step.kind === 'event' || (step.kind === 'repeat' && step.pass > 1)));
+  const markClass = (step) => step.kind === 'decision' ? 'rt-timeline-event' : step.kind === 'end' ? 'rt-timeline-end' : step.kind === 'repeat' ? 'rt-timeline-pass' : 'rt-timeline-untimed';
+  // Pass numbers only where there is room for them; every tick keeps its descriptive title.
+  const editorRef = React.useRef(null);
+  const [editorWidth, setEditorWidth] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const element = editorRef.current; if (!element) return undefined;
+    setEditorWidth(element.clientWidth);
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(() => setEditorWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const labelledPasses = new Set();
+  if (editorWidth && run.total > 0) {
+    let lastX = -Infinity;
+    marks.filter((step) => step.kind === 'repeat').forEach((step) => {
+      const x = 10 + (editorWidth - 20) * (step.t0 / run.total);
+      if (x - lastX >= 16) { labelledPasses.add(step.occurrenceId); lastX = x; }
+    });
+  }
+  const markLabel = (step) => step.kind === 'repeat' ? A.nodeTitle(step.node) + ', pass ' + step.pass : step.kind === 'event' ? A.nodeTitle(step.node) + ' (untimed)' : step.label || A.nodeTitle(step.node);
+
+  return h('div', { className: 'rt-transport timeline' + (running ? ' running' : '') },
+    h('div', { className: 'rt-timeline-toolbar' },
+      h('div', { className: 'rt-tp-ctl' },
+        h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
+        h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
+      h('span', { className: 'rt-timeline-title' }, 'Preview'),
+      h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
+      h('span', { className: 'rt-timeline-summary', title: summary || undefined }, summary),
+      pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
+      h('div', { className: 'rt-timeline-step' }, activeIdx >= 0 ? String(ordinal).padStart(2, '0') : '–', h('small', null, '/' + String(occurrences.length).padStart(2, '0')))),
+    h('div', { className: 'rt-timeline-editor', ref: editorRef, style: { '--routine-progress': pct } },
+      h('span', { className: 'rt-timeline-track' }),
+      run.steps.filter((step) => step.t1 > step.t0).map((step) => h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : ''),
+        title: (step.timing === 'upperBound' ? 'Up to ' : '') + (step.label || A.nodeTitle(step.node)), style: { left: at(step.t0), width: width(step.t1 - step.t0), '--step-color': color(step) } })),
+      marks.map((step) => h('span', { key: 'm' + (step.occurrenceId || step.node.id), className: markClass(step), title: markLabel(step), style: { left: at(step.t0) } }, step.kind === 'repeat' && labelledPasses.has(step.occurrenceId) ? step.pass : null)),
+      h('input', { className: 'rt-tp-scrub', type: 'range', 'aria-label': 'Routine playback position', min: 0, max: 1000, value: Math.round(pct * 1000), disabled: !timedPlayable, onChange: (event) => controls.seek((event.target.value / 1000) * run.total) })));
+}

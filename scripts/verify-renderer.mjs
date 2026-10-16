@@ -1,14 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Includes command-output routes and shared keyboard, focus, and numeric-draft recovery.
-// Offline connection editing and accessible planning/update recovery add under 1 KiB.
-// Scoped chronological Undo with conflict checks, draft transactions, and planning
-// timeout recovery add about 6 KiB over the previous 533,500-byte build; 528 KiB
-// bounds that with less headroom than before. Worker and CSS budgets are unchanged.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 528 * 1024;
-// Accepted-artifact validation and resumable search stay in the worker, off the UI thread.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 176 * 1024;
+// Bounds all application JS, including dialogs, rather than only the initial chunk.
+// Reviewed P2 problem controls cost 5,158 bytes above the 671,700-byte baseline; Focus adds 1,200.
+// Focus preserves mounted library state, input ownership and stable sizing without new dependencies.
+// P3 hover adds 5,932 measured bytes; the complete Problems menu with native trigger association adds 3,986.
+// Precise local-deletion Undo and readable compact Push states bring the integrated app to 693,062 bytes.
+// Named Save copy measured 697,860 bytes; the owner approved 684 KiB for this feature.
+// Command placement, linked-point editing and explicit linked-path Include measured 705,119 bytes;
+// the owner approved 690 KiB for the combined interaction improvements.
+// Project row actions, portable LabVIEW links and precise Details measured 712,224 bytes;
+// the owner approved 696 KiB for this combined increment.
+// Every app chunk stays counted; worker/CSS ceilings are unchanged. Future growth needs review.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 696 * 1024;
+// Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
+// Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
+// The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 200 * 1024;
 const CSS_BUDGET_BYTES = 140 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");

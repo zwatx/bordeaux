@@ -1,25 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 const hooks = vi.hoisted(() => ({ values: [], cursor: 0, effects: [], cleanups: [] }));
-vi.mock('react', async (original) => ({
-  ...await original(),
-  useState(initial) {
-    const index = hooks.cursor++;
-    if (!(index in hooks.values)) hooks.values[index] = typeof initial === 'function' ? initial() : initial;
-    return [hooks.values[index], (value) => { hooks.values[index] = typeof value === 'function' ? value(hooks.values[index]) : value; }];
-  },
-  useRef(initial) {
-    const index = hooks.cursor++;
-    if (!(index in hooks.values)) hooks.values[index] = { current: initial };
-    return hooks.values[index];
-  },
-  useEffect(effect, dependencies = []) {
-    const index = hooks.cursor++;
-    const previous = hooks.values[index];
-    if (!previous || dependencies.some((value, item) => value !== previous[item])) hooks.effects.push(effect);
-    hooks.values[index] = dependencies;
-  },
-}));
+vi.mock('react', async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    createElement: vi.fn(actual.createElement),
+    useState(initial) {
+      const index = hooks.cursor++;
+      if (!(index in hooks.values)) hooks.values[index] = typeof initial === 'function' ? initial() : initial;
+      return [hooks.values[index], (value) => { hooks.values[index] = typeof value === 'function' ? value(hooks.values[index]) : value; }];
+    },
+    useRef(initial) {
+      const index = hooks.cursor++;
+      if (!(index in hooks.values)) hooks.values[index] = { current: initial };
+      return hooks.values[index];
+    },
+    useEffect(effect, dependencies = []) {
+      const index = hooks.cursor++;
+      const previous = hooks.values[index];
+      if (!previous || dependencies.some((value, item) => value !== previous[item])) hooks.effects.push(effect);
+      hooks.values[index] = dependencies;
+    },
+  };
+});
 import * as React from 'react';
 import { useRobotPushController } from '../src/renderer/components/useRobotPushController';
 import { RobotPushDialog } from '../src/renderer/components/RobotPushDialog';
@@ -37,7 +41,7 @@ function api(capabilities = { pathPush: false, routinePush: false }) {
   return value;
 }
 beforeEach(() => {
-  vi.useFakeTimers(); hooks.values = []; hooks.cursor = 0; hooks.effects = []; hooks.cleanups = [];
+  vi.useFakeTimers(); React.createElement.mockClear(); hooks.values = []; hooks.cursor = 0; hooks.effects = []; hooks.cleanups = [];
   vi.stubGlobal('document', { activeElement: null }); vi.stubGlobal('requestAnimationFrame', (callback) => callback());
 });
 afterEach(() => { for (const cleanup of hooks.cleanups) cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -63,13 +67,17 @@ describe('unavailable LabVIEW delivery', () => {
   });
   it('exports exactly the requested path ID after closing the unavailable dialog', () => {
     const close = vi.fn(); const onExportBdx = vi.fn();
-    const tree = RobotPushDialog({ controller: { phase: 'unavailable', open: false, close, unavailable: { pathId: 'selected', reason: 'Receiver needed' } }, onExportBdx });
-    const find = (node) => {
-      if (!node || typeof node !== 'object') return null;
-      if (node.type === 'button' && node.props.children === 'Export path as BDX') return node;
-      return React.Children.toArray(node.props?.children).map(find).find(Boolean);
-    };
-    find(tree).props.onClick();
+    const markup = renderToStaticMarkup(React.createElement(RobotPushDialog, {
+      controller: { phase: 'unavailable', open: false, close, unavailable: { pathId: 'selected', reason: 'Receiver needed' } }, onExportBdx,
+    }));
+    expect(markup).toContain('Export path as BDX');
+    // React renders the public wrapper and its children; capture the real host button's
+    // handler because server markup cannot dispatch DOM events.
+    const exportButtons = React.createElement.mock.results.map(({ value }) => value)
+      .filter((element) => element?.type === 'button' && element.props.children === 'Export path as BDX');
+    expect(exportButtons).toHaveLength(1);
+    expect(close).not.toHaveBeenCalled(); expect(onExportBdx).not.toHaveBeenCalled();
+    exportButtons[0].props.onClick();
     expect(close).toHaveBeenCalledOnce(); expect(onExportBdx).toHaveBeenCalledExactlyOnceWith('selected');
     expect(close.mock.invocationCallOrder[0]).toBeLessThan(onExportBdx.mock.invocationCallOrder[0]);
   });

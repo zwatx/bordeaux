@@ -85,7 +85,11 @@ export class UpdateQuitCoordinator {
     this.suppressNextQuit = true;
     return false;
   }
-  /** Called on before-quit: proceed, ignore a failed installation's queued quit, or resume an abandoned one. */
+  /** Pure admission query: checking durability must not mark a quit as started. */
+  inspectBeforeQuit(): "proceed" | "ignore" | "resume" {
+    return this.suppressNextQuit ? "ignore" : this.aborted ? "resume" : "proceed";
+  }
+  /** Called after durability admission, or to consume a failed installation's queued quit. */
   beforeQuit(): "proceed" | "ignore" | "resume" {
     if (this.suppressNextQuit) { this.suppressNextQuit = false; return "ignore"; }
     if (this.aborted) return "resume";

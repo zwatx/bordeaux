@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -11,6 +9,8 @@ import type { RobotCommandCatalog } from "../src/shared/types";
 import { AUTO } from "../src/renderer/lib/routineModel";
 // @ts-expect-error The routine inspector is a JavaScript component.
 import { StepInspector } from "../src/renderer/components/RoutineInspector";
+// @ts-expect-error The routine run sheet is a JavaScript component.
+import { addMenuSteps } from "../src/renderer/components/RoutinePanel";
 
 function catalog(): RobotCommandCatalog {
   return {
@@ -47,9 +47,9 @@ describe("routine export safety", () => {
     expect(markup).not.toContain("Remove unsupported step");
   });
 
-  it("authors paths, commands, and an available Wait with branching attached to commands", () => {
-    expect(AUTO.authorableSteps(catalog()).map((step: { id: string }) => step.id)).toEqual(["path", "command", "wait"]);
-    expect(AUTO.authorableSteps({ ...catalog(), generatedSchemaVersion: "1.1", builtIns: [] }).map((step: { id: string }) => step.id)).toEqual(["path", "command"]);
+  it("authors local branches/repeats/ends while preserving the available Wait gate", () => {
+    expect(AUTO.authorableSteps(catalog()).map((step: { id: string }) => step.id)).toEqual(["path", "command", "decision", "repeat", "end", "wait"]);
+    expect(AUTO.authorableSteps({ ...catalog(), generatedSchemaVersion: "1.1", builtIns: [] }).map((step: { id: string }) => step.id)).toEqual(["path", "command", "decision", "repeat", "end"]);
     expect(AUTO.newNode("function", "command")).toMatchObject({ type: "function", cat: "command" });
     expect(AUTO.nodeDeploymentState({ id: "legacy", type: "function", cat: "generate" })).toMatchObject({ deployable: false, legacy: true });
     expect(() => AUTO.nodeTitle({ id: "unknown", type: "future" }, [])).not.toThrow();
@@ -89,12 +89,16 @@ describe("routine export safety", () => {
     expect(buildRobotTrajectory(project, catalog()).document.routine?.name).toBe("Safe");
   });
 
-  it("keeps the chooser closed and marks unsupported nodes as migration work", () => {
-    const panel = fs.readFileSync(path.join(process.cwd(), "src/renderer/components/RoutinePanel.jsx"), "utf8");
-    const inspector = fs.readFileSync(path.join(process.cwd(), "src/renderer/components/RoutineInspector.jsx"), "utf8");
-
-    expect(panel).toContain("A.AUTHORABLE_STEPS");
-    expect(panel).toContain("waitAvailable");
-    expect(inspector).toContain("Legacy — cannot deploy");
+  it("never offers legacy categories in Add and marks saved ones as migration work", () => {
+    const routine = { id: "r", name: "R", nodes: [{ id: "loop", type: "repeat", times: 2, nodes: [] }] };
+    const kinds = (where: object) => addMenuSteps(routine, where, catalog()).map((item: { kind: string }) => item.kind);
+    for (const where of [{ list: { kind: "root" } }, { list: { kind: "repeat", nodeId: "loop" } }]) {
+      for (const legacy of ["generate", "sequence", "velocity", "terminate", "generatedTrajectory"]) expect(kinds(where)).not.toContain(legacy);
+    }
+    // Exit repeat only where a repeat encloses the list.
+    expect(kinds({ list: { kind: "root" } })).not.toContain("exit");
+    expect(kinds({ list: { kind: "repeat", nodeId: "loop" } })).toContain("exit");
+    const markup = renderToStaticMarkup(createElement(StepInspector, { node: { id: "legacy", type: "function", cat: "velocity" }, acq: {} }));
+    expect(markup).toContain("Legacy — cannot deploy");
   });
 });

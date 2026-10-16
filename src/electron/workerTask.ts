@@ -8,6 +8,7 @@ export function runWorkerTask<T>(
   request: unknown,
   taskName: string,
   signal?: AbortSignal,
+  options: { waitForTermination?: boolean } = {},
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const canceled = () => new Error(`${taskName} was canceled.`);
@@ -15,13 +16,18 @@ export function runWorkerTask<T>(
 
     const worker = new Worker(filename);
     let settled = false;
+    let exited = false;
+    let resolveExit!: () => void;
+    const exit = new Promise<void>(resolve => { resolveExit = resolve; });
+    worker.once("exit", () => { exited = true; resolveExit(); });
     const finish = (action: () => void) => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener("abort", cancel);
       worker.removeAllListeners("message");
-      void worker.terminate();
-      action();
+      const termination = worker.terminate();
+      if (options.waitForTermination) void termination.then(action, async () => { if (!exited) await exit; action(); });
+      else { void termination.catch(() => undefined); action(); }
     };
     const cancel = () => finish(() => reject(canceled()));
     signal?.addEventListener("abort", cancel, { once: true });

@@ -34,8 +34,8 @@ export function LabviewProjectPanel({ robotProject }) {
 }
 
 /** Project membership is useful evidence, but does not establish a VI's connector contract. */
-export function LabviewProjectSources({ catalog }) {
-  const [expanded, setExpanded] = React.useState(false);
+export function LabviewProjectSources({ catalog, initiallyExpanded = false }) {
+  const [expanded, setExpanded] = React.useState(initiallyExpanded);
   const [query, setQuery] = React.useState('');
   const [limit, setLimit] = React.useState(40);
   const discovery = catalog && catalog.labviewDiscovery;

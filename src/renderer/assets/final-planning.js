@@ -47,7 +47,7 @@
         let statistics = null;
         let resolveResult;
         const promise = new Promise((resolve) => { resolveResult = resolve; });
-        const unchanged = input.optimize === true
+        const unchanged = typeof requestConfig.failureNote === 'string' ? requestConfig.failureNote : input.optimize === true
           ? 'The selected trajectory was not changed.'
           : 'Continuing with the last interactive result.';
         const finish = (result, termination) => {

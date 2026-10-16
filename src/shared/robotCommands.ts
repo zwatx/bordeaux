@@ -305,13 +305,19 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
     }
     return states;
   };
-  const validateRoutineNodes = (nodes: unknown, path: string, fallback?: { count: { value: number; overflow?: boolean }; depth: number }): void => {
+  let routineWork = 0;
+  const validateRoutineNodes = (nodes: unknown, path: string, fallback?: { count: { value: number; overflow?: boolean }; depth: number }, depth = 0): void => {
+    if (depth > 64 || routineWork >= 100000) { issues.push({ path, message: "Routine exceeds supported depth or node budget", severity: "error" }); return; }
     if (!Array.isArray(nodes)) {
       issues.push({ path, message: "Routine branch must be an array of deployable steps", severity: "error" });
       return;
     }
     nodes.forEach((value, index) => {
       const base = `${path}[${index}]`;
+      if (++routineWork > 100000) {
+        if (routineWork === 100001) issues.push({ path, message: "Routine exceeds supported depth or node budget", severity: "error" });
+        return;
+      }
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         issues.push({ path: base, message: "Routine step is malformed and cannot deploy", severity: "error" });
         return;
@@ -328,8 +334,16 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
         if (fallback.depth > 8) issues.push({ path: base, message: "Generated trajectory fallback cannot exceed 8 decision levels", severity: "error" });
       }
       const nodeId = typeof node.id === "string" && node.id ? node.id : "unknown";
+      if (node.type === "repeat" || node.type === "end" || node.ends !== undefined) {
+        issues.push({ path: base, message: "Routine repeats, end steps, and ending conditions are local authoring and preview only; robot execution support is not available yet", severity: "error" });
+      }
+      if (node.type === "repeat") { validateRoutineNodes(node.nodes, `${base}.nodes`, fallback, depth + 1); return; }
+      if (node.type === "end") return;
+
       if (node.outputBranch !== undefined) {
         issues.push({ path: `${base}.outputBranch`, message: "Command output branching is available for local authoring and preview only; robot execution support is not available yet", severity: "error" });
+        const branch = node.outputBranch as { routes?: Array<{ nodes?: unknown }> };
+        if (Array.isArray(branch?.routes)) branch.routes.forEach((route, index) => validateRoutineNodes(route.nodes, `${base}.outputBranch.routes[${index}].nodes`, fallback, depth + 1));
       }
       if (node.type === "path") {
         if (typeof node.ref !== "string" || !exportablePathIds.has(node.ref)) {
@@ -341,8 +355,8 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
         if (fallback && fallback.depth + 1 > 8) issues.push({ path: base, message: "Generated trajectory fallback cannot exceed 8 decision levels", severity: "error" });
         validateCondition(node.cond, `${base}.cond`, `Routine decision ${nodeId}`);
         const childFallback = fallback ? { count: fallback.count, depth: fallback.depth + 1 } : undefined;
-        validateRoutineNodes(node.then, `${base}.then`, childFallback);
-        validateRoutineNodes(node.else, `${base}.else`, childFallback);
+        validateRoutineNodes(node.then, `${base}.then`, childFallback, depth + 1);
+        validateRoutineNodes(node.else, `${base}.else`, childFallback, depth + 1);
         return;
       }
       if (node.type === "builtin") {
@@ -400,7 +414,7 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
           if (generator?.fallbackPolicy === "safeStopOnly") issues.push({ path: `${base}.fallback`, message: "Generator policy safeStopOnly does not permit a fallback branch", severity: "error" });
           const branchNodes = fallbackRecord.nodes;
           const count: { value: number; overflow?: boolean } = { value: 0 };
-          validateRoutineNodes(branchNodes, `${base}.fallback.nodes`, { count, depth: 0 });
+          validateRoutineNodes(branchNodes, `${base}.fallback.nodes`, { count, depth: 0 }, depth + 1);
           if (!count.overflow && Array.isArray(branchNodes) && terminalPathStates(branchNodes, false).has(false)) {
             issues.push({ path: `${base}.fallback.nodes`, message: "Every generated trajectory fallback route must reach an exported static path", severity: "error" });
           }

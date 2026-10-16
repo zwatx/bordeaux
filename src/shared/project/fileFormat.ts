@@ -1,6 +1,7 @@
 import type { BordeauxProject } from "../types";
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
-import { validateProject } from "../validation";
+import { validateProjectSource } from "../validation";
+import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
 
 const CURRENT_PROJECT_SCHEMA_VERSION = "1.0" as const;
@@ -34,6 +35,7 @@ function hasNumericRoutineReference(nodes: unknown, depth = 0): boolean {
   return nodes.some((node) => {
     if (!isRecord(node)) return false;
     if (node.type === "path") return typeof node.ref === "number";
+    if (node.type === "repeat") return hasNumericRoutineReference(node.nodes, depth + 1);
     if (node.type === "decision") {
       return hasNumericRoutineReference(node.then, depth + 1) || hasNumericRoutineReference(node.else, depth + 1);
     }
@@ -73,13 +75,14 @@ function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile
     field: { ...ACTIVE_FIELD_REFERENCE },
     fieldMigration: { source: "legacy-unpinned", assigned: { ...ACTIVE_FIELD_REFERENCE } },
   } : value;
-  const project = normalizeProject(prepared);
-  const validation = validateProject(project);
+  const promoted = isRecord(prepared) ? promoteRoutineProjectSchema(prepared) : prepared;
+  const project = normalizeProject(promoted);
+  const validation = validateProjectSource(project);
   if (!validation.ok) {
     const message = validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n");
     throw new Error(`Invalid Bordeaux project:\n${message}`);
   }
-  return { project: project as BordeauxProject, migrated: migrated || needsFieldMigration };
+  return { project: project as BordeauxProject, migrated: migrated || needsFieldMigration || promoted !== prepared };
 }
 
 export function decodeProjectValue(value: unknown): DecodedProjectFile {
@@ -87,10 +90,10 @@ export function decodeProjectValue(value: unknown): DecodedProjectFile {
   assertSupportedFieldReference(value.field);
 
   if (value.schemaVersion !== undefined) {
-    if (value.schemaVersion !== CURRENT_PROJECT_SCHEMA_VERSION) {
+    if (value.schemaVersion !== "1.0" && value.schemaVersion !== "1.1") {
       throw new Error(
         `Unsupported Bordeaux project schema version ${JSON.stringify(value.schemaVersion)}. ` +
-        `This version of Bordeaux supports ${CURRENT_PROJECT_SCHEMA_VERSION}.`,
+        `This version of Bordeaux supports 1.0 and 1.1.`,
       );
     }
     return validatedProject(value, needsV1Migration(value));
@@ -141,7 +144,7 @@ export function prepareProjectFile(value: unknown): BordeauxProject {
   // Normalization strips editor state; the copy keeps a queued save unaffected
   // by later edits to the caller's objects.
   const decoded = decodeProjectValue(structuredClone(value));
-  return { ...decoded.project, schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION };
+  return decoded.project;
 }
 
 export function encodeProjectFile(value: unknown): { project: BordeauxProject; contents: string } {

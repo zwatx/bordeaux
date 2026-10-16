@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { UI } from './ui';
+import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
@@ -14,6 +15,19 @@ function Destination({ endpoint, onChange, disabled, status }) {
       h('strong', null, address(endpoint), status && h('span', { className: 'rfp-dest-status' + (status === 'Verified' ? ' good' : '') }, status)),
       h('span', null, endpoint.directory)),
     onChange && button('Change', onChange, { className: 'qbtn quiet', disabled }));
+}
+
+// States only that these paths are connected through shared or endpoint points, never that an edit moved them.
+function Linked({ linked, count, onInclude, disabled }) {
+  const names = linked.map((path) => path.name + (path.pushable ? '' : ' (still being drawn)'));
+  const shown = names.length > 3 ? names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more' : names.join(', ');
+  const text = names.length === 1 ? 'Linked to ' + shown + ', which is not included.' : 'Linked to ' + names.length + ' paths that are not included: ' + shown + '.';
+  const add = linked.filter((path) => path.pushable).length;
+  // Main refuses more than 64 paths, so the review states the limit instead of offering a refusal.
+  const over = add > 0 && count + add > MAX_PUSH_PATHS;
+  return h('p', { className: 'rfp-note rfp-linked', title: names.length > 3 ? names.join(', ') : undefined }, text,
+    over ? ' Push sends at most ' + MAX_PUSH_PATHS + ' paths at once.' : null,
+    add > 0 && !over ? [' ', button('Include ' + plural(add), onInclude, { key: 'include', disabled })] : null);
 }
 
 function Files({ files }) {
@@ -34,9 +48,14 @@ export function RobotFilePushDialog({ controller: c }) {
   const setup = !identity && (c.editing || !c.settings) && ['idle', 'probing', 'saving', 'cancelled'].includes(c.phase);
   const summary = !identity && !setup && c.settings && ['idle', 'probing', 'cancelled'].includes(c.phase);
   const working = ['loading', 'preparing'].includes(c.phase) || (c.phase === 'uploading' && !files);
-  const invalidEndpoint = c.busy || !c.host.trim() || !c.directory.trim() || !/^\d+$/.test(c.port) || Number(c.port) < 1 || Number(c.port) > 65535;
+  const invalidEndpoint = !c.host.trim() || !c.directory.trim() || !/^\d+$/.test(c.port) || Number(c.port) < 1 || Number(c.port) > 65535;
   const title = identity ? 'Verify robot' : setup || summary ? 'Robot connection' : 'Push to robot';
   const alert = c.error && h('p', { key: 'alert', className: 'rfp-alert', role: 'alert' }, c.error);
+  // A running request keeps its button focusable but inert (the controller ignores repeat presses), so focus is still
+  // there when the request fails.
+  const hold = c.busy ? { 'aria-disabled': true } : {};
+  // A push waiting on this connection makes Connect the way forward; otherwise saving the address is the whole task.
+  const waiting = c.canRetry;
 
   // Each view supplies its body and actions. The footer, and with it the diagnostics portal
   // target, is mounted once so view changes never strand the diagnostics trigger.
@@ -46,20 +65,22 @@ export function RobotFilePushDialog({ controller: c }) {
     body = [alert, h('div', { key: 'fields', className: 'rfp-fields' },
       h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: 'roborio-2468-frc.local', disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
       h('label', { className: 'rfp-port' }, 'Port', h('input', { value: c.port, inputMode: 'numeric', disabled: c.busy, onChange: (e) => c.setPort(e.target.value) })),
-      h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) })))];
-    actions = [
-      button(c.phase === 'saving' ? 'Saving…' : 'Save', c.saveSettings, { key: 'save', title: 'Save without connecting', disabled: invalidEndpoint }),
-      button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: 'qbtn primary', disabled: invalidEndpoint }),
-    ];
+      h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) }))),
+      h('p', { key: 'note', className: 'rfp-note' }, 'Save works without the robot. Connect checks its SSH host key.')];
+    // The primary action sits last.
+    const save = button(c.phase === 'saving' ? 'Saving…' : 'Save', c.saveSettings, { key: 'save', className: waiting ? 'qbtn' : 'qbtn primary', disabled: invalidEndpoint, ...hold });
+    const connect = button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', disabled: invalidEndpoint, ...hold });
+    actions = waiting ? [save, connect] : [connect, save];
   } else if (summary) {
     view = 'summary';
-    body = [alert, h(Destination, { key: 'dest', endpoint, status: c.connection ? 'Verified' : 'Not verified' }),
+    // The endpoint shown is the stored one, so "Saved" is a fact about this computer, never about the robot.
+    body = [alert, h(Destination, { key: 'dest', endpoint, status: c.connection ? 'Verified' : 'Saved · not verified' }),
       c.connection && h('p', { key: 'note', className: 'rfp-note' }, 'Select paths in the library, then choose Push.')];
+    const done = (!c.connection && waiting) ? null : button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true });
     actions = [
       button('Edit', c.chooseAnotherRobot, { key: 'edit', disabled: c.busy }),
-      c.connection
-        ? button('Done', c.close, { key: 'done', className: 'qbtn primary' })
-        : button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: 'qbtn primary', disabled: c.busy }),
+      !c.connection && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
+      done,
     ];
   } else if (identity) {
     view = 'identity';
@@ -68,7 +89,7 @@ export function RobotFilePushDialog({ controller: c }) {
       h('code', { key: 'key', className: 'rfp-key' }, c.probe.hostKeyFingerprint)];
     actions = [
       button('Back', c.chooseAnotherRobot, { key: 'back', disabled: c.busy }),
-      button(c.phase === 'trusting' ? 'Trusting…' : 'Trust host key', c.confirmPairing, { key: 'trust', className: 'qbtn primary', disabled: c.busy }),
+      button(c.phase === 'trusting' ? 'Trusting…' : 'Trust host key', c.confirmPairing, { key: 'trust', className: 'qbtn primary', ...hold }),
     ];
   } else if (working) {
     view = 'working'; diagnostics = false;
@@ -79,6 +100,7 @@ export function RobotFilePushDialog({ controller: c }) {
     body = [failed && alert,
       h(Destination, { key: 'dest', endpoint, onChange: c.chooseAnotherRobot, disabled: c.busy }),
       h(Files, { key: 'files', files }),
+      c.phase === 'review' && c.preview.linked?.length > 0 && h(Linked, { key: 'linked', linked: c.preview.linked, count: files.length, onInclude: () => c.includeLinked(c.preview.operationId), disabled: c.busy }),
       !failed && alert,
       !failed && h('p', { key: 'note', className: 'rfp-note' }, 'Replaces only these files. Uploading does not run anything.')];
     // Upload is never focused automatically: a held Enter from Push or Trust must not confirm a review.
@@ -91,7 +113,9 @@ export function RobotFilePushDialog({ controller: c }) {
   } else if (c.phase === 'transferred' && c.result) {
     view = 'done'; diagnostics = false;
     body = [h('span', { key: 'check', className: 'rfp-check' }, h(UI.Icon, { name: 'check', size: 14, sw: 2.2 })),
-      h('div', { key: 'text' }, h('strong', null, plural(c.result.files.length) + ' uploaded'), h('p', null, 'Verified in ' + c.result.directory + '. No routine was activated.'))];
+      h('div', { key: 'text' }, h('strong', null, plural(c.result.files.length) + ' uploaded'),
+        // Only an acknowledged creation of this exact folder is reported; an existing folder needs no mention.
+        h('p', null, (c.result.directoryCreated === true ? 'Created robot folder ' + c.result.directory + ' and verified the files there.' : 'Verified in ' + c.result.directory + '.') + ' No routine was activated.'))];
     actions = [button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true })];
   } else {
     // Failures without a reviewed file list, unsupported requests, and any unexpected state.

@@ -9,6 +9,7 @@ import { buildWaypoints } from "../src/shared/project/defaults";
 import { buildCanonicalPathState } from "../src/shared/planners/pathState";
 import * as pathState from "../src/shared/planners/pathState";
 import * as trajectory from "../src/shared/export/robotTrajectory";
+import { robotSchemaValueError, validateProjectRobotInvocations } from "../src/shared/robotCommands";
 
 const build = (fixture = binaryWriterFixture()) => buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
 
@@ -191,6 +192,28 @@ describe("direct VI binary path", () => {
     expect(encodeBdxArgument({ niType: "DBL" }, 1e20).bytes.readDoubleBE()).toBe(1e20);
     for (const [niType, value] of [["U16", 65536], ["U64", 9007199254740993], ["I64", "9223372036854775808"], ["SGL", 1e100], ["DBL", NaN], ["String", "\ud800"]] as const) expect(() => encodeBdxArgument({ niType }, value)).toThrow();
     for (const [niType, tag, width] of [["EB", 13, 1], ["EW", 14, 2], ["EL", 15, 4]] as const) { const a = encodeBdxArgument({ niType, choices: ["Off", "On"] }, "On"); expect(a.tag).toBe(tag); expect(a.bytes.length).toBe(width); }
+  });
+  it.each(["+42", "0042", "-0042", "+009007199254740993", "-009223372036854775808"])("exports the exact editor-accepted I64 spelling %s", value => {
+    const fixture = binaryWriterFixture();
+    fixture.path.markers[0].invocation!.arguments.sequence = value;
+    const schema = fixture.bindings.catalog.commands[0].parameters.find(parameter => parameter.name === "sequence")!.schema;
+    expect(robotSchemaValueError(value, schema)).toBeNull();
+    expect(validateProjectRobotInvocations(fixture.project, fixture.bindings.catalog)).toEqual([]);
+    const argument = inspect(build(fixture).bytes).events[0].args.find(argument => argument.key === "sequence")!;
+    expect(argument.tag).toBe(8);
+    expect(argument.raw.readBigInt64BE()).toBe(BigInt(value));
+    expect(fixture.path.markers[0].invocation!.arguments.sequence).toBe(value);
+  });
+  it("keeps exact integer grammar, character budgets and NI ranges at the binary boundary", () => {
+    for (const value of ["+0042", "0".repeat(1000) + "42", "+0018446744073709551615"]) {
+      expect(encodeBdxArgument({ niType: "U64" }, value).bytes.readBigUInt64BE()).toBe(BigInt(value));
+    }
+    for (const value of ["", " 42", "42 ", "4.2", "4e2", "0x2a", "++42", "0".repeat(1025), "-1", "+0018446744073709551616"]) {
+      expect(() => encodeBdxArgument({ niType: "U64" }, value)).toThrow();
+    }
+    for (const [niType, value] of [["I8", "+00128"], ["U16", "0065536"], ["I64", "+009223372036854775808"]]) {
+      expect(() => encodeBdxArgument({ niType }, value)).toThrow();
+    }
   });
   it("retains stationary zero-duration and duplicate initial time samples", () => {
     const f = binaryWriterFixture(false, false);

@@ -74,7 +74,7 @@ app.whenReady().then(async () => {
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:font/woff2")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     win.webContents.focus();
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Original path' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'initial App');
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Original path' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'initial App');
     await wait(() => evaluate(() => document.querySelector('.library-save-status')?.textContent.includes('Choose a folder')), 'unsaved location');
     // Confirm is isolated here so cancel tests exercise the folder result boundary.
     await evaluate(() => { window.confirm = () => true; });
@@ -156,7 +156,7 @@ app.whenReady().then(async () => {
     check('graph open/close first changed and settled animation frames keep view controls above telemetry at 1440 and 1100');
     for (const [width, height] of [[1440, 900], [1100, 720], [1100, 600]]) {
       win.setContentSize(width, height); await delay(100);
-      await pointer('.pageswitch button', 'Settings');
+      await pointer('.places .place', 'Settings');
       const bounds = await evaluate(() => {
         const page = document.querySelector('.robotpage');
         const r = page.getBoundingClientRect();
@@ -189,7 +189,7 @@ app.whenReady().then(async () => {
         lowest = Math.max(lowest, focus.scroll);
       }
       assert.ok(lowest > 0, 'Keyboard focus scrolls to lower Settings controls');
-      await pointer('.pageswitch button', 'Editor');
+      await pointer('.places .place', 'Paths');
       const scrollbar = await evaluate(() => {
         const outline = document.querySelector('.outline-scroll');
         return { color: getComputedStyle(outline).scrollbarColor, width: getComputedStyle(outline).scrollbarWidth };

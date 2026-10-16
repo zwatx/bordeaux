@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 // @ts-expect-error The inspector is a JavaScript component.
 import { parameterValueError } from "../src/renderer/components/ContextInspector";
-// @ts-expect-error The editor panels are JavaScript components.
-import { Panels } from "../src/renderer/components/Panels";
+// @ts-expect-error The path timeline is a JavaScript component.
+import { PathTimeline } from "../src/renderer/components/PathTimeline";
+// @ts-expect-error The timeline model is a JavaScript module.
+import { buildTimeline } from "../src/renderer/components/pathTimelineModel";
+import { createPlaybackStore } from "../src/renderer/lib/playbackStore";
 import { createDemoProject } from "../src/shared/project/defaults";
 import { robotParameterValueError } from "../src/shared/robotCommands";
 import type { RobotCommandParameter, RobotValueSchema } from "../src/shared/types";
@@ -25,11 +28,25 @@ describe("timeline marker timing", () => {
     expect(derived.prof.t.at(-1)).toBeLessThan(derived.prof.totalTime - 0.4);
     expect(derived.markers).toEqual([expect.objectContaining({ id: "marker_end", timeS: derived.finalTrajectory.totalTimeS })]);
 
-    const html = renderToString(React.createElement(Panels.Transport, {
-      derived, doc: path, metric: "velocity", setMetric() {}, playTime: 0, playing: false,
-      togglePlayback() {}, seek() {}, restart() {}, graphOpen: false, setGraphOpen() {},
+    const tl = buildTimeline(derived);
+    expect(tl.total).toBeCloseTo(derived.finalTrajectory.totalTimeS, 6);
+    const html = renderToString(React.createElement(PathTimeline, {
+      doc: path, derived, tl, robot: project.robot, sel: { kind: null, idx: -1 }, select() {}, actions: {},
+      edit: {}, playbackStore: createPlaybackStore(), catalog: null,
     }));
-    expect(html).toMatch(/class="timeline-event" title="Endpoint event" aria-hidden="true" style="left:100\.000%"/);
+    expect(html).toContain('aria-label="Endpoint event, ' + derived.finalTrajectory.totalTimeS.toFixed(2) + ' s"');
+    // Placement, not only the label: the chip's diamond (9 px into the chip) sits at the plot's right end,
+    // at least the whole endpoint wait after the robot reaches the end waypoint.
+    const left = (pattern: RegExp) => Number(html.match(pattern)?.[1]);
+    const rulerLeft = left(/class="pt-ruler" style="left:([\d.]+)px/);
+    const rulerWidth = Number(html.match(/class="pt-ruler" style="left:[\d.]+px;width:([\d.]+)px/)?.[1]);
+    const chip = left(/class="pt-chip"[^>]*style="left:([\d.]+)px/) + 9;
+    const end = left(/class="pt-wp stop end"[^>]*style="left:([\d.]+)px/);
+    expect(rulerWidth).toBeGreaterThan(100);
+    expect(chip).toBeCloseTo(rulerLeft + rulerWidth, 6);
+    const waitWidth = (0.5 / tl.total) * rulerWidth;
+    expect(chip - end).toBeGreaterThanOrEqual(waitWidth);
+    expect(chip - end).toBeLessThan(waitWidth * 1.05);
   });
 });
 

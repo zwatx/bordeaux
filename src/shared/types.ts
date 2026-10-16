@@ -375,6 +375,8 @@ export interface RobotCommandCatalog {
 
 export interface RobotProjectBookmarkSummary {
   id: string;
+  /** Display-only parent location. Selection still uses the main-owned bookmark id. */
+  locationHint?: string;
   projectName: string;
   folderName: string;
   lastLinkedAt: string;
@@ -474,6 +476,30 @@ export interface RoutineCommandOutputBranch {
   routes: RoutineCommandOutputRoute[];
 }
 
+export interface RoutinePredicate { source: "condition"; conditionId: string }
+export interface RoutineOutputStop {
+  source: "output";
+  nodeId: string;
+  output: string;
+  schema?: RobotValueSchema;
+  operator: "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
+  value?: boolean | string | number;
+}
+export interface RoutineCommandEnds {
+  endWhen?: RoutinePredicate;
+  timeoutS?: number;
+  onTimeout?: "continue" | "endRoutine";
+}
+export interface RoutineWaitEnds { endWhen?: RoutinePredicate }
+export interface RoutineRepeatNode {
+  id: string;
+  type: "repeat";
+  times: number;
+  until?: RoutinePredicate | RoutineOutputStop;
+  nodes: RoutineNode[];
+}
+export interface RoutineEndNode { id: string; type: "end"; scope: "routine" | "repeat" }
+
 export interface RoutineFunctionNode {
   id: string;
   type: "function";
@@ -489,6 +515,7 @@ export interface RoutineFunctionNode {
   invocation?: CommandInvocation;
   /** Local authoring and preview only until the robot execution contract supports outputs. */
   outputBranch?: RoutineCommandOutputBranch;
+  ends?: RoutineCommandEnds;
 }
 
 export interface RoutinePathNode {
@@ -512,6 +539,7 @@ export interface RoutineBuiltInNode {
   type: "builtin";
   builtinId: "bordeaux.wait";
   arguments: { durationS: number };
+  ends?: RoutineWaitEnds;
 }
 
 export interface RoutineFallbackDecisionNode extends Omit<RoutineDecisionNode, "then" | "else"> {
@@ -531,7 +559,7 @@ export interface RoutineGeneratedTrajectoryNode {
     | { type: "branch"; nodes: RoutineFallbackNode[] };
 }
 
-export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode;
+export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode | RoutineRepeatNode | RoutineEndNode;
 
 export interface AutonomousRoutine {
   /** Stable project-local identity. */
@@ -571,6 +599,8 @@ export interface PathEndpointLink {
 export interface ProjectEditorState {
   activePathId?: string;
   robotProjectBookmarkId?: string;
+  /** Relative to this project folder. null means unresolved: explicitly relink, never use the legacy bookmark. */
+  labviewProjectPath?: string | null;
   unitSystem?: "metric" | "imperial";
 }
 

@@ -5,6 +5,7 @@ import "./styles/app.css";
 import "./styles/library.css";
 import "./styles/routine-workspace.css";
 import "./styles/robot-push.css";
+import "./styles/workspace.css";
 
 const root = document.getElementById("root");
 

@@ -7,6 +7,13 @@ import { ContextInspector } from "../src/renderer/components/ContextInspector";
 import { PM } from "../src/renderer/lib/pathMath";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 
+// The editor renders server-side here only to observe render-time work; desktop APIs stay absent.
+function renderEditor(project, proposal = null) {
+  vi.stubGlobal("window", globalThis);
+  try { return renderToString(React.createElement(App, { initialProject: project, initialAgentProposal: proposal })); }
+  finally { vi.unstubAllGlobals(); }
+}
+
 describe("renderer app path preview lifecycle", () => {
   it("waits for the worker instead of rendering a profiled fallback for optimized mode", () => {
     const project = createDemoProject();
@@ -14,10 +21,11 @@ describe("renderer app path preview lifecycle", () => {
     const derivePath = vi.spyOn(PM, "derivePath");
 
     try {
-      const html = renderToString(React.createElement(App, { initialProject: project }));
+      const html = renderEditor(project);
 
-      expect(html).toContain('aria-label="Preparing editor"');
-      expect(html).toContain('aria-busy="true"');
+      // Current geometry draws at once (sampled, never timed, on this thread); timing arrives from the worker.
+      expect(html).not.toContain('aria-label="Preparing editor"');
+      expect(html).toContain('aria-label="Path details"');
       expect(html).not.toContain("Preparing path preview");
       expect(derivePath).not.toHaveBeenCalled();
     } finally {
@@ -30,10 +38,11 @@ describe("renderer app path preview lifecycle", () => {
     const derivePath = vi.spyOn(PM, "derivePath");
 
     try {
-      const html = renderToString(React.createElement(App, { initialProject: project }));
+      const html = renderEditor(project);
 
-      expect(html).toContain('aria-label="Preparing editor"');
-      expect(html).toContain('aria-busy="true"');
+      // Current geometry draws at once (sampled, never timed, on this thread); timing arrives from the worker.
+      expect(html).not.toContain('aria-label="Preparing editor"');
+      expect(html).toContain('aria-label="Path details"');
       expect(html).not.toContain("Preparing path preview");
       expect(derivePath).not.toHaveBeenCalled();
     } finally {
@@ -148,7 +157,7 @@ describe("renderer app path preview lifecycle", () => {
     const derivePath = vi.spyOn(PM, "derivePath");
 
     try {
-      renderToString(React.createElement(App, { initialProject: project, initialAgentProposal: proposal }));
+      renderEditor(project, proposal);
       expect(derivePath).not.toHaveBeenCalled();
     } finally {
       derivePath.mockRestore();
@@ -207,10 +216,11 @@ describe("renderer app path preview lifecycle", () => {
     const derivePath = vi.spyOn(PM, "derivePath");
 
     try {
-      const html = renderToString(React.createElement(App, { initialProject: project }));
+      const html = renderEditor(project);
 
-      expect(html).toContain('aria-label="Preparing editor"');
-      expect(html).toContain('aria-busy="true"');
+      // Current geometry draws at once (sampled, never timed, on this thread); timing arrives from the worker.
+      expect(html).not.toContain('aria-label="Preparing editor"');
+      expect(html).toContain('aria-label="Path details"');
       expect(html).not.toContain("Preparing path preview");
       expect(derivePath).not.toHaveBeenCalled();
     } finally {

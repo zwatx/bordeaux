@@ -1,214 +1,616 @@
+import { deletionInput } from './DeletionNotice';
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
+import { commandArguments } from "./ContextInspector";
 import { UI } from "./ui";
 
-// Routine flow. Step list + inline Add Step chooser.
-// Stable layout: selecting a step only changes the right inspector. Drag the grip to reorder.
-  const { useState, useRef } = React;
-  const h = React.createElement;
-  const { Icon } = UI;
-  const A = AUTO;
-  const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
-  const plural = (count, singular) => count + ' ' + singular + (count === 1 ? '' : 's');
+// Routine run sheet: one flat list of rows in run order. Nesting reads from indentation, route rows and a closing
+// row per block; there are no cards and no side rules. Selecting a row only changes the right inspector.
+const { useState, useRef, useEffect, useLayoutEffect } = React;
+const h = React.createElement;
+const { Icon } = UI;
+const A = AUTO;
+const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
+const plural = (count, singular) => count + ' ' + singular + (count === 1 ? '' : /s$/.test(singular) ? 'es' : 's');
 
-  // ---- drag-reorder controller (siblings only) ----
-  function useDnd(acq, routine) {
-    const [drag, setDrag] = useState(null);   // { id }
-    const [over, setOver] = useState(null);    // { id, before }
-    const overRef = useRef(null);
-    const pointerDrag = PointerDrag.useController();
-    const start = (id, e) => {
-      if (e.button !== 0) return;
-      e.preventDefault(); e.stopPropagation();
-      setDrag({ id }); overRef.current = null; setOver(null);
-      const move = (ev) => {
-        const el = document.elementFromPoint(ev.clientX, ev.clientY);
-        const card = el && el.closest && el.closest('.rt-step');
-        let o = null;
-        if (card) {
-          const tid = card.getAttribute('data-id');
-          const r = card.getBoundingClientRect();
-          const before = ev.clientY < r.top + r.height / 2;
-          if (A.canReorderRelative(routine, id, tid, before)) o = { id: tid, before };
-        }
-        overRef.current = o; setOver(o);
-      };
-      const up = () => {
-        const o = overRef.current;
-        if (o && o.id) acq.reorder(id, o.id, o.before);
-        overRef.current = null; setDrag(null); setOver(null);
-      };
-      pointerDrag.start(e, { move, end: up, cancel: () => { overRef.current = null; setDrag(null); setOver(null); } });
-    };
-    return { drag, over, start, routine };
+// Glyphs the shared icon set lacks, drawn in its 24px line style.
+const EXTRA_GLYPHS = {
+  repeat: 'M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4',
+  exit: 'M10 7V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-2 M15 12H3 M6 9l-3 3 3 3',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+};
+export function Glyph({ name, size = 15 }) {
+  if (!EXTRA_GLYPHS[name]) return h(Icon, { name, size });
+  return h('svg', { width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': true, focusable: false, fill: 'none', stroke: 'currentColor', strokeWidth: name === 'more' ? 2.8 : 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: EXTRA_GLYPHS[name] }));
+}
+
+const isBranch = (node) => node.type === 'decision' || Boolean(node.outputBranch);
+const routeIdOf = (ref) => ref.kind === 'decision' ? ref.route : ref.routeId;
+const refKey = (ref) => JSON.stringify(ref);
+
+function conditionLabel(catalog, id) {
+  return A.authoritativeConditions(catalog).find((condition) => condition.value === id)?.label || id;
+}
+function commandLabel(command, node) { return command?.label || node?.title || node?.invocation?.commandId || 'command'; }
+
+/** Plain description of a stop rule or early end, for rows and the inspector. */
+export function describeStop(stop, routine, catalog) {
+  if (!stop) return '';
+  if (stop.source === 'condition') return stop.conditionId ? conditionLabel(catalog, stop.conditionId) : 'a condition (choose one)';
+  const producer = routine && A.locate(routine, stop.nodeId)?.node;
+  const command = catalog?.commands?.find((item) => item.id === producer?.invocation?.commandId);
+  const output = A.branchOutputs(command).find((item) => item.name === stop.output);
+  const subject = commandLabel(command, producer) + (stop.output ? ' ' + (output?.label || stop.output) : ' result');
+  return stop.value === undefined ? subject + ' (choose a value)' : subject + ' ' + A.routeSummary({ operator: stop.operator, value: stop.value });
+}
+
+/** A chosen-trace reference jump: planned reference poses only, never measured robot motion. */
+export function continuityText(issue) {
+  const parts = [];
+  if (issue.distanceM > 0.001) parts.push(UnitPrefs.format(issue.distanceM, 'm', 2));
+  if (issue.headingRad > 0.001) parts.push(Math.round(issue.headingRad * 180 / Math.PI) + '°');
+  return 'Starts ' + (parts.join(' and ') || 'slightly') + ' from where the previous path ends';
+}
+
+/** Row title. Condition branches name their condition's catalog label. */
+export function stepTitle(node, paths, catalog) {
+  if (node.type === 'decision') return node.cond ? 'Branch on ' + conditionLabel(catalog, node.cond) : 'Branch on condition';
+  if (node.type === 'repeat') return node.until ? 'Repeat up to ' + node.times + ' times' : 'Repeat ' + plural(node.times, 'time');
+  return A.nodeTitle(node, paths, catalog);
+}
+
+/** How a command or wait ends, in one line. */
+export function endsPhrase(node, routine, catalog) {
+  const ends = node.ends || {};
+  const early = ends.endWhen ? describeStop(ends.endWhen, routine, catalog) : '';
+  const limit = ends.timeoutS !== undefined ? 'limit ' + fmt(ends.timeoutS) + (ends.onTimeout === 'endRoutine' ? ', then end routine' : ends.onTimeout === 'continue' ? '' : ', then choose') : '';
+  if (node.type === 'builtin') return early ? 'Or earlier, when ' + early : 'Pause before the next step';
+  return [early ? 'Until it finishes or ' + early : 'Until it finishes', limit].filter(Boolean).join(' · ');
+}
+
+function routeRule(node, list) {
+  if (list.ref.kind === 'decision') return list.ref.route === 'then' ? 'is true' : 'is false';
+  const route = node.outputBranch.routes.find((item) => item.id === list.ref.routeId);
+  if (!route) return '';
+  const rule = A.routeSummary(route), name = (route.label || '').toLowerCase();
+  // The rule only shows when the name does not already say it (Left = Left, Otherwise).
+  return rule.toLowerCase() === name || rule.toLowerCase() === '= ' + name ? '' : rule;
+}
+
+function glyphFor(node) {
+  if (node.type === 'path' || node.type === 'generatedTrajectory') return 'route';
+  if (node.type === 'builtin') return 'pause';
+  if (node.type === 'decision' || node.outputBranch) return 'branch';
+  if (node.type === 'repeat') return 'repeat';
+  if (node.type === 'end') return node.scope === 'repeat' ? 'exit' : 'stop';
+  if (node.type === 'function' && node.cat === 'command') return 'bolt';
+  return 'info';
+}
+
+/** The list a child list reference names, as currently authored. */
+function listNodes(routine, ref) {
+  if (ref.kind === 'root') return routine.nodes;
+  const owner = A.locate(routine, ref.nodeId);
+  return owner ? A.childLists(owner.node).find((list) => refKey(list.ref) === refKey(ref))?.nodes || null : null;
+}
+function insideRepeat(routine, where) {
+  if (where.afterId) return Boolean(A.locate(routine, where.afterId)?.repeatIds.length);
+  if (where.list.kind === 'root') return false;
+  if (where.list.kind === 'repeat') return true;
+  return Boolean(A.locate(routine, where.list.nodeId)?.repeatIds.length);
+}
+function insertOperation(routine, where, node) {
+  if (where.afterId) {
+    const at = A.locate(routine, where.afterId);
+    return at && { kind: 'insert', listRef: at.listRef, index: at.index + 1, node };
   }
+  const nodes = listNodes(routine, where.list);
+  return nodes && { kind: 'insert', listRef: where.list, index: nodes.length, node };
+}
+/** ⌥↑/⌥↓: swap with a sibling; at either end, step out of the enclosing route or repeat. */
+function nudgeOperation(routine, id, dir) {
+  const at = A.locate(routine, id); if (!at) return null;
+  const to = at.index + dir;
+  if (to >= 0 && to < at.siblings.length) return { kind: 'move', nodeId: id, listRef: at.listRef, index: dir > 0 ? to + 1 : to };
+  if (!at.parent) return null;
+  const owner = A.locate(routine, at.parent.id);
+  return owner && { kind: 'move', nodeId: id, listRef: owner.listRef, index: dir > 0 ? owner.index + 1 : owner.index };
+}
 
-  // ---- inline Add Step chooser (expands in-flow; never floats over the canvas) ----
-  function Chooser({ onPick, waitAvailable }) {
-    return h('div', { className: 'rt-chooser' },
-      h('div', { className: 'rt-ch-sec' }, 'Add step'),
-      A.AUTHORABLE_STEPS.map((step) => {
-        const unavailable = step.id === 'wait' && !waitAvailable;
-        return h('button', { key: step.id, className: 'rt-ch-row', type: 'button', disabled: unavailable,
-          title: unavailable ? 'Build and link a generated Robot catalog with bordeaux.wait to add Wait.' : undefined,
-          onClick: () => !unavailable && onPick(step.type, step.cat) },
-        h('span', { className: 'rt-ch-ic', style: { color: step.color } }, h(Icon, { name: step.icon, size: 16 })),
-        h('span', { className: 'rt-ch-main' }, h('span', { className: 'rt-ch-t' }, step.label),
-          h('span', { className: 'rt-ch-d' }, unavailable ? 'Unavailable until the linked generated catalog provides bordeaux.wait' : step.description)));
-      }));
-  }
+/**
+ * Step kinds Add offers in a list: the authorable kinds the model exposes, a command-result branch per branchable
+ * output, and Exit repeat only inside a repeat. Wait stays visible but unavailable without the catalog built-in.
+ * Legacy categories and generated trajectories are never offered.
+ */
+export function addMenuSteps(routine, where, catalog) {
+  const kinds = new Set(A.AUTHORABLE_STEPS.map((step) => step.id));
+  const offered = new Set(A.authorableSteps(catalog).map((step) => step.id));
+  const items = [];
+  if (kinds.has('command')) items.push({ key: 'command', kind: 'command', label: 'Command', icon: 'bolt', tone: 'cmd' });
+  if (kinds.has('wait')) items.push(offered.has('wait')
+    ? { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait' }
+    : { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait', disabled: true, meta: 'Needs bordeaux.wait in the catalog' });
+  if (kinds.has('decision')) items.push({ key: 'decision', kind: 'decision', label: 'Branch on robot condition', icon: 'branch' });
+  (catalog?.commands || []).forEach((command) => A.branchOutputs(command).forEach((output) => items.push({
+    key: 'branch:' + command.id + ':' + output.name, kind: 'commandBranch', command, output, icon: 'branch',
+    label: 'Branch on ' + command.label + ' · ' + (output.label || output.name),
+  })));
+  if (kinds.has('repeat')) items.push({ key: 'repeat', kind: 'repeat', label: 'Repeat', icon: 'repeat' });
+  if (kinds.has('end')) items.push({ key: 'end', kind: 'end', label: 'End routine', icon: 'stop' });
+  if (kinds.has('end') && insideRepeat(routine, where)) items.push({ key: 'exit', kind: 'exit', label: 'Exit repeat', icon: 'exit' });
+  return items;
+}
 
-  function AddStep({ onPick, variant, label, waitAvailable }) {
-    const [open, setOpen] = useState(false);
-    const trigger = useRef(null);
-    const pick = (type, cat) => {
-      // The empty-state chooser unmounts after the first insert, so retain its panel.
-      const panel = trigger.current?.closest('.rt-panel');
-      onPick(type, cat); setOpen(false);
-      requestAnimationFrame(() => {
-        const target = panel?.isConnected && panel.querySelector('.rt-step.sel > .rt-step-body');
-        (target || trigger.current)?.focus();
-      });
-    };
-    const dismiss = (event) => {
-      if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
-    };
-    if (variant === 'gap') {
-      return h('div', { className: 'rt-gap' + (open ? ' open' : ''), onKeyDown: dismiss },
-        h('button', { ref: trigger, className: 'rt-gap-btn', type: 'button', title: 'Insert step here', 'aria-label': open ? 'Close step chooser' : 'Insert step here', 'aria-expanded': open, onClick: () => setOpen((o) => !o) }, h(Icon, { name: open ? 'x' : 'plus', size: 13 })),
-        open && h(Chooser, { onPick: pick, waitAvailable }));
+// ---- focus movement: every row, route row and Add row is a stop in document order ----
+function navStops(from) { return [...(from.closest('.rt-scroll') || document).querySelectorAll('[data-nav]')].filter((el) => el.getClientRects().length); }
+function moveFocus(from, delta) {
+  const stops = navStops(from), index = stops.indexOf(from);
+  const next = delta === 'first' ? stops[0] : delta === 'last' ? stops[stops.length - 1] : stops[Math.max(0, Math.min(stops.length - 1, index + delta))];
+  next?.focus();
+  return next;
+}
+function navKeys(event) {
+  if (event.altKey || event.metaKey || event.ctrlKey) return false;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); moveFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1); return true; }
+  if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); moveFocus(event.currentTarget, event.key === 'Home' ? 'first' : 'last'); return true; }
+  return false;
+}
+
+// ---- drag: drop between any rows of any list that accepts the step; feedback and commit share checkEdit ----
+function useDnd(routine, edit, report) {
+  const [drag, setDrag] = useState(null); // { id, target: { operation, rowId, before, ref } | null, reason }
+  const state = useRef(null);
+  const pointerDrag = PointerDrag.useController();
+  // Another routine or source cancels an active drag without applying it.
+  useEffect(() => () => pointerDrag.cancel?.({ flush: false }), [routine.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const targetAt = (id, x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const row = el?.closest?.('.rt-step'), route = el?.closest?.('.rt-route'), add = el?.closest?.('.rt-addwrap');
+    let operation = null, mark = null;
+    if (row && row.dataset.id !== id) {
+      const at = A.locate(routine, row.dataset.id); if (!at) return null;
+      const r = row.getBoundingClientRect(), before = y < r.top + r.height / 2;
+      operation = { kind: 'move', nodeId: id, listRef: at.listRef, index: at.index + (before ? 0 : 1) };
+      mark = { rowId: row.dataset.id, before };
+    } else if (route?.dataset.list) {
+      operation = { kind: 'move', nodeId: id, listRef: JSON.parse(route.dataset.list), index: 0 };
+      mark = { list: route.dataset.list, edge: 'start' };
+    } else if (add?.dataset.list) {
+      const ref = JSON.parse(add.dataset.list), nodes = listNodes(routine, ref);
+      if (!nodes) return null;
+      operation = { kind: 'move', nodeId: id, listRef: ref, index: nodes.length };
+      mark = { list: add.dataset.list, edge: 'end' };
     }
-    return h('div', { className: 'rt-addwrap', onKeyDown: dismiss },
-      h('button', { ref: trigger, className: 'rt-add' + (open ? ' on' : ''), type: 'button', 'aria-expanded': open, onClick: () => setOpen((o) => !o) },
-        h(Icon, { name: open ? 'x' : 'plus', size: 14 }), open ? 'Choose a step' : (label || 'Add step')),
-      open && h(Chooser, { onPick: pick, waitAvailable }));
-  }
+    if (!operation) return null;
+    const check = A.checkEdit(routine, operation);
+    return { operation, mark, allowed: check.allowed, reason: check.reason };
+  };
+  const start = (id, e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    state.current = { id, target: null };
+    setDrag({ id, target: null });
+    const move = (ev) => {
+      const target = targetAt(id, ev.clientX, ev.clientY);
+      state.current = { id, target }; setDrag({ id, target });
+    };
+    // Escape cancels the drag without moving anything.
+    const escape = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); pointerDrag.cancel({ flush: false }); } };
+    window.addEventListener('keydown', escape, true);
+    const end = () => {
+      window.removeEventListener('keydown', escape, true);
+      const target = state.current?.target;
+      state.current = null; setDrag(null);
+      if (!target) return;
+      if (!target.allowed) { if (target.reason) report(target.reason); return; }
+      const result = edit(target.operation);
+      if (!result.changed && result.reason) report(result.reason);
+    };
+    pointerDrag.start(e, { move, end, cancel: () => { window.removeEventListener('keydown', escape, true); state.current = null; setDrag(null); } });
+  };
+  return { drag, start };
+}
 
-  function Grip(props) { return h('button', { className: 'rt-grip', type: 'button', title: 'Drag to reorder', 'aria-label': 'Drag step to reorder', onPointerDown: props.onPointerDown, onClick: (e) => e.stopPropagation() }, h(Icon, { name: 'drag', size: 13 })); }
+// ---- popovers live in the body: the workspace's container query would otherwise contain fixed positioning ----
+function usePlacement(anchor, ref, width, align) {
+  const [pos, setPos] = useState(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      if (!anchor?.isConnected || !ref.current) return;
+      const r = anchor.getBoundingClientRect(), height = ref.current.offsetHeight;
+      const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
+      const down = below >= Math.min(height, 280) || below >= above;
+      const left = Math.max(8, Math.min(align === 'end' ? r.right - width : r.left, window.innerWidth - width - 8));
+      setPos({ left, top: down ? r.bottom + 4 : undefined, bottom: down ? undefined : window.innerHeight - r.top + 4, maxHeight: Math.max(160, down ? below : above) });
+    };
+    place();
+    window.addEventListener('resize', place); window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [anchor, ref, width, align]);
+  return pos;
+}
+function useOutside(ref, anchor, close) {
+  useEffect(() => {
+    const away = (event) => { if (!ref.current?.contains(event.target) && !anchor?.contains(event.target)) close(false); };
+    window.addEventListener('pointerdown', away, true);
+    return () => window.removeEventListener('pointerdown', away, true);
+  }, [ref, anchor, close]);
+}
 
-  // ---- one step card ----
-  function StepCard(props) {
-    const { node, paths, run, selId, onSelect, acq, activeId, firedIds, dnd, collapsed, toggleCollapse, isFunction, nested, waitAvailable, catalog, previewIncluded = true } = props;
-    const siblings = A.siblingNodes(dnd.routine, node.id) || [];
-    const siblingIndex = siblings.findIndex((item) => item.id === node.id);
-    const sel = selId === node.id;
-    const active = activeId === node.id;
-    const fired = firedIds.has(node.id) && !active;
-    const dragging = dnd.drag && dnd.drag.id === node.id;
-    const dropB = dnd.over && dnd.over.id === node.id && dnd.over.before;
-    const dropA = dnd.over && dnd.over.id === node.id && !dnd.over.before;
+/** Searchable Add: project paths first (the common case), then the step kinds valid in this list. */
+function AddMenu({ anchor, paths, steps, onPick, onClose, label }) {
+  const ref = useRef(null), input = useRef(null);
+  const [query, setQuery] = useState('');
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (text) => terms.every((term) => text.toLocaleLowerCase().includes(term));
+  const pathItems = paths.filter((path) => hit(path.name)).map((path) => ({ key: 'path:' + path.id, kind: 'path', ref: path.id, label: path.name, icon: 'route' }));
+  const stepItems = steps.filter((step) => hit(step.label + ' ' + (step.meta || '')));
+  const items = [...pathItems, ...stepItems];
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(items.findIndex((item) => !item.disabled)), [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pos = usePlacement(anchor, ref, 360, 'start');
+  const placed = Boolean(pos);
+  // A hidden element cannot take focus; focus once placed.
+  useEffect(() => { if (placed) input.current?.focus(); }, [placed]);
+  useEffect(() => { ref.current?.querySelector('.rt-ch-row.active')?.scrollIntoView({ block: 'nearest' }); }, [active]);
+  useOutside(ref, anchor, onClose);
+  const step = (dir) => setActive((current) => {
+    for (let i = 1; i <= items.length; i++) { const next = (current + dir * i + items.length * 2) % items.length; if (!items[next].disabled) return next; }
+    return current;
+  });
+  const onKeyDown = (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); step(event.key === 'ArrowDown' ? 1 : -1); }
+    else if (event.key === 'Enter') { event.preventDefault(); const item = items[active]; if (item && !item.disabled) onPick(item); }
+    else if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); onClose(true); }
+  };
+  const option = (item, index) => h('div', { key: item.key, id: 'rt-add-opt-' + index, role: 'option', 'aria-selected': index === active, 'aria-disabled': item.disabled || undefined,
+    className: 'rt-ch-row' + (index === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
+    onPointerMove: () => !item.disabled && setActive(index), onClick: () => !item.disabled && onPick(item) },
+    h('span', { className: 'rt-ch-ic ' + (item.tone || '') }, h(Glyph, { name: item.icon, size: 15 })),
+    h('span', { className: 'rt-ch-t' }, item.label),
+    item.meta && h('span', { className: 'rt-ch-d' }, item.meta));
+  return createPortal(h('div', { ref, className: 'rt-add-menu', role: 'dialog', 'aria-label': label, onKeyDown,
+    style: pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: 'hidden' } },
+    h('div', { className: 'rt-add-search' },
+      h(Icon, { name: 'search', size: 14 }),
+      h('input', { ref: input, value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Path name or step', 'aria-label': 'Find a path or step',
+        role: 'combobox', 'aria-expanded': true, 'aria-controls': 'rt-add-list', 'aria-activedescendant': items[active] ? 'rt-add-opt-' + active : undefined, spellCheck: false, autoComplete: 'off' })),
+    items.length
+      ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': 'Paths and steps' },
+          pathItems.length > 0 && h('div', { className: 'rt-ch-sec', role: 'presentation' }, 'Paths'),
+          pathItems.map((item, index) => option(item, index)),
+          stepItems.length > 0 && h('div', { className: 'rt-ch-sec', role: 'presentation' }, 'Steps'),
+          stepItems.map((item, index) => option(item, pathItems.length + index)))
+      : h('div', { className: 'rt-add-none' }, 'No path or step matches “' + query + '”')), document.body);
+}
 
-    const seg = run.segs.find((s) => s.nodeId === node.id);
-    let icon, color, meta, tag, kindCls;
+/** Step actions, in the app's context-menu shape. Unavailable actions say why in one line. */
+function RowMenu({ anchor, items, onClose }) {
+  const ref = useRef(null);
+  const pos = usePlacement(anchor, ref, 248, 'end');
+  const placed = Boolean(pos);
+  useEffect(() => { if (placed) ref.current?.querySelector('button:not(:disabled)')?.focus(); }, [placed]);
+  useOutside(ref, anchor, onClose);
+  const onKeyDown = (event) => {
+    if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); onClose(true); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...ref.current.querySelectorAll('button:not(:disabled)')], index = buttons.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  };
+  return createPortal(h('div', { ref, className: 'ctxmenu rt-row-menu', role: 'menu', 'aria-label': 'Step actions', onKeyDown,
+    style: pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, width: 248 } : { visibility: 'hidden' } },
+    items.map((item) => h('button', { key: item.key, type: 'button', role: 'menuitem', tabIndex: -1, disabled: item.disabled, title: item.reason,
+      className: 'ctxmenu-i' + (item.danger ? ' danger' : ''), ...(item.key === 'delete' ? deletionInput(() => { onClose(false); item.run(); }) : { onClick: () => { onClose(false); item.run(); } }) },
+      h('span', { className: 'rt-menu-label' }, item.label, item.reason && h('small', null, item.reason)), item.hint && h('span', { className: 'ctxmenu-k' }, item.hint)))), document.body);
+}
+
+function Grip({ onPointerDown }) {
+  return h('button', { className: 'rt-grip', type: 'button', tabIndex: -1, title: 'Drag to move', 'aria-label': 'Drag step to move', onPointerDown, onClick: (e) => e.stopPropagation() }, h(Icon, { name: 'drag', size: 13 }));
+}
+
+export function RoutinePanel(props) {
+  const { routine, run, paths, selId, onSelect, acq, time, running, catalog } = props;
+  const issues = props.issues || [];
+  const [note, setNote] = useState('');
+  const noteTimer = useRef(0);
+  const report = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const edit = (operation) => {
+    const result = operation ? acq.edit(operation) : { changed: false };
+    if (result.changed) setNote('');
+    else if (result.reason) report(result.reason);
+    return result;
+  };
+  const dnd = useDnd(routine, edit, report);
+  const [localCollapsed, setLocalCollapsed] = useState(() => new Set());
+  const collapsed = props.collapsedIds ? new Set(props.collapsedIds) : localCollapsed;
+  const toggleCollapse = (id) => {
+    const next = new Set(collapsed); next.has(id) ? next.delete(id) : next.add(id);
+    if (props.onCollapsedIdsChange) props.onCollapsedIdsChange([...next]); else setLocalCollapsed(next);
+  };
+  const [add, setAdd] = useState(null); // { where, anchor, label }
+  const [menu, setMenu] = useState(null); // { id, anchor }
+  const [range, setRange] = useState([]); // contiguous sibling IDs, anchored at the selected step
+  const [keyboard, setKeyboard] = useState(false);
+  // One Tab stop for the whole sheet (rows, route rows, Add rows); arrows move within it. It follows focus.
+  const [tabStop, setTabStop] = useState(null);
+  const scrollRef = useRef(null);
+  const stop = (key) => (key === tabStop ? 0 : -1);
+  useLayoutEffect(() => {
+    const root = scrollRef.current; if (!root || root.querySelector('[data-nav][tabindex="0"]')) return;
+    const preferred = selId && [...root.querySelectorAll('.rt-step')].find((row) => row.dataset.id === selId)?.querySelector('[data-nav]');
+    const first = preferred || root.querySelector('[data-nav]');
+    if (first?.dataset.nav) setTabStop(first.dataset.nav);
+  });
+  // Menus and ranges belong to this routine only; a source change drops a range that no longer matches.
+  useEffect(() => { setAdd(null); setMenu(null); setRange([]); setNote(''); }, [routine.id]);
+  useEffect(() => { if (range.length && range.some((id) => !A.locate(routine, id))) setRange([]); }, [routine, range]);
+  useEffect(() => { if (!selId && range.length) setRange([]); }, [selId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const outcomes = acq.outcomes || {};
+  const activeIdx = run.steps.length && (running || time > 0) ? A.stepAt(run, time) : -1;
+  const activeStep = activeIdx >= 0 ? run.steps[activeIdx] : null;
+  const activeId = running && activeStep && activeStep.kind !== 'repeat' ? activeStep.nodeId : null;
+  const passOf = (repeatId) => run.steps.find((step) => step.kind === 'repeat' && step.nodeId === repeatId)?.passes;
+  const activePass = activeStep?.passStack?.at(-1);
+  const topIndex = new Map(routine.nodes.map((node, index) => [node.id, index + 1]));
+  const segByNode = new Map(); run.segs.forEach((seg) => { if (!segByNode.has(seg.nodeId)) segByNode.set(seg.nodeId, seg); });
+  const previewed = new Set(run.steps.map((step) => step.nodeId));
+  // Local readiness (AUTO.analyze) and the chosen trace's reference jumps (run.issues) stay distinct facts.
+  const jumpByNode = new Map();
+  (run.issues || []).forEach((issue) => { if (issue.code === 'reference-discontinuity' && !jumpByNode.has(issue.nodeId)) jumpByNode.set(issue.nodeId, issue); });
+  const issueByNode = new Map();
+  issues.forEach((issue) => { const prior = issueByNode.get(issue.nodeId); if (!prior || (prior.severity !== 'error' && issue.severity === 'error')) issueByNode.set(issue.nodeId, issue); });
+
+  const focusStep = (id) => requestAnimationFrame(() => requestAnimationFrame(() => {
+    [...document.querySelectorAll('.rt-panel .rt-step')].find((row) => row.dataset.id === id)?.querySelector('.rt-step-body')?.focus();
+  }));
+  const run_ = (operation) => { const result = edit(operation); if (result.changed && result.focusId) focusStep(result.focusId); return result; };
+
+  // ---- Add ----
+  const stepItems = (where) => addMenuSteps(routine, where, catalog);
+  const openAdd = (where, anchor, label) => { setMenu(null); setAdd({ where, anchor, label }); };
+  const closeAdd = (refocus) => { const anchor = add?.anchor; setAdd(null); if (refocus && anchor?.isConnected) anchor.focus(); };
+  const nodeFor = (item) => {
+    if (item.kind === 'path') return A.newNode('path', null, item.ref);
+    if (item.kind === 'command') return A.newNode('function', 'command');
+    if (item.kind === 'wait') return A.newNode('builtin', 'wait');
+    if (item.kind === 'decision') return A.newNode('decision');
+    if (item.kind === 'repeat') return A.newNode('repeat');
+    if (item.kind === 'end') return A.newNode('end', 'routine');
+    if (item.kind === 'exit') return A.newNode('end', 'repeat');
+    if (item.kind === 'commandBranch') return { ...A.newNode('function', 'command'), title: item.command.label,
+      invocation: { commandId: item.command.id, arguments: commandArguments(item.command) }, outputBranch: A.newOutputBranch(item.output) };
+    return null;
+  };
+  const pick = (item) => {
+    const where = add.where;
+    setAdd(null);
+    const result = run_(insertOperation(routine, where, nodeFor(item)));
+    if (!result.changed) add?.anchor?.focus();
+  };
+
+  // ---- row actions: each is a checked model operation; an unavailable one names its reason ----
+  const rowItems = (id) => {
+    const at = A.locate(routine, id); if (!at) return [];
+    const body = [...document.querySelectorAll('.rt-panel .rt-step')].find((el) => el.dataset.id === id)?.querySelector('.rt-step-body');
+    const option = (key, label, operation, hint) => {
+      const check = operation ? A.checkEdit(routine, operation) : { allowed: false };
+      return { key, label, hint, disabled: !check.allowed, reason: check.allowed ? '' : check.reason, run: () => { const result = run_(operation); if (key === 'wrapRange' && result.changed) setRange([]); } };
+    };
+    const up = nudgeOperation(routine, id, -1), down = nudgeOperation(routine, id, 1);
+    const ranged = range.length > 1 && range.includes(id);
+    return [
+      // A keyboard-reachable range action beside the row itself, not only in the range bar above the sheet.
+      ...(ranged ? [option('wrapRange', 'Repeat these ' + range.length + ' steps', { kind: 'wrapRepeat', nodeIds: range })] : []),
+      { key: 'add', label: 'Add step after', hint: 'A', run: () => openAdd({ afterId: id }, body, 'Add a step after this one') },
+      option('wrap', 'Repeat this step', { kind: 'wrapRepeat', nodeIds: [id] }),
+      ...(at.node.type === 'repeat' ? [option('unwrap', 'Remove repeat, keep steps', { kind: 'unwrapRepeat', nodeId: id })] : []),
+      ...(up ? [option('up', at.index > 0 ? 'Move up' : 'Move out, above', up, '⌥↑')] : []),
+      ...(down ? [option('down', at.index < at.siblings.length - 1 ? 'Move down' : 'Move out, below', down, '⌥↓')] : []),
+      // A cancelled delete returns focus to the row that opened the menu.
+      { key: 'delete', label: 'Delete', hint: '⌫', danger: true, run: () => acq.del(id) },
+    ];
+  };
+
+  // ---- range: Shift extends over eligible siblings of the selected step ----
+  const extendTo = (id) => {
+    const anchor = A.locate(routine, selId), target = A.locate(routine, id);
+    if (!anchor || !target || anchor.siblings !== target.siblings) { setRange([]); onSelect(id); return; }
+    const [low, high] = [Math.min(anchor.index, target.index), Math.max(anchor.index, target.index)];
+    setRange(anchor.siblings.slice(low, high + 1).map((node) => node.id));
+  };
+  const wrapRange = () => { const result = run_({ kind: 'wrapRepeat', nodeIds: range }); if (result.changed) setRange([]); };
+
+  const onBodyKeyDown = (node) => (event) => {
+    // Generated-fallback steps are read-only: navigation and selection only.
+    const readOnly = Boolean(A.locate(routine, node.id)?.readOnly);
+    if (readOnly) {
+      const editing = event.altKey || (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) || ['Delete', 'Backspace', 'a', 'A'].includes(event.key);
+      if (editing && !event.metaKey && !event.ctrlKey) { event.preventDefault(); return; }
+    }
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      const operation = nudgeOperation(routine, node.id, event.key === 'ArrowUp' ? -1 : 1);
+      if (operation) { const result = edit(operation); if (result.changed) focusStep(node.id); }
+      return;
+    }
+    // The context-menu keys open this row's actions (including the range action) from the keyboard.
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      const more = event.currentTarget.closest('.rt-step')?.querySelector('.rt-more');
+      if (more) { event.preventDefault(); event.stopPropagation(); if (!event.repeat && !event.nativeEvent?.isComposing && !event.isComposing && event.keyCode !== 229 && acq.preflight?.() !== false) { setAdd(null); setMenu({ id: node.id, anchor: more }); } }
+      return;
+    }
+    if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && selId) {
+      event.preventDefault();
+      const next = moveFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1);
+      const id = next?.closest('.rt-step')?.dataset.id;
+      if (id) extendTo(id);
+      return;
+    }
+    if (navKeys(event)) return;
+    const kids = A.childLists(node);
+    if (event.key === 'ArrowLeft' && kids.length && !collapsed.has(node.id)) { event.preventDefault(); toggleCollapse(node.id); return; }
+    if (event.key === 'ArrowRight' && kids.length && collapsed.has(node.id)) { event.preventDefault(); toggleCollapse(node.id); return; }
+    // Space selects this row; it never reaches page-level playback.
+    if (event.key === ' ') { event.stopPropagation(); return; }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey) { event.preventDefault(); event.stopPropagation(); if (!event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) acq.del(node.id); return; }
+    if (event.key === 'Escape' && (selId || range.length)) { event.preventDefault(); event.stopPropagation(); setRange([]); onSelect(null); return; }
+    if ((event.key === 'a' || event.key === 'A') && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault(); openAdd({ afterId: node.id }, event.currentTarget, 'Add a step after this one');
+    }
+  };
+
+  // ---- rows ----
+  function describe(node, seg, offPreview) {
+    const issue = issueByNode.get(node.id);
     const deployment = A.nodeDeploymentState(node, catalog);
-    if (!deployment.deployable) {
-      icon = 'info'; color = '#d2655f'; kindCls = 'fn'; tag = 'Legacy — cannot deploy'; meta = deployment.legacy ? 'Replace or remove this legacy step before export' : 'This unsupported step can be removed but cannot deploy';
-    } else if (node.type === 'path') {
-      const doc = paths.find((path) => path.id === node.ref); icon = 'route'; color = 'var(--accent)'; kindCls = 'path';
-      if (seg) meta = fmt(seg.t1 - seg.t0) + ', ' + UnitPrefs.format(seg.deriv.sample.length, 'm', 2);
-      else if (!doc) meta = 'Choose a path';
-      else if (!previewIncluded) meta = 'Skipped in this preview';
-      else if (run.planningStatus === 'error') meta = 'Preview unavailable';
-      else if (run.blocked || !run.steps.some((step) => step.node.id === node.id)) meta = 'Preparing preview…';
-      else meta = 'No trajectory available';
-    } else if (node.type === 'decision') {
-      icon = 'branch'; color = '#9aa3b0'; kindCls = 'decision'; meta = node.cond ? 'Branches on ' + node.cond : 'Choose a registered condition';
-    } else if (node.type === 'builtin') {
-      icon = 'pause'; color = '#cf962f'; kindCls = 'fn'; tag = 'Wait'; meta = fmt(node.arguments && node.arguments.durationS) + ' pause';
-    } else if (node.type === 'generatedTrajectory') {
-      icon = 'route'; color = '#cf962f'; kindCls = 'fn'; tag = 'Runtime dynamic'; meta = 'Generated and validated on the robot, no desktop preview';
+    if (deployment.legacy) return { meta: 'Legacy step · replace or remove before export', problem: 'bad' };
+    if (issue?.severity === 'error') return { meta: issue.message, problem: 'bad', dur: durationOf(node, seg) };
+    if (issue?.code === 'unreachable') return { meta: issue.message, problem: 'muted', dur: durationOf(node, seg) };
+    const jump = jumpByNode.get(node.id);
+    const warning = jump ? { meta: continuityText(jump), problem: 'warn' } : issue ? { meta: issue.message, problem: 'warn' } : null;
+    if (node.type === 'path') {
+      if (!paths.some((path) => path.id === node.ref)) return { meta: node.ref ? 'The referenced path is unavailable.' : 'Choose a path', problem: 'bad' };
+      if (seg) return warning ? { ...warning, dur: fmt(seg.t1 - seg.t0) } : { meta: UnitPrefs.format(seg.deriv.sample.length, 'm', 2), dur: fmt(seg.t1 - seg.t0) };
+      if (offPreview) return { meta: 'Skipped in this preview' };
+      if (run.planningStatus === 'pending' || run.planningStatus === 'idle') return { meta: 'Preparing preview…' };
+      if (run.planningStatus === 'error' || run.stopReason === 'invalid') return { meta: 'Preview unavailable' };
+      if (!previewed.has(node.id)) return { meta: run.truncated ? 'Beyond the previewed steps' : 'Not reached in this preview' };
+      return { meta: 'No trajectory available' };
+    }
+    if (warning) return { ...warning, dur: durationOf(node, seg) };
+    if (node.type === 'builtin') return { meta: endsPhrase(node, routine, catalog), dur: durationOf(node) };
+    if (node.type === 'decision') return { meta: 'Checked once when reached' };
+    if (node.type === 'repeat') return { meta: node.until ? 'Stop when ' + describeStop(node.until, routine, catalog) + ', checked after each pass' : 'Same steps each pass', dur: durationOf(node) };
+    if (node.type === 'end') {
+      if (node.scope === 'routine') return { meta: 'Stop the robot and end the routine' };
+      return { meta: 'Leave the repeat and continue after it' };
+    }
+    if (node.type === 'generatedTrajectory') return { meta: 'Generated on the robot · no desktop preview' };
+    if (node.type === 'function' && node.cat === 'command') {
+      const command = catalog?.commands?.find((item) => item.id === node.invocation?.commandId);
+      const output = node.outputBranch && A.branchOutputs(command).find((item) => item.name === node.outputBranch.output);
+      return { meta: (node.outputBranch ? 'Then branch on ' + (output?.label || node.outputBranch.output) + ' · ' : '') + endsPhrase(node, routine, catalog), dur: durationOf(node) };
+    }
+    return { meta: 'Unsupported step · remove before export', problem: 'bad' };
+  }
+  function durationOf(node, seg) {
+    if (node.type === 'path') return seg ? fmt(seg.t1 - seg.t0) : '';
+    if (node.type === 'builtin') return (node.ends?.endWhen ? '≤ ' : '') + fmt(node.arguments?.durationS);
+    if (node.type === 'function' && node.cat === 'command') return node.ends?.timeoutS !== undefined ? '≤ ' + fmt(node.ends.timeoutS) : 'Untimed';
+    if (node.type === 'repeat') return (node.until ? '≤ ' : '') + node.times + '×';
+    return '';
+  }
+
+  function stepRow(node, depth, offPreview, numbered, readOnly) {
+    const sel = selId === node.id || range.includes(node.id);
+    const active = activeId === node.id;
+    const seg = segByNode.get(node.id);
+    const kids = A.childLists(node);
+    const isCollapsed = kids.length > 0 && collapsed.has(node.id);
+    const info = describe(node, seg, offPreview);
+    const kind = node.type === 'path' ? 'path' : node.type === 'decision' ? 'decision' : node.type === 'builtin' ? 'wait' : node.type === 'function' && node.cat === 'command' ? 'cmd' : 'control';
+    const mark = dnd.drag?.target?.mark;
+    const markHere = mark?.rowId === node.id;
+    const chosen = isBranch(node) ? A.selectedBranch(node, outcomes) : null;
+    const nestedCount = isCollapsed ? kids.reduce((count, list) => count + A.branchCount(list.nodes), 0) : 0;
+    const title = stepTitle(node, paths, catalog);
+    const live = active && activePass ? 'Pass ' + activePass.pass + ' of ' + (passOf(activePass.repeatId) || '?') : active ? 'Now' : null;
+    return h('div', { key: node.id, 'data-id': node.id, style: { '--depth': depth },
+      className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '')
+        + (dnd.drag?.id === node.id ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') + (dnd.drag.target.allowed ? '' : ' drop-invalid') : '') },
+      readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
+      h('span', { className: 'rt-step-num', 'aria-hidden': true }, numbered ? topIndex.get(node.id) : ''),
+      kids.length
+        ? h('button', { className: 'rt-collapse' + (isCollapsed ? ' on' : ''), type: 'button', tabIndex: -1, 'aria-expanded': !isCollapsed,
+            'aria-label': (isCollapsed ? 'Expand ' : 'Collapse ') + title, onClick: () => toggleCollapse(node.id) },
+            h('span', { className: 'rt-collapse-kind' }, h(Glyph, { name: glyphFor(node) })), h('span', { className: 'rt-collapse-chev' }, h(Icon, { name: 'chevron', size: 14 })))
+        : h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })),
+      h('button', { className: 'rt-step-body', type: 'button', 'data-nav': 'row:' + node.id, tabIndex: stop('row:' + node.id), 'aria-pressed': sel, 'aria-keyshortcuts': readOnly ? undefined : 'Shift+F10 A Delete Alt+ArrowUp Alt+ArrowDown', 'aria-expanded': kids.length ? !isCollapsed : undefined,
+        onClick: (event) => { if (event.shiftKey && selId && !readOnly) { extendTo(node.id); return; } setRange([]); onSelect(sel && selId === node.id ? null : node.id); },
+        onKeyDown: onBodyKeyDown(node) },
+        h('span', { className: 'rt-step-title' }, title),
+        h('span', { className: 'rt-step-meta' + (info.problem ? ' ' + info.problem : '') },
+          isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
+      h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
+      h('span', { className: 'rt-step-tools' }, !readOnly && h('button', { className: 'rt-tool rt-more', type: 'button', tabIndex: -1, 'aria-haspopup': 'menu', 'aria-expanded': menu?.id === node.id, title: 'Step actions (⇧F10)',
+        'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
+  }
+
+  function addRow(ref, depth, label, ariaLabel) {
+    const where = { list: ref };
+    const open = add && add.where.list && refKey(add.where.list) === refKey(ref);
+    const mark = dnd.drag?.target?.mark;
+    const markHere = mark?.list === refKey(ref) && mark.edge === 'end';
+    return h('div', { key: 'add:' + refKey(ref), className: 'rt-addwrap' + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
+      h('button', { className: 'rt-add' + (open ? ' on' : ''), type: 'button', 'data-nav': 'add:' + refKey(ref), tabIndex: stop('add:' + refKey(ref)), 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(open), 'aria-label': ariaLabel,
+        onClick: (e) => (open ? closeAdd(false) : openAdd(where, e.currentTarget, ariaLabel)), onKeyDown: navKeys },
+        h(Icon, { name: 'plus', size: 14 }), label));
+  }
+
+  function renderList(nodes, ref, depth, offPreview, routeLabel, readOnly) {
+    const out = nodes.map((node) => renderNode(node, depth, offPreview, ref.kind === 'root', readOnly));
+    if (!readOnly) out.push(addRow(ref, depth, routeLabel ? 'Add to ' + routeLabel : 'Add step',
+      routeLabel ? 'Add a step to the ' + routeLabel + ' route' : ref.kind === 'repeat' ? 'Add a step to this repeat' : 'Add a step at the end'));
+    return out;
+  }
+
+  function renderNode(node, depth, offPreview, numbered, readOnly) {
+    const row = stepRow(node, depth, offPreview, numbered, readOnly);
+    const kids = A.childLists(node);
+    if (!kids.length || collapsed.has(node.id)) return h('div', { key: node.id, className: 'rt-step-wrap' }, row);
+    const body = [];
+    if (node.type === 'repeat') {
+      body.push(...renderList(kids[0].nodes, kids[0].ref, depth + 1, offPreview, null, readOnly));
+      const passes = passOf(node.id);
+      const previewing = offPreview || passes === undefined ? '' : ' · previewing ' + plural(passes, 'pass');
+      body.push(h('div', { key: 'close', className: 'rt-close', style: { '--depth': depth + 1 }, 'aria-hidden': true },
+        'Back to the top, ' + (node.until ? 'up to ' : '') + plural(node.times, 'pass') + previewing));
     } else {
-      const C = A.CATS[node.cat] || { icon: 'info', color: '#d2655f', label: 'Unknown step' }; icon = C.icon; color = C.color; kindCls = 'fn';
-      tag = C.label;
-      if (node.cat === 'generate') meta = (seg ? fmt(seg.t1 - seg.t0) + ', ' : '') + 'runtime, ' + node.trigger;
-      else meta = node.trigger;
+      const chosen = isBranch(node) ? A.selectedBranch(node, outcomes) : null;
+      kids.forEach((list) => {
+        const fixed = readOnly || list.readOnly;
+        const routeId = routeIdOf(list.ref), live = list.ref.kind === 'fallback' ? false : chosen && chosen.id === routeId, count = A.branchCount(list.nodes);
+        const mark = dnd.drag?.target?.mark, markHere = mark?.list === refKey(list.ref) && mark.edge === 'start';
+        body.push(h('div', { key: refKey(list.ref), className: 'rt-branch' + (live ? ' live' : '') + (offPreview ? ' off' : ''), role: 'group', 'aria-label': 'Route ' + list.label },
+          h('div', { className: 'rt-route' + (markHere ? ' drop-after' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
+            list.ref.kind === 'fallback'
+              ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-brname' }, 'Fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
+              : h('button', { className: 'rt-brlbl', type: 'button', 'data-nav': 'route:' + refKey(list.ref), tabIndex: stop('route:' + refKey(list.ref)), role: 'radio', 'aria-checked': Boolean(live), 'aria-label': 'Preview route ' + list.label,
+                  title: 'Preview this route', onClick: () => acq.setOutcome(node.id, routeId), onKeyDown: navKeys },
+                  h('span', { className: 'rt-radio', 'aria-hidden': true }),
+                  h('span', { className: 'rt-brname' }, list.label),
+                  h('span', { className: 'rt-brkey' }, routeRule(node, list)),
+                  h('span', { className: 'rt-brcount' }, (live ? 'Previewing · ' : '') + (count ? plural(count, 'step') : 'Empty, continues')))),
+          renderList(list.nodes, list.ref, depth + 2, offPreview || !live, list.label, fixed)));
+      });
+      body.push(h('div', { key: 'close', className: 'rt-close', style: { '--depth': depth + 1 }, 'aria-hidden': true }, node.type === 'generatedTrajectory' ? 'Fallback ends' : 'Routes rejoin here'));
     }
-    const routes = A.branches(node);
-    const isDecision = routes.length > 0;
-    if (node.outputBranch) meta = 'Branch on ' + node.outputBranch.output + ' · Preview only';
-    const isCollapsed = isDecision && collapsed.has(node.id);
-
-    const cls = 'rt-step ' + kindCls + (sel ? ' sel' : '') + (active ? ' active' : '') + (fired ? ' fired' : '')
-      + (dragging ? ' dragging' : '') + (dropB ? ' drop-before' : '') + (dropA ? ' drop-after' : '');
-
-    const card = h('div', { className: cls, 'data-id': node.id, style: { '--fc': color } },
-      h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
-      isDecision
-        ? h('button', { className: 'rt-collapse' + (isCollapsed ? ' on' : ''), type: 'button', 'aria-expanded': !isCollapsed, 'aria-label': isCollapsed ? 'Expand decision branches' : 'Collapse decision branches', title: isCollapsed ? 'Expand branches' : 'Collapse branches', onClick: (e) => { e.stopPropagation(); toggleCollapse(node.id); } }, h(Icon, { name: 'chevron', size: 14 }))
-        : h('span', { className: 'rt-step-ic', style: { color } }, h(Icon, { name: icon, size: 15 })),
-      h('button', { className: 'rt-step-body', type: 'button', 'aria-pressed': sel, onClick: () => onSelect(sel ? null : node.id) },
-        h('div', { className: 'rt-step-title' }, A.nodeTitle(node, paths, catalog)),
-        h('div', { className: 'rt-step-meta' }, isCollapsed ? plural(routes.reduce((count, route) => count + A.branchCount(route.nodes), 0), 'step') + ' in ' + (routes.length === 1 ? '1 branch' : routes.length + ' branches') : meta),
-        tag && h('span', { className: 'rt-step-tag' }, tag),
-        active && h('span', { className: 'rt-step-live' }, node.type === 'path' || node.type === 'builtin' || node.cat === 'generate' ? 'Running' : 'Firing')),
-      h('span', { className: 'rt-step-tools' },
-        h('button', { className: 'rt-tool', type: 'button', disabled: siblingIndex <= 0, title: 'Move step up', 'aria-label': 'Move step up', onClick: () => acq.move(node.id, -1) }, '\u2191'),
-        h('button', { className: 'rt-tool', type: 'button', disabled: siblingIndex < 0 || siblingIndex === siblings.length - 1, title: 'Move step down', 'aria-label': 'Move step down', onClick: () => acq.move(node.id, 1) }, '\u2193'),
-        h('button', { className: 'rt-tool danger', type: 'button', title: 'Delete step', 'aria-label': 'Delete step', onClick: (e) => { e.stopPropagation(); acq.del(node.id); } }, h(Icon, { name: 'trash', size: 13 }))));
-
-    if (!isDecision) {
-      return h('div', { className: 'rt-step-wrap' + (isFunction && !nested ? ' fnwrap' : '') }, card);
-    }
-    if (isCollapsed) return h('div', { className: 'rt-step-wrap' }, card);
-
-    const out = A.selectedBranch(node, acq.outcomes)?.id;
-    return h('div', { className: 'rt-step-wrap' }, card,
-      h('div', { className: 'rt-branches' },
-        routes.map((route) => {
-          const br = route.id;
-          const cnt = A.branchCount(route.nodes);
-          return h('div', { key: br, className: 'rt-branch' + (out === br ? ' live' : '') },
-            h('button', { className: 'rt-brlbl', type: 'button', onClick: () => acq.setOutcome(node.id, br), title: 'Make this branch the simulated outcome' },
-              h('span', { className: 'rt-brdot' }),
-              (route.operator !== 'otherwise' && (typeof route.value === 'number' || !['boolean', 'enum'].includes(node.outputBranch?.schema.kind))
-                || (route.label || '').toLowerCase() !== String(route.operator === 'otherwise' ? 'Otherwise' : route.value).toLowerCase())
-                && h('span', { className: 'rt-brkey' }, A.routeSummary(route)),
-              h('span', { className: 'rt-brname' }, route.label),
-              h('span', { className: 'rt-brcount' }, plural(cnt, 'step')),
-              out === br && h('span', { className: 'rt-brlive' }, 'Preview')),
-            h('div', { className: 'rt-brbody' },
-              route.nodes.map((cn, index) => h(StepCard, { key: cn.id || index, node: cn, paths, run, selId, onSelect, acq, activeId, firedIds, dnd, collapsed, toggleCollapse, isFunction: cn.type === 'function', nested: true, waitAvailable, catalog, previewIncluded: previewIncluded && out === br })),
-              h(AddStep, { variant: 'end', label: 'Add step', waitAvailable, onPick: (t, c) => acq.addBranch(node.id, br, t, c) })));
-        })));
+    return h('div', { key: node.id, className: 'rt-step-wrap' }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
   }
 
-  function EmptyState({ acq, waitAvailable }) {
-    return h('div', { className: 'rt-empty' },
-      h('span', { className: 'rt-empty-ic' }, h(Icon, { name: 'layers', size: 18 })),
-      h('div', { className: 'rt-empty-t' }, 'Build the run order'),
-      h('p', null, 'Add paths and commands. Steps run top to bottom.'),
-      h(AddStep, { variant: 'end', label: 'Add first step', waitAvailable, onPick: (t, c) => acq.addEnd(t, c) }));
-  }
-
-  function RoutinePanel(props) {
-    const { routine, run, paths, selId, onSelect, acq, time, running, catalog } = props;
-    const waitAvailable = A.hasWaitBuiltIn(catalog);
-    const dnd = useDnd(acq, routine);
-    const [localCollapsed, setLocalCollapsed] = useState(() => new Set());
-    const collapsed = props.collapsedIds ? new Set(props.collapsedIds) : localCollapsed;
-    const toggleCollapse = (id) => {
-      const next = new Set(collapsed); next.has(id) ? next.delete(id) : next.add(id);
-      if (props.onCollapsedIdsChange) props.onCollapsedIdsChange([...next]); else setLocalCollapsed(next);
-    };
-
-    const activeIdx = run.steps.length ? A.stepAt(run, time) : -1;
-    const activeId = (running && activeIdx >= 0) ? run.steps[activeIdx].node.id : null;
-    const firedIds = new Set();
-    run.steps.forEach((s) => { if (s.t1 <= time + 1e-6) firedIds.add(s.node.id); });
-
-    // The routine workspace header names the routine; this panel is the flow itself.
-    return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : '') },
-      h('div', { className: 'rt-scroll' },
-        routine.nodes.length === 0
-          ? h(EmptyState, { acq, waitAvailable })
-          : h('div', { className: 'rt-list' },
-              h(AddStep, { variant: 'gap', waitAvailable, onPick: (t, c) => acq.prepend(t, c) }),
-              routine.nodes.map((n, index) => h(React.Fragment, { key: n.id || index },
-                h(StepCard, { node: n, paths, run, selId, onSelect, acq, activeId, firedIds, dnd, collapsed, toggleCollapse, isFunction: n.type === 'function', waitAvailable, catalog }),
-                index < routine.nodes.length - 1 && h(AddStep, { variant: 'gap', waitAvailable, onPick: (t, c) => acq.addAfter(n.id, t, c) }))),
-              h(AddStep, { variant: 'end', waitAvailable, onPick: (t, c) => acq.addEnd(t, c) }))));
-  }
-
-export { RoutinePanel };
+  return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : ''), 'data-input': keyboard ? 'keyboard' : 'pointer',
+    // Arrow keys move focus by script, which withholds :focus-visible after a click; track the input instead.
+    onKeyDownCapture: (e) => { if (!keyboard && !e.metaKey && !e.ctrlKey) setKeyboard(true); }, onPointerDownCapture: () => keyboard && setKeyboard(false) },
+    range.length > 1 && h('div', { className: 'rt-range-bar', role: 'toolbar', 'aria-label': 'Selected steps' },
+      h('span', null, plural(range.length, 'step') + ' selected'),
+      h('button', { type: 'button', className: 'qbtn', onClick: wrapRange }, h(Glyph, { name: 'repeat', size: 14 }), 'Repeat these steps'),
+      h('button', { type: 'button', className: 'qbtn quiet', onClick: () => { setRange([]); focusStep(selId); } }, 'Clear')),
+    h('div', { className: 'rt-scroll', ref: scrollRef, onFocusCapture: (e) => { const key = e.target.dataset?.nav; if (key && key !== tabStop) setTabStop(key); } },
+      routine.nodes.length === 0
+        ? h('div', { className: 'rt-empty' },
+            h('div', { className: 'rt-empty-t' }, 'Build the run order'),
+            h('p', null, 'Steps run top to bottom.'),
+            h('button', { className: 'qbtn rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
+              onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'))
+        : h('div', { className: 'rt-list', role: 'list', 'aria-label': 'Routine run order' }, renderList(routine.nodes, { kind: 'root' }, 0, false, null, false))),
+    h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
+    add && h(AddMenu, { anchor: add.anchor, paths, steps: stepItems(add.where), label: add.label, onPick: pick, onClose: closeAdd }),
+    menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }));
+}

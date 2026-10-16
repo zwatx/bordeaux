@@ -60,7 +60,7 @@ describe("automatic LabVIEW command sync", () => {
     expect(result.warnings).toContain("Existing source warning");
     expect(result.labviewDiscovery?.inspection).toMatchObject({ status: "unavailable", commandCount: 1, unsupported: saved.labviewDiscovery?.inspection?.unsupported });
     expect(result.labviewDiscovery?.inspection?.reason).toContain("NI automation is unavailable");
-    expect(result.labviewDiscovery?.inspection?.reason).toContain("Open this project in LabVIEW, then choose Sync commands to retry");
+    expect(result.labviewDiscovery?.inspection?.reason).toContain("Open this project in LabVIEW, then choose Refresh commands to retry");
     expect(result.warnings).toContain(result.labviewDiscovery?.inspection?.reason);
     expect(saved).toEqual(unchanged);
   });

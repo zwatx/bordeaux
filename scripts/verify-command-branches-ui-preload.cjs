@@ -1,10 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const noop = () => () => undefined;
+const forbidden = (name) => (...args) => ipcRenderer.invoke('branches:robot-call', name, args);
 contextBridge.exposeInMainWorld('bordeauxAPI', {
   platform: 'darwin', restoreLastProject: () => ipcRenderer.invoke('branches:restore'),
-  openRecentRobotProject: () => ipcRenderer.invoke('branches:catalog'),
+  openRecentRobotProject: () => ipcRenderer.invoke('branches:catalog'), // Local mocked catalog, no NI/robot connection.
+  linkRobotProject: () => ipcRenderer.invoke('branches:catalog'), // Placement mode's late link; the same local mock.
   saveProject: (project) => ipcRenderer.invoke('branches:save', project),
+  publishAgentSession: (snapshot) => ipcRenderer.send('branches:published', snapshot.project),
+  recordBranchHarnessConfirm: (message) => ipcRenderer.send('branches:confirm', message),
+  robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
+  getRobotFileConnection: async () => null, // Local offline settings read, not a transport.
+  ...Object.fromEntries(['prepareRobotFiles', 'probeRobotFiles', 'saveRobotFileSettings', 'trustRobotFiles', 'confirmRobotFiles', 'cancelRobotFiles',
+    'prepareRobotPush', 'confirmRobotPush', 'cancelRobotPush', 'pinRobotRevision', 'rollbackRobotRevision', 'connectRobot', 'disconnectRobot', 'exportRobot'].map(name => [name, forbidden(name)])),
   autosaveProject: async () => ({ saved: false }), setDirty: () => undefined,
-  listRecentRobotProjects: async () => [], getMcpStatus: async () => ({ enabled: false }),
+  listRecentRobotProjects: async () => [], getMcpStatus: async () => ({ enabled: true, generation: 1 }),
   getActiveAgentProposal: async () => null, onMcpStatus: noop, onAgentProposal: noop, onMenuCommand: noop,
 });

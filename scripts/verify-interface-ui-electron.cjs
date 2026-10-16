@@ -266,6 +266,38 @@ app.whenReady().then(async () => {
     await click('#select-a');
     assert.deepEqual(await draftState(), { value: 'Shooter 2', names: { a: 'Intake 2', b: 'Shooter 2' }, commits: 3, focused: false }, 'A dropped draft is not committed later');
     check('Text drafts commit once on Enter or blur, Escape restores, and drafts never move between owners');
+    // Opt-in first-match choosers (command placement): mount-only open, typed first match, inert bare/held/no-match Enter.
+    const firstMatch = () => evaluate(() => ({ active: document.activeElement.id || document.activeElement.className, open: Boolean(document.querySelector('.dropdown-panel')),
+      expanded: document.querySelector('#first-match-choice').getAttribute('aria-expanded'), option: document.querySelector('.dropdown-panel .cmd-picker-option.active strong')?.textContent ?? null,
+      picks: document.querySelector('#first-match-picks').textContent, value: document.querySelector('#first-match-value').textContent,
+      caret: document.activeElement.selectionStart ?? null, length: document.activeElement.value?.length ?? null }));
+    await click('#first-match-request'); await delay(150);
+    assert.equal((await firstMatch()).expanded, 'false', 'A later defaultOpen prop never opens a mounted chooser');
+    await click('#first-match-remount');
+    await wait(async () => (await firstMatch()).active === 'first-match-choice-search', 'mount-open chooser focuses its search');
+    assert.deepEqual(await firstMatch(), { ...(await firstMatch()), open: true, option: null, picks: '0' }, 'Mount-open activates nothing');
+    await key('Enter'); assert.deepEqual([(await firstMatch()).open, (await firstMatch()).picks], [true, '0'], 'Bare empty-query Enter picks nothing');
+    await win.webContents.insertText('in'); await delay();
+    assert.equal((await firstMatch()).option, 'Start intake', 'Typing activates the first match');
+    await key('Down'); assert.equal((await firstMatch()).option, 'Stop intake');
+    await key('Home'); let fm = await firstMatch(); assert.deepEqual([fm.option, fm.caret, fm.active], ['Stop intake', 0, 'first-match-choice-search'], 'Home moves the caret only');
+    await key('End'); fm = await firstMatch(); assert.deepEqual([fm.option, fm.caret], ['Stop intake', fm.length], 'End moves the caret only');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter', modifiers: ['isAutoRepeat'] }); win.webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers: ['isAutoRepeat'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' }); await delay();
+    assert.deepEqual([(await firstMatch()).open, (await firstMatch()).picks], [true, '0'], 'A repeated Enter never picks');
+    await replace('zzz'); await key('Enter'); assert.deepEqual([(await firstMatch()).open, (await firstMatch()).picks], [true, '0'], 'No-match Enter is inert');
+    await replace(''); await win.webContents.insertText(' '); await key('Enter'); assert.equal((await firstMatch()).picks, '0', 'A blank query activates nothing');
+    await key('Escape'); fm = await firstMatch(); assert.deepEqual([fm.open, fm.active], [false, 'first-match-choice'], 'First Escape closes to the trigger');
+    await key('Enter'); await wait(async () => (await firstMatch()).active === 'first-match-choice-search', 'reopen');
+    await win.webContents.insertText('sho'); await key('Enter'); fm = await firstMatch();
+    assert.deepEqual([fm.value, fm.picks, fm.active], ['Shoot note', '1', 'first-match-choice'], 'Typed first match + Enter picks once and returns focus');
+    await click('#first-match-short'); await key('Down');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('role')), 'option', 'Short chooser focuses its native option button');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter', modifiers: ['isAutoRepeat'] }); win.webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers: ['isAutoRepeat'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' }); await delay();
+    assert.deepEqual([(await firstMatch()).open, (await firstMatch()).picks], [true, '1'], 'A repeated Enter on a native option button never picks');
+    await key('Enter'); assert.equal((await firstMatch()).picks, '2', 'A fresh Enter on the option picks');
+    check('Opt-in chooser opens only at mount; typed first match picks; bare, blank, held and no-match Enter never pick; Home/End keep the caret');
     await openSearchChoice(); await win.webContents.insertText('Option 10'); await key('Down');
     await snap('controls-1440'); win.setContentSize(1100, 720); await delay(); await snap('controls-1100');
     const bounds = await evaluate(() => { const r = document.querySelector('.dropdown-panel').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: innerHeight }; });

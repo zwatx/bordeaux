@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { installOptimizerWorkerEvidence } = require('./verify-optimizer-ui-workers.cjs');
 
 const output = process.env.BORDEAUX_OPTIMIZER_UI_OUTPUT;
 const html = process.env.BORDEAUX_OPTIMIZER_UI_HTML;
@@ -11,6 +13,11 @@ let saveCount = 0;
 const checks = [];
 const errors = [];
 const knownConsoleWarnings = [];
+const workerEvidence = { documents: [], checkpoints: [] };
+let documentNumber = 0;
+let observerRegistration;
+const observerSource = installOptimizerWorkerEvidence.toString();
+const sha256 = value => createHash('sha256').update(value).digest('hex');
 app.setPath('userData', path.join(output, 'user-data'));
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -32,7 +39,112 @@ async function waitFor(fn, description, timeoutMs = 20_000) {
   }
   throw new Error(`Timed out waiting for ${description}`);
 }
+async function focusEditor() {
+  assert.ok(window.isFocused(), 'Native editor window lost focus');
+  assert.ok(window.webContents.isFocused(), 'Native editor webContents lost focus');
+  assert.equal(await evaluate(() => document.hasFocus()), true, 'Renderer document lost focus');
+}
+async function drain() {
+  await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+}
+async function capture(name) {
+  await drain();
+  await fs.writeFile(path.join(output, name), (await window.webContents.capturePage()).toPNG());
+}
+async function captureMinimum(name) {
+  window.setContentSize(1100, 720);
+  await delay(120);
+  await capture(name);
+  window.setContentSize(1440, 900);
+  await drain();
+}
+async function workerState() {
+  const evidence = await evaluate(() => {
+    const observer = window.__optimizerWorkers;
+    return observer && { observerSha256: observer.observerSha256,
+      installedAt: observer.installedAt, installedReadyState: observer.installedReadyState, installedScriptCount: observer.installedScriptCount,
+      installed: observer.isInstalled(), jobs: observer.jobs, problems: observer.problems };
+  });
+  assert.ok(evidence, 'Worker observer must be installed before application scripts');
+  assert.equal(evidence.installed, true, 'Worker observation must remain installed');
+  assert.equal(evidence.installedReadyState, 'loading', 'New-document observation must start during document loading');
+  assert.equal(evidence.installedScriptCount, 0, 'Worker observation must precede page scripts');
+  assert.equal(evidence.observerSha256, observerRegistration.observerSha256, 'Document must run the registered observer source');
+  assert.deepEqual(evidence.problems, [], 'Worker observer must retain complete evidence');
+  return evidence;
+}
+async function verifyObserverRegistration() {
+  const registered = window.webContents.session.getPreloadScripts().find(script => script.id === observerRegistration.id);
+  assert.deepEqual(registered, { id: observerRegistration.id, type: 'frame', filePath: observerRegistration.filePath });
+  const stat = await fs.lstat(observerRegistration.filePath);
+  assert.ok(stat.isFile() && !stat.isSymbolicLink(), 'Registered observer must remain a regular file');
+  assert.equal(sha256(await fs.readFile(observerRegistration.filePath)), observerRegistration.sha256, 'Registered preload source must remain unchanged');
+  assert.equal(await fs.readFile(observerRegistration.observerSourceFile, 'utf8'), observerSource);
+}
+async function archiveWorkers(reason = 'navigation') {
+  if (!documentNumber) return;
+  await verifyObserverRegistration();
+  workerEvidence.documents.push({ document: documentNumber, reason, ...await workerState() });
+  await fs.writeFile(path.join(output, 'worker-evidence.json'), JSON.stringify(workerEvidence, null, 2));
+}
+async function loadApp() {
+  await archiveWorkers();
+  await verifyObserverRegistration();
+  await window.loadFile(html);
+  documentNumber += 1;
+  // Initial admission for each fresh document only. No mid-flow focus recovery.
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  window.focus(); window.webContents.focus();
+  await waitFor(async () => window.isFocused() && window.webContents.isFocused() && await evaluate(() => document.hasFocus()), 'initial native document focus');
+  await workerState();
+}
+async function settledWorkers() {
+  let previousCount = -1;
+  return waitFor(async () => {
+    await drain();
+    const state = await workerState();
+    const unchanged = state.jobs.length === previousCount;
+    previousCount = state.jobs.length;
+    return unchanged && state.jobs.every(job => job.status !== 'pending') ? state : false;
+  }, 'all issued planning jobs to settle before request accounting');
+}
+async function markJobs(label) {
+  const state = await settledWorkers();
+  assert.ok(state.jobs.some(job => job.mode === 'editing'), 'Must observe actual editing Worker.postMessage requests');
+  return { label, document: documentNumber, count: state.jobs.length };
+}
+async function jobsSince(mark) {
+  assert.equal(mark.document, documentNumber, 'Request checkpoint must belong to the current document');
+  return (await settledWorkers()).jobs.slice(mark.count);
+}
+async function noJobsSince(mark) {
+  const jobs = await jobsSince(mark);
+  workerEvidence.checkpoints.push({ ...mark, jobs, passed: jobs.length === 0 });
+  assert.deepEqual(jobs, [], `${mark.label}: opening/reopening must issue zero additional planning jobs`);
+  check(mark.label);
+}
+async function strictEditing(pathId, accepted, displayed, artifact) {
+  const evidence = await waitFor(() => evaluate((pathId, accepted) => {
+    const result = window.__optimizerWorkers.latestEditing(pathId);
+    return result?.value?.status === 'ok' && result.value.comparison?.status === 'ready'
+      && result.value.acceptedTrajectory === accepted ? result : null;
+  }, pathId, accepted), 'the complete strict editing projection');
+  assert.equal(evidence.job.quality, 'final');
+  assert.equal(evidence.job.density, 56);
+  assert.equal(evidence.value.comparison.previewDensity, 56);
+  assert.equal(evidence.value.comparison.projectionVersion, 1);
+  assert.equal(evidence.value.trajectory.totalTimeS, Number(displayed.time));
+  assert.deepEqual(evidence.value.derived.finalTrajectory, evidence.value.trajectory, 'Projection must preserve the full strict trajectory');
+  assert.deepEqual(evidence.value.derived.trajectorySamples, evidence.value.bestEffort.samples);
+  if (artifact) {
+    assert.equal(evidence.job.acceptedDensity, artifact.samplesPerSegment);
+    assert.deepEqual(evidence.value.trajectory, artifact.result, 'Editing must preserve every accepted sample and action field');
+  }
+  await fs.writeFile(path.join(output, `editing-${documentNumber}-${evidence.job.sequence}.json`), JSON.stringify(evidence, null, 2));
+  return evidence;
+}
 async function click(selector, text, clickCount = 1) {
+  await focusEditor();
   await waitFor(() => evaluate((selector, text) => {
     const button = [...document.querySelectorAll(selector)].find((item) => text == null || (item.querySelector(':scope > span:first-child')?.textContent || item.textContent).trim() === text);
     return Boolean(button && !button.disabled && !button.closest('[inert]') && button.checkVisibility());
@@ -45,6 +157,7 @@ async function click(selector, text, clickCount = 1) {
     if (!button.contains(document.elementFromPoint(x, y))) throw new Error(`Control is obscured: ${selector}`);
     return { x, y };
   }, selector, text);
+  await focusEditor();
   window.webContents.sendInputEvent({ type: 'mouseMove', ...point });
   window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount, ...point });
   window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount, ...point });
@@ -52,9 +165,9 @@ async function click(selector, text, clickCount = 1) {
 }
 async function snapshot() {
   return evaluate(() => ({
-    time: document.querySelector('input[aria-label="Trajectory playback position"]')?.getAttribute('max'),
+    time: document.querySelector('[aria-label="Trajectory playback position"]')?.getAttribute('aria-valuemax'),
     geometry: document.querySelector('svg path[stroke="#05060a"][stroke-opacity="0.75"]')?.getAttribute('d'),
-    path: document.querySelector('.library-current-name')?.textContent,
+    path: document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent,
     status: document.querySelector('.optimizer-outcome[role="status"]')?.textContent,
     pending: Boolean(document.querySelector('.stage-plan .fieldcol[data-planning-ready="false"]')),
   }));
@@ -68,8 +181,8 @@ async function ready() {
 }
 async function save() {
   const before = saveCount;
-  await click('button[aria-label="Project menu"]');
-  await click('[role="menuitem"]', 'Save');
+  await click('.project-chip');
+  await click('[role="menuitem"][data-action="save"]');
   await waitFor(() => saveCount > before, 'the mocked save to complete');
   return structuredClone(saved);
 }
@@ -138,56 +251,78 @@ app.whenReady().then(async () => {
     else errors.push(details.message);
   });
   window.webContents.on('render-process-gone', (_event, details) => errors.push(`Renderer process gone: ${details.reason}`));
+  window.webContents.on('preload-error', (_event, filePath, error) => errors.push(`Preload failed (${filePath}): ${error.message}`));
   try {
-    await window.loadFile(html);
-    window.focus(); window.webContents.focus();
+    const directory = await fs.mkdtemp(path.join(output, 'worker-observer-'));
+    const filePath = path.join(directory, 'preload.cjs'), observerSourceFile = path.join(directory, 'observer.js');
+    const observerSha256 = sha256(observerSource);
+    const source = "const { contextBridge } = require('electron');\nif (process.isMainFrame) contextBridge.executeInMainWorld({ func: "
+      + observerSource + ', args: [' + JSON.stringify(observerSha256) + '] });\n';
+    await fs.writeFile(filePath, source, { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(observerSourceFile, observerSource, { flag: 'wx', mode: 0o600 });
+    // Synchronous registration precedes loadFile; Electron runs frame preloads before the fixture API preload.
+    const id = window.webContents.session.registerPreloadScript({ type: 'frame', filePath });
+    assert.ok(typeof id === 'string' && id.length > 0, 'Registered frame preload ID required');
+    observerRegistration = { mechanism: 'registered-frame-preload/contextBridge.executeInMainWorld', id, type: 'frame',
+      filePath, observerSourceFile, sha256: sha256(source), observerSha256 };
+    await fs.writeFile(path.join(output, 'observer-registration.json'), JSON.stringify(observerRegistration, null, 2));
+    await loadApp();
     await ready();
     assert.equal((await snapshot()).path, fixture.paths[0].name);
     check('normal trajectory is ready');
     assert.ok(await evaluate(() => document.querySelector('.library-rail').checkVisibility()));
-    assert.equal(await evaluate(() => document.querySelectorAll('.featmove').length), 0);
-    await evaluate(() => document.querySelectorAll('.featgrip')[1].focus());
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' });
-    await waitFor(() => evaluate(() => document.activeElement === document.querySelectorAll('.featgrip')[2]), 'keyboard reorder focus');
+    // Reordering lives in the full inspector (More) for the selected waypoint; Enter presses the button.
+    const pressButton = async (label) => {
+      assert.ok(await evaluate((label) => { const b = [...document.querySelectorAll('.ctxinsp button')].find((x) => x.textContent === label); b?.focus(); return document.activeElement === b; }, label), label + ' is focusable');
+      await focusEditor();
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+      window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+      await delay(250);
+    };
+    await click('.pt-wp', '1');
+    await click('.pp-more');
+    await pressButton('Move later');
     const reordered = await save();
     assert.deepEqual(reordered.paths[0].waypoints[2], fixture.paths[0].waypoints[1]);
-    await evaluate(() => document.querySelectorAll('.featgrip')[2].focus());
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Up' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Up' });
-    await waitFor(() => evaluate(() => document.activeElement === document.querySelectorAll('.featgrip')[1]), 'restored waypoint focus');
+    await waitFor(() => evaluate(() => document.querySelector('.ctxinsp .ctxinsp-t')?.textContent === 'Waypoint 2'), 'the moved waypoint stays selected');
+    await pressButton('Move earlier');
     assert.deepEqual((await save()).paths[0].waypoints, fixture.paths[0].waypoints);
-    check('waypoints reorder from the keyboard without visible arrow buttons');
-    await click('.library-tabs button', 'Routines');
+    await click('.pp-more');
+    check('waypoints reorder from the keyboard in the full inspector and keep their selection');
+    await click('.places .place', 'Routines');
     assert.ok(await evaluate(() => document.querySelector('.library-rail').checkVisibility() && !document.querySelector('.pathlib-panel')));
     check('routine and path libraries remain docked beside the field');
-    await click('button', 'Settings');
+    await click('.places .place', 'Settings');
     await click('.settings-general .seg-i', 'Imperial');
     await delay(250);
-    await fs.writeFile(path.join(output, 'document-settings.png'), (await window.webContents.capturePage()).toPNG());
-    await click('button', 'Editor');
+    await capture('document-settings.png');
+    await click('.places .place', 'Routines');
     assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
     await waitFor(() => evaluate(() => !document.querySelector('.routine-status')), 'routine preview');
     await delay(250);
-    await fs.writeFile(path.join(output, 'routine-toolbar.png'), (await window.webContents.capturePage()).toPNG());
-    await click('.library-tabs button', 'Paths');
+    await capture('routine-toolbar.png');
+    await click('.places .place', 'Paths');
     const imperialProject = await save();
     assert.equal(imperialProject.editor.unitSystem, 'imperial');
     assert.deepEqual(imperialProject.paths[0].waypoints, fixture.paths[0].waypoints);
     await evaluate(() => localStorage.setItem('bordeaux.unitSystem', 'metric'));
-    await window.loadFile(html);
+    await loadApp();
     await ready();
     assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
     check('document units save and reopen over a different machine preference without changing geometry');
-    await click('button', 'Settings');
+    await click('.places .place', 'Settings');
     await click('.settings-general .seg-i', 'Metric');
-    await click('button', 'Editor');
+    await click('.places .place', 'Paths');
     await ready();
     const normal = await snapshot();
+    const normalEvidence = await strictEditing(fixture.paths[0].id, false, normal);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       window.setContentSize(width, height);
       await delay(250);
-      await fs.writeFile(path.join(output, `inspector-${width}x${height}.png`), (await window.webContents.capturePage()).toPNG());
+      // The full inspector opens from the docked properties' More.
+      if (await evaluate(() => document.querySelector('.pp-more')?.getAttribute('aria-expanded') !== 'true')) await click('.pp-more');
+      await capture(`inspector-${width}x${height}.png`);
       const inspectorLayout = await evaluate(() => {
         const rail = document.querySelector('.stage-plan .rail-r').getBoundingClientRect();
         const field = document.querySelector('.fieldsvg').getBoundingClientRect();
@@ -202,8 +337,10 @@ app.whenReady().then(async () => {
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
         window.__optimizerOpeningProbe = { labels, stop: () => observer.disconnect() };
       });
+      const openingJobs = await markJobs(`strict Normal open/reopen issues zero jobs at ${width}×${height}`);
       await click('.optimizer-toggle');
       await stable(normal, 350, 'Opening the optimizer');
+      await noJobsSince(openingJobs);
       const openingLabels = await evaluate(() => {
         const probe = window.__optimizerOpeningProbe;
         probe.stop();
@@ -220,29 +357,36 @@ app.whenReady().then(async () => {
       });
       assert.deepEqual(optimizerLayout, inspectorLayout, 'Changing sidebar content must not move or resize the field');
       assert.ok(!await evaluate(() => /Loading|Preparing|Searching|Optimizing/.test(document.querySelector('.optimizer-panel').innerText)), 'Opening must not flash loading text');
-      await fs.writeFile(path.join(output, `optimizer-idle-${width}x${height}.png`), (await window.webContents.capturePage()).toPNG());
+      await capture(`optimizer-idle-${width}x${height}.png`);
       await click('button[title="Close optimization"]');
-      assert.ok(await evaluate(() => document.querySelector('.stage-plan .rail-r.collapsed') && !document.querySelector('.optimizer-panel') && document.querySelector('.inspector-tab')), 'Close must collapse the sidebar instead of returning to path details');
+      assert.ok(await evaluate(() => document.querySelector('.stage-plan .rail-r.collapsed') && !document.querySelector('.optimizer-panel') && document.querySelector('.pp-more')), 'Close must collapse the sidebar instead of returning to path details');
       assert.ok(await evaluate(() => document.activeElement === document.querySelector('.optimizer-toggle')), 'Closing optimization returns focus to its toolbar control');
-      await click('.inspector-tab');
+      const reopeningJobs = await markJobs(`strict Normal immediate reopen issues zero jobs at ${width}×${height}`);
+      await click('.optimizer-toggle');
+      await stable(normal, 350, 'Reopening strict Normal');
+      await noJobsSince(reopeningJobs);
+      await click('button[title="Close optimization"]');
+      await click('.pp-more');
       assert.ok(await evaluate(() => !document.querySelector('.stage-plan .rail-r.collapsed') && !document.querySelector('.optimizer-panel')), 'Inspector reopens explicitly');
       check(`inspector and optimizer preserve field geometry at ${width}×${height}`);
     }
     window.setContentSize(1440, 900);
     await delay(250);
     await click('.optimizer-toggle');
-    await click('.featnm', 'Start');
-    await click('.featnm', 'Start', 2);
+    await click('rect[data-role="wp"][data-idx="0"]');
+    await click('rect[data-role="wp"][data-idx="0"]', null, 2);
     await waitFor(() => evaluate(() => !document.querySelector('.optimizer-panel') && document.querySelector('.ctxinsp')), 'double-click Start to replace Optimize with the inspector');
     assert.ok(await evaluate(() => document.querySelector('.ctxinsp').innerText.includes('Start')), 'Waypoint inspection opens the selected Start details');
     await click('.ctxinsp-x');
-    assert.ok(await evaluate(() => document.activeElement === document.querySelector('.inspector-tab')), 'Closing the inspector restores focus to its reopen tab');
+    assert.ok(await evaluate(() => document.activeElement === document.querySelector('.pp-more')), 'Closing the inspector restores focus to More');
     await click('.optimizer-toggle');
     check('double-clicking a waypoint opens its inspector over Optimize and closing returns focus');
     await click('.optimizer-main', 'Optimize');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-main')?.textContent === 'Cancel'), 'the current-path search');
     await switchPath(fixture.paths[1].name);
     await waitFor(() => evaluate(() => !!document.querySelector('.optimizer-background')), 'the named background search');
+    // The editor no longer waits on the optimizer's own baseline; let it settle before sampling the panel.
+    await waitFor(() => evaluate(() => document.querySelector('.optimizer-status')?.getAttribute('aria-busy') === 'false'), 'the current path baseline');
     const backgroundJob = await evaluate(() => ({
       owner: document.querySelector('.optimizer-background strong')?.textContent,
       cancelLabel: document.querySelector('.optimizer-background button')?.getAttribute('aria-label'),
@@ -255,10 +399,10 @@ app.whenReady().then(async () => {
     assert.equal(backgroundJob.currentBusy, 'false');
     assert.equal(backgroundJob.startDisabled, true);
     assert.equal(backgroundJob.label, 'Optimize');
-    await fs.writeFile(path.join(output, 'optimizer-background.png'), (await window.webContents.capturePage()).toPNG());
+    await capture('optimizer-background.png');
     window.setContentSize(1100, 720);
     await delay(120);
-    await fs.writeFile(path.join(output, 'optimizer-background-1100x720.png'), (await window.webContents.capturePage()).toPNG());
+    await capture('optimizer-background-1100x720.png');
     window.setContentSize(1440, 900);
     await click('.optimizer-background button');
     await waitFor(() => evaluate(() => !document.querySelector('.optimizer-background') && !document.querySelector('.optimizer-main')?.disabled), 'background cancellation to release the search slot');
@@ -275,7 +419,12 @@ app.whenReady().then(async () => {
     check('optimizer opens quietly at the inspector width, closes the whole sidebar, and searches only on explicit request');
     await assertCompactResult();
     check('result-first inspector keeps settings and solver details collapsed');
-    await fs.writeFile(path.join(output, 'optimizer-result.png'), (await window.webContents.capturePage()).toPNG());
+    await waitFor(() => evaluate(() => {
+      const button = document.querySelector('.optimizer-main');
+      return button && !button.disabled && getComputedStyle(button).opacity === '1';
+    }), 'the settled enabled Apply action');
+    await capture('optimizer-result.png');
+    await captureMinimum('optimizer-result-1100x720.png');
     await stable(normal, 1800, 'Unapplied candidate');
     let project = await save();
     assert.equal(project.paths[0].optimization?.accepted, undefined);
@@ -302,13 +451,14 @@ app.whenReady().then(async () => {
       observer.observe(heading, { childList: true, subtree: true, characterData: true });
       window.__optimizerGainProbe = { labels, stop: () => observer.disconnect() };
     });
-    const toolbarBeforeApply = await evaluate(() => [...document.querySelectorAll('.tb-right button')].map((button) => {
+    const toolbarBeforeApply = await evaluate(() => [...document.querySelectorAll('.toolbar .tb-actions button, .toolbar > .keyboard-help-trigger')].map((button) => {
       const box = button.getBoundingClientRect();
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     }));
+    const applyJobs = await markJobs('Apply retains the authored Normal reference');
     await click('.optimizer-panel button', 'Apply optimized');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the applied selection');
-    const toolbarAfterApply = await evaluate(() => [...document.querySelectorAll('.tb-right button')].map((button) => {
+    const toolbarAfterApply = await evaluate(() => [...document.querySelectorAll('.toolbar .tb-actions button, .toolbar > .keyboard-help-trigger')].map((button) => {
       const box = button.getBoundingClientRect();
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     }));
@@ -322,6 +472,13 @@ app.whenReady().then(async () => {
     assert.ok(accepted?.result?.samples?.length > 0, 'Apply must persist the actual accepted artifact');
     assert.equal(Number(applied.time), accepted.result.totalTimeS, 'Displayed time must match the saved trajectory exactly');
     await stable(applied, 6500, 'Applied candidate');
+    await strictEditing(fixture.paths[0].id, true, applied, accepted);
+    const appliedJobs = await jobsSince(applyJobs);
+    const selectedJobs = appliedJobs.filter(job => job.pathId === fixture.paths[0].id);
+    assert.equal(selectedJobs.filter(job => job.mode === 'editing' && job.acceptedIdentity !== null).length, 1, 'Apply requires one current accepted editing request');
+    assert.equal(selectedJobs.filter(job => job.mode !== 'editing' && !job.optimize).length, 0, 'Apply must retain Normal without another selected or authored reference request');
+    workerEvidence.checkpoints.push({ ...applyJobs, jobs: appliedJobs, passed: true });
+    check(applyJobs.label);
     const gainLabels = await evaluate(() => {
       const probe = window.__optimizerGainProbe;
       probe.stop();
@@ -331,6 +488,32 @@ app.whenReady().then(async () => {
     assert.ok(gainLabels.every((label) => label === expectedGainLabel), `Displayed gain changed while applying: ${JSON.stringify(gainLabels)}`);
     check('gain and percentage match actual normal timing and stay stable while applying');
     check('compare/apply selects and persists the exact candidate beyond the worker deadline');
+    await click('button[aria-label="Preview normal trajectory"]');
+    await stable(normal, 250, 'Retained authored Normal after Apply');
+    await click('button[aria-label="Preview optimized trajectory"]');
+    await click('button[title="Close optimization"]');
+    const historyJobs = await markJobs('Undo and Redo preserve the same authored Normal reference');
+    for (const redo of [false, true]) {
+      await focusEditor();
+      const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(redo ? ['shift'] : [])];
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Z', modifiers });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Z', modifiers });
+      await waitFor(() => evaluate((accepted) => document.querySelector('.optimizer-toggle')?.textContent === (accepted ? 'Optimized' : 'Optimize'), redo), redo ? 'Redo Apply' : 'Undo Apply');
+      await ready();
+      await stable(redo ? applied : normal, 250, redo ? 'Redo selected trace' : 'Undo selected trace');
+      const historyProject = await save();
+      if (redo) assert.deepEqual(historyProject.paths[0].optimization.accepted, accepted);
+      else assert.equal(historyProject.paths[0].optimization?.accepted, undefined);
+      await strictEditing(fixture.paths[0].id, redo, redo ? applied : normal, redo ? accepted : null);
+    }
+    await click('.optimizer-toggle');
+    await click('button[aria-label="Preview normal trajectory"]');
+    await stable(normal, 250, 'Authored Normal after Undo/Redo');
+    await click('button[aria-label="Preview optimized trajectory"]');
+    const historyRequests = await jobsSince(historyJobs);
+    assert.equal(historyRequests.filter(job => job.pathId === fixture.paths[0].id && job.mode !== 'editing' && !job.optimize).length, 0, 'History must reuse Normal at an unchanged physical key');
+    workerEvidence.checkpoints.push({ ...historyJobs, jobs: historyRequests, passed: true });
+    check(historyJobs.label);
     const layout = await evaluate(() => {
       const panel = document.querySelector('.optimizer-panel').getBoundingClientRect();
       const field = document.querySelector('.fieldsvg').getBoundingClientRect();
@@ -340,31 +523,70 @@ app.whenReady().then(async () => {
     assert.ok(layout.fieldHeight > layout.height * 0.5, 'The comparison field must remain usable with the inspector open');
     assert.ok(layout.fieldWidth > layout.width * 0.35, 'The optimizer inspector must leave room to inspect the route');
     check('optimizer inspector preserves field space');
-    await fs.writeFile(path.join(output, 'optimizer-applied.png'), (await window.webContents.capturePage()).toPNG());
+    await capture('optimizer-applied.png');
+    await captureMinimum('optimizer-applied-1100x720.png');
     await switchPath(fixture.paths[1].name);
     await switchPath(fixture.paths[0].name);
     await stable(applied, 300, 'Path switch');
     await save();
-    await window.loadFile(html);
+    await loadApp();
     await ready();
     await stable(applied, 500, 'Save/reload');
     check('applied timing and geometry survive path switching and save/reload');
-    await click('button', 'Settings');
+    await click('.places .place', 'Settings');
     await evaluate(() => {
       const input = document.querySelector('textarea[aria-label="Robot planning notes"]');
       if (!input) throw new Error('Robot planning notes missing');
       input.focus();
     });
+    await focusEditor();
     await window.webContents.insertText('Cosmetic optimizer verification note');
-    await click('button', 'Editor');
+    await click('.places .place', 'Paths');
     project = await save();
     assert.equal(project.robot.planning.notes, 'Cosmetic optimizer verification note');
     assert.deepEqual(project.paths[0].optimization.accepted, accepted);
     await ready();
     await stable(applied, 1000, 'Cosmetic robot note');
     check('cosmetic robot notes preserve the applied selection');
+    await strictEditing(fixture.paths[0].id, true, applied, accepted);
+    const coldJobs = await markJobs('cold accepted open requests only one authored Normal at density 56');
     await click('.optimizer-toggle');
+    await waitFor(() => evaluate(() => { const normal = document.querySelector('button[aria-label="Preview normal trajectory"]'); return normal && !normal.disabled; }), 'cold accepted Normal comparison to become ready from its actual worker completion');
     await stable(applied, 700, 'Reopening an applied selection');
+    const coldRequests = await jobsSince(coldJobs);
+    assert.equal(coldRequests.length, 1, 'Cold accepted open needs exactly one additional request after initial/library work settles');
+    assert.equal(coldRequests[0].pathId, fixture.paths[0].id);
+    assert.equal(coldRequests[0].mode, 'legacy');
+    assert.equal(coldRequests[0].optimize, false);
+    assert.equal(coldRequests[0].quality, 'final');
+    assert.equal(coldRequests[0].density, 56);
+    assert.equal(coldRequests[0].acceptedIdentity, null);
+    assert.equal(coldRequests[0].status, 'ready');
+    const coldPreview = await evaluate(sequence => window.__optimizerWorkers.valueFor(sequence), coldRequests[0].sequence);
+    // Separate solves have different wall-clock diagnostics. Preserve every physical trace/metadata field.
+    const withoutSolveWallTime = trajectory => {
+      if (!trajectory.optimization || !Object.hasOwn(trajectory.optimization, 'solveTimeMs')) return trajectory;
+      assert.ok(Number.isFinite(trajectory.optimization.solveTimeMs) && trajectory.optimization.solveTimeMs >= 0);
+      return { ...trajectory, optimization: { ...trajectory.optimization, solveTimeMs: 0 } };
+    };
+    assert.deepEqual(withoutSolveWallTime(coldPreview.finalTrajectory), withoutSolveWallTime(normalEvidence.value.trajectory), 'Cold authored Normal must reproduce the complete original Normal trace');
+    for (const field of ['prof', 'metrics', 'markers']) {
+      assert.deepEqual(coldPreview[field], normalEvidence.value.derived[field], `Cold Normal must preserve full ${field} projection metadata`);
+    }
+    await fs.writeFile(path.join(output, 'cold-normal-preview.json'), JSON.stringify(coldPreview, null, 2));
+    workerEvidence.checkpoints.push({ ...coldJobs, jobs: coldRequests, passed: true });
+    check(coldJobs.label);
+    await capture('optimizer-cold-ready.png');
+    await captureMinimum('optimizer-cold-ready-1100x720.png');
+    await click('button[aria-label="Preview normal trajectory"]');
+    await stable(normal, 250, 'Cold authored Normal reference');
+    await click('button[aria-label="Preview optimized trajectory"]');
+    await click('button[title="Close optimization"]');
+    const acceptedReopen = await markJobs('accepted reopen reuses selected and authored Normal with zero jobs');
+    await click('.optimizer-toggle');
+    await waitFor(() => evaluate(() => { const normal = document.querySelector('button[aria-label="Preview normal trajectory"]'); return normal && !normal.disabled; }), 'retained Normal after accepted reopen');
+    await stable(applied, 350, 'Reopened accepted reference');
+    await noJobsSince(acceptedReopen);
     assert.equal(await evaluate(() => [...document.querySelectorAll('.optimizer-panel button')].some((item) => item.textContent === 'Cancel')), false);
     assert.equal(await evaluate(() => document.querySelector('.optimizer-main')?.textContent), 'Applied');
     check('reopening an accepted result preserves it without starting a search');
@@ -385,7 +607,8 @@ app.whenReady().then(async () => {
     assert.deepEqual(project.paths[0].optimization.accepted, accepted, 'Optimize all must preserve the applied artifact');
     assert.equal(project.paths[1].optimization?.accepted, undefined, 'Optimize all must leave the other path on normal');
     check('Optimize all stages each path without changing selected trajectories');
-    await fs.writeFile(path.join(output, 'optimizer-all.png'), (await window.webContents.capturePage()).toPNG());
+    await capture('optimizer-all.png');
+    await captureMinimum('optimizer-all-1100x720.png');
     await switchPath(fixture.paths[1].name);
     const alternateNormal = await snapshot();
     await click('.optimizer-panel button', 'Apply optimized');
@@ -406,7 +629,9 @@ app.whenReady().then(async () => {
       if (!input) throw new Error('Corridor input missing');
       input.select();
     });
+    await focusEditor();
     await window.webContents.insertText('0.30');
+    await focusEditor();
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
     await waitFor(() => evaluate(() => document.activeElement !== document.querySelector('.optimizer-corridor input')), 'corridor edit to commit and move focus');
@@ -416,38 +641,42 @@ app.whenReady().then(async () => {
     project = await save();
     assert.ok(project.paths[0].optimization.accepted, 'Stale artifacts remain available for an explicit choice');
     check('changing the corridor invalidates the selection with an explicit stale state');
-    await click('.library-tabs button', 'Routines');
+    await capture('optimizer-stale.png');
+    await captureMinimum('optimizer-stale-1100x720.png');
+    await click('.places .place', 'Routines');
     await waitFor(() => evaluate(() => { const play = document.querySelector('button[aria-label="Play routine"]'); return play && !play.disabled && !document.querySelector('.routine-status'); }), 'the stale selection to use current normal routine planning');
     assert.ok((await save()).paths[0].optimization.accepted, 'Routine fallback must retain the stale artifact');
     check('stale accepted selections use current normal routine playback while retaining the artifact');
-    await click('.library-tabs button', 'Paths');
+    await click('.places .place', 'Paths');
     await click('.optimizer-panel button', 'Use normal');
     project = await save();
     assert.equal(project.paths[0].optimization.accepted, undefined);
     await ready();
     check('Use normal removes the accepted artifact');
-    await click('.library-tabs button', 'Routines');
+    await click('.places .place', 'Routines');
     await waitFor(() => evaluate(() => {
       const play = document.querySelector('button[aria-label="Play routine"]');
       return play && !play.disabled && !document.querySelector('.routine-status');
     }), 'routine playback after choosing normal');
     check('choosing normal restores routine playback');
-    await click('.library-tabs button', 'Paths');
+    await click('.places .place', 'Paths');
     await switchPath(fixture.paths[1].name);
-    await click('button', 'Settings');
+    await click('.places .place', 'Settings');
     await click('input[aria-label="Motor free speed"]');
     await evaluate(() => {
       const input = document.querySelector('input[aria-label="Motor free speed"]');
       if (!input) throw new Error('Motor free-speed input missing');
       input.select();
     });
+    await focusEditor();
     await window.webContents.insertText('1000');
     // Exercise one native blur, rather than fabricating a second focusout after
     // blur has already committed the robot configuration.
+    await focusEditor();
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
     await waitFor(() => evaluate(() => document.activeElement !== document.querySelector('input[aria-label="Motor free speed"]')), 'motor edit to commit and move focus');
-    await click('button', 'Editor');
+    await click('.places .place', 'Paths');
     await waitFor(async () => /Needs update/.test((await snapshot()).status || ''), 'physical robot edits to invalidate the applied trajectory');
     const currentNormalLabel = await evaluate(() => document.querySelector('button[aria-label="Preview normal trajectory"] b')?.textContent);
     assert.notEqual(currentNormalLabel, `${Number(alternateNormal.time).toFixed(2)} s`, 'Robot edits must not relabel old normal timing as current');
@@ -465,17 +694,22 @@ app.whenReady().then(async () => {
     check('physical robot edits invalidate applied timing and regenerate the current slower normal trajectory');
     assert.deepEqual(errors, [], 'Renderer console must remain free of unexpected errors');
     check('renderer console has no unexpected errors');
-    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, checks, errors, knownConsoleWarnings,
+    await settledWorkers();
+    await archiveWorkers('complete');
+    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, checks, errors, knownConsoleWarnings, workerEvidence,
       normalTimeS: Number(normal.time), optimizedTimeS: Number(applied.time), savedAcceptedTimeS: accepted.result.totalTimeS }, null, 2));
     app.exit(0);
   } catch (error) {
     console.error(error.stack || error);
+    const diagnosticErrors = [];
     if (window && !window.isDestroyed()) {
-      await fs.writeFile(path.join(output, 'failure.png'), (await window.webContents.capturePage()).toPNG());
-      await fs.writeFile(path.join(output, 'failure-dom.txt'), await evaluate(() => document.body.innerText));
+      for (const action of [() => capture('failure.png'), () => archiveWorkers('failure'),
+        async () => fs.writeFile(path.join(output, 'failure-dom.txt'), await evaluate(() => document.body.innerText))]) {
+        try { await action(); } catch (failure) { diagnosticErrors.push(String(failure)); }
+      }
     }
     await fs.writeFile(path.join(output, 'last-saved-project.json'), JSON.stringify(saved, null, 2));
-    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: false, checks, errors, knownConsoleWarnings, failure: error.message }, null, 2));
+    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: false, checks, errors, knownConsoleWarnings, workerEvidence, diagnosticErrors, failure: error.message }, null, 2));
     app.exit(1);
   }
 });

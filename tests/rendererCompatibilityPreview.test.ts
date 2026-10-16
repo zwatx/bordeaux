@@ -128,9 +128,11 @@ describe("renderer application", () => {
     expect(app).toContain("exportBdx");
     expect(app).not.toContain("exportRobot");
     expect(panels).not.toMatch(/LabVIEW|labview/);
-    expect(panels).toContain("h(ProjectMenu");
-    const projectMenu = fs.readFileSync(new URL("../src/renderer/components/ProjectMenu.jsx", import.meta.url), "utf8");
-    expect(projectMenu).toContain("Save also writes BDX files.");
+    expect(panels).toContain("props.project");
+    // Save keeps writing BDX files; a BDX failure after a saved workspace is its own status, not a lost project.
+    const projectChip = fs.readFileSync(new URL("../src/renderer/components/ProjectChip.jsx", import.meta.url), "utf8");
+    expect(projectChip).toContain("'Project saved · BDX files failed'");
+    expect(app).toContain("retryExport");
     expect(app).toContain("normalizeProjectData(raw)");
   });
 
@@ -170,7 +172,8 @@ describe("renderer application", () => {
 
   it("persists and restores the selected path and Robot project bookmark", () => {
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
-    expect(app).toContain("robotProjectBookmarkId: result.bookmarkId");
+    expect(app).toContain("withRobotLink(projectRef.current, result.editorLink)");
+    expect(app).toContain("restoreRobotCode(session.context, robotGeneration)");
     expect(app).toContain("activePathId }" );
     expect(app).toContain("const requestedPathId = next.editor && next.editor.activePathId");
     expect(app).toContain("openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration)");
@@ -216,9 +219,9 @@ describe("renderer application", () => {
 
   it("contains planner failures", () => {
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
-    // Every planning error blocks the editor, so every notice is an error alert.
-    expect(app).toContain("planningNotice(derivation.error, derivation.errorKind)");
-    expect(app).toContain("{ id: 'planning', error: true");
+    // A failed timing job never blocks editing: it is one error alert with a retry.
+    expect(app).toContain("editingFailure && { id: 'planning', error: true");
+    expect(app).toContain("action: { label: 'Try again', onClick: editing.retry }");
     const status = fs.readFileSync(new URL("../src/renderer/components/FieldStatus.jsx", import.meta.url), "utf8");
     expect(status).toContain("role: primary.error ? 'alert' : 'status'");
     expect(app).toContain("class AppErrorBoundary");
@@ -231,9 +234,10 @@ describe("renderer application", () => {
   });
 
   it("graphs authoritative stationary heading catch-up instead of forcing angular velocity to zero", () => {
-    const panels = fs.readFileSync(new URL("../src/renderer/components/Panels.jsx", import.meta.url), "utf8");
-    expect(panels).not.toContain("if (metric !== 'velocity') return 0");
-    expect(panels).toContain("derived.finalTrajectory");
+    const model = fs.readFileSync(new URL("../src/renderer/components/pathTimelineModel.js", import.meta.url), "utf8");
+    expect(model).not.toContain("if (metric !== 'velocity') return 0");
+    expect(model).toContain("derived.finalTrajectory");
+    expect(model).toContain("sample.angularVelocityRadps");
   });
 
   it("wires field gestures through the shared coalesced drag controller", () => {
@@ -272,6 +276,8 @@ describe("renderer application", () => {
     expect(html).not.toContain("wrlp-chap-bird-original.svg");
     expect(html).not.toContain("boot-splash");
     expect(panels).not.toContain("brand-mark");
-    expect(panels).toContain("'Bordeaux'");
+    // The brand is the window's title; the toolbar's first slot is the open project.
+    expect(html).toContain("<title>Bordeaux</title>");
+    expect(panels).not.toContain("brand-name");
   });
 });

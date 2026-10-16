@@ -1,5 +1,6 @@
 import { TOOL_SHORTCUTS } from '../components/KeyboardHelp';
 import { createLibraryDurations } from "../lib/libraryDurations";
+import { DeletionNotice } from "../components/DeletionNotice";
 import { FieldStatus } from "../components/FieldStatus";
 import * as React from "react";
 import { flushSync } from "react-dom";
@@ -9,12 +10,17 @@ import { PathPreview } from "../assets/path-preview";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
 import { authoredPath, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
-import { durationResult, optimizationOutdated, selectedTrajectoryOutcome } from "../lib/finalPlanningResult";
+import { durationResult, optimizationOutdated } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
-import { ContextInspector } from "../components/ContextInspector";
+import { ContextInspector, commandArguments } from "../components/ContextInspector";
 import { FIELD_DIMS, FieldView } from "../components/FieldView";
 import { Panels } from "../components/Panels";
+import { ProjectChip, firstFact, shortFact } from "../components/ProjectChip";
+import { DepartureHint, ProjectDeparture, ProjectPending, ProjectsDialog } from "../components/ProjectsDialog";
+import { checkpointMatch, createCheckpointChannel, createPersistenceQueue, departureCopy, lifecycleApi, readOfferedRecoveries, recoveryAfterListing, recoveryOutcome, reloadFromDisk, reloadRecovery,
+  rememberOfferedRecoveries, sameContext, sameDocument, showProjectSource, sourceChangeOf, sourceFact, unofferedRecoveries } from "../lib/projectLifecycle";
+import { useProjectDeparture } from "../hooks/useProjectDeparture";
 import { AppUpdateDialog } from "../components/AppUpdateDialog";
 import { useAppUpdates } from "../components/useAppUpdates";
 import { RobotPage } from "../components/RobotPage";
@@ -28,14 +34,15 @@ import { UI } from "../components/ui";
 import { PM } from "../lib/pathMath";
 import { agentProposalMatchesPublishedContext } from "../lib/agentProposalContext";
 import { PathLinks } from "../lib/pathLinks";
-import { finalPlanningError, planningNotice } from "../lib/planningFeedback";
 import {
   PROJECT_SCOPE, ROUTINE_SCOPE, applyProjectEntry, captureProjectChange, createUndoHistory, deleteFolder, linkedPathIds,
   pathScope, undoScopes, withLibraryFields,
 } from "../lib/undoHistory";
 import { AUTO } from "../lib/routineModel";
 import { focusIfAvailable } from "../lib/focusReturn";
+import { clearCommandPick, commandPickRequest, retireCommandPick } from "../lib/commandPick";
 import { commitFocusedDraft, enqueuePersistenceAfterPreflight, flushFocusedProjectDraft, hasProjectInputDraft, noteProjectDraftInput, projectFolderName, projectPersistenceStayedCurrent } from "../lib/draftPersistence";
+import { reconcileSavedRobotLink, withRobotLink } from "../lib/projectRobotLink";
 import { UnitPrefs } from "../lib/unitPreferences";
 import {
   createMarkerId as markerId,
@@ -44,11 +51,22 @@ import {
   createRoutineId as routineId,
 } from "../../shared/project/ids";
 import { normalizeProject as normalizeProjectData } from "../../shared/project/normalize";
+import { promoteRoutineProjectSchema } from "../../shared/project/routineSchema";
+import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
 import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../shared/project/defaults";
-import { blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
+import { blankProject, blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";
+import { createPathHoverStore } from "../lib/pathHoverStore";
 import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
+import { useEditingPlanning } from "../hooks/useEditingPlanning";
+import { useOptimizerComparison } from "../hooks/useOptimizerComparison";
+import { usePushSelection } from "../hooks/usePushSelection";
+import { PushControl } from "../components/PushControl";
+import { PointerDrag } from "../hooks/usePointerDrag";
+import { PathPanel } from "../components/PathPanel";
+import { PathTimeline, PathHoverReadout } from "../components/PathTimeline";
+import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
   const { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } = React;
   const h = React.createElement;
@@ -104,7 +122,8 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     return { ...request, derived: value || null, error: failed ? snapshot.error : null, pending: !value && !failed };
   }
 
-  const ACCENT = '#3f6fd0';
+  // Field selection is near-white: "what you're touching" without competing with alliance colors or the speed ramp.
+  const ACCENT = 'oklch(0.95 0.004 106)';
 
   const PENDING_PATH_PREVIEW = {
     sample: { pts: [], length: 0 },
@@ -122,17 +141,19 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
   const FIT = { x: 307, y: 7, w: 3285, h: 1569 };
 
   const usePlayback = (store) => useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  function EditablePlaybackField({ store, editStore, doc, derived, derivedPath, robot, plannerId, ...props }) {
-    const playback = usePlayback(store);
+  /**
+   * What the editor shows for the active path: a live draft preview while a pointer edit runs, the
+   * finished draft until its committed derivation arrives, else the committed derivation. The field
+   * and the band share one previewer; only the field requests, so a drag costs one preview job.
+   */
+  function useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, plannerId, request }) {
     const draft = useSyncExternalStore(editStore.subscribe, editStore.getSnapshot, editStore.getSnapshot);
-    const previewer = useMemo(() => PathPreview.create(), []);
     const editBase = useRef(null);
     const [preview, setPreview] = useState(() => previewer.getSnapshot());
-    useEffect(() => previewer.retain(), [previewer]);
     useEffect(() => previewer.subscribe(() => setPreview(previewer.getSnapshot())), [previewer]);
     useEffect(() => {
-      if (draft) previewer.request({ key: draft.id, path: draft, robot, plannerId, quality: 'interactive' });
-    }, [previewer, draft, robot, plannerId]);
+      if (request && draft) previewer.request({ key: draft.id, path: draft, robot, plannerId, quality: 'interactive' });
+    }, [previewer, request, draft, robot, plannerId]);
     if (draft && !editBase.current) editBase.current = doc;
     const finished = !draft && editStore.getLastResolution() === 'finish';
     const bridgeFinishedEdit = finished && editBase.current && (editBase.current === doc || derivedPath !== doc);
@@ -144,13 +165,151 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       ? { path: preview.path, value: preview.value }
       : null;
     const displayed = draftPreview || committedPreview || { path: derivedPath || doc, value: derived };
-    const currentSource = draft || doc;
-    return h(FieldView, { ...props, editStore, doc: displayed.path, derived: displayed.value, interactionReady: displayed.path === currentSource, robot, playTime: playback.time });
+    return { draft, displayed, interactionReady: displayed.path === (draft || doc) };
   }
-  function PlaybackTransport({ store, ...props }) {
+  function EditablePlaybackField({ store, fieldDoc, ...props }) {
     const playback = usePlayback(store);
-    return h(Panels.Transport, { ...props, playTime: playback.time, playing: playback.playing,
-      togglePlayback: store.toggle, seek: store.seek, restart: store.restart });
+    return h(FieldView, { ...props, doc: fieldDoc, playTime: playback.time });
+  }
+  /** One displayed result owns the field, timeline and transient problem selection. */
+  function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, plannerId, actions, sel, playbackStore,
+    issues = [], timingPending = false, stale = false, flushDraft }) {
+    const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, plannerId, request: true });
+    // Authored values follow the live draft; timing follows what the field shows for it.
+    const source = draft || doc;
+    const value = displayed.value || derived;
+    const fresh = useMemo(() => buildTimeline(value), [value]);
+    // While a change is re-timed, the last timing and problems for this path stay drawn, dimmed. They are
+    // display only: status, durations and push never read them. Another path never inherits them, and a
+    // failed timing job shows no timing rather than an older one.
+    const held = useRef({ id: null, tl: null, issues: [] });
+    if (held.current.id !== doc.id) held.current = { id: doc.id, tl: null, issues: [] };
+    if (!fresh.empty) held.current = { ...held.current, id: doc.id, tl: fresh };
+    if (!timingPending) held.current = { ...held.current, id: doc.id, issues };
+    const keepTiming = fresh.empty && timingPending && held.current.id === doc.id && held.current.tl;
+    const tl = keepTiming ? held.current.tl : fresh;
+    const hoverStore = useMemo(() => createPathHoverStore(), []);
+    const hoverPresses = useRef(new Set());
+    const hoverContext = useMemo(() => ({
+      eligible: !draft && !timingPending && !stale && !keepTiming && interactionReady
+        && displayed.path === doc && displayed.value === derived && tl === fresh && !tl.empty
+        && value.sample?.pts?.length > 1 && Number.isFinite(tl.total) && tl.total > 0,
+      total: tl.total,
+      ready: () => hoverPresses.current.size === 0 && !document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]'),
+    }), [draft, timingPending, stale, keepTiming, interactionReady, displayed.path, displayed.value, doc, derived, tl, fresh, value]);
+    React.useLayoutEffect(() => {
+      hoverStore.activate(hoverContext);
+      return () => hoverStore.deactivate(hoverContext);
+    }, [hoverStore, hoverContext]);
+    React.useLayoutEffect(() => {
+      const release = event => { hoverPresses.current.delete(event.pointerId); };
+      const blur = () => { hoverPresses.current.clear(); hoverStore.clear(); };
+      const modalSelector = 'dialog[open], [role="dialog"][aria-modal="true"]';
+      const containsModal = node => node.matches?.(modalSelector) || node.querySelector?.(modalSelector);
+      const observer = new MutationObserver(records => {
+        // Also retire a modal opened and closed in the same task before this observer runs.
+        if (document.querySelector(modalSelector)
+          || records.some(record => record.attributeName === 'open' && record.oldValue !== null
+            || record.attributeName === 'aria-modal' && record.oldValue === 'true'
+            || record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(containsModal))) hoverStore.clear();
+      });
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ['open', 'aria-modal', 'role'] });
+      window.addEventListener('pointerup', release, true);
+      window.addEventListener('pointercancel', release, true);
+      window.addEventListener('lostpointercapture', release, true);
+      window.addEventListener('blur', blur);
+      return () => {
+        observer.disconnect(); blur();
+        window.removeEventListener('pointerup', release, true);
+        window.removeEventListener('pointercancel', release, true);
+        window.removeEventListener('lostpointercapture', release, true);
+        window.removeEventListener('blur', blur);
+      };
+    }, [hoverStore]);
+    const shownIssues = timingPending && held.current.id === doc.id ? held.current.issues : issues;
+    const issuesStale = timingPending && shownIssues.length > 0;
+    const [issueSelection, setIssueSelection] = useState(null);
+    // A new result can put another problem at the same index, even with the same code.
+    const issueIndex = !sel.kind && issueSelection?.[0] === shownIssues ? issueSelection[1] : null;
+    // The workspace remounts for another path/project. Clear replaced lists permanently, including comparisons.
+    useEffect(() => {
+      setIssueSelection(choice => sel.kind || choice?.[0] !== shownIssues ? null : choice);
+    }, [shownIssues, sel.kind, sel.idx]);
+    useEffect(() => {
+      if (issueIndex == null) return undefined;
+      const onKey = (event) => { if (event.key === 'Escape' && !event.defaultPrevented) setIssueSelection(null); };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [issueIndex]);
+    const issue = shownIssues[issueIndex] || null;
+    const problemContext = useRef(null);
+    problemContext.current = { issues: shownIssues, tl, timed: !timingPending && !draft && interactionReady && !stale };
+    const inspectIssues = () => flushDraft() && problemContext.current.issues === shownIssues;
+    const selectIssue = (index) => {
+      if (!shownIssues[index] || !inspectIssues()) return false;
+      // A focused draft can commit synchronously; never select or seek a list it just replaced.
+      const current = problemContext.current;
+      if (current.issues !== shownIssues) return false;
+      actions.select(null, -1);
+      setIssueSelection([shownIssues, index]);
+      if (current.timed && !current.tl.empty) playbackStore.seek(tAtF(current.tl, shownIssues[index].f0));
+      return true;
+    };
+    // "Slow here" adds an ordinary zone the person can edit or undo; nothing is repaired silently.
+    const fixIssue = (target) => {
+      const pad = target.f1 - target.f0 < 0.04 ? 0.03 : 0;
+      const f0 = Math.max(0, target.f0 - pad), f1 = Math.min(1, target.f1 + pad);
+      const peak = tl.points.reduce((best, point) => point.f >= f0 && point.f <= f1 ? Math.max(best, point.v) : best, 0) || source.constraints.maxVel;
+      setIssueSelection(null);
+      actions.addSlowZone(f0, f1, Math.max(0.3, Math.round(peak * 0.7 * 20) / 20));
+    };
+    const problems = { issues: shownIssues, stale: issuesStale, selected: issueIndex, issue,
+      onInspect: () => { if (!inspectIssues()) return false; hoverStore.clear(); return true; },
+      onSelect: selectIssue, onClear: () => setIssueSelection(null), onFix: fixIssue, live: Boolean(draft) };
+    return h('div', { ref: rootRef, className: 'workcol', onPointerDownCapture: event => {
+      hoverPresses.current.add(event.pointerId); hoverStore.clear();
+    } }, children({ doc: source, fieldDoc: displayed.path, derived: value, tl, interactionReady, problems,
+      hoverStore, hoverContext, timingHeld: Boolean(keepTiming) }));
+  }
+  /** Under the field: the selection's properties beside the speed, time and command timeline. */
+  function PathBand({ doc, derived, tl, problems, robot, actions, edit, timingHeld, ...props }) {
+    const c = doc.constraints;
+    const limits = h('div', { className: 'pt-limits', key: doc.id },
+      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: robot.maxSpeed, onChange: (v) => actions.setConstraint({ maxVel: v }) }),
+      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
+    return h('section', { className: 'path-band', 'aria-label': 'Path details' },
+      h(PathPanel, { ...props, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
+        onFixIssue: problems.onFix, onClearIssue: problems.onClear }),
+      h(PathTimeline, { doc, derived, tl, robot, sel: props.sel, select: actions.select, edit, actions, playbackStore: props.playbackStore,
+        catalog: props.robotProject?.catalog, metric: props.metric, stale: props.stale || timingHeld, header: limits,
+        hoverStore: props.hoverStore, hoverContext: props.hoverContext, issues: problems.issues, issuesStale: problems.stale, selectedIssue: problems.selected }));
+  }
+  const BAND_MIN = 236;
+  /** The band height that fits the whole field above it at the current width. */
+  function balancedBand(size) {
+    if (!size) return 280;
+    const field = size.w * (FIT.h / FIT.w) + 12;
+    return Math.round(Math.max(BAND_MIN, Math.min(size.h * 0.6, size.h - field)));
+  }
+  /** Band height: drag, or arrows/Home/End with focus. Enter or double-click returns to the balanced height. */
+  function BandDivider({ height, max, onChange }) {
+    const pointerDrag = PointerDrag.useController();
+    const clampBand = (value) => Math.round(Math.max(BAND_MIN, Math.min(max, value)));
+    return h('div', { className: 'band-divider', role: 'separator', tabIndex: 0, 'aria-orientation': 'horizontal', 'aria-label': 'Resize timeline',
+      'aria-valuemin': BAND_MIN, 'aria-valuemax': Math.round(max), 'aria-valuenow': Math.round(height), title: 'Drag to resize · double-click to reset',
+      onPointerDown: (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const y0 = event.clientY, start = height;
+        pointerDrag.start(event, { cursor: 'ns-resize', move: (next) => onChange(clampBand(start - (next.clientY - y0))) });
+      },
+      onDoubleClick: () => onChange(null),
+      onKeyDown: (event) => {
+        const step = event.shiftKey ? 64 : 16;
+        const next = { ArrowUp: height + step, ArrowDown: height - step, Home: BAND_MIN, End: max }[event.key];
+        if (next != null) { event.preventDefault(); event.stopPropagation(); onChange(clampBand(next)); }
+        else if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onChange(null); }
+      } });
   }
   function RoutinePanelPlayback({ store, ...props }) {
     const playback = usePlayback(store);
@@ -160,7 +319,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
   function stableRoutineOverlay(previous, next) {
     const same = previous && previous.length === next.length && next.every((segment, index) => {
       const before = previous[index];
-      return before.nodeId === segment.nodeId && before.pts === segment.pts && before.state === segment.state
+      return before.nodeId === segment.nodeId && before.occurrenceId === segment.occurrenceId && before.pts === segment.pts && before.state === segment.state
         && before.kind === segment.kind && before.label === segment.label && before.idxLabel === segment.idxLabel;
     });
     return same ? previous : next;
@@ -178,93 +337,6 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     return h(RoutineTransport, { run, time: playback.time, playing: playback.playing, controls: store, running });
   }
 
-  /** Keeps the last valid interactive result visible while final planning runs independently. */
-  function useFinalPlanning(doc, robot, field, plannerId, enabled = true) {
-    const previewer = useMemo(() => PathPreview.create(), []);
-    const planner = useMemo(() => FinalPlanning.create(), []);
-    const [initial] = useState(() => ({ path: doc, value: null, error: null }));
-    const lastValid = useRef(initial.value ? { path: initial.path, value: initial.value } : null);
-    const requestedRevision = useRef(0);
-    const [attempt, setAttempt] = useState(0);
-    const [interactive, setInteractive] = useState(() => previewer.getSnapshot());
-    const [snapshot, setSnapshot] = useState(() => ({
-      status: 'pending',
-      key: doc.id,
-      path: initial.path,
-      value: initial.value,
-      error: initial.error,
-      errorPath: initial.error ? initial.path : null,
-      durationMs: 0,
-    }));
-
-    useEffect(() => previewer.retain(), [previewer]);
-    useEffect(() => previewer.subscribe(() => setInteractive(previewer.getSnapshot())), [previewer]);
-    useEffect(() => {
-      if (!enabled) return;
-      requestedRevision.current = previewer.request({ key: doc.id, path: doc, robot, plannerId, quality: 'interactive' });
-    }, [previewer, doc, robot, plannerId, enabled]);
-    useEffect(() => {
-      if (!enabled || interactive.revision !== requestedRevision.current) return undefined;
-      // Failed previews retain the last valid display path; errorPath identifies
-      // the current request that failed. Do not gate that error on display identity.
-      if (interactive.status === 'error' && interactive.errorPath === doc) {
-        setSnapshot({
-          status: 'error', key: doc.id, path: lastValid.current?.path || doc, value: lastValid.current?.value || null,
-          error: interactive.error, errorKind: 'interactive', errorPath: doc, durationMs: 0,
-        });
-        return undefined;
-      }
-      if (interactive.path !== doc || interactive.status !== 'ready' || !interactive.value) return undefined;
-      let active = true;
-      const interactiveResult = interactive.value;
-      lastValid.current = { path: doc, value: interactiveResult };
-      const request = planner.request(
-        { key: doc.id, path: doc, robot, field, plannerId },
-        { interactiveResult, deadline: 'common' },
-      );
-      setSnapshot({ status: 'pending', key: doc.id, path: doc, value: interactiveResult, error: null, errorPath: null, durationMs: 0 });
-      request.promise.then((result) => {
-        if (!active) return;
-        if (result.status === 'success') {
-          setSnapshot({ status: 'ready', key: doc.id, path: doc, value: result.value, error: null, errorPath: null, durationMs: result.durationMs || 0 });
-          return;
-        }
-        // The fallback stays only as the last displayed geometry; it is never current.
-        const failure = finalPlanningError(result);
-        setSnapshot({
-          status: result.status,
-          key: doc.id,
-          path: doc,
-          value: result.fallback || interactiveResult,
-          error: failure.error,
-          errorKind: failure.kind,
-          errorPath: doc,
-          durationMs: 0,
-        });
-      });
-      return () => { active = false; request.cancel(); };
-    }, [planner, doc, robot, field, plannerId, interactive, enabled, attempt]);
-
-    const current = snapshot.path === doc && snapshot.value
-      ? { path: doc, value: snapshot.value }
-      : null;
-    if (current) lastValid.current = current;
-    const displayed = current || lastValid.current;
-    return {
-      value: displayed && displayed.value,
-      path: displayed && displayed.path,
-      current: Boolean(current) && snapshot.status === 'ready',
-      error: snapshot.errorPath === doc ? snapshot.error : null,
-      // This hook prepares the selected trajectory; failures are blocking even on initial load.
-      errorKind: snapshot.errorPath === doc && snapshot.error ? snapshot.errorKind : null,
-      pending: interactive.status === 'pending' || snapshot.status === 'pending',
-      durationMs: snapshot.durationMs || 0,
-      optimization: snapshot.value?.finalOptimization || null,
-      // Requests final planning again for the same input, after a timeout.
-      retry: () => setAttempt((value) => value + 1),
-    };
-  }
-
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
     const [project, setProject] = useState(() => initialProject || freshProject());
     const appUpdates = useAppUpdates();
@@ -278,15 +350,70 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     useEffect(() => { if (page !== 'robot') setEditorPage(page); }, [page]);
     const [alliance, setAlliance] = useState('blue');
     const [showGrid, setShowGrid] = useState(true);
+    const deletionAction = useRef(null), deletionSequence = useRef(0);
+    const [deletionNotice, setDeletionNotice] = useState(null);
+    useEffect(() => () => {
+      if (deletionAction.current) deletionAction.current.active = false;
+      deletionAction.current = null;
+    }, []);
+    const retireDeletion = useCallback((beforeHide = false) => {
+      if (deletionAction.current) deletionAction.current.active = false;
+      deletionAction.current = null;
+      if (beforeHide && document.activeElement?.closest('.deletion-notice')
+        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) {
+        // Places survive workspace replacement and navigation to Settings; the field does not.
+        (document.querySelector('.toolbar .place[aria-current="page"]') || document.querySelector('.toolbar .place'))?.focus();
+      }
+      setDeletionNotice(null);
+    }, []);
+    const [fieldFocus, setFieldFocus] = useState(() => {
+      try { return localStorage.getItem('bordeaux.workspace.focus') === '1'; } catch (_) { return false; }
+    });
+    const toggleFieldFocus = useCallback(() => {
+      if (!fieldFocus) retireDeletion();
+      if (!fieldFocus && document.activeElement?.closest('.stage-plan .library-rail')) {
+        document.querySelector('.stage-plan .fieldsvg')?.focus();
+        if (document.activeElement?.closest('.library-rail')) document.querySelector('.toolbar .place')?.focus();
+      }
+      setFieldFocus(!fieldFocus);
+      try {
+        if (fieldFocus) localStorage.removeItem('bordeaux.workspace.focus');
+        else localStorage.setItem('bordeaux.workspace.focus', '1');
+      } catch (_) { /* Keep the window preference when storage is unavailable. */ }
+    }, [fieldFocus, retireDeletion]);
     const [view, setView] = useState(FIT);
-    const [graphOpen, setGraphOpen] = useState(false);
-    const [inspectorOpen, setInspectorOpen] = useState(true);
+    // The full inspector is the "More" drawer; everyday values sit in the band under the field.
+    const [inspectorOpen, setInspectorOpen] = useState(false);
+    const editPreviewer = useMemo(() => PathPreview.create(), []);
+    useEffect(() => editPreviewer.retain(), [editPreviewer]);
+    const [workSize, setWorkSize] = useState(null);
+    const [bandOverride, setBandOverride] = useState(null);
+    const workObserver = useRef(null);
+    // The band takes the height the whole-field fit leaves free, so it never costs field scale by default.
+    const workColumn = useCallback((element) => {
+      workObserver.current?.disconnect();
+      workObserver.current = null;
+      if (!element) return;
+      const stage = element.parentElement, library = element.previousElementSibling;
+      // A stable no-drawer, visible-library baseline also avoids a one-frame jump before ResizeObserver.
+      // Hidden rails have no layout box; their computed border-box width retains the same CSS source.
+      const measure = () => {
+        const w = stage.clientWidth - (library.offsetWidth || parseFloat(getComputedStyle(library).width));
+        const h = stage.clientHeight;
+        setWorkSize((current) => current && current.w === w && current.h === h ? current : { w, h });
+      };
+      measure();
+      workObserver.current = new ResizeObserver(measure);
+      workObserver.current.observe(stage);
+    }, []);
     const libraryDurations = useMemo(() => createLibraryDurations(FinalPlanning.create()), []);
     const times = useSyncExternalStore(libraryDurations.subscribe, libraryDurations.getSnapshot, libraryDurations.getSnapshot);
     useEffect(() => () => libraryDurations.cancel(), [libraryDurations]);
     const [optimizationOpen, setOptimizationOpen] = useState(false);
+    const bandMax = Math.max(BAND_MIN, Math.round((workSize?.h || 600) * 0.6));
+    const bandHeight = bandOverride != null ? Math.max(BAND_MIN, Math.min(bandMax, bandOverride))
+      : balancedBand(workSize);
     const [comparison, setComparison] = useState(null);
-    const inspectorTab = useRef(null);
     const restoreInspectorFocus = useRef(false);
     const openInspector = useCallback(() => {
       setComparison(null);
@@ -300,7 +427,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     useEffect(() => {
       if (!inspectorOpen && !optimizationOpen && restoreInspectorFocus.current) {
         restoreInspectorFocus.current = false;
-        inspectorTab.current?.focus();
+        document.querySelector('.pp-more')?.focus();
       }
     }, [inspectorOpen, optimizationOpen]);
     const appliedPreview = useRef(null);
@@ -323,8 +450,86 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const [exportError, setExportError] = useState('');
     const [bdxNotice, setBdxNotice] = useState('');
     const [projectLocation, setProjectLocation] = useState(null);
-    const [saveState, setSaveState] = useState({ status: 'idle', error: '' });
-    const [projectOpenError, setProjectOpenError] = useState(null);
+    const [saveState, setSaveStateValue] = useState({ status: 'idle', error: '' });
+    // A source failure carries a try number until a save succeeds (a BDX failure means the source saved). Only attempts
+    // the person starts (Retry, Save, a switch) count, so background autosaves keep the failure's text and announcement
+    // steady while editing continues, and a Retry that fails again at once is still a new, announced state.
+    // `saveStateEpoch` lets a cancelled Save restore exactly what it replaced, unless something newer has landed.
+    const failedSaves = useRef(0), saveStateRef = useRef(saveState), saveStateEpoch = useRef(0);
+    const setSaveState = useCallback((next, { user = false } = {}) => {
+      const failure = next.status === 'error' && !next.retryExport, prior = saveStateRef.current;
+      if (failure) failedSaves.current = user || !failedSaves.current ? failedSaves.current + 1 : failedSaves.current;
+      else if (next.status !== 'saving') failedSaves.current = 0;
+      // A write that starts while a source failure stands keeps that failure (its text, fixes and focus) until it
+      // succeeds or fails again; `writing` marks it busy. A Reload failure line belongs to that Reload, so it goes.
+      const value = failure ? { ...next, attempt: failedSaves.current }
+        : next.status === 'saving' && prior.status === 'error' && !prior.retryExport ? { ...prior, reloadError: undefined, writing: true } : next;
+      saveStateRef.current = value; saveStateEpoch.current += 1;
+      setSaveStateValue(value);
+    }, []);
+    const restoreSaveState = useCallback((prior, attempts) => {
+      failedSaves.current = attempts; saveStateRef.current = prior; saveStateEpoch.current += 1;
+      setSaveStateValue(prior);
+    }, []);
+    // Durability: the last recovery copy main confirmed for this document, and the origin of a restored draft.
+    const [recoveryState, setRecoveryState] = useState(null);
+    const [recoveredFrom, setRecoveredFrom] = useState(null);
+    // Reload from disk's receipt for the document it opened (the copy it kept), a Show file failure kept for the next
+    // menu, and outcomes of menu actions announced after the menu has closed.
+    const [reloadKept, setReloadKept] = useState(null);
+    const [showFailure, setShowFailure] = useState(null);
+    const [actionNotice, setActionNotice] = useState(null);
+    const announceAction = useCallback((text) => setActionNotice((current) => ({ key: (current?.key || 0) + 1, text })), []);
+    // An explicit Save's BDX regeneration after its source is saved: Git-shared Paths/*.bdx are not current until it ends.
+    const [bdxPending, setBdxPending] = useState(false);
+    // The live document's own recovery record is not a recovery to offer back to it.
+    const [sessionRecordId, setSessionRecordId] = useState(null);
+    const sessionContext = useRef(null);
+    const lifecycle = useMemo(() => lifecycleApi(typeof window === 'undefined' ? null : window.bordeauxAPI), []);
+    const checkpointChannel = useMemo(() => lifecycle ? createCheckpointChannel(lifecycle) : null, [lifecycle]);
+    useEffect(() => () => checkpointChannel?.dispose(), [checkpointChannel]);
+    // Only a load result binds document ownership. Later session reads may refresh that document's target and record.
+    const adoptSessionRecord = useCallback((session, epoch) => {
+      if (epoch !== documentEpoch.current || !sameDocument(sessionContext.current, session?.context) || session.context.targetGeneration < sessionContext.current.targetGeneration) return false;
+      sessionContext.current = session.context; setSessionRecordId(session.recoveryRecordId || null);
+      return true;
+    }, []);
+    const readBoundSession = useCallback(async () => {
+      const epoch = documentEpoch.current, session = await lifecycle.getProjectSession();
+      if (!adoptSessionRecord(session, epoch)) throw new Error('The project changed');
+      return session;
+    }, [adoptSessionRecord, lifecycle]);
+    const refreshSessionRecord = useCallback(() => {
+      if (lifecycle) void readBoundSession().catch(() => undefined);
+    }, [lifecycle, readBoundSession]);
+    const snapshotRevision = useRef(0), documentEpoch = useRef(0), exportSequence = useRef(0), exportJobs = useRef(new Set()), exportShown = useRef(0);
+    // Counts source writes main confirmed (not chip or BDX outcomes), so an older failure never replaces a newer save.
+    const sourceSaves = useRef(0);
+    const nextSnapshotRevision = useCallback(() => ++snapshotRevision.current, []);
+    // Startup holds the skeleton until main's bounded result (and any adoption) settles, so nothing editable flashes first.
+    const [startup, setStartup] = useState(() => typeof window !== 'undefined' && typeof window.bordeauxAPI?.getProjectStartup === 'function' ? 'pending' : 'done');
+    // Nothing is checkpointed until startup has settled and its accepted document (opened source or blank) is loaded:
+    // the editor's initial model is never the user's, and a reload keeps main's previous target until adoption.
+    const startupSettled = useRef(startup === 'done'), startupDetachFailed = useRef(false);
+    // Detaches main's save target under the original startup context and token (main checks both and that no adoption
+    // committed): target null, a fresh document session. The previous source comes back only as metadata. Without the
+    // seam, or if main refuses, nothing is checkpointed (the unscoped newProject is deliberately not used here).
+    // After a failed startup detach (and only then) a blocked save says how to continue; while startup is still pending
+    // its skeleton owns the window and there is nothing to say.
+    const showNoSaveTarget = useCallback(() => {
+      if (startupDetachFailed.current) setProjectsDialog({ mode: 'list', returnFocus: null, notice: { blocked: 'no-target', message: 'Open or create a project to save' } });
+    }, []);
+    const detachStartup = useCallback(async (context, transition) => {
+      const api = window.bordeauxAPI;
+      if (typeof api.detachProjectStartup !== 'function') return { ok: false, fact: 'This version can’t start a new project safely' };
+      try {
+        const result = await api.detachProjectStartup({ context, transition });
+        const location = result?.session?.location;
+        return location && !location.folderPath && !location.projectPath && result.session.context.documentSessionId !== context.documentSessionId
+          ? { ok: true, session: result.session } : { ok: false, fact: 'The previous project is still the save target' };
+      } catch (error) { return { ok: false, fact: firstFact(error) }; }
+    }, []);
+    const [projectsDialog, setProjectsDialog] = useState(null);
     const [unitSystem, setUnitSystemState] = useState(() => UnitPrefs.current());
     const setUnitSystem = useCallback((next) => {
       const units = UnitPrefs.set(next);
@@ -361,6 +566,8 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       return () => { active = false; };
     }, []);
 
+    // Link adoption shares source-save ordering, so a copy captures the selected code before rebasing it.
+    const persistenceQueue = useMemo(() => createPersistenceQueue(), []);
     const applyRobotProjectConnection = useCallback((result) => {
       setExportError('');
       setRobotProjectState({
@@ -373,11 +580,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         bookmarkId: result.bookmarkId,
         recentProjects: result.recentProjects || [],
       });
-      if (result.bookmarkId) {
-        setProject((current) => current.editor && current.editor.robotProjectBookmarkId === result.bookmarkId
-          ? current
-          : { ...current, editor: { ...(current.editor || {}), robotProjectBookmarkId: result.bookmarkId } });
-      }
+      if (result.editorLink) { const linked = withRobotLink(projectRef.current, result.editorLink); projectRef.current = linked; setProject(linked); }
     }, []);
 
     const linkRobotProject = useCallback(async () => {
@@ -385,42 +588,76 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         setRobotProjectState((current) => ({ ...current, status: 'error', error: 'Robot project linking is available in the Bordeaux desktop app.' }));
         return;
       }
-      const generation = ++robotRestoreGeneration.current;
+      const generation = ++robotRestoreGeneration.current, prior = robotProjectState;
       setRobotProjectState((current) => ({ ...current, status: 'loading', operation: 'scan', error: '', notice: '' }));
       try {
-        const result = await window.bordeauxAPI.linkRobotProject();
-        if (robotRestoreGeneration.current !== generation) return;
-        if (!result) {
-          setRobotProjectState((current) => ({ ...current, status: current.catalog ? 'ready' : 'unlinked', operation: null, error: '' }));
-          return;
-        }
-        applyRobotProjectConnection(result);
+        await persistenceQueue.enqueue(async () => {
+          if (robotRestoreGeneration.current !== generation) return;
+          const result = await window.bordeauxAPI.linkRobotProject(sessionContext.current);
+          if (robotRestoreGeneration.current !== generation) return;
+          if (!result) {
+            setRobotProjectState(prior);
+            return;
+          }
+          applyRobotProjectConnection(result);
+        });
       } catch (error) {
         if (robotRestoreGeneration.current !== generation) return;
-        setRobotProjectState((current) => ({ ...current, status: 'error', operation: null, catalog: null, integration: null, bookmarkId: null, error: operationErrorMessage(error) }));
+        setRobotProjectState((current) => ({ ...current, status: 'error', operation: null, catalog: null, integration: null, bookmarkId: null, suggestion: null, error: operationErrorMessage(error) }));
       }
-    }, [applyRobotProjectConnection]);
+    }, [persistenceQueue, applyRobotProjectConnection, robotProjectState]);
 
     const openRecentRobotProject = useCallback(async (id, expectedGeneration) => {
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.openRecentRobotProject !== 'function') return;
       const generation = expectedGeneration == null ? ++robotRestoreGeneration.current : expectedGeneration;
       setRobotProjectState((current) => ({ ...current, status: 'loading', operation: 'scan', error: '', notice: '' }));
       try {
-        const result = await window.bordeauxAPI.openRecentRobotProject(id);
-        if (robotRestoreGeneration.current !== generation) return;
-        applyRobotProjectConnection(result);
+        await persistenceQueue.enqueue(async () => {
+          if (robotRestoreGeneration.current !== generation) return;
+          const result = await window.bordeauxAPI.openRecentRobotProject(id, sessionContext.current);
+          if (robotRestoreGeneration.current !== generation) return;
+          applyRobotProjectConnection(result);
+        });
       } catch (error) {
         if (robotRestoreGeneration.current !== generation) return;
-        setRobotProjectState((current) => ({ ...current, status: 'error', operation: null, catalog: null, integration: null, bookmarkId: null, error: operationErrorMessage(error) }));
+        setRobotProjectState((current) => ({ ...current, status: 'error', operation: null, catalog: null, integration: null, bookmarkId: null, suggestion: null, error: operationErrorMessage(error) }));
+      }
+    }, [persistenceQueue, applyRobotProjectConnection]);
+
+    const restoreRobotCode = useCallback(async (context, generation) => {
+      setRobotProjectState((current) => ({ ...current, status: 'loading', operation: 'scan', suggestion: null }));
+      try {
+        const result = await window.bordeauxAPI.restoreProjectRobotCode(context);
+        if (robotRestoreGeneration.current !== generation) return;
+        if (result.catalog) applyRobotProjectConnection(result);
+        else setRobotProjectState((current) => ({ ...current, ...result, operation: null, catalog: null, integration: null, bookmarkId: null }));
+      } catch (error) {
+        if (robotRestoreGeneration.current === generation) setRobotProjectState((current) => ({ ...current, status: 'missing', operation: null, catalog: null, error: operationErrorMessage(error) }));
       }
     }, [applyRobotProjectConnection]);
+    const useSuggestedRobotCode = useCallback(async () => {
+      const suggestion = robotProjectState.suggestion;
+      if (!suggestion) return;
+      const generation = ++robotRestoreGeneration.current;
+      setRobotProjectState((current) => ({ ...current, status: 'loading', operation: 'scan', error: '' }));
+      try {
+        await persistenceQueue.enqueue(async () => {
+          if (robotRestoreGeneration.current !== generation) return;
+          const result = await window.bordeauxAPI.useSuggestedRobotCode(sessionContext.current, suggestion.id);
+          if (robotRestoreGeneration.current === generation) applyRobotProjectConnection(result);
+        });
+      } catch (error) {
+        if (robotRestoreGeneration.current === generation) setRobotProjectState((current) => ({ ...current, status: 'missing', operation: null, suggestion: null, error: operationErrorMessage(error) }));
+      }
+    }, [persistenceQueue, applyRobotProjectConnection, robotProjectState.suggestion]);
 
     const refreshRobotProject = useCallback(async () => {
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.refreshRobotProject !== 'function') return;
       const generation = robotRestoreGeneration.current;
-      setRobotProjectState((current) => ({ ...current, status: 'loading', operation: 'scan', error: '', notice: '' }));
+      // Like Build, a refresh keeps the link and its catalog; only the operation marks the pending work.
+      setRobotProjectState((current) => ({ ...current, operation: 'refresh', error: '', notice: '' }));
       try {
-        const result = await window.bordeauxAPI.refreshRobotProject();
+        const result = await window.bordeauxAPI.refreshRobotProject(sessionContext.current);
         if (robotRestoreGeneration.current !== generation) return;
         applyRobotProjectConnection(result);
       } catch (error) {
@@ -429,31 +666,15 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       }
     }, [applyRobotProjectConnection]);
 
-    const inspectLabviewCommands = useCallback(async () => {
-      if (!window.bordeauxAPI || typeof window.bordeauxAPI.inspectLabviewCommands !== 'function') return;
-      const generation = robotRestoreGeneration.current;
-      setRobotProjectState((current) => ({ ...current, operation: 'inspect', error: '', notice: '' }));
-      try {
-        const result = await window.bordeauxAPI.inspectLabviewCommands();
-        if (robotRestoreGeneration.current !== generation) return;
-        applyRobotProjectConnection(result);
-      } catch (error) {
-        if (robotRestoreGeneration.current !== generation) return;
-        setRobotProjectState((current) => ({ ...current, operation: null, error: operationErrorMessage(error) }));
-      }
-    }, [applyRobotProjectConnection]);
-
     const buildRobotCatalog = useCallback(async () => {
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.buildRobotCatalog !== 'function') return;
       const generation = robotRestoreGeneration.current;
       setRobotProjectState((current) => ({ ...current, operation: 'build', error: '', notice: '' }));
       try {
-        const result = await window.bordeauxAPI.buildRobotCatalog();
+        const result = await window.bordeauxAPI.buildRobotCatalog(sessionContext.current);
         if (robotRestoreGeneration.current !== generation) return;
-        if (result) {
-          applyRobotProjectConnection(result);
-          setRobotProjectState((current) => ({ ...current, notice: 'Generated command catalog built and loaded.' }));
-        }
+        // A successful build is quiet: the code status row shows the built catalog.
+        if (result) applyRobotProjectConnection(result);
         else setRobotProjectState((current) => ({ ...current, operation: null }));
       } catch (error) {
         if (robotRestoreGeneration.current !== generation) return;
@@ -466,17 +687,34 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const routine = routines.find((candidate) => candidate.id === routineLibrary.activeRoutineId) || routines[0];
     // One chronological journal; each surface undoes only its own scope or project-wide changes.
     const history = useMemo(() => createUndoHistory(), []);
-    const recordUndo = useCallback((entry) => { history.record(entry); force((x) => x + 1); }, [history]);
+    const recordUndo = useCallback((entry) => {
+      history.record(entry);
+      const action = deletionAction.current;
+      if (action && history.peekUndo(action.scopes) !== action.entry) retireDeletion();
+      force((x) => x + 1);
+      return entry;
+    }, [history, retireDeletion]);
+    // Advances only when a command branch's owner is replaced: the active routine changes, a command or output
+    // replaces its routes, or routine Undo/Redo restores content. Ordinary field and step edits keep it.
+    const branchGeneration = useRef(0);
     const commitRoutineState = useCallback((update) => {
-      recordUndo({ scope: ROUTINE_SCOPE, touches: [ROUTINE_SCOPE], kind: 'routines', state: clone(routineState(projectRef.current)) });
-      setProject((current) => withRoutineState(current, update(clone(routineState(current)))));
+      const current = projectRef.current, before = routineState(current);
+      const next = update(clone(before));
+      const entry = recordUndo({ scope: ROUTINE_SCOPE, touches: [ROUTINE_SCOPE], kind: 'routines', state: clone(before) });
+      if (next.activeRoutineId !== before.activeRoutineId) branchGeneration.current += 1;
+      // Compute once outside a replayable updater; Undo never downgrades source 1.1.
+      projectRef.current = promoteRoutineProjectSchema(withRoutineState(current, next));
+      setProject((value) => promoteRoutineProjectSchema(withRoutineState(value, next)));
+      return entry;
     }, [recordUndo]);
     const setRoutine = useCallback((update) => commitRoutineState((state) => {
       const current = state.routines.find((candidate) => candidate.id === state.activeRoutineId) || state.routines[0];
       const value = typeof update === 'function' ? update(current) : update;
       return { ...state, routines: state.routines.map((candidate) => candidate.id === current.id ? value : candidate) };
     }), [commitRoutineState]);
+    // Local preview choices: one route per branch and passes per conditional repeat. Never saved.
     const [routineOutcomes, setRoutineOutcomes] = useState({});
+    const [routinePasses, setRoutinePasses] = useState({});
     const [routineSel, setRoutineSel] = useState(null);
     const [routineCollapsed, setRoutineCollapsed] = useState({});
 
@@ -490,12 +728,14 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const doc = project.paths[activeIdx];
     const docRef = useRef(doc); docRef.current = doc;
     const projectRef = useRef(project); projectRef.current = project;
+    const catalogRef = useRef(null); catalogRef.current = robotProjectState.catalog;
     const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
     const autosaveRevision = useRef(0);
-    const bdxSaveFailure = useRef('');
+    const bdxSaveFailure = useRef(null);
+    // A source save's chip: saved, or the last BDX failure still waiting for its retry.
+    const savedState = () => bdxSaveFailure.current ? { status: 'error', ...bdxSaveFailure.current, retryExport: true } : { status: 'saved', error: '' };
     const autosaveTimer = useRef(0);
     const draftInputGeneration = useRef(0);
-    const persistenceTail = useRef(Promise.resolve());
     const [, force] = useState(0);
     const updateDirty = useCallback((next) => {
       dirtyRef.current = next;
@@ -530,46 +770,67 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
     const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId });
-    const enqueuePersistence = useCallback((operation) => {
-      const pending = persistenceTail.current.catch(() => undefined).then(operation);
-      persistenceTail.current = pending.then(() => undefined, () => undefined);
-      return pending;
-    }, []);
+    // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
+    const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
+    const enqueuePersistence = useCallback((operation) => persistenceQueue.enqueue(operation), [persistenceQueue]);
+    // One background checkpoint: a recovery copy first, then the source when there is a folder. Its own revision and
+    // context match the updates (registered before invoking); receipts here are storage facts, never departure permits.
+    const checkpointBackground = useCallback(async (project) => {
+      const epoch = documentEpoch.current, session = await readBoundSession(), revision = nextSnapshotRevision();
+      const noteRecovery = (update) => { const recovery = recoveryOutcome(update); if (recovery && epoch === documentEpoch.current) setRecoveryState(recovery); };
+      const update = await new Promise((resolve) => {
+        const stop = checkpointChannel.watch(checkpointMatch({ mode: 'background', snapshotRevision: revision, context: session.context }), (next) => {
+          noteRecovery(next);
+          if (next.source !== 'pending') { stop(); resolve(next); }
+        });
+        lifecycle.checkpointProject({ context: session.context, snapshotRevision: revision, project }).then((next) => { stop(); resolve(next); },
+          (error) => { stop(); resolve({ source: 'failed', sourceFact: operationErrorMessage(error), recovery: 'failed', recoveryFact: 'Recovery copy could not be saved' }); });
+      });
+      noteRecovery(update);
+      if (update.source === 'saved') sourceSaves.current += 1;
+      return { saved: update.source === 'saved', location: update.location, canonicalProject: update.canonicalProject,
+        ...(update.source === 'failed' || update.source === 'timed-out' ? { error: update.sourceFact || 'Couldn’t write the project', sourceChange: sourceChangeOf(update) } : {}) };
+    }, [checkpointChannel, lifecycle, nextSnapshotRevision, readBoundSession]);
+    const persistSource = useCallback((project) => lifecycle ? checkpointBackground(project) : window.bordeauxAPI.autosaveProject(project), [checkpointBackground, lifecycle]);
     const invalidateScheduledAutosave = useCallback(() => {
       autosaveRevision.current += 1;
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
       autosaveTimer.current = 0;
     }, []);
-    const scheduleAutosave = useCallback((immediate) => {
-      if (!window.bordeauxAPI || typeof window.bordeauxAPI.autosaveProject !== 'function') return;
+    const scheduleAutosave = useCallback((immediate, { user = false } = {}) => {
+      // While Reload from disk holds the queue nothing new is scheduled; it never restarts saves when it ends.
+      if (!window.bordeauxAPI || (!lifecycle && typeof window.bordeauxAPI.autosaveProject !== 'function') || !startupSettled.current || persistenceQueue.held()) return;
       const revision = ++autosaveRevision.current;
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
       autosaveTimer.current = 0;
       const persist = () => enqueuePersistence(async () => {
-        if (revision !== autosaveRevision.current) return;
+        if (revision !== autosaveRevision.current || !startupSettled.current) return;
+        // A checkpoint records unsaved work; a just-loaded or already saved model has none (and an empty first-use
+        // document must not become a recovery to offer back).
+        if (lifecycle && !user && !dirtyRef.current && !hasProjectInputDraft() && !editStore.getSnapshot()) return;
         const pendingInput = hasProjectInputDraft();
         const draftGeneration = draftInputGeneration.current;
         const sourceProject = projectRef.current;
         const editRevision = editStore.getRevision();
         setSaveState({ status: 'saving', error: '' });
-        const result = await window.bordeauxAPI.autosaveProject(materializeProject());
+        const result = await persistSource(materializeProject());
         if (revision === autosaveRevision.current) {
           if (result?.location) setProjectLocation(result.location);
-          setSaveState(result?.error ? { status: 'error', error: result.error } : bdxSaveFailure.current ? { status: 'error', error: bdxSaveFailure.current, retryExport: true } : { status: result?.saved && !pendingInput && !hasProjectInputDraft() ? 'saved' : 'draft', error: '' });
+          setSaveState(result?.error ? { status: 'error', error: result.error, sourceChange: result.sourceChange } : bdxSaveFailure.current ? { status: 'error', ...bdxSaveFailure.current, retryExport: true } : { status: result?.saved && !pendingInput && !hasProjectInputDraft() ? 'saved' : 'draft', error: '' }, { user });
         }
         if (revision === autosaveRevision.current && sourceProject === projectRef.current
           && editRevision === editStore.getRevision() && draftGeneration === draftInputGeneration.current
           && !pendingInput && !hasProjectInputDraft() && !editStore.getSnapshot() && result && result.saved) updateDirty(false);
       });
       if (immediate === true) {
-        void persist().catch((error) => { if (revision === autosaveRevision.current) setSaveState({ status: 'error', error: operationErrorMessage(error) }); });
+        void persist().catch((error) => { if (revision === autosaveRevision.current) setSaveState({ status: 'error', error: operationErrorMessage(error) }, { user }); });
         return;
       }
       autosaveTimer.current = window.setTimeout(() => {
         autosaveTimer.current = 0;
         void persist().catch((error) => { if (revision === autosaveRevision.current) setSaveState({ status: 'error', error: operationErrorMessage(error) }); });
       }, 900);
-    }, [editStore, enqueuePersistence, materializeProject, updateDirty]);
+    }, [editStore, enqueuePersistence, lifecycle, materializeProject, persistSource, persistenceQueue, setSaveState, updateDirty]);
 
     useEffect(() => {
       const onDraftInput = (event) => {
@@ -656,6 +917,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         }
         setAgentProposal(received);
         setAgentCandidateId(proposal.recommendedCandidateId || null);
+        retireDeletion(true);
         setPage(proposal.operation === 'configureRobot' ? 'robot' : 'plan');
       };
       const unsubscribe = window.bordeauxAPI.onAgentProposal((proposal) => {
@@ -688,52 +950,62 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     useEffect(() => { optimizer.sync(); }, [optimizer, project]);
     useEffect(() => () => optimizer.cancel(), [optimizer]);
     const optimizationKey = useMemo(() => optimizationInputKey(doc, robot, project.field), [doc, robot, project.field]);
-    const planningPath = useMemo(() => ({ ...doc }), [doc.id, optimizationKey, doc.optimization?.accepted]);
-    const normalPath = useMemo(() => authoredPath(doc), [doc.id, optimizationKey]);
-    const planningRobot = useMemo(() => robot, [optimizationKey]);
-    const planningField = useMemo(() => project.field, [optimizationKey]);
-    const selectedPlanning = useFinalPlanning(planningPath, planningRobot, planningField, plannerId);
+    const planningPath = useMemo(() => ({ ...doc }), [projectKey, doc.id, optimizationKey, doc.optimization?.accepted]);
+    const normalPath = useMemo(() => authoredPath(doc), [projectKey, doc.id, optimizationKey]);
+    const planningRobot = useMemo(() => robot, [projectKey, optimizationKey]);
+    const planningField = useMemo(() => project.field, [projectKey, optimizationKey]);
+    // Editing owns the selected solve; comparison reuses only its qualified complete projection.
+    const editing = useEditingPlanning(planningPath, planningRobot, planningField);
+    const { selected, normal, baselineTime } = useOptimizerComparison({ enabled: optimizationOpen, editing,
+      context: { documentKey: projectKey, pathId: doc.id, inputKey: optimizationKey, path: planningPath,
+        normalPath, robot: planningRobot, field: planningField, plannerId, previewDensity: PERSEG, projectionVersion: 1 } });
     const outdatedOptimization = optimizationOutdated(doc, optimizationKey);
-    const currentOptimization = Boolean(doc.optimization?.accepted) && !outdatedOptimization;
-    const normalPlanning = useFinalPlanning(normalPath, planningRobot, planningField, plannerId, optimizationOpen && currentOptimization);
-    const normal = currentOptimization ? normalPlanning : selectedPlanning;
-    const selectedReady = selectedPlanning.path === planningPath && !selectedPlanning.pending && Boolean(selectedPlanning.value?.finalTrajectory);
-    const justApplied = appliedPreview.current?.artifact === doc.optimization?.accepted && appliedPreview.current?.key === optimizationKey
-      ? appliedPreview.current.value : null;
-    const acceptedPreview = selectedReady ? (selectedPlanning.value.acceptedTrajectory ? selectedPlanning.value : null) : justApplied;
+    const selectedSettled = !editing.pending && editing.status !== 'idle';
+    const applied = appliedPreview.current;
+    const appliedMatches = applied?.documentKey === projectKey && applied.pathId === doc.id && applied.key === optimizationKey
+      && applied.plannerId === plannerId && applied.previewDensity === PERSEG && applied.projectionVersion === 1
+      && applied.artifact === doc.optimization?.accepted;
+    if (applied && (!appliedMatches || selectedSettled)) appliedPreview.current = null;
+    const justApplied = appliedMatches && editing.pending ? applied.value : null;
+    const acceptedPreview = selected?.accepted ? selected.value : justApplied;
     const accepted = acceptedPreview?.finalTrajectory || null;
-    const staleOptimization = Boolean(doc.optimization?.accepted && (doc.optimization.accepted.inputKey !== optimizationKey || (selectedReady && !accepted)));
+    const staleOptimization = Boolean(doc.optimization?.accepted && (outdatedOptimization || (selectedSettled && !selected?.accepted)));
     const optimizationEntry = optimizationState.paths[doc.id];
     const candidate = optimizationEntry?.key === optimizationKey ? optimizationEntry.value : null;
-    const normalReady = normal.path === (currentOptimization ? normalPath : planningPath)
-      && !normal.pending && !normal.error && Boolean(normal.value?.finalTrajectory);
-    const normalError = normal.error;
-    const normalBaseline = useRef(null);
-    if (normalReady) normalBaseline.current = { id: doc.id, key: optimizationKey, time: normal.value.prof.totalTime };
-    // Applying changes selection, not the normal baseline. Keep its comparison
-    // time while the accepted-result worker starts, only for identical inputs.
-    const baselineTime = normalBaseline.current?.id === doc.id && normalBaseline.current.key === optimizationKey
-      ? normalBaseline.current.time : null;
-    const comparisonMode = comparison?.id === doc.id && comparison.key === optimizationKey ? comparison.mode : 'selected';
+    const normalReady = normal.status === 'ready';
+    const normalError = editing.comparisonError || normal.error;
+    const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === optimizationKey ? comparison.mode : 'selected';
     const comparedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'normal' && normalReady ? normal.value : null;
     const selectedPreview = comparedPreview || acceptedPreview;
-    const derivation = selectedPreview
+    // The optimizer replaces the display only with a chosen comparison or accepted preview; otherwise the
+    // editing result stays on screen, so opening or closing it never swaps timing sources.
+    const comparing = optimizationOpen && Boolean(selectedPreview);
+    const derivation = comparing
       ? { value: selectedPreview, path: doc, current: true, pending: false, error: null, errorKind: null }
-      : { ...selectedPlanning, path: selectedPlanning.path === planningPath ? doc : selectedPlanning.path };
-    const planningStatus = planningNotice(derivation.error, derivation.errorKind);
-    const derived = derivation.value || PENDING_PATH_PREVIEW;
-    const derivationDoc = derivation.path || doc;
+      : { value: editing.value, path: doc, current: true, pending: editing.pending, error: null, errorKind: null };
+    // Problems never block editing; they are drawn on the path and timeline. A failed timing job keeps
+    // the geometry editable and offers another try.
+    // A path with fewer than two waypoints is unfinished authoring (a blank first-use path, or one being drawn), not
+    // a failure: no problem marks or failure notice, a placement hint instead, and Push stays unavailable.
+    const unfinishedPath = (doc.waypoints?.length || 0) < 2;
+    const editingFailure = editing.status === 'error' && !unfinishedPath ? editing.error : null;
+    const planIssues = comparing || unfinishedPath ? [] : editing.issues;
+    const derivedValue = derivation.value || PENDING_PATH_PREVIEW;
+    const derived = unfinishedPath && derivedValue.checks?.length ? { ...derivedValue, checks: [] } : derivedValue;
     const derivationCurrent = derivation.current;
-    const repairMode = Boolean(derivation.error);
-    const outlineDoc = repairMode ? doc : derivationDoc;
-    const outlinePreview = repairMode && derivationDoc !== doc ? PENDING_PATH_PREVIEW : derived;
     const reverseDistance = currentPathLength(derivation);
     useEffect(() => { if (!derivationCurrent) playbackStore.pause(); }, [derivationCurrent, playbackStore]);
 
     // The editor keeps provisional previews visible; only a ready, current result is its selected trajectory.
-    const selectedOutcome = useMemo(() => selectedPlanning.error ? { status: 'error', message: selectedPlanning.error.message }
-      : selectedReady ? selectedTrajectoryOutcome(selectedPlanning.value, doc, outdatedOptimization) : { status: 'pending' },
-    [selectedPlanning.error, selectedReady, selectedPlanning.value, doc, outdatedOptimization]);
+    // The hook builds a new error object each render; only its message identifies the failure.
+    const editingErrorMessage = editing.error?.message || null;
+    // Library time is the strict trajectory's; display-only best-effort timing never counts.
+    const selectedOutcome = useMemo(() => {
+      if (editing.pending) return { status: 'pending' };
+      if (doc.optimization?.accepted && !outdatedOptimization && !editing.acceptedTrajectory) return { status: 'error', message: 'The saved optimization could not be validated.', unvalidated: true };
+      return editing.ready ? { status: 'ready', seconds: editing.trajectory.totalTimeS }
+        : { status: 'error', message: editingErrorMessage || 'This path has a problem.' };
+    }, [editing.pending, editing.ready, editing.trajectory, editing.acceptedTrajectory, editingErrorMessage, doc, outdatedOptimization]);
     useEffect(() => {
       libraryDurations.update(
         { paths: project.paths, robot, field: project.field, plannerId, currentPath: doc, currentKey: optimizationKey },
@@ -754,11 +1026,43 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       editStore.begin(editablePath(docRef.current));
     }, [editStore]);
     const finishEdit = useCallback(() => {
+      const draft = editStore.getSnapshot();
+      if (draft && JSON.stringify(authoredPath(draft)) === JSON.stringify(authoredPath(docRef.current))) {
+        // Cancel unchanged gestures so retained draft previews and history both clear.
+        editStore.cancel();
+        return;
+      }
       const next = editStore.finish();
       if (!next) return;
       beginHistory();
       writeDoc(next);
     }, [beginHistory, editStore, writeDoc]);
+    const deletionEpoch = documentEpoch.current;
+    const deletionContext = useRef(null);
+    deletionContext.current = { page, projectKey };
+    const preflightDeletion = useCallback(() => {
+      if (deletionEpoch !== documentEpoch.current || projectTransitionRef.current
+        || document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) return false;
+      if (!flushProjectDraft()) return false;
+      flushSync(() => finishEdit());
+      return deletionEpoch === documentEpoch.current && !projectTransitionRef.current
+        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]');
+    }, [deletionEpoch, flushProjectDraft, finishEdit]);
+    const announceDeletion = (entry, message, detail) => {
+      if (!entry) return;
+      retireDeletion();
+      const action = { id: ++deletionSequence.current, entry, scopes: entry.scope === ROUTINE_SCOPE ? [ROUTINE_SCOPE, PROJECT_SCOPE] : [PROJECT_SCOPE],
+        epoch: documentEpoch.current, active: true, message, detail };
+      deletionAction.current = action; setDeletionNotice(action);
+    };
+    const undoDeletion = (action) => {
+      const eligible = () => action?.active && deletionAction.current === action && action.epoch === documentEpoch.current
+        && history.peekUndo(action.scopes) === action.entry;
+      if (!eligible() || !preflightDeletion() || !eligible()) return false;
+      const applied = history.undo(action.scopes, (entry) => applyUndoEntryRef.current(entry));
+      if (applied) { retireDeletion(); force((x) => x + 1); }
+      return applied;
+    };
     const cancelEdit = useCallback(() => {
       return editStore.cancel();
     }, [editStore]);
@@ -795,8 +1099,12 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         return { ...entry, path: editablePath(path) };
       }
       if (entry.kind === 'routines') {
-        const inverse = { ...entry, state: clone(routineState(current)) };
-        setProject((value) => withRoutineState(value, entry.state)); setRoutineSel(null);
+        // Restored synchronously, as commits are, so a second history step before render inverts this state;
+        // the functional update keeps unrelated project changes queued since.
+        const inverse = { ...entry, state: clone(routineState(current)) }, restored = clone(entry.state);
+        branchGeneration.current += 1;
+        projectRef.current = promoteRoutineProjectSchema(withRoutineState(current, restored));
+        setProject((value) => promoteRoutineProjectSchema(withRoutineState(value, restored))); setRoutineSel(null);
         return inverse;
       }
       const applied = applyProjectEntry(current, entry, docRef.current?.id ?? null);
@@ -816,11 +1124,11 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const scopes = undoScopes(page, doc.id);
     const scopeKey = scopes.join('\n');
     const stepHistory = (direction) => () => {
-      if (cancelEdit()) return;
-      if (history[direction](scopeKey.split('\n'), (entry) => applyUndoEntryRef.current(entry))) force((x) => x + 1);
+      if (cancelEdit()) { retireDeletion(); return; }
+      if (history[direction](scopeKey.split('\n'), (entry) => applyUndoEntryRef.current(entry))) { retireDeletion(); force((x) => x + 1); }
     };
-    const undo = useCallback(stepHistory('undo'), [cancelEdit, history, scopeKey]);
-    const redo = useCallback(stepHistory('redo'), [cancelEdit, history, scopeKey]);
+    const undo = useCallback(stepHistory('undo'), [cancelEdit, history, scopeKey, retireDeletion]);
+    const redo = useCallback(stepHistory('redo'), [cancelEdit, history, scopeKey, retireDeletion]);
 
     const select = useCallback((kind, idx) => {
       commitFocusedDraft();
@@ -913,6 +1221,13 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       const point = clampWorld(rawPoint);
       const candidate = editablePath(docRef.current);
       const wps = candidate.waypoints, oldCount = wps.length;
+      if (!oldCount) {
+        // The first point of an empty (first-use) path: the same waypoint shape a new path starts with.
+        wps.push(buildWps([{ x: point.x, y: point.y, theta: 0, segType: 'bezier' }])[0]);
+        candidate._selAfter = 0;
+        commit(() => candidate);
+        return;
+      }
       const end = wps[oldCount - 1], before = wps[oldCount - 2] || end;
       const dx = point.x - end.x, dy = point.y - end.y, distance = Math.hypot(dx, dy);
       if (distance < 0.05) return;
@@ -990,31 +1305,37 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     useEffect(() => { setWaypointPreviewRequest(null); }, [doc, robot, plannerId]);
     useEffect(() => { if (doc._selAfter != null) { select('wp', doc._selAfter); mutate((d) => { delete d._selAfter; return d; }); } }, [doc._selAfter]);
 
-    const setWp = useCallback((i, patch) => commit((d) => {
-      const w = d.waypoints[i];
-      if (patch.x != null || patch.y != null) {
-        const next = clampWorld({ x: patch.x != null ? patch.x : w.x, y: patch.y != null ? patch.y : w.y });
-        moveWaypointTo(d, i, next);
-        patch = { ...patch, x: next.x, y: next.y };
-      }
-      Object.assign(w, patch);
-      if (patch.theta != null && i === 0) setWaypointFacing(d, i, patch.theta);
-      return d;
-    }), [commit]);
+    const setWp = useCallback((i, patch) => {
+      if (!docRef.current.waypoints[i]) return;
+      return commit((d) => {
+        const w = d.waypoints[i];
+        if (patch.x != null || patch.y != null) {
+          const next = clampWorld({ x: patch.x != null ? patch.x : w.x, y: patch.y != null ? patch.y : w.y });
+          moveWaypointTo(d, i, next);
+          patch = { ...patch, x: next.x, y: next.y };
+        }
+        Object.assign(w, patch);
+        if (patch.theta != null && i === 0) setWaypointFacing(d, i, patch.theta);
+        return d;
+      });
+    }, [commit]);
     const setWaypointPositionLink = (index, target) => {
       const before = materializeProject();
       finishEdit();
-      const next = target
+      let next = target
         ? PathLinks.linkPosition(before, doc.id, index, target.pathId, target.index, pathLinkId())
         : PathLinks.unlinkPosition(before, doc.id, index);
-      commitWaypointProject(before, next);
+      // An unnamed new group gets one name in the same change, so both points show it and one Undo removes it.
+      if (target && next !== before) next = PathLinks.nameNewSharedPoint(next, doc.id, index);
+      return commitWaypointProject(before, next) ? 'applied' : 'unchanged';
     };
     // Shared-position edits belong to the active path; deletions, library links, and applied
     // proposals are project-wide. Both restore only what they changed.
     const commitProjectChange = (before, next, scope = PROJECT_SCOPE) => {
       if (next === before) return;
-      recordUndo({ scope, kind: scope === PROJECT_SCOPE ? 'project' : 'waypoints', ...captureProjectChange(before, next, docRef.current?.id ?? null) });
-      setProject(next);
+      const entry = recordUndo({ scope, kind: scope === PROJECT_SCOPE ? 'project' : 'waypoints', ...captureProjectChange(before, next, docRef.current?.id ?? null) });
+      projectRef.current = next; setProject(next);
+      return entry;
     };
     const commitWaypointProject = (before, next) => commitProjectChange(before, next, pathScope(docRef.current.id));
     const toggleTheta = useCallback((i, on) => commit((d) => { d.waypoints[i].thetaOn = on; return d; }), [commit]);
@@ -1028,6 +1349,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const delWp = useCallback((i) => deleteFeature((d) => removeWaypoint(d, i)), [deleteFeature]);
 
     const enableTargetsAtFraction = (d, f) => {
+      if (d.waypoints.length < 2) return;
       const fractions = derived.wpFrac || PM.waypointFracs(d, derived.sample);
       let segment = 0;
       for (let i = 0; i < d.waypoints.length - 1; i++) {
@@ -1045,9 +1367,20 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       d._selT = d.targets.length - 1;
       return d;
     }), [commit, derived]);
-    const addMarkerAt = useCallback((p, visitFraction) => commit((d) => { const f = Number.isFinite(visitFraction) ? visitFraction : (derived.sample.pts.length > 1 ? PM.nearestFraction(p.x, p.y, derived.sample.pts) : 0.5); d.markers.push({ id: markerId(), f, name: 'event' + (d.markers.length + 1), cmd: 'none', group: 'sequential' }); d._selM = d.markers.length - 1; return d; }), [commit, derived]);
+    // A placed command opens its search once (transient; neither document nor history). The id is made once, outside the commit.
+    const [commandPick, setCommandPick] = useState(null);
+    const commandPickSeq = useRef(0);
+    const addMarkerAt = useCallback((p, visitFraction) => {
+      const id = markerId();
+      commit((d) => { const f = Number.isFinite(visitFraction) ? visitFraction : (derived.sample.pts.length > 1 ? PM.nearestFraction(p.x, p.y, derived.sample.pts) : 0.5); d.markers.push({ id, f, name: 'event' + (d.markers.length + 1), cmd: 'none', group: 'sequential' }); d._selM = d.markers.length - 1; return d; });
+      setCommandPick(commandPickRequest(++commandPickSeq.current, { catalog: robotProjectState.catalog, status: robotProjectState.status, documentKey: projectKey, pathId: doc.id, markerId: id }));
+    }, [commit, derived, robotProjectState.catalog, robotProjectState.status, projectKey, doc.id]);
     useEffect(() => { if (doc._selT != null) { select('rt', doc._selT); mutate((d) => { delete d._selT; return d; }); } }, [doc._selT]);
     useEffect(() => { if (doc._selM != null) { select('em', doc._selM); mutate((d) => { delete d._selM; return d; }); } }, [doc._selM]);
+    // After the selection effect above: the chooser reads the request at mount in the render that selects its marker.
+    useEffect(() => {
+      if (retireCommandPick(commandPick, { projectKey, docId: doc.id, markers: doc.markers, sel, selPending: doc._selM != null })) setCommandPick(clearCommandPick(commandPick.token));
+    }, [commandPick, sel, doc.id, doc.markers, doc._selM, projectKey]);
 
     const moveTargetTo = useCallback((i, p, visitFraction) => mutate((d) => { const t = d.targets[i]; if (!t) return d; const f = Number.isFinite(visitFraction) ? visitFraction : PM.nearestFraction(p.x, p.y, derived.sample.pts); t.f = f; if (t.anchor === 'dist') t.d = +(f * (derived.sample.length || 0)).toFixed(3); return d; }), [mutate, derived]);
     const rotateTargetTo = useCallback((i, p, snap) => mutate((d) => {
@@ -1108,8 +1441,10 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       return d;
     }), [commit, derived]);
     const delRange = useCallback((i) => deleteFeature((d) => { d.ranges.splice(i, 1); return d; }), [deleteFeature]);
-    const moveRangeHandle = useCallback((i, which, f) => mutate((d) => {
-      const rg = d.ranges[i]; const key = which ? 'f1' : 'f0'; const cf = Math.max(0, Math.min(1, f));
+    // Moves one zone end in its own anchor: distance, waypoint-local, or path fraction.
+    const placeRangeEnd = (d, i, which, f) => {
+      const rg = d.ranges[i]; if (!rg) return d;
+      const key = which ? 'f1' : 'f0'; const cf = Math.max(0, Math.min(1, f));
       const len = derived.sample.length || 1;
       if (rg.anchor === 'dist') { rg[which ? 'd1' : 'd0'] = +(cf * len).toFixed(2); }
       else if (rg.anchor === 'wp') {
@@ -1119,7 +1454,22 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       }
       else { rg[key] = cf; }
       return d;
-    }), [mutate, derived]);
+    };
+    const moveRangeHandle = useCallback((i, which, f) => mutate((d) => placeRangeEnd(d, i, which, f)), [mutate, derived]);
+    const setRangeEnd = useCallback((i, which, f) => {
+      const source = docRef.current;
+      if (!source.ranges[i]) return;
+      const next = placeRangeEnd(editablePath(source), i, which, f);
+      // Compare the authored endpoint after anchor conversion and rounding.
+      if (JSON.stringify(next.ranges[i]) === JSON.stringify(source.ranges[i])) return;
+      commit(() => next);
+    }, [commit, derived]);
+    const addRangeAt = useCallback((f) => addRange(Math.max(0, f - 0.08), Math.min(1, f + 0.08)), [addRange]);
+    const addSlowZone = useCallback((f0, f1, maxVel) => commit((d) => {
+      if (!d.ranges) d.ranges = [];
+      d.ranges.push({ f0, f1, anchor: 'param', maxVel, name: 'Slow' });
+      d._selR = d.ranges.length - 1; return d;
+    }), [commit]);
     useEffect(() => { if (doc._selR != null) { select('cr', doc._selR); mutate((d) => { delete d._selR; return d; }); } }, [doc._selR]);
 
     const setConstraint = useCallback((patch) => commit((d) => { Object.assign(d.constraints, patch); return d; }), [commit]);
@@ -1181,6 +1531,13 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     }), [commit]);
     const setHeadingMode = useCallback((m) => commit((d) => { d.headingMode = m; return d; }), [commit]);
     const toggleDriveBackward = useCallback(() => commit((d) => { d.driveBackward = !d.driveBackward; return d; }), [commit]);
+    // Reordering lives with the full inspector now that the plan page has no outline list.
+    const moveWpOrder = useCallback((i, direction) => {
+      const target = i + direction;
+      if (target < 0 || target >= docRef.current.waypoints.length) return;
+      commit((d) => reorderWaypoint(d, i, target));
+      select('wp', target);
+    }, [commit, select]);
     const nudgeWp = useCallback((i, dx, dy) => commit((path) => {
       const waypoint = path.waypoints[i];
       return waypoint ? moveWaypointTo(path, i, { x: waypoint.x + dx, y: waypoint.y + dy }) : path;
@@ -1192,13 +1549,16 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       return d;
     }), [commit, derived]);
     const setWaypointHeading = useCallback((i, deg) => mutate((d) => setWaypointFacing(d, i, deg)), [mutate]);
-    const faceWaypoint = useCallback((i, mode) => commit((d) => {
-      const w = d.waypoints[i]; let deg = w.theta || 0;
-      if (mode === 'next' && d.waypoints[i + 1]) { const t = d.waypoints[i + 1]; deg = Math.atan2(t.y - w.y, t.x - w.x) * 180 / Math.PI; }
-      else if (mode === 'prev' && d.waypoints[i - 1]) { const t = d.waypoints[i - 1]; deg = Math.atan2(t.y - w.y, t.x - w.x) * 180 / Math.PI; }
-      else if (mode === 'tangent') { const idx = (derived.wpIdx && derived.wpIdx[i]) || 0; const p = derived.sample.pts[idx]; if (p) deg = (p.heading || 0) * 180 / Math.PI; }
-      return setWaypointFacing(d, i, deg - (i === 0 && d.driveBackward ? 180 : 0));
-    }), [commit, derived]);
+    const faceWaypoint = useCallback((i, mode) => {
+      if (!docRef.current.waypoints[i]) return;
+      return commit((d) => {
+        const w = d.waypoints[i]; let deg = w.theta || 0;
+        if (mode === 'next' && d.waypoints[i + 1]) { const t = d.waypoints[i + 1]; deg = Math.atan2(t.y - w.y, t.x - w.x) * 180 / Math.PI; }
+        else if (mode === 'prev' && d.waypoints[i - 1]) { const t = d.waypoints[i - 1]; deg = Math.atan2(t.y - w.y, t.x - w.x) * 180 / Math.PI; }
+        else if (mode === 'tangent') { const idx = (derived.wpIdx && derived.wpIdx[i]) || 0; const p = derived.sample.pts[idx]; if (p) deg = (p.heading || 0) * 180 / Math.PI; }
+        return setWaypointFacing(d, i, deg - (i === 0 && d.driveBackward ? 180 : 0));
+      });
+    }, [commit, derived]);
     const headingMenu = useCallback((i, x, y, returnFocus) => {
       setHeadMenu({ x, y, returnFocus, items: [
         { label: 'Face next waypoint', icon: 'compass', onClick: () => faceWaypoint(i, 'next') },
@@ -1209,7 +1569,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       ] });
     }, [faceWaypoint, select]);
     const duplicateWp = useCallback((i) => commit((d) => duplicateWaypoint(d, i)), [commit]);
-    const reversePath = useCallback(() => reverseDistance == null ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }), [commit, reverseDistance]);
+    const reversePath = useCallback(() => reverseDistance == null || docRef.current.waypoints.length < 2 ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }), [commit, reverseDistance]);
     const reorderWp = useCallback((from, to) => commit((d) => reorderWaypoint(d, from, to)), [commit]);
     const insertWp = useCallback((i) => {
       const pts = derived.sample.pts;
@@ -1220,8 +1580,8 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     }, [addWaypoint, derived, doc.waypoints.length]);
     const inspActions = { setWp, toggleTheta, setHandleLen, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
       addTargetMid, addMarkerMid, addRangeMid,
-      setSegMeta, setSegmentHeadingMode, setSegmentLookAt, setJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null, reorderWp, insertWp,
-      setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward,
+      setSegMeta, setSegmentHeadingMode, setSegmentLookAt, setJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
+      setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward, moveWpOrder,
       openInspector };
     const fieldActions = { addWaypoint, appendWaypoint, moveWaypoint, moveHandle, addTargetAt, addMarkerAt, moveTargetTo, rotateTargetTo, moveMarkerTo, addRange, moveRangeHandle, beginEdit, finishEdit, cancelEdit,
       setWaypointHeading, moveSegmentLookAt, headingMenu, faceWaypoint, delWp, delTarget, delMarker, delRange,
@@ -1231,6 +1591,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const uniquePathName = (base) => uniqueItemName(project.paths, base);
     // Path history stays with its path; switching only changes which scope Undo applies to.
     const resetForPath = (i) => {
+      if (page !== 'plan') retireDeletion(true);
       commitFocusedDraft();
       finishEdit();
       routinePlaybackStore.reset();
@@ -1250,7 +1611,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     };
     const appendPath = (sourceId) => {
       const paths = materializeProject().paths;
-      const source = sourceId ? paths.find((path) => path.id === sourceId) : paths[activeIdx]; if (!source) return null;
+      const source = sourceId ? paths.find((path) => path.id === sourceId) : paths[activeIdx]; if (!source?.waypoints.length) return null;
       finishEdit();
       const name = uniquePathName('New path'), index = project.paths.length, path = blankPath(name, robot);
       const start = source.waypoints[source.waypoints.length - 1], angle = (start.theta || 0) * Math.PI / 180;
@@ -1277,6 +1638,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       const paths = pr.paths.slice(), source = paths.find((path) => path.id === fromPathId), targetIndex = paths.findIndex((path) => path.id === toPathId);
       if (!source || targetIndex < 0) return;
       const target = editablePath(paths[targetIndex]), end = source.waypoints[source.waypoints.length - 1];
+      if (!end || !target.waypoints[0]) return;
       target.waypoints[0] = PathLinks.copyPose(target.waypoints[0], end); paths[targetIndex] = target;
       const next = { ...pr, paths, pathLinks: [...pathLinks, { id: pathLinkId(), fromPathId, toPathId }] };
       commitProjectChange(pr, PathLinks.sync(next, target.id, pr.paths[targetIndex]));
@@ -1289,18 +1651,18 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       setProject((pr) => { const paths = pr.paths.slice(); paths.splice(index, 0, cp); return { ...pr, paths }; });
       resetForPath(index); return { index, name, id: cp.id, folderId: cp.folderId };
     };
-    const delPath = (i) => {
-      const before = materializeProject();
-      if (before.paths.length <= 1) return false;
-      const target = before.paths[i]; if (!target) return false;
+    const delPath = (id) => {
+      if (!preflightDeletion()) return false;
+      const before = projectRef.current, i = before.paths.findIndex((path) => path.id === id);
+      if (before.paths.length <= 1 || i < 0) return false;
+      const target = before.paths[i];
       const references = referencingRoutines(routineState(before).routines, target.id);
       if (references.length) { alert('“' + target.name + '” is used by ' + references.map((candidate) => candidate.name).join(', ') + '. Remove those steps before deleting the path.'); return false; }
-      if (!confirm('Delete path “' + target.name + '”? You can undo this.')) return false;
-      finishEdit();
       const pathLinks = (before.pathLinks || []).filter((link) => link.fromPathId !== target.id && link.toPathId !== target.id);
-      commitProjectChange(before, { ...before, paths: before.paths.filter((_, k) => k !== i), pathLinks: pathLinks.length === (before.pathLinks || []).length ? before.pathLinks : pathLinks });
+      const entry = commitProjectChange(before, { ...before, paths: before.paths.filter((_, k) => k !== i), pathLinks: pathLinks.length === (before.pathLinks || []).length ? before.pathLinks : pathLinks });
       setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(a, before.paths.length - 2) : a));
       setSel({ kind: null, idx: -1 }); playbackStore.reset();
+      announceDeletion(entry, 'Path deleted', 'Deleted path “' + target.name + '”.');
       return true;
     };
     const renamePath = (i, name) => { const clean = (name || '').trim(); if (!clean) return false; updatePathLibrary((pr) => { const paths = pr.paths.slice(); paths[i] = { ...paths[i], name: clean }; return { ...pr, paths }; }); return true; };
@@ -1315,14 +1677,12 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       setProject((pr) => ({ ...pr, pathFolders: (pr.pathFolders || []).map((folder) => folder.id === id ? { ...folder, name: clean } : folder) })); return true;
     };
     const deletePathFolder = (id) => {
-      const folder = (project.pathFolders || []).find((candidate) => candidate.id === id); if (!folder) return false;
-      const count = project.paths.filter((path) => path.folderId === id).length;
-      if (!confirm('Delete folder “' + folder.name + '”?' + (count ? ' Its ' + count + ' path' + (count === 1 ? '' : 's') + ' will stay in the library without a folder.' : '') + ' You can undo this.')) return false;
-      const deleted = deleteFolder(materializeProject(), id);
-      finishEdit();
-      // Restores only this folder and its unmoved members, never later library work.
-      recordUndo({ scope: PROJECT_SCOPE, touches: [], kind: 'folder', restore: deleted.change });
-      setProject(deleted.project);
+      if (!preflightDeletion()) return false;
+      const deleted = deleteFolder(projectRef.current, id);
+      if (!deleted) return false;
+      const entry = recordUndo({ scope: PROJECT_SCOPE, touches: [], kind: 'folder', restore: deleted.change });
+      projectRef.current = deleted.project; setProject(deleted.project);
+      announceDeletion(entry, 'Folder deleted · Paths kept', 'Deleted folder “' + deleted.change.folder.name + '”. Its ' + deleted.change.memberIds.length + ' paths stay in the library.');
       return true;
     };
     const movePathToFolder = (i, folderId) => updatePathLibrary((pr) => ({ ...pr, paths: pr.paths.map((path, index) => {
@@ -1330,17 +1690,20 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     }) }));
     const setActive = (i) => { if (i === activeIdx && page === 'plan') return; setComparison(null); resetForPath(i); };
     const resetForRoutine = () => {
-      setRoutineSel(null); routinePlaybackStore.reset(); setRoutineOutcomes({});
+      setRoutineSel(null); routinePlaybackStore.reset(); setRoutineOutcomes({}); setRoutinePasses({});
     };
     const uniqueRoutineName = (base) => uniqueItemName(routines, base);
     const setActiveRoutine = (id) => {
+      if (page !== 'auto') retireDeletion(true);
       if (id === routine.id && page === 'auto') return;
       commitFocusedDraft(); finishEdit(); playbackStore.reset();
       if (!routines.some((candidate) => candidate.id === id)) return;
+      if (id !== routine.id) branchGeneration.current += 1;
       setProject((current) => withRoutineState(current, { ...routineState(current), activeRoutineId: id }));
       resetForRoutine(); setPage('auto');
     };
     const addRoutine = () => {
+      if (page !== 'auto') retireDeletion(true);
       finishEdit(); playbackStore.reset();
       const created = blankRoutine(uniqueRoutineName('New routine'));
       commitRoutineState((state) => ({ routines: [...state.routines, created], activeRoutineId: created.id }));
@@ -1353,11 +1716,13 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       resetForRoutine(); return created;
     };
     const deleteRoutine = (id) => {
-      if (routines.length <= 1) return false;
-      const target = routines.find((candidate) => candidate.id === id); if (!target) return false;
-      if (!confirm('Delete routine “' + target.name + '”? You can undo this.')) return false;
-      commitRoutineState((state) => { const index = state.routines.findIndex((candidate) => candidate.id === id); const next = state.routines.filter((candidate) => candidate.id !== id); const activeRoutineId = state.activeRoutineId === id ? next[Math.min(index, next.length - 1)].id : state.activeRoutineId; return { routines: next, activeRoutineId }; });
-      resetForRoutine(); return true;
+      if (!preflightDeletion()) return false;
+      const live = routineState(projectRef.current), target = live.routines.find((candidate) => candidate.id === id);
+      if (live.routines.length <= 1 || !target) return false;
+      const entry = commitRoutineState((state) => { const index = state.routines.findIndex((candidate) => candidate.id === id); const next = state.routines.filter((candidate) => candidate.id !== id); const activeRoutineId = state.activeRoutineId === id ? next[Math.min(index, next.length - 1)].id : state.activeRoutineId; return { routines: next, activeRoutineId }; });
+      resetForRoutine();
+      announceDeletion(entry, 'Routine deleted', 'Deleted routine “' + target.name + '”.');
+      return true;
     };
     const renameRoutine = (id, name) => {
       const clean = (name || '').trim(); if (!clean) return false;
@@ -1428,49 +1793,133 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const lastRun = useRef({ steps: [], total: 0 });
     const run = useMemo(() => {
       if (page !== 'auto') return lastRun.current;
-      const nextRun = AUTO.buildRun(routine, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans);
+      const nextRun = AUTO.buildRun(routine, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans, { repeatPasses: routinePasses });
       lastRun.current = nextRun;
       return nextRun;
-    }, [page, routine, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans]);
-    useEffect(() => routinePlaybackStore.setTotal(run.total), [routinePlaybackStore, run.total]);
+    }, [page, routine, project.paths, robot, routineOutcomes, routinePasses, plannerId, robotProjectState.catalog, routinePlans]);
+    // A changed trace (source, plans or local choices) stops playback so the robot never shows stale geometry.
+    useEffect(() => { routinePlaybackStore.reset(); routinePlaybackStore.setTotal(run.total); }, [routinePlaybackStore, run]);
+    // Choices belong to one routine in one project.
+    useEffect(() => { setRoutineOutcomes({}); setRoutinePasses({}); }, [projectKey, routine.id]);
+    const routineIssues = useMemo(() => (page === 'auto' ? AUTO.analyze(routine, project.paths, robotProjectState.catalog) : []), [page, routine, project.paths, robotProjectState.catalog]);
     useEffect(() => { if (page !== 'plan') playbackStore.pause(); if (page !== 'auto') routinePlaybackStore.pause(); }, [page, playbackStore, routinePlaybackStore]);
 
+    const stepCount = (count, noun = 'step') => count + ' ' + noun + (count === 1 ? '' : 's');
+    /** Footer copy for a replacing branch intent that removed steps: the event, then what it removed. Names stay in the detail. */
+    const branchNotice = (intent, branch, outputs, commands, removed) => {
+      const steps = stepCount(removed), branchSteps = stepCount(removed, 'branch step');
+      const outputLabel = (name) => outputs.find((output) => output.name === name)?.label || name;
+      if (intent.kind === 'command') {
+        const next = commands.find((command) => command.id === intent.commandId);
+        return ['Command changed · ' + steps, (next ? 'Changed command to “' + next.label + '”.' : 'Cleared the command.') + ' Removed ' + branchSteps + '.'];
+      }
+      if (intent.kind === 'removeRoute') {
+        const index = branch.routes.findIndex((route) => route.id === intent.routeId);
+        return ['Route removed · ' + steps, 'Removed route ' + (index + 1) + ' (' + AUTO.routeSummary(branch.routes[index]) + ') and ' + steps + '.'];
+      }
+      if (intent.kind === 'rebuild') return ['Routes rebuilt · ' + steps, 'Rebuilt routes for “' + outputLabel(branch.output) + '”. Removed ' + branchSteps + '.'];
+      return intent.output
+        ? ['Output changed · ' + steps, 'Branching on “' + outputLabel(intent.output) + '”. Removed ' + steps + ' from the previous routes.']
+        : ['Branches removed · ' + steps, 'Removed the output branches and ' + steps + '.'];
+    };
+    /**
+     * Command branch edits name stable IDs and merge into the live routine; no captured branch or route steps are written.
+     * Every intent is fenced to the owner it rendered for. Replacing intents also preflight like deletion, once, and may
+     * announce; field intents never flush, because a draft commit during that preflight arrives as one of them.
+     * `keep` is a chooser's same-value choice: checked like any intent, it never preflights or records history.
+     * Applied and unchanged results carry `current()`, true while the result still owns the routine, for deferred focus.
+     */
+    const branchIntent = (owner) => (nodeId, intent) => {
+      const refused = { status: 'refused', removed: 0 };
+      const live = () => { const state = routineState(projectRef.current); return state.routines.find((item) => item.id === state.activeRoutineId) || state.routines[0]; };
+      const owns = () => {
+        const after = live(), epoch = documentEpoch.current, generation = branchGeneration.current;
+        return () => epoch === documentEpoch.current && generation === branchGeneration.current && live() === after
+          && deletionContext.current.page === 'auto' && !projectTransitionRef.current;
+      };
+      const fenced = () => owner.epoch === documentEpoch.current && owner.generation === branchGeneration.current
+        && owner.catalog === catalogRef.current && live().id === owner.routine.id;
+      const replacing = ['command', 'output', 'rebuild', 'removeRoute'].includes(intent.kind);
+      if (!fenced() || (replacing && (live() !== owner.routine || !preflightDeletion() || !fenced()))) return refused;
+      const was = AUTO.locate(owner.routine, nodeId)?.node, at = AUTO.locate(live(), nodeId), node = at?.node;
+      if (!was || !node || at.readOnly || node.type !== 'function' || node.cat !== 'command') return refused;
+      // The control rendered for this command, output and value type; a later replacement is not its owner.
+      const commandId = node.invocation?.commandId || '', branch = node.outputBranch, saved = was.outputBranch;
+      if (commandId !== (was.invocation?.commandId || '') || branch?.output !== saved?.output
+        || (branch?.schema !== saved?.schema && !robotValueSchemasEqual(branch?.schema, saved?.schema))) return refused;
+      if (intent.kind === 'keep') return { status: 'unchanged', removed: 0, current: owns() };
+      const commands = owner.catalog?.commands || [], outputs = AUTO.branchOutputs(commands.find((command) => command.id === commandId));
+      let result, patch;
+      if (intent.kind === 'command') {
+        if (intent.commandId === commandId) return { status: 'unchanged', removed: 0, current: owns() };
+        const next = intent.commandId ? commands.find((command) => command.id === intent.commandId) : null;
+        if (intent.commandId && !next) return refused;
+        result = { status: 'applied', removed: AUTO.routeSteps(branch?.routes || []) };
+        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next) } : null, outputBranch: undefined };
+      } else {
+        result = AUTO.branchEdit(branch, outputs, intent);
+        patch = { outputBranch: result.branch && clone(result.branch) };
+      }
+      if (result.status !== 'applied') return result.status === 'unchanged' ? { status: 'unchanged', removed: 0, current: owns() } : refused;
+      if (replacing && intent.kind !== 'removeRoute') branchGeneration.current += 1;
+      const entry = setRoutine((routine) => AUTO.update(routine, nodeId, patch));
+      if (replacing && result.removed > 0) announceDeletion(entry, ...branchNotice(intent, branch, outputs, commands, result.removed));
+      return { status: 'applied', removed: result.removed, current: owns() };
+    };
     const acq = useMemo(() => ({
       outcomes: routineOutcomes,
-      set: (id, patch) => setRoutine((r) => AUTO.update(r, id, patch)),
-      del: (id) => {
-        const node = AUTO.findNode(routine, id);
-        const label = node ? AUTO.nodeTitle(node, project.paths, robotProjectState.catalog) : 'this routine step';
-        // Only steps that own branches remove anything beyond themselves.
-        const routes = node ? AUTO.branches(node) : [];
-        const nested = routes.reduce((count, route) => count + AUTO.branchCount(route.nodes), 0);
-        const consequence = !routes.length ? '' : nested
-          ? ' Its branches and the ' + nested + (nested === 1 ? ' step' : ' steps') + ' in them will also be removed.'
-          : ' Its empty branches will also be removed.';
-        if (!confirm('Delete “' + label + '” from the routine?' + consequence + ' You can undo this.')) return;
-        const siblings = AUTO.siblingNodes(routine, id) || [];
-        const at = siblings.findIndex((candidate) => candidate.id === id);
-        const next = siblings[at + 1] || siblings[at - 1];
-        setRoutine((r) => AUTO.remove(r, id)); setRoutineSel(null);
-        requestAnimationFrame(() => {
-          const step = [...document.querySelectorAll('.rt-step')].find((element) => element.dataset.id === next?.id);
-          (step?.querySelector('.rt-step-body') || document.querySelector('.rt-panel .rt-add'))?.focus();
-        });
+      passes: routinePasses,
+      // Generated-fallback descendants are read-only: no edit reaches them from any surface.
+      set: (id, patch) => { if (!AUTO.locate(routine, id)?.readOnly) setRoutine((r) => AUTO.update(r, id, patch)); },
+      branch: branchIntent({ routine, catalog: robotProjectState.catalog, epoch: deletionEpoch, generation: branchGeneration.current }),
+      // Structural edits go through the model's checked operations; a rejected or no-op edit records no Undo entry.
+      edit: (operation) => {
+        const liveRoutine = () => { const live = routineState(projectRef.current); return live.routines.find((candidate) => candidate.id === live.activeRoutineId) || live.routines[0]; };
+        // 1. A gesture computed from an older routine (Undo, source or routine change mid-gesture) must not roll back newer source.
+        if (liveRoutine() !== routine) return { changed: false, routine, reason: 'The routine changed. Try again.' };
+        // 2. A focused draft lands first, as its own Undo entry. An invalid draft keeps focus and blocks the gesture.
+        if (!flushProjectDraft()) return { changed: false, routine, reason: 'Fix the highlighted value first.' };
+        // 3. The typed operation is checked again against the live routine, which now includes the draft.
+        const current = liveRoutine();
+        const result = AUTO.editRoutine(current, operation);
+        if (!result.changed) return result;
+        setRoutine(() => result.routine);
+        if (result.focusId) setRoutineSel(result.focusId);
+        return result;
       },
-      move: (id, dir) => setRoutine((r) => AUTO.move(r, id, dir)),
-      reorder: (id, targetId, before) => setRoutine((r) => AUTO.reorderRelative(r, id, targetId, before)),
+      preflight: preflightDeletion,
+      del: (id) => {
+        const currentRoutine = () => { const state = routineState(projectRef.current); return state.routines.find((item) => item.id === state.activeRoutineId) || state.routines[0]; };
+        if (currentRoutine() !== routine || !preflightDeletion()) return false;
+        const current = currentRoutine();
+        if (current.id !== routine.id) return false;
+        const at = AUTO.locate(current, id);
+        if (!at || at.readOnly) return false;
+        const label = AUTO.nodeTitle(at.node, projectRef.current.paths, robotProjectState.catalog);
+        const nested = AUTO.childLists(at.node).reduce((count, list) => count + AUTO.branchCount(list.nodes), 0);
+        const next = at.siblings[at.index + 1] || at.siblings[at.index - 1], listKey = JSON.stringify(at.listRef);
+        const entry = setRoutine((r) => AUTO.remove(r, id)); setRoutineSel(null);
+        announceDeletion(entry, 'Step deleted' + (nested ? ' · ' + nested + ' nested steps' : ''), 'Deleted “' + label + '”' + (nested ? ' and ' + nested + ' nested steps' : '') + '.');
+        const epoch = documentEpoch.current, after = currentRoutine(), focusOwner = document.activeElement;
+        requestAnimationFrame(() => {
+          if (epoch !== documentEpoch.current || deletionContext.current.page !== 'auto' || currentRoutine() !== after
+            || (document.activeElement !== focusOwner && document.activeElement !== document.body)
+            || projectTransitionRef.current || document.querySelector('dialog[open],[aria-modal="true"]')) return;
+          const step = [...document.querySelectorAll('.rt-step')].find((element) => element.dataset.id === next?.id);
+          const add = [...document.querySelectorAll('.rt-panel .rt-addwrap')].find((element) => element.dataset.list === listKey)?.querySelector('.rt-add');
+          (step?.querySelector('.rt-step-body') || add || document.querySelector('.rt-panel .rt-empty-add'))?.focus();
+        });
+        return true;
+      },
       select: (id) => {
         const selectedStep = document.querySelector('.rt-step.sel .rt-step-body');
         commitFocusedDraft(); setRoutineSel(id);
         if (id == null) requestAnimationFrame(() => { if (selectedStep?.isConnected) selectedStep.focus(); });
       },
-      addAfter: (id, type, cat) => setRoutine((r) => { const nn = AUTO.newNode(type, cat, project.paths[0].id); setRoutineSel(nn.id); return AUTO.insertAfter(r, id, nn); }),
-      addBranch: (decId, br, type, cat) => setRoutine((r) => { const nn = AUTO.newNode(type, cat, project.paths[0].id); setRoutineSel(nn.id); return AUTO.appendBranch(r, decId, br, nn); }),
-      addEnd: (type, cat) => setRoutine((r) => { const nn = AUTO.newNode(type, cat, project.paths[0].id); setRoutineSel(nn.id); return AUTO.append(r, nn); }),
-      prepend: (type, cat) => setRoutine((r) => { const nn = AUTO.newNode(type, cat, project.paths[0].id); setRoutineSel(nn.id); return AUTO.prepend(r, nn); }),
       setOutcome: (id, br) => setRoutineOutcomes((o) => ({ ...o, [id]: br })),
+      setPasses: (id, passes) => setRoutinePasses((current) => ({ ...current, [id]: passes })),
       openInEditor: (id) => { const idx = project.paths.findIndex((path) => path.id === id); if (idx >= 0) { setActive(idx); setPage('plan'); } },
-    }), [routineOutcomes, routine, project.paths, robotProjectState.catalog]);
+    }), [routineOutcomes, routinePasses, routine, project.paths, robotProjectState.catalog, preflightDeletion, deletionEpoch, branchGeneration.current]);
     const selectRoutineStep = useCallback((id) => { commitFocusedDraft(); setRoutineSel(id); }, []);
     const autoFieldActions = useMemo(() => ({ selectNode: (id) => { commitFocusedDraft(); setRoutineSel((s) => s === id ? null : id); }, select: () => selectRoutineStep(null) }), [selectRoutineStep]);
 
@@ -1485,7 +1934,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     const compareTrajectory = (mode) => {
       if (mode === 'normal' && !normalReady) return;
       playbackStore.reset();
-      setComparison({ id: doc.id, key: optimizationKey, mode });
+      setComparison({ documentKey: projectKey, id: doc.id, key: optimizationKey, mode });
     };
     const closeOptimization = () => {
       compareTrajectory('selected');
@@ -1520,7 +1969,8 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       if (!currentPath || optimizationInputKey(currentPath, current.robot, current.field) !== optimizationKey) return;
       try {
         const result = { version: 1, inputKey: optimizationKey, samplesPerSegment: PERSEG, result: clone(candidate.finalTrajectory) };
-        appliedPreview.current = { artifact: result, key: optimizationKey, value: candidate };
+        appliedPreview.current = { artifact: result, documentKey: projectKey, pathId: doc.id, key: optimizationKey,
+          plannerId, previewDensity: PERSEG, projectionVersion: 1, value: candidate };
         beginHistory();
         playbackStore.reset();
         setComparison(null);
@@ -1535,13 +1985,22 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     };
 
     // ---- desktop project workflow ----
-    const canReplaceProject = useCallback(() => flushProjectDraft()
-      && (!dirtyRef.current || confirm('Discard unsaved changes to this project?')), [flushProjectDraft]);
-    const loadProject = useCallback((incoming, location) => {
-      bdxSaveFailure.current = '';
+    // A restored recovery loads detached: no target, dirty, with its origin kept only as display metadata.
+    const loadProject = useCallback((incoming, location, { recoveredFrom: origin = null, session } = {}) => {
+      bdxSaveFailure.current = null;
+      retireDeletion(true);
+      documentEpoch.current += 1;
+      exportJobs.current.clear(); exportShown.current = 0;
+      sessionContext.current = session?.context || null;
+      setSessionRecordId(session?.recoveryRecordId || null);
+      refreshSessionRecord();
+      setBdxPending(false);
+      setRecoveryState(null);
+      setRecoveredFrom(origin);
+      setReloadKept(null); setShowFailure(null); setActionNotice(null);
       invalidateScheduledAutosave();
       cancelEdit();
-      optimizer.cancel();
+      optimizer.reset();
       setComparison(null);
       const name = projectFolderName(location);
       const next = normalizeProject(name ? { ...incoming, name } : incoming);
@@ -1559,13 +2018,15 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       setExportError('');
       setBdxNotice('');
       history.clear();
-      updateDirty(false);
-      setRobotProjectState((current) => ({ ...current, status: 'unlinked', operation: null, catalog: null, integration: null, bookmarkId: null, error: '', notice: '' }));
-      if (next.editor && next.editor.robotProjectBookmarkId) void openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration);
-    }, [cancelEdit, history, invalidateScheduledAutosave, openRecentRobotProject, playbackStore, routinePlaybackStore, updateDirty]);
+      updateDirty(Boolean(origin));
+      setRobotProjectState((current) => ({ ...current, status: 'unlinked', operation: null, catalog: null, integration: null, bookmarkId: null, suggestion: null, error: '', notice: '' }));
+      if (window.bordeauxAPI?.restoreProjectRobotCode && session?.context) void restoreRobotCode(session.context, robotGeneration);
+      else if (next.editor && next.editor.robotProjectBookmarkId) void openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration);
+    }, [cancelEdit, history, invalidateScheduledAutosave, openRecentRobotProject, restoreRobotCode, playbackStore, refreshSessionRecord, routinePlaybackStore, updateDirty]);
+    // Older desktop builds and browser fixtures without the startup API keep the previous restore race handling.
     useEffect(() => {
       let active = true;
-      if (!window.bordeauxAPI || typeof window.bordeauxAPI.restoreLastProject !== 'function') return undefined;
+      if (!window.bordeauxAPI || typeof window.bordeauxAPI.getProjectStartup === 'function' || typeof window.bordeauxAPI.restoreLastProject !== 'function') return undefined;
       const sourceProject = projectRef.current;
       const editRevision = editStore.getRevision();
       void enqueuePersistence(() => window.bordeauxAPI.restoreLastProject()).then(async (result) => {
@@ -1577,7 +2038,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
           return;
         }
         if (result.location) setProjectLocation(result.location);
-        loadProject(result.project, result.location);
+        loadProject(result.project, result.location, { session: result.session });
       }).catch((error) => console.warn('Could not restore the last project:', error));
       return () => { active = false; };
     }, [editStore, enqueuePersistence, invalidateScheduledAutosave, loadProject, updateDirty]);
@@ -1585,67 +2046,566 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
       invalidateScheduledAutosave();
       cancelEdit();
     }, [cancelEdit, invalidateScheduledAutosave]);
-    const openProject = useCallback((recentIndex, legacyFile = false) => {
-      if (!window.bordeauxAPI) return;
-      return enqueuePersistenceAfterPreflight(enqueuePersistence, canReplaceProject, async () => {
-        try {
-          const result = typeof recentIndex === 'number'
-            ? await window.bordeauxAPI.openRecentProject(recentIndex)
-            : legacyFile ? await window.bordeauxAPI.openProjectFile() : await window.bordeauxAPI.openProject();
-          if (result) { setProjectOpenError(null); prepareProjectReplacement(); setProjectLocation(result.location || null); setSaveState({ status: 'saved', error: '' }); loadProject(result.project, result.location); }
-        } catch (error) {
-          setProjectOpenError({ message: operationErrorMessage(error), kind: 'open', recentIndex, legacyFile });
-        }
+    const projectLocationRef = useRef(projectLocation); projectLocationRef.current = projectLocation;
+    // Every open, create and switch runs here, one at a time. The focused draft commits and a live gesture finishes
+    // first; from then until the target is loaded or the attempt ends, the transition owns the window: the Projects
+    // sheet (or the pending sheet for native-menu switches) stays modal and cannot be dismissed, because the backend
+    // activation cannot be cancelled. A second request is refused, not queued. In one persistence-queue step, pending
+    // work is saved (again, if anything changed while saving) before the target opens, so nothing can land between
+    // them. A failed save blocks the switch and keeps editing; an unsaved Untitled project needs Save or an explicit
+    // "Don't save". `before` runs such a fix inside the same ownership. The old project stays if opening fails.
+    const projectTransitionRef = useRef(null);
+    const [projectTransition, setProjectTransition] = useState(null);
+    const departureRef = useRef(null);
+    // The one owner of the window for a switch, restore, create or departure. Main issues the transition id (when it
+    // supports it), so a departure that arrives meanwhile can name it and resume once main has been told it ended.
+    const takeTransition = useCallback((owner, { label = '' } = {}) => {
+      const api = window.bordeauxAPI;
+      const transition = { owner, label, phase: owner === 'departure' ? 'saving' : 'opening', localId: 'transition-' + Math.random().toString(36).slice(2) };
+      transition.token = null;
+      transition.ready = typeof api?.beginProjectTransition === 'function'
+        ? Promise.resolve(api.getProjectSession()).then((session) => api.beginProjectTransition(session.context))
+          .then((token) => { transition.token = token || null; return token?.id || null; }, () => null)
+        : Promise.resolve(null);
+      projectTransitionRef.current = transition;
+      flushSync(() => setProjectTransition(transition));
+      return transition;
+    }, []);
+    const releaseTransition = useCallback((transition) => {
+      if (projectTransitionRef.current !== transition) return;
+      projectTransitionRef.current = null;
+      setProjectTransition(null);
+      void transition.ready.then(async (id) => {
+        if (transition.token) await Promise.resolve(window.bordeauxAPI?.endProjectTransition?.(transition.token)).catch(() => undefined);
+        departureRef.current?.transitionEnded(transition, id);
       });
-    }, [canReplaceProject, enqueuePersistence, loadProject, prepareProjectReplacement]);
-    const openProjectFolder = useCallback(() => {
-      if (!window.bordeauxAPI?.openProjectFolder) return;
-      return enqueuePersistenceAfterPreflight(enqueuePersistence, canReplaceProject, async () => {
-        try {
-          const result = await window.bordeauxAPI.openProjectFolder();
-          if (result) {
-            setProjectOpenError(null);
-            prepareProjectReplacement();
-            setProjectLocation(result.location);
-            setSaveState({ status: result.location?.projectPath ? 'saved' : 'draft', error: '' });
-            loadProject(result.project, result.location);
+    }, []);
+    const switchProject = useCallback((open, { discard = false, owner = 'menu', before } = {}) => {
+      if (!window.bordeauxAPI) return Promise.resolve({ canceled: true });
+      if (projectTransitionRef.current) return Promise.resolve({ busy: true });
+      if (!flushProjectDraft()) return Promise.resolve({ blocked: 'invalid' });
+      const hadGesture = Boolean(editStore.getSnapshot());
+      flushSync(() => finishEdit());
+      const transition = takeTransition(owner);
+      const phase = (next) => { if (projectTransitionRef.current === transition) setProjectTransition({ ...transition, phase: next }); };
+      const run = async () => {
+        // A fix inside this switch (Save copy) saves first, and may stop it: nothing opens after a stop result.
+        if (before) phase('saving');
+        await transition.ready;
+        const stop = before && await before(transition);
+        if (stop) return stop;
+        return enqueuePersistence(async () => {
+          const folder = projectLocationRef.current?.folderPath;
+          for (let round = 0, changed = hadGesture; ; round += 1) {
+            if (!changed && !dirtyRef.current && !hasProjectInputDraft() && !editStore.getSnapshot()) break;
+            if (!folder) { if (discard) break; return { blocked: 'untitled', subject: projectRef.current.name }; }
+            if (round === 3) {
+              setSaveState({ status: 'error', error: 'The project kept changing while saving.' });
+              return { blocked: 'failed', subject: projectFolderName(projectLocationRef.current) || projectRef.current.name, message: 'The project kept changing while saving' };
+            }
+            phase('saving');
+            invalidateScheduledAutosave();
+            const source = { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current };
+            setSaveState({ status: 'saving', error: '' });
+            let saved;
+            try { saved = await persistSource(materializeProject()); }
+            catch (error) { saved = { error: operationErrorMessage(error) }; }
+            if (!saved?.saved) {
+              const error = saved?.error || 'The project folder is unavailable.';
+              setSaveState({ status: 'error', error, sourceChange: saved?.sourceChange }, { user: true });
+              return { blocked: 'failed', subject: projectFolderName(projectLocationRef.current) || projectRef.current.name, message: firstFact(error), detail: error,
+                sourceChange: saved?.sourceChange };
+            }
+            setSaveState(savedState());
+            changed = !projectPersistenceStayedCurrent(source, { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current });
+            if (!changed) { updateDirty(false); break; }
           }
-        } catch (error) { setProjectOpenError({ message: operationErrorMessage(error), kind: 'folder' }); }
+          phase('opening');
+          const result = await open();
+          if (!result) return { canceled: true };
+          prepareProjectReplacement();
+          projectLocationRef.current = result.location || null;
+          setProjectLocation(result.location || null);
+          setSaveState({ status: result.location?.projectPath ? 'saved' : 'draft', error: '' });
+          loadProject(result.project, result.location, { recoveredFrom: result.recoveredFrom || null, session: result.session });
+          // An opened document is main's target, so checkpoints may run (also after a failed startup detach).
+          startupSettled.current = true; startupDetachFailed.current = false;
+          return { opened: true };
+        });
+      };
+      return run().finally(() => releaseTransition(transition));
+    }, [editStore, enqueuePersistence, finishEdit, flushProjectDraft, invalidateScheduledAutosave, loadProject, materializeProject, persistSource, prepareProjectReplacement, releaseTransition, setSaveState, takeTransition, updateDirty]);
+    // Reload from disk, a changed workspace's fix: main keeps these exact edits as a recovery copy, then opens the project
+    // as it is on disk. Nothing is written to the source. It uses the switch's owner (transition, queue, load reset), but
+    // it never saves first. Unless main reloaded, this document stays, still unsaved, with its fixes.
+    const reloadSource = useCallback(() => {
+      const api = window.bordeauxAPI;
+      if (!lifecycle || typeof api?.reloadProjectSource !== 'function') return Promise.resolve({ canceled: true });
+      return reloadFromDisk({
+        busy: () => Boolean(projectTransitionRef.current),
+        prepare: () => { if (!flushProjectDraft()) return false; flushSync(() => finishEdit()); return true; },
+        queue: persistenceQueue, invalidateAutosave: invalidateScheduledAutosave, epoch: () => documentEpoch.current, context: () => sessionContext.current,
+        begin: () => takeTransition('menu', { label: 'Reloading…' }), end: releaseTransition,
+        api, materialize: materializeProject, nextRevision: nextSnapshotRevision,
+        apply: (result, epoch0) => {
+          if (epoch0 !== documentEpoch.current) return { reloadFailed: 'stale' };
+          if (result?.status === 'reloaded' && result.opened?.project) {
+            const { opened, session, kept } = result;
+            prepareProjectReplacement();
+            projectLocationRef.current = opened.location || null;
+            setProjectLocation(opened.location || null);
+            setSaveState({ status: 'saved', error: '' });
+            loadProject(opened.project, opened.location, { session });
+            if (kept?.capturedAt) setReloadKept({ at: kept.capturedAt, recordId: kept.storedSnapshot?.recordId || null });
+            announceAction((projectFolderName(opened.location) || opened.project.name) + ' reloaded · earlier edits are in Recovered edits');
+            startupSettled.current = true; startupDetachFailed.current = false;
+            return { opened: true, kept };
+          }
+          // Main committed, then another project won: nothing loads, the old editor isn't told it was kept, and main's
+          // newer session (its record) is never ascribed to it.
+          if (result?.status === 'superseded' || result?.status === 'reloaded') {
+            setSaveState({ status: 'error', error: result.fact || 'Couldn’t reload the project' });
+            return { reloadFailed: 'superseded' };
+          }
+          const fact = result?.fact || 'Couldn’t reload the project', recovery = reloadRecovery(result);
+          if (recovery) setRecoveryState(recovery);
+          // A kept copy can move this session to a reused record; adopt it only for that same context.
+          if (result?.kept) adoptSessionRecord(result.session, epoch0);
+          const current = saveStateRef.current;
+          if (current.status === 'error' && !current.retryExport) setSaveState({ ...current, writing: false, reloadError: fact });
+          announceAction('Couldn’t reload · ' + fact);
+          return { reloadFailed: result?.code || 'rejected' };
+        },
       });
-    }, [canReplaceProject, enqueuePersistence, loadProject, prepareProjectReplacement]);
+    }, [adoptSessionRecord, announceAction, finishEdit, flushProjectDraft, invalidateScheduledAutosave, lifecycle, loadProject, materializeProject, nextSnapshotRevision, persistenceQueue,
+      prepareProjectReplacement, releaseTransition, setSaveState, takeTransition]);
+    // Show file for a changed document: the menu has closed, so a failure is announced and kept for the next menu.
+    // A late answer for a replaced document, another file or an older press shows nothing.
+    const showSequence = useRef(0);
+    const showSourceFile = useCallback(async () => {
+      const api = window.bordeauxAPI, file = saveStateRef.current.sourceChange?.file;
+      if (!lifecycle || typeof api?.revealProjectSource !== 'function' || !file) return;
+      const epoch = documentEpoch.current, sequence = ++showSequence.current, generation = saveStateEpoch.current;
+      const current = () => sequence === showSequence.current && epoch === documentEpoch.current && generation === saveStateEpoch.current;
+      setShowFailure(null);
+      let result;
+      try { result = await showProjectSource(api, file, sessionContext.current, current); }
+      catch (error) { result = { revealed: false, fact: firstFact(error) }; }
+      if (result?.revealed || !current()) return;
+      const fact = result?.fact || 'Couldn’t show file';
+      setShowFailure({ epoch, generation, fact });
+      announceAction('Couldn’t show ' + file + ' · ' + fact);
+    }, [announceAction, lifecycle]);
+    const presentProjects = useCallback((mode, notice, focusRecordId) => {
+      if (projectTransitionRef.current) return;
+      if (!notice && !flushProjectDraft()) return;
+      flushSync(() => finishEdit());
+      setProjectsDialog((current) => ({ mode, notice, ...(focusRecordId ? { focusRecordId } : {}), returnFocus: current?.returnFocus || document.activeElement }));
+    }, [finishEdit, flushProjectDraft]);
+    // One sheet at a time, in this direction too: a Projects or New request (native menu, a blocked switch's notice) that
+    // arrives while another sheet is presented (the update panel) waits for it, then presents through the usual checks.
+    // The latest request wins, a notice is kept, and a request from a replaced document is dropped. An open Projects sheet
+    // still switches between Projects and New in place.
+    // Another sheet is presented (or the update panel is due): the one-sheet rule's single test.
+    const otherSheetUp = () => appUpdateStateRef.current?.visible || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]');
+    const showProjects = useCallback((mode, notice, focusRecordId) => {
+      if (projectTransitionRef.current) return;
+      // Every new request consumes the one held before it, whether it waits or presents now, so an older held request can
+      // never replace it later. A held notice from this document travels with the newest request; an older document's never.
+      const epoch = documentEpoch.current, held = menuSheet.current;
+      menuSheet.current = null;
+      notice = notice || (held?.epoch === epoch ? held.notice : undefined);
+      if (!projectsDialogRef.current && otherSheetUp()) {
+        menuSheet.current = { mode, notice, focusRecordId, epoch };
+        setStartupSheetQueued((count) => count + 1);
+        return;
+      }
+      presentProjects(mode, notice, focusRecordId);
+    }, [presentProjects]);
+    // Manage… from the chip or a departure: the copies on their own, and Back returns to what opened them. Never over
+    // another sheet or dialog (a departure that began meanwhile keeps the window).
+    const manageRecoveries = useCallback(() => {
+      if (projectTransitionRef.current || document.querySelector('dialog[open]') || !flushProjectDraft()) return;
+      flushSync(() => finishEdit());
+      setProjectsDialog((current) => current || { mode: 'recoveries', returnFocus: document.activeElement });
+    }, [finishEdit, flushProjectDraft]);
+    // A listing with room again retires a full-storage fact; the copy that failed is still reported as missing.
+    const noteRecoveryCapacity = useCallback((capacity) => setRecoveryState((recovery) => recoveryAfterListing(recovery, capacity)), []);
+    // Native menu opens report a blocked switch or failure in the Projects sheet, where its fix lives.
+    const switchFromMenu = useCallback((open) => {
+      const run = (options) => switchProject(open, options);
+      return run().then((result) => { if (result?.blocked) showProjects('list', { ...result, run }); },
+        (error) => showProjects('list', { blocked: 'error', message: firstFact(error), run }));
+    }, [showProjects, switchProject]);
+    // `skip` (first-use) leaves the blank Untitled ready to draw; `restored` announces the new state from the chip.
+    const closeProjects = useCallback((reason) => {
+      if (projectTransitionRef.current) return;
+      const target = reason === 'restored' ? null : projectsDialog?.returnFocus;
+      const epoch = documentEpoch.current;
+      // Remove the modal before restoring focus: a RAF can run before an async React update commits.
+      flushSync(() => setProjectsDialog(null));
+      const afterClose = document.activeElement;
+      if (reason === 'skip') setTool('waypoint');
+      requestAnimationFrame(() => {
+        if (epoch !== documentEpoch.current || projectTransitionRef.current || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+        if (document.activeElement !== afterClose && document.activeElement && document.activeElement !== document.body) return;
+        if (reason === 'skip' && focusIfAvailable(document.querySelector('.fieldsvg'))) return;
+        if (target !== document.body && !target?.closest('dialog') && focusIfAvailable(target)) return;
+        focusIfAvailable(document.querySelector('.project-chip'));
+      });
+    }, [projectsDialog]);
+    // Applies a source save's canonical location and folder name; dirty clears only for the exact saved model.
+    const applySavedSource = useCallback((location, source, canonical) => {
+      sourceSaves.current += 1;
+      const stayedCurrent = projectPersistenceStayedCurrent(source, { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current });
+      const reconciled = reconcileSavedRobotLink(projectRef.current, source.project, canonical);
+      if (reconciled !== projectRef.current) {
+        if (stayedCurrent) skipDirty.current = true;
+        projectRef.current = reconciled; setProject(reconciled);
+        if (stayedCurrent) source.project = reconciled;
+        if (reconciled.editor?.labviewProjectPath === null) setRobotProjectState((current) => ({ ...current, status: 'missing', catalog: null, integration: null, bookmarkId: null }));
+      }
+      if (location) {
+        projectLocationRef.current = location;
+        setProjectLocation(location);
+        if (location.folderPath) setRecoveredFrom(null);
+        const name = projectFolderName(location);
+        if (name && projectRef.current.name !== name) {
+          if (stayedCurrent) skipDirty.current = true;
+          const renamed = { ...projectRef.current, name };
+          projectRef.current = renamed;
+          setProject(renamed);
+          // The renamed model is the saved one; later comparisons use it.
+          if (stayedCurrent) source.project = renamed;
+        }
+      }
+      if (stayedCurrent) updateDirty(false);
+      return stayedCurrent;
+    }, [editStore, updateDirty]);
+    // Explicit Save regenerates Paths/*.bdx after its source phase. Each Save whose source committed becomes an export
+    // candidate; "Updating BDX" stays while any candidate is unresolved. A source receipt is not proof that a newer
+    // export ran: a candidate refused after its source saved (e.g. an earlier export still holds the folder) reports
+    // BDX not updated. An outcome is shown unless a newer candidate's outcome is already shown, and only for the same
+    // document; a cancelled picker or a failure before source never becomes a candidate.
+    const attachExport = useCallback((saving) => {
+      const sequence = ++exportSequence.current, epoch = documentEpoch.current;
+      exportJobs.current.add(sequence);
+      setBdxPending(true);
+      const decide = (failure) => {
+        exportJobs.current.delete(sequence);
+        if (epoch !== documentEpoch.current) return;
+        setBdxPending(exportJobs.current.size > 0);
+        if (sequence < exportShown.current) return;
+        exportShown.current = sequence;
+        bdxSaveFailure.current = failure;
+        const current = saveStateRef.current;
+        if (current.status === 'saved' || current.status === 'draft' || (current.status === 'error' && current.retryExport)) {
+          setSaveState(failure ? { status: 'error', ...failure, retryExport: true } : { status: 'saved', error: '' });
+        }
+      };
+      void Promise.resolve(saving).then((result) => decide(result?.exportError ? { error: result.exportError, exportDetails: result.exportDetails || null } : null),
+        (error) => { const cause = operationErrorMessage(error); decide({ error: 'Project saved; BDX files were not updated. ' + cause, exportDetails: { cause, partial: false } }); });
+    }, [setSaveState]);
+    // Every explicit save (⌘S, native menu, chip, Retry, the Save copy picker fallback) stops here until startup has settled
+    // with this window's own target; after a failed detach main may still hold the previous project's folder.
     const saveProject = useCallback((saveAs) => {
       if (!window.bordeauxAPI) return;
+      if (!startupSettled.current) { showNoSaveTarget(); return; }
       return enqueuePersistenceAfterPreflight(enqueuePersistence, flushProjectDraft, async () => {
-        const requestedDraftGeneration = draftInputGeneration.current;
-        try {
-          const source = { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: requestedDraftGeneration };
-          setSaveState({ status: 'saving', error: '' });
-          const result = await window.bordeauxAPI.saveProject(materializeProject(), saveAs === true);
-          if (result && result.canceled) { setSaveState(bdxSaveFailure.current ? { status: 'error', error: bdxSaveFailure.current, retryExport: true } : { status: 'idle', error: '' }); return; }
-          const stayedCurrent = projectPersistenceStayedCurrent(source, {
-            project: projectRef.current,
-            editRevision: editStore.getRevision(),
-            draftGeneration: draftInputGeneration.current,
-          });
-          if (result?.location) {
-            setProjectLocation(result.location);
-            const name = projectFolderName(result.location);
-            if (name) setProject((current) => {
-              if (current.name === name) return current;
-              if (result.saved && stayedCurrent && current === source.project) skipDirty.current = true;
-              return { ...current, name };
-            });
-          }
-          bdxSaveFailure.current = result?.exportError || '';
-          setSaveState(bdxSaveFailure.current ? { status: 'error', error: bdxSaveFailure.current, retryExport: true } : { status: 'saved', error: '' });
-          if (result?.saved && stayedCurrent) updateDirty(false);
-        } catch (error) {
+        if (!startupSettled.current) { showNoSaveTarget(); return; }
+        const api = window.bordeauxAPI;
+        const source = { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current };
+        // A cancelled picker puts back exactly what this Save replaced, including a failure, its fixes and its try.
+        const prior = saveStateRef.current, priorAttempts = failedSaves.current;
+        setSaveState({ status: 'saving', error: '' });
+        const savingEpoch = saveStateEpoch.current;
+        const cancelled = () => { if (saveStateEpoch.current === savingEpoch) restoreSaveState(prior, priorAttempts); };
+        const failed = (error, sourceChange) => {
           // A queued autosave must not hide the explicit save failure or its retry action.
           invalidateScheduledAutosave();
-          setSaveState({ status: 'error', error: operationErrorMessage(error), retrySave: true, retrySaveAs: saveAs === true });
+          setSaveState({ status: 'error', error, sourceChange, retrySave: true, retrySaveAs: saveAs === true }, { user: true });
+        };
+        const savedSource = (location, canonical) => {
+          applySavedSource(location, source, canonical);
+          setSaveState(savedState(), { user: true });
+        };
+        try {
+          if (lifecycle && typeof api.saveProjectWithCheckpoint === 'function') {
+            // The queue slot is released on this Save's exact source-phase update; BDX then finishes on its own.
+            const session = await readBoundSession(), revision = nextSnapshotRevision();
+            let saving;
+            const outcome = await new Promise((resolve) => {
+              const stop = checkpointChannel.watch(checkpointMatch({ mode: 'background', snapshotRevision: revision, context: session.context }), (update) => {
+                const recovery = recoveryOutcome(update); if (recovery) setRecoveryState(recovery);
+                if (update.source !== 'pending') { stop(); resolve({ update }); }
+              });
+              saving = api.saveProjectWithCheckpoint({ context: session.context, snapshotRevision: revision, project: materializeProject(), saveAs: saveAs === true });
+              saving.then((result) => { stop(); resolve({ result }); }, (error) => { stop(); resolve({ error }); });
+            });
+            if (outcome.update?.source === 'saved' || outcome.result?.saved) { savedSource((outcome.update || outcome.result).location, (outcome.update || outcome.result).canonicalProject); attachExport(saving); }
+            else if (outcome.update) failed(outcome.update.sourceFact || 'Couldn’t write the project', sourceChangeOf(outcome.update));
+            else if (outcome.result?.canceled) cancelled();
+            else failed(operationErrorMessage(outcome.error || 'Couldn’t write the project'));
+            return;
+          }
+          const result = await api.saveProject(materializeProject(), saveAs === true);
+          if (result && result.canceled) { cancelled(); return; }
+          if (result?.saved) {
+            bdxSaveFailure.current = result.exportError ? { error: result.exportError, exportDetails: result.exportDetails || null } : null;
+            savedSource(result.location, result.canonicalProject);
+          }
+        } catch (error) {
+          failed(operationErrorMessage(error));
         }
       });
-    }, [editStore, enqueuePersistence, flushProjectDraft, invalidateScheduledAutosave, materializeProject, updateDirty]);
+    }, [readBoundSession, applySavedSource, attachExport, checkpointChannel, editStore, enqueuePersistence, flushProjectDraft, invalidateScheduledAutosave, lifecycle, materializeProject, nextSnapshotRevision, restoreSaveState, setSaveState, showNoSaveTarget]);
+    // Save copy… opens New's form for a copy; ⌘S does too when there is no folder to save into. The native picker stays
+    // only for a bridge without the form's defaults (older fixtures, the browser).
+    const requestSaveCopy = useCallback((saveAs = true) => {
+      if (typeof lifecycle?.getProjectCopyDefaults !== 'function' || (!saveAs && projectLocationRef.current?.folderPath)) return saveProject(saveAs);
+      if (!startupSettled.current) return showNoSaveTarget();
+      showProjects('copy');
+    }, [lifecycle, saveProject, showNoSaveTarget, showProjects]);
+    // A copy is submitted only for this exact document, epoch and generation. Each of its effects then also needs its own
+    // form submission (`current`), transition and epoch, at the entry generation or the one its own commit acknowledged
+    // (exactly entry + 1). Whatever fails either check leaves App unchanged.
+    const ownsCopy = useCallback((owner) => Boolean(owner) && owner.epoch === documentEpoch.current && sameContext(owner.context, sessionContext.current), []);
+    const copyLive = useCallback((a) => a.current() && projectTransitionRef.current === a.transition && a.owner.epoch === documentEpoch.current
+      && sameDocument(a.owner.context, sessionContext.current) && [a.owner.context.targetGeneration, a.accepted].includes(sessionContext.current.targetGeneration), []);
+    // One copy inside a transition (its own, or a blocked switch's before it opens): the exact current model goes into a
+    // new folder through the explicit Save pipeline, and this document's target becomes the copy. Nothing is loaded.
+    const copyBody = useCallback(async (copyTo, owner, transition, current, direct) => {
+      const a = { owner, transition, current }, ack = { ...owner.context, targetGeneration: owner.context.targetGeneration + 1 }, changed = { copyFailed: 'The project changed' };
+      const note = (update) => { const recovery = recoveryOutcome(update); if (recovery) setRecoveryState(recovery); };
+      await transition.ready;
+      if (!transition.token) return { copyFailed: 'The project is busy · Try again' };
+      return !copyLive(a) ? changed : enqueuePersistence(async () => {
+        if (!copyLive(a)) return changed;
+        const source = { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current }, revision = nextSnapshotRevision();
+        let saving;
+        const outcome = await new Promise((resolve) => {
+          const stop = checkpointChannel.watch(checkpointMatch({ mode: 'background', snapshotRevision: revision, context: owner.context }), (update) => {
+            // A receipt before the commit counts only at the entry generation; the terminal's is taken below.
+            if (update.source !== 'pending') { stop(); resolve({ update }); } else if (sameContext(update.context, owner.context) && copyLive(a)) note(update);
+          });
+          saving = lifecycle.saveProjectWithCheckpoint({ context: owner.context, snapshotRevision: revision, project: materializeProject(), copyTo, transition: transition.token });
+          saving.then((result) => { stop(); resolve({ result }); }, (error) => { stop(); resolve({ error }); });
+        });
+        const { update } = outcome;
+        let acknowledged = update?.source === 'saved' && sameContext(update.context, ack) && update;
+        if (update && !acknowledged) {
+          // Failed or timed out at the entry generation: main's fact and its confirmed receipt (the record may remap).
+          if (update.source === 'saved' || !sameContext(update.context, owner.context) || !copyLive(a)) return changed;
+          note(update); refreshSessionRecord();
+          return { copyFailed: update.sourceFact || 'Couldn’t write the project' };
+        }
+        if (!update) {
+          // Without an update only main's session decides: this revision committed at exactly entry + 1 is the copy, the
+          // entry generation with main's error is that error, and anything else claims nothing.
+          const session = await lifecycle.getProjectSession().catch(() => null);
+          if (sameContext(session?.context, ack) && session.latestSource?.snapshotRevision === revision && sameContext(session.latestSource.context, ack)) acknowledged = session;
+          else return sameContext(session?.context, owner.context) && outcome.error && copyLive(a) ? { copyFailed: outcome.error } : changed;
+        }
+        a.accepted = ack.targetGeneration;
+        if (!copyLive(a)) return changed;
+        // Sticky from here: a later export result never rolls any of this back.
+        sessionContext.current = acknowledged.context;
+        note(update);
+        applySavedSource(acknowledged.location, source, acknowledged.canonicalProject || outcome.result?.canonicalProject);
+        setSaveState(savedState(), { user: true });
+        attachExport(saving);
+        refreshSessionRecord();
+        if (direct) announceAction('Saved copy · editing “' + projectFolderName(acknowledged.location) + '”');
+        return { copied: true };
+      });
+    }, [announceAction, applySavedSource, attachExport, checkpointChannel, copyLive, editStore, enqueuePersistence, lifecycle, materializeProject, nextSnapshotRevision, refreshSessionRecord, setSaveState]);
+    // The form's own Save copy: refused before any transition or IPC unless its submission and owner are still current.
+    const submitCopy = useCallback((copyTo, owner, current) => {
+      if (projectTransitionRef.current) return Promise.resolve({ busy: true });
+      if (!current() || !ownsCopy(owner)) return Promise.resolve({ copyFailed: 'The project changed' });
+      if (!flushProjectDraft()) return Promise.resolve({ blocked: 'invalid' });
+      flushSync(() => finishEdit());
+      const transition = takeTransition('copy', { label: 'Saving…' });
+      return copyBody(copyTo, owner, transition, current, true).finally(() => releaseTransition(transition));
+    }, [copyBody, finishEdit, flushProjectDraft, ownsCopy, releaseTransition, takeTransition]);
+
+    // ---- departure (close, quit, reload, install) and startup ----
+    const recoveredFromRef = useRef(recoveredFrom); recoveredFromRef.current = recoveredFrom;
+    const departureDeps = useRef(null);
+    departureDeps.current = {
+      api: lifecycle, channel: checkpointChannel, transitionRef: projectTransitionRef, takeTransition, releaseTransition,
+      enqueue: enqueuePersistence, invalidateScheduledAutosave, scheduleAutosave, finishEdit, flushProjectDraft, nextRevision: nextSnapshotRevision,
+      capture: () => ({ project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current, materialized: materializeProject(),
+        epoch: documentEpoch.current, sourceSaves: sourceSaves.current }),
+      // The document now loaded, without materializing it (Manage… after a departure opens only for the same one).
+      documentEpoch: () => documentEpoch.current,
+      stayedCurrent: (source) => projectPersistenceStayedCurrent(source, { project: projectRef.current, editRevision: editStore.getRevision(), draftGeneration: draftInputGeneration.current }),
+      applySavedSource: (update, source) => {
+        applySavedSource(update.location, source, update.canonicalProject);
+        setSaveState(savedState());
+      },
+      // A departure whose own source write failed leaves this document unsaved, so the chip says so with the sheet's
+      // fact and the usual Retry; its recovery copy is a separate fact. Nothing applies to a document loaded since the
+      // drain froze the model, and the failure never replaces a source save confirmed after that.
+      sourceFailed: (terminal, source) => {
+        if (source?.epoch !== documentEpoch.current) return;
+        const recovery = recoveryOutcome(terminal);
+        if (recovery) setRecoveryState(recovery);
+        // Untitled and recovered drafts already read Not saved / Recovered.
+        if (source.sourceSaves !== sourceSaves.current || (terminal.source === 'unavailable' && !projectLocationRef.current?.folderPath)) return;
+        setSaveState({ status: 'error', error: terminal.source === 'failed' && terminal.sourceFact ? terminal.sourceFact : sourceFact(terminal, Boolean(recoveredFromRef.current)),
+          sourceChange: sourceChangeOf(terminal) });
+      },
+      // After a failed startup detach this window holds no save target of its own: a departure declines (nothing is
+      // written into the previous source) and Projects says how to continue, Open or New, which take a target.
+      checkpointTargetReady: (context) => {
+        if (startupSettled.current) return sameDocument(sessionContext.current, context);
+        if (startupDetachFailed.current) setProjectsDialog({ mode: 'list', returnFocus: null, notice: { blocked: 'no-target', message: 'Open or create a project before leaving' } });
+        return false;
+      },
+      attachExport, restored: () => Boolean(recoveredFromRef.current), isUntitled: () => !projectLocationRef.current?.folderPath && !recoveredFromRef.current,
+    };
+    const departure = useProjectDeparture(departureDeps);
+    // Closing a stalled install hands editing back for the exact main-authored attempt the panel showed and this
+    // document's context; main revokes that attempt's approval before it answers accepted. The answer is returned, so
+    // the panel stays until then. A build without the durability bridge keeps its old close; this one never skips it.
+    const appUpdateStateRef = useRef(appUpdates.state); appUpdateStateRef.current = appUpdates.state;
+    const appUpdatesKnownRef = useRef(appUpdates.known); appUpdatesKnownRef.current = appUpdates.known;
+    const resumeEditingAfterInstall = useCallback(async (attemptId) => {
+      const api = window.bordeauxAPI;
+      if (!lifecycle) return { accepted: true };
+      if (typeof api.noteProjectEditingResumed !== 'function' || !attemptId) return { accepted: false, fact: 'This version can’t return to editing safely' };
+      const epoch = documentEpoch.current, session = await lifecycle.getProjectSession();
+      const shown = appUpdateStateRef.current;
+      // A newer attempt, phase or document makes this Close obsolete; it never answers for whatever appeared meanwhile.
+      if (epoch !== documentEpoch.current || shown?.phase !== 'installing' || !shown.installStalled || shown.installAttemptId !== attemptId) return { stale: true };
+      const result = await api.noteProjectEditingResumed(session.context, attemptId);
+      return result?.accepted === true ? { accepted: true } : { accepted: false, fact: 'Bordeaux is still installing this update' };
+    }, [lifecycle]);
+    departureRef.current = departure;
+    // Listeners first (the checkpoint channel already exists), then the handshake; only an accepted handshake arms
+    // the unload fence. Without it main cannot gate this window, and nothing here claims protection.
+    useEffect(() => {
+      if (!lifecycle || typeof lifecycle.onProjectDeparture !== 'function') return undefined;
+      let alive = true, disarm = null;
+      const offRequest = lifecycle.onProjectDeparture((request) => departureRef.current.onRequest(request));
+      const offCancelled = lifecycle.onProjectDepartureCancelled?.((requestId) => departureRef.current.onCancelled(requestId));
+      return () => { alive = false; offRequest?.(); offCancelled?.(); };
+    }, [lifecycle]);
+    // Ready is registered for this frame once startup has settled (listeners are already attached).
+    useEffect(() => {
+      if (!lifecycle || startup !== 'done' || typeof lifecycle.setProjectLifecycleReady !== 'function') return undefined;
+      let alive = true, disarm = null;
+      void Promise.resolve(lifecycle.getProjectSession()).then((session) => lifecycle.setProjectLifecycleReady(session.context, true)).then((result) => {
+        if (alive && result?.accepted) disarm = departureRef.current.armUnloadFence();
+      }, () => undefined);
+      return () => { alive = false; disarm?.(); };
+    }, [lifecycle, startup]);
+    // A startup sheet never stacks on another modal. It waits while the update panel is visible, any other dialog is up,
+    // or a project transition runs, then opens once. While main's first update state is still pending it waits briefly
+    // (main answers from memory); a failed query opens at once. Past that wait the sheet opens without treating the update
+    // as hidden: a panel that becomes visible later waits for this sheet to close (AppUpdateDialog). A document loaded since
+    // startup retires it; an offer whose copies were shown meanwhile (offer tokens record only rendered rows) is not
+    // repeated, while a failed-recent or first-use sheet always still opens.
+    const startupSheet = useRef(null), menuSheet = useRef(null), projectsDialogRef = useRef(projectsDialog);
+    projectsDialogRef.current = projectsDialog;
+    const [startupSheetQueued, setStartupSheetQueued] = useState(0);
+    useEffect(() => {
+      if (!startupSheet.current && !menuSheet.current) return undefined;
+      // A held Projects/New request (showProjects) presents after the startup sheet, once no other sheet is up.
+      const tryMenu = () => {
+        const queued = menuSheet.current;
+        if (!queued) return true;
+        if (queued.epoch !== documentEpoch.current) { menuSheet.current = null; return true; }
+        if (projectTransitionRef.current || (!projectsDialogRef.current && otherSheetUp())) return false;
+        menuSheet.current = null;
+        presentProjects(queued.mode, queued.notice, queued.focusRecordId);
+        return true;
+      };
+      const tryOpen = () => {
+        const queued = startupSheet.current;
+        if (!queued) return tryMenu();
+        if (queued.epoch !== documentEpoch.current) { startupSheet.current = null; return tryMenu(); }
+        const updatesUnknown = appUpdatesKnownRef.current === 'pending' && Date.now() - queued.at < 1500;
+        if (updatesUnknown || projectTransitionRef.current || projectsDialogRef.current || otherSheetUp()) return false;
+        startupSheet.current = null;
+        const listing = queued.request.recoveries;
+        if (queued.offerOnly && !unofferedRecoveries(Array.isArray(listing?.entries) ? listing.entries : [], readOfferedRecoveries()).length) return tryMenu();
+        setProjectsDialog(queued.request);
+        return !menuSheet.current;
+      };
+      if (tryOpen()) return undefined;
+      const timer = setInterval(() => { if (tryOpen()) clearInterval(timer); }, 150);
+      return () => clearInterval(timer);
+    }, [startupSheetQueued, appUpdates.state, appUpdates.known, projectsDialog, projectTransition, presentProjects]);
+    // Startup: main's bounded, discriminated result. Every non-opened outcome is a blank, protected Untitled (never the
+    // demo) with the sheet that explains it: recovered edits first, a failed recent row, or first-use New.
+    useEffect(() => {
+      if (startup !== 'pending') return undefined;
+      let alive = true;
+      const api = window.bordeauxAPI;
+      void (async () => {
+        // Main probes read-only under this transition; an opened probe is adopted (activated) only under the same
+        // ownership, so a slow start can never activate a source beneath an editable Untitled. (Taken after the effect
+        // returns, since taking ownership renders synchronously.)
+        await null;
+        if (!alive) return;
+        const transition = takeTransition('startup');
+        let result, opened = null, detach = null, startContext = null;
+        try {
+          await transition.ready;
+          startContext = (await api.getProjectSession()).context;
+          result = await api.getProjectStartup({ context: startContext, transition: transition.token });
+          if (result.status === 'opened') {
+            opened = result.needsAdoption && typeof api.adoptProjectStartup === 'function' ? await api.adoptProjectStartup(result.startupId, transition.token) : result.opened;
+          }
+        } catch (error) {
+          opened = null;
+          result = { ...(result || {}), status: 'unavailable', reason: 'error', recent: result?.status === 'unavailable' ? result.recent : null, fact: firstFact(error) };
+        }
+        try {
+          // The probe is read-only, and a reload keeps main's previous target. Any non-opened, thrown or failed-adoption
+          // start detaches under the original startup context and token (cancelling first would end the token), and only
+          // then does the blank document exist; ownership ends after it is loaded.
+          if (!opened?.project && alive && projectTransitionRef.current === transition) detach = startContext && transition.token ? await detachStartup(startContext, transition.token) : { ok: false, fact: 'Startup didn’t begin' };
+          if (!alive) return;
+          if (opened?.project) {
+            projectLocationRef.current = opened.location || null;
+            setProjectLocation(opened.location || null);
+            setSaveState({ status: opened.location?.projectPath ? 'saved' : 'draft', error: '' });
+            loadProject(opened.project, opened.location, { session: opened.session });
+          } else {
+            projectLocationRef.current = null;
+            setProjectLocation(null);
+            setSaveState({ status: 'idle', error: '' });
+            loadProject(blankProject(), null, { session: detach?.session });
+          }
+        } finally { releaseTransition(transition); }
+        invalidateScheduledAutosave();
+        // Checkpoints start only for an adopted source or a verified detached blank document.
+        startupSettled.current = Boolean(opened?.project || detach?.ok);
+        startupDetachFailed.current = !startupSettled.current;
+        const listing = result.recoveries && Array.isArray(result.recoveries.entries) && !result.recoveries.error ? result.recoveries : null;
+        const offer = listing ? unofferedRecoveries(listing.entries, readOfferedRecoveries()) : [];
+        const failedRecent = result.status === 'unavailable' && result.recent?.id ? result.recent.id : null;
+        const request = offer.length ? { mode: 'list', recoveries: result.recoveries, startup: { focus: 'recovery', recentId: failedRecent, announce: failedRecent ? 'Last project couldn’t open' : '' } }
+          : opened?.project ? null
+          // First use only for a real first start: not when recovery listing failed or main is resuming after a crash.
+          : result.status === 'none' && listing && !result.resuming && detach?.ok ? { mode: 'new', firstUse: true, recoveries: result.recoveries }
+          : { mode: 'list', recoveries: result.recoveries, startup: { focus: failedRecent ? 'recent' : 'search', recentId: failedRecent,
+            announce: detach && !detach.ok ? 'Couldn’t start a new project · ' + detach.fact : failedRecent ? 'Last project couldn’t open' : result.status === 'none' ? '' : result.fact ? 'Couldn’t open the last project · ' + firstFact(result.fact) : 'Couldn’t check recent projects' } };
+        setStartup('done');
+        // The sheet is queued for this exact document and opens once no other modal (the update panel first) is up.
+        if (request) {
+          startupSheet.current = { request: { ...request, returnFocus: null, ...(detach && !detach.ok ? { notice: { blocked: 'no-target', message: detach.fact + ' · Open or create a project' } } : {}) },
+            epoch: documentEpoch.current, at: Date.now(), offerOnly: Boolean(offer.length && opened?.project) };
+          setStartupSheetQueued((count) => count + 1);
+        }
+      })();
+      return () => { alive = false; };
+    // Startup runs once per mounted window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const onExportBdx = useCallback(async (pathId) => {
       if (!flushProjectDraft()) return;
@@ -1663,27 +2623,138 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
 
     useEffect(() => {
       if (!window.bordeauxAPI) return undefined;
-      return window.bordeauxAPI.onMenuCommand(({ command, payload }) => {
-        if (command === 'new-project') void openProjectFolder();
-        else if (command === 'open-project') void openProject();
-        else if (command === 'open-project-file') void openProject(undefined, true);
-        else if (command === 'open-folder') void openProjectFolder();
-        else if (command === 'open-recent') void openProject(payload);
-        else if (command === 'save-project') void saveProject(false);
-        else if (command === 'save-project-as') void saveProject(true);
+      const api = window.bordeauxAPI;
+      return api.onMenuCommand(({ command, payload }) => {
+        // A project transition owns the window; native commands are ignored until it ends.
+        if (projectTransitionRef.current) return;
+        if (command === 'new-project') showProjects('new');
+        else if (command === 'show-projects') showProjects('list');
+        else if (command === 'open-project') void switchFromMenu(() => api.openProject());
+        else if (command === 'open-project-file') void switchFromMenu(() => api.openProjectFile());
+        else if (command === 'open-folder') void switchFromMenu(() => api.openProjectFolder());
+        else if (command === 'open-recent') void switchFromMenu(() => api.openRecentProject(payload));
+        else if (command === 'save-project') void requestSaveCopy(false);
+        else if (command === 'save-project-as') void requestSaveCopy();
         else if (command === 'export-bdx') void onExportBdx();
         else if (command === 'robot-link') void linkRobotProject();
         else if (command === 'robot-build') void buildRobotCatalog();
       });
-    }, [openProject, openProjectFolder, saveProject, onExportBdx, linkRobotProject, buildRobotCatalog]);
+    }, [showProjects, switchFromMenu, requestSaveCopy, onExportBdx, linkRobotProject, buildRobotCatalog]);
+    // The native menu owns ⌘O/⌘N in the desktop app; this covers the browser renderer. Opening twice is harmless.
+    // Capture, because the library and form fields stop their own key events from bubbling.
+    useEffect(() => {
+      const onKey = (event) => {
+        // Capture only this view shortcut so library row key ownership cannot swallow it.
+        if (page === 'plan' && event.key === '\\' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+          && !event.repeat && !event.isComposing && !event.defaultPrevented && !event.target.isContentEditable
+          && !event.target.closest?.('textarea,select,input:not([type="range"]),[role="textbox"]')
+          && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"],[role="menu"],[popover]:popover-open')) {
+          event.preventDefault();
+          toggleFieldFocus();
+          return;
+        }
+        if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.isComposing || event.defaultPrevented) return;
+        const key = event.key.toLowerCase();
+        if ((key !== 'o' && key !== 'n') || document.querySelector('dialog[open]')) return;
+        event.preventDefault();
+        showProjects(key === 'n' ? 'new' : 'list');
+      };
+      window.addEventListener('keydown', onKey, true);
+      return () => window.removeEventListener('keydown', onKey, true);
+    }, [showProjects, page, toggleFieldFocus]);
+    const projectFolder = projectLocation?.folderPath || null;
+    const projectStatus = saveState.status === 'error' && !saveState.retryExport ? 'failed'
+      : !projectFolder ? (recoveredFrom ? 'recovered' : 'unsaved') : saveState.status === 'saving' || dirty ? 'saving' : 'saved';
+    const retrySave = () => saveState.retryExport || saveState.retrySave ? saveProject(saveState.retrySaveAs === true) : scheduleAutosave(true, { user: true });
+    const projectChip = h(ProjectChip, { key: projectKey, name: projectFolderName(projectLocation) || project.name, folderPath: projectFolder, status: projectStatus,
+      writing: saveState.status === 'saving' || saveState.writing === true, saveError: saveState.error, attempt: saveState.attempt,
+      sourceChange: saveState.sourceChange, reloadError: saveState.reloadError, reloadKept, notice: actionNotice,
+      showFailure: showFailure && showFailure.epoch === documentEpoch.current && showFailure.generation === saveStateEpoch.current ? showFailure : null,
+      recovery: recoveryState, recoveredFrom, bdxPending, bdxError: saveState.status === 'error' && saveState.retryExport ? saveState.error : '', bdxDetails: saveState.exportDetails,
+      robotCode: { ...robotProjectState, name: robotProjectState.catalog?.projectName, commands: robotProjectState.catalog?.commands?.length },
+      actions: { projects: () => showProjects('list'), create: () => showProjects('new'), save: () => requestSaveCopy(false), saveCopy: requestSaveCopy,
+        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject, buildCode: buildRobotCatalog, ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
+        ...(lifecycle && typeof window.bordeauxAPI?.reloadProjectSource === 'function' ? { reloadSource: () => { void reloadSource(); } } : {}),
+        ...(lifecycle && typeof window.bordeauxAPI?.revealProjectSource === 'function' ? { showSource: () => { void showSourceFile(); },
+          showFailureSeen: (seen) => setShowFailure((failure) => failure === seen ? null : failure) } : {}),
+        ...(reloadKept && typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { recoveredEdits: () => showProjects('list', undefined, reloadKept.recordId) } : {}) } });
+    const api = window.bordeauxAPI;
+    const projectsSheet = projectsDialog ? h(ProjectsDialog, { request: projectsDialog, onClose: closeProjects, pending: projectTransition, queuedDeparture: departure.queued,
+      current: { name: projectFolderName(projectLocation) || project.name, folderPath: projectFolder, projectPath: projectLocation?.projectPath || null,
+        ...(projectLocation?.legacyFile ? { legacyFile: projectLocation.legacyFile } : {}), recoveryRecordId: sessionRecordId, untitled: !projectFolder && !recoveredFrom },
+      actions: {
+        listRecent: () => api.listRecentProjects(), removeRecent: (id) => api.removeRecentProject(id),
+        // Show in Finder/Explorer: main resolves a recent by its stable id, and an unlisted current project only for the exact
+        // context (target generation included) shown when it was chosen, so a retarget meanwhile reveals nothing. A
+        // displayed path is never sent.
+        ...(typeof api?.revealRecentProject === 'function' ? { revealRecent: (id) => api.revealRecentProject({ id }),
+          ...(typeof api.getProjectSession === 'function' ? { revealCurrent: async () => {
+            const context = sessionContext.current, session = await api.getProjectSession();
+            return sameContext(context, session?.context) && sessionContext.current === context ? api.revealRecentProject({ current: context }) : { revealed: false, code: 'stale', fact: 'The project changed' };
+          } } : {}) } : {}),
+        creationDefaults: () => api.getProjectCreationDefaults(), chooseParent: (current) => api.chooseProjectParentDirectory(current),
+        openRecent: (id, options) => switchProject(() => api.openRecentProjectById(id), options),
+        openFolder: (options) => switchProject(() => api.openProjectFolder(), options),
+        openFile: (options) => switchProject(() => api.openProjectFile(), options),
+        // Only the robot and the current path's limits carry over; paths, routines, commands and links never do.
+        create: ({ name, parentDirectory, sameRobot }, options) => switchProject(() => api.createNamedProject({ name, parentDirectory,
+          ...(sameRobot ? { template: { robot: projectRef.current.robot, ...(docRef.current?.constraints ? { constraints: docRef.current.constraints } : {}) } } : {}) }), options),
+        // Save copy: the form's owner is this exact document as main has it now (like any explicit save, only once startup
+        // has settled with this window's own target); its defaults are read-only suggestions. An older bridge or the browser
+        // has no copy form (as for the menu and chip): a block's Save… and Save copy… stay the picker inside its switch.
+        ...(typeof lifecycle?.getProjectCopyDefaults === 'function' ? {
+          copyOwner: async () => {
+            if (!startupSettled.current) throw showNoSaveTarget();
+            return { epoch: documentEpoch.current, context: (await readBoundSession()).context };
+          },
+          ownsCopy, copyDefaults: async (request) => api.getProjectCopyDefaults(request), copy: submitCopy, copyInside: copyBody,
+        } : { save: () => saveProject(false), saveCopy: () => saveProject(true) }),
+        // A blocked switch's changed document: main reveals only a managed file of this exact project.
+        ...(lifecycle && typeof api?.revealProjectSource === 'function' ? { revealSource: (file, current) => { const epoch = documentEpoch.current; return showProjectSource(api, file, sessionContext.current, () => epoch === documentEpoch.current && current()); } } : {}),
+        // Recovered edits: listed read-only; restore goes through the same owner as Open and loads detached.
+        ...(typeof api?.listProjectRecoveries === 'function' ? {
+          listRecoveries: (options) => options ? api.listProjectRecoveries(options) : api.listProjectRecoveries(),
+          restoreRecovery: (id, options) => switchProject(async () => { const session = await api.getProjectSession(); return api.restoreProjectRecovery(session.context, id); }, options),
+          revealRecovery: (id) => api.revealProjectRecovery(id),
+          recoveriesShown: (displayed, known) => rememberOfferedRecoveries(displayed, known),
+          recoveryCapacity: noteRecoveryCapacity,
+          // Manage reads this window's own copy from main's session as it lists (reuse can change it).
+          currentRecoveryId: async () => (await api.getProjectSession())?.recoveryRecordId || null,
+        } : {}),
+        // Discard: main reserves the displayed copy for this session's exact context; the second, separate press sends
+        // that same context, so a document switched meanwhile fails closed in main.
+        ...(typeof api?.prepareProjectRecoveryDiscard === 'function' && typeof api?.discardProjectRecovery === 'function' ? {
+          prepareDiscard: async (id) => { const session = await api.getProjectSession(); return { ...(await api.prepareProjectRecoveryDiscard(session.context, id)), context: session.context }; },
+          discard: (token, context) => api.discardProjectRecovery(context, token),
+        } : {}),
+      } }) : projectTransition && (projectTransition.owner !== 'departure' || departure.view?.phase !== 'choosing' && departure.view?.phase !== 'save-copy')
+        && h(ProjectPending, { phase: projectTransition.phase, queuedDeparture: departure.queued,
+          // Once a departure is approved the window is only waiting to go; say that, not "Saving…".
+          label: departure.view && (departure.view.phase === 'approving' || departure.view.phase === 'approved') ? departureCopy(departure.view.request.reason).leaving : projectTransition.label || '' });
+    const departureSheet = departure.view && (departure.view.phase === 'choosing' || departure.view.phase === 'save-copy') && h(ProjectDeparture, {
+      reason: departure.view.request.reason, subject: projectFolderName(projectLocation) || project.name, outcome: departure.view.outcome, step: departure.view.step,
+      pending: departure.view.phase === 'save-copy' ? 'save-copy' : null, saveCopyFact: departure.view.saveCopyFact,
+      onKeepEditing: departure.keepEditing, onSaveCopy: departure.saveCopy, onLeave: departure.leave, onDiscardStep: departure.discardStep, onDiscard: departure.discard,
+      onManage: typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? () => departure.manageRecoveries(manageRecoveries) : undefined });
+    const departureHint = departure.hint && h(DepartureHint, { anchor: departure.hint.anchor, reason: departure.hint.reason, onDismiss: departure.dismissHint });
 
+    // Escape on the field, and on the closed command chooser, clears the selection on a current plan.
+    const escapeSelection = () => {
+      if (page !== 'plan' || !derivationCurrent) return false;
+      setTool('select'); setHeadMenu(null); setWaypointPreviewRequest(null); select(null, -1);
+      return true;
+    };
     useEffect(() => {
       const onKey = (e) => {
         if (e.defaultPrevented || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
         if (e.target.closest && e.target.closest('.editor-library,.library-divider,[role="menu"]')) return;
         const matches = e.target.matches && e.target.matches.bind(e.target);
         if (e.key === 'Tab') { keyboardNavigation.current = true; return; }
-        const nativeKeyboardControl = keyboardNavigation.current && matches && matches('button,summary,select,input[type="range"]');
+        const nativeKeyboardControl = e.target.closest?.('[data-role="issue"],[data-problems-control]') || keyboardNavigation.current && matches && matches('button,summary,select,input[type="range"]');
+        // A focused timeline control for the selected object takes the field's nudge, Delete and Escape;
+        // Enter and Space still press it, and other buttons keep their native keys.
+        const selectionControl = nativeKeyboardControl && sel.kind && e.target.dataset?.selection === sel.kind + ':' + sel.idx
+          && (e.key.indexOf('Arrow') === 0 || e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape');
         const textEditing = nativeKeyboardControl || e.target.isContentEditable || (matches && matches('textarea,input:not([type="range"])'));
         const k = e.key.toLowerCase();
         if (page === 'plan' && e.key === ' ' && !textEditing) {
@@ -1705,7 +2776,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
         if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); redo(); return; }
         // Native controls own navigation and deletion keys during keyboard use.
-        if (nativeKeyboardControl) return;
+        if (nativeKeyboardControl && !selectionControl) return;
         if (page !== 'plan') return;
         if (!derivationCurrent) return;
         if (e.key.indexOf('Arrow') === 0 && sel.kind) {
@@ -1722,7 +2793,7 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
         }
         if (k === 'g') setShowGrid((s) => !s);
         else if (k === 'f') setView(FIT);
-        else if (e.key === 'Escape') { setTool('select'); setHeadMenu(null); setWaypointPreviewRequest(null); select(null, -1); }
+        else if (e.key === 'Escape') escapeSelection();
         else if ((e.key === 'Backspace' || e.key === 'Delete') && sel.kind) {
           e.preventDefault();
           if (sel.kind === 'wp') delWp(sel.idx); else if (sel.kind === 'rt') delTarget(sel.idx); else if (sel.kind === 'em') delMarker(sel.idx); else if (sel.kind === 'cr') delRange(sel.idx);
@@ -1733,32 +2804,48 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     }, [undo, redo, sel, delWp, delTarget, delMarker, delRange, select, page, derivationCurrent, nudgeWp, nudgeFrac, playbackStore]);
 
     const pathIndex = (id) => project.paths.findIndex((path) => path.id === id);
-    const renderLibrary = (mode, structure) => h(LibraryRail, { projectLocation, saveState, onOpenFolder: openProjectFolder, onSaveProject: () => saveProject(false), onRetrySave: () => saveState.retryExport || saveState.retrySave ? saveProject(saveState.retrySaveAs === true) : scheduleAutosave(true),
-      key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, project, routines,
-      activePathId: doc.id, activeRoutineId: routine.id, times,
-      onMode: (next) => next === 'paths' ? setActive(activeIdx) : setActiveRoutine(routine.id),
+    // A focused draft commits first, so Push (including ⇧⌘P from a field) sends what is shown. An invalid draft keeps focus instead.
+    const pushActions = { ...pushController, requestPush: (scope) => { if (!flushProjectDraft()) return; flushSync(() => finishEdit());
+      if (scope?.kind === 'paths' && scope.pathIds.some((id) => (projectRef.current.paths.find((path) => path.id === id)?.waypoints?.length || 0) < 2)) return;
+      // Committing a field draft blurs it. Give the review a real origin, so cancelling returns to Push, not the page;
+      // any other focused control (Push itself, a library row) stays the origin.
+      if (!document.activeElement || document.activeElement === document.body) focusIfAvailable(document.querySelector('.push-button'));
+      pushController.requestPush(scope); } };
+    // Places keep each mode's state: returning from Settings resumes the editor mode as it was, while moving between
+    // Paths and Routines goes through the same switches (and draft commits) the library always used.
+    const leaveForPage = (next) => { retireDeletion(true); finishEdit(); playbackStore.reset(); routinePlaybackStore.reset(); setPage(next); };
+    const onPlace = (place) => {
+      if (place === 'settings') { if (page !== 'robot') leaveForPage('robot'); }
+      else if (place === 'paths') { if (page === 'robot' && editorPage === 'plan') leaveForPage('plan'); else setActive(activeIdx); }
+      else if (page === 'robot' && editorPage === 'auto') leaveForPage('auto');
+      else setActiveRoutine(routine.id);
+    };
+    const renderLibrary = (mode, structure) => h(LibraryRail, {
+      key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, hidden: mode === 'paths' && fieldFocus, project, routines,
+      activePathId: doc.id, activeRoutineId: routine.id, times, selection: pushSelection,
       onPath: (id) => { const index = pathIndex(id); if (index >= 0) setActive(index); }, onRoutine: setActiveRoutine,
-      controller: { ...pushController, requestPush: (scope) => { flushSync(() => finishEdit()); pushController.requestPush(scope); } },
-      actions: { addPath, appendPath, addRoutine, duplicateRoutine, deleteRoutine, renameRoutine, exportPath: onExportBdx,
-        duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: (id) => delPath(pathIndex(id)), renamePath: (id, name) => renamePath(pathIndex(id), name),
+      controller: pushActions,
+      deletionNotice: h(DeletionNotice, { notice: deletionNotice, onUndo: undoDeletion, onDismiss: (action) => { if (deletionAction.current === action) retireDeletion(); } }),
+      actions: { preflight: preflightDeletion, addPath, appendPath, addRoutine, duplicateRoutine, deleteRoutine, renameRoutine, exportPath: onExportBdx,
+        duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: delPath, renamePath: (id, name) => renamePath(pathIndex(id), name),
         addFolder: addPathFolder, renameFolder: renamePathFolder, deleteFolder: deletePathFolder,
         movePath: (id, folderId) => movePathToFolder(pathIndex(id), folderId), linkPath: setPathLink },
     }, structure);
 
+    const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, escapeSelection, setWaypointPositionLink };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
       bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice, action: { label: 'Dismiss', onClick: () => setBdxNotice('') } },
       exportError && { id: 'export', error: true, label: 'Export failed', detail: exportError,
         action: { label: 'Dismiss', onClick: () => setExportError('') } },
-      planningStatus && !(optimizationOpen && normalError) && { id: 'planning', error: true, label: planningStatus.label, detail: planningStatus.detail,
-        action: planningStatus.recovery === 'retry' ? { label: 'Try again', onClick: selectedPlanning.retry }
-          : { label: 'Edit limits', onClick: () => { openInspector(); if (sel.kind !== 'cr') select(null, -1); } } },
+      editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,
+        action: { label: 'Try again', onClick: editing.retry } },
       !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'The saved optimization could not be validated. Review it before using this path.',
         action: { label: 'Optimize', onClick: () => setOptimizationOpen(true) } },
     ].filter(Boolean);
 
 
-    if (!derivation.value && !repairMode) {
+    if (startup === 'pending' || !derivation.value) {
       return h('main', { className: 'editor-startup', 'aria-busy': true, 'aria-label': 'Preparing editor' },
         h('div', { className: 'editor-startup-toolbar' }),
         h('div', { className: 'editor-startup-body', 'aria-hidden': true },
@@ -1766,19 +2853,17 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
     }
 
     return h('div', { className: 'app' },
-      h(AppUpdateDialog, { state: appUpdates.state, ...appUpdates.actions }),
-      h(Panels.Toolbar, { page, setPage: (next) => { finishEdit(); playbackStore.reset(); routinePlaybackStore.reset(); setPage(next); }, editorPage,
-        alliance, setAlliance, projectName: projectFolderName(projectLocation) || project.name, projectLocation, saveState, projectOpenError,
-        onRetryOpen: () => projectOpenError?.kind === 'folder' ? openProjectFolder() : openProject(projectOpenError?.recentIndex, projectOpenError?.legacyFile),
-        onDismissOpenError: () => setProjectOpenError(null),
-        onOpen: openProject, onOpenFolder: openProjectFolder, onSave: saveProject, onUndo: undo, onRedo: redo,
+      h(AppUpdateDialog, { state: appUpdates.state, ...appUpdates.actions, onEditingResumed: resumeEditingAfterInstall }),
+      h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
+        push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
-        optimizationOpen, toggleOptimization, optimizationApplied: Boolean(accepted),
+        optimizationOpen, toggleOptimization, optimizationApplied: Boolean(editing.ready && editing.acceptedTrajectory),
         updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
+      projectsSheet, departureSheet, departureHint,
       h(DiagnosticBundleDialog, { getProject: materializeProject, targetSelector: '.robot-connection-diagnostics', onOpen: pushController.close, renderKey: pushController.open + ':' + pushController.phase,
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
-        onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.library-connection')) || focusIfAvailable(document.querySelector('.library-push > button')) }),
+        onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-destination')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
         ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState: appUpdates.state,
           onOpenUpdates: () => ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(appUpdates.state?.phase)
@@ -1788,27 +2873,32 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
             renderLibrary('routines', null),
             h(RoutineWorkspace, {
               routine,
-              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
+              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid })),
-              status: run.blocked && h('div', { className: 'routine-status ' + (run.planningStatus === 'error' ? 'error' : 'planning'), role: run.planningStatus === 'error' ? 'alert' : 'status' },
-                h('span', { className: 'routine-status-icon' }, h(UI.Icon, { name: run.planningStatus === 'error' ? 'info' : 'route', size: 14 })),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, alliance, setAlliance })),
+              // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
+              status: run.blocked && h('div', { className: 'routine-status ' + (run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'planning' : 'error'), role: run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'status' : 'alert' },
+                h('span', { className: 'routine-status-icon' }, h(UI.Icon, { name: run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'route' : 'info', size: 14 })),
                 h('div', { className: 'routine-status-copy' },
-                  h('b', null, run.planningStatus === 'error' ? 'Routine planning failed' : 'Planning routine trajectories…'),
+                  h('b', null, run.planningStatus === 'error' ? 'Routine planning failed' : run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'Planning routine trajectories…' : 'Preview unavailable'),
                   run.planningError && h('span', null, run.planningError))),
               transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, paths: project.paths, acq, run, robotProject: { ...robotProjectState, link: linkRobotProject, refresh: refreshRobotProject, openRecent: openRecentRobotProject, build: buildRobotCatalog, inspect: inspectLabviewCommands } })))
-        : h('main', { className: 'stage stage-plan' },
-            renderLibrary('paths', (secOpen, setSecOpen) => h('div', { style: { height: '100%' }, inert: derivationCurrent || repairMode ? undefined : '' }, h(Panels.Outline, { project, open: true, setOpen: () => {}, doc: outlineDoc, derived: outlinePreview, sel, actions: inspActions, secOpen, setSecOpen, robot, ready: derivationCurrent }))),
-            h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent },
+              selNode && h(StepInspector, { node: selNode, routine, issues: routineIssues, paths: project.paths, acq, run, robotProject: { ...robotProjectState, link: linkRobotProject } })))
+        : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
+            renderLibrary('paths', null),
+            h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
+              robot, plannerId, actions: bandActions, sel, playbackStore, issues: planIssues, timingPending: !comparing && editing.pending,
+              stale: !derivationCurrent, flushDraft: flushProjectDraft }, (scene) => h(React.Fragment, null,
+            // Ready means the current path's timing has arrived; editing never waits for it.
+            h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
               h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
               h(Panels.ToolRail, { tool, setTool }),
-              h(EditablePlaybackField, { store: playbackStore, editStore, doc, derived, derivedPath: derivation.path, robot, plannerId, optimizationCorridor: optimizationOpen && normalReady ? { points: normal.value?.sample.pts, widthM: doc.optimization?.corridorM ?? 0.15 } : null, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
+              h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, optimizationCorridor: optimizationOpen && normalReady ? { points: normal.value?.sample.pts, widthM: doc.optimization?.corridorM ?? 0.15 } : null, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
-              tool !== 'select' && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: toolHint(tool) } }),
+              (tool !== 'select' || unfinishedPath) && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: toolHint(tool, doc.waypoints?.length || 0) } }),
               waypointPreview && h('div', { className: 'insert-preview', inert: derivationCurrent ? undefined : '', role: 'region', 'aria-label': 'Preview waypoint insertion' },
                 h('div', { className: 'insert-preview-copy' },
                   h('b', null, waypointPreview.pending ? 'Preparing waypoint preview' : waypointPreview.error ? 'Waypoint preview unavailable' : 'Preview waypoint'),
@@ -1833,30 +2923,40 @@ import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
                   agentProposal.status === 'ready' && h('button', { type: 'button', onClick: rejectAgentProposal }, 'Reject'),
                   agentProposal.status === 'ready' && h('button', { className: 'primary', type: 'button', disabled: !agentProposalCanApplyCandidate || (agentProposal.blockingIssues && agentProposal.blockingIssues.length > 0), onClick: applyAgentProposal }, agentProposal.operation === 'replace' ? 'Apply repair' : 'Add path'))),
               ),
-              h(Panels.ConstraintBar, { c: doc.constraints, robot, onOpen: () => { openInspector(); select(null, -1); } }),
-              h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
-              h(PlaybackTransport, { store: playbackStore, derived, doc: derivationDoc, metric, setMetric, graphOpen, setGraphOpen }),
-              h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen }))),
+              h('div', { className: 'field-view-footer', inert: derivationCurrent ? undefined : '' },
+                h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
+                h('div', { className: 'field-view-tools' },
+                  h(Panels.MetricControl, { metric, setMetric, derived }),
+                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, alliance, setAlliance, fieldFocus, toggleFieldFocus })))),
+            h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
+            h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
+              actions: bandActions, edit: { begin: beginEdit, mutate, finish: finishEdit, cancel: cancelEdit, draft: editStore.getSnapshot, flushDraft: flushProjectDraft },
+              playbackStore, stale: !derivationCurrent,
+              metric,
+              robotProject: { ...robotProjectState, link: linkRobotProject }, moreOpen: inspectorOpen,
+              documentKey: projectKey,
+              commandPickFor: commandPick && commandPick.documentKey === projectKey && commandPick.pathId === doc.id ? commandPick.markerId : null,
+              onMore: () => (inspectorOpen ? closeInspector() : openInspector()) }))),
             h('aside', { className: 'rail rail-r' + (inspectorOpen || optimizationOpen ? '' : ' collapsed'), 'aria-label': optimizationOpen ? 'Path optimization' : 'Path inspector' },
               optimizationOpen ? h(OptimizationPanel, {
                 path: doc, paths: project.paths, state: optimizationState, candidate, accepted, stale: staleOptimization,
                 baselineTime, pending: !normalReady && !normalError, error: normalError, mode: comparisonMode, unitSystem,
-                // Undo is offered only when the edit it would reverse belongs to this path.
                 recovery: normal.errorKind === 'timeout' ? { label: 'Try again', onClick: normal.retry }
-                  : repairMode && history.peekUndo(scopes)?.touches.includes(pathScope(doc.id))
-                    ? { label: 'Undo last edit', onClick: undo } : { label: 'Edit path', onClick: openInspector },
+                  : { label: 'Edit path', onClick: openInspector },
                 onCorridor: setCorridor, onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
                 onCompare: compareTrajectory, onApply: applyOptimization, onNormal: useNormalTrajectory,
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
                 onClose: closeOptimization,
               }) : inspectorOpen
-                ? h(ContextInspector, { project, setWaypointPositionLink, doc, sel, derived, repairMode, pending: !derivationCurrent && !repairMode, actions: inspActions, drive: robot.drive, robot, robotProject: { ...robotProjectState, link: linkRobotProject, openRecent: openRecentRobotProject, refresh: refreshRobotProject, inspect: inspectLabviewCommands, build: buildRobotCatalog, export: onExportBdx }, onClose: closeInspector })
-                : h('button', { ref: inspectorTab, className: 'inspector-tab', type: 'button', title: 'Show inspector', onClick: openInspector }, h(UI.Icon, { name: 'sliders', size: 16 }), h('span', null, 'Inspector'))),
+                ? h(ContextInspector, { project, setWaypointPositionLink, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
+                : null),
             headMenu && h(UI.ContextMenu, { x: headMenu.x, y: headMenu.y, items: headMenu.items, returnFocus: headMenu.returnFocus, onClose: () => setHeadMenu(null) })));
   }
 
-  function toolHint(tool) {
+  function toolHint(tool, waypoints = 2) {
+    if (waypoints < 2) return tool === 'waypoint' ? 'Click the field to place the <b>' + (waypoints ? 'next waypoint' : 'first waypoint') + '</b>'
+      : 'Press <b>W</b>, then click the field to ' + (waypoints ? 'continue' : 'start') + ' this path';
     if (tool === 'waypoint') return 'Click the field to place the <b>next endpoint</b>';
     if (tool === 'rotation') return 'Click the path to set a <b>rotation target</b>';
     if (tool === 'marker') return 'Click the path to place a <b>command</b>';

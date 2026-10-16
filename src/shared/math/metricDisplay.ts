@@ -1,6 +1,6 @@
-// Shared muted blue scale. Increasing OKLCH lightness keeps
-// low, middle and high values distinct on the dark field in every metric.
-const HEATMAP = [[0.55, 0.055, 250], [0.70, 0.070, 250], [0.85, 0.040, 250]] as const;
+// One teal hue that no other field meaning uses (alliance red/blue, zone amber, command violet, problem red).
+// Increasing OKLCH lightness carries the value, so slow stretches read dim and fast ones bright, in every metric.
+const HEATMAP = [[0.56, 0.060, 178], [0.74, 0.085, 178], [0.92, 0.060, 178]] as const;
 
 export function metricColor(_mode: string, value: number) {
   const t = Math.max(0, Math.min(1, Number.isNaN(value) ? 0 : value)) * 2;

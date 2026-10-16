@@ -1,53 +1,49 @@
 /* The collection stays in the same column in both editor modes. */
 .library-rail{width:264px;flex:0 0 264px;flex-direction:column;background:var(--bg-1);border-right:1px solid var(--line-2);overflow:hidden}
+.library-rail[hidden]{display:none}
 /* LibraryRail clamps --library-ratio to this same minimum, so the divider has no dead zone.
    Content taller than the capped minimum scrolls here instead of being clipped. */
 .library-top{flex:0 0 var(--library-ratio);min-height:var(--library-min-height);overflow:hidden auto;scrollbar-width:thin}
 .library-only .library-top{flex:1;min-height:0}
 .editor-library{display:flex;flex-direction:column;height:100%;min-height:0;font-size:12px}
-.library-tabs{display:flex;align-items:stretch;flex:0 0 42px;gap:22px;padding:0 14px;border-bottom:1px solid var(--line)}
-.library-tabs>button{position:relative;padding:0 2px;color:var(--txt-3);font-size:12.5px;font-weight:600}
-.library-tabs>button[aria-selected="true"]{color:var(--txt)}
-.library-tabs>button[aria-selected="true"]::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px 2px 0 0;background:var(--accent)}
-.library-tools{display:flex;align-items:center;justify-content:space-between;flex:0 0 36px;min-height:38px;padding:5px 8px 0 10px}
-.library-tools button{display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550}
-.library-tools .library-new-folder{justify-content:center;width:28px;padding:0}
-.library-search{min-width:0;height:32px;min-height:32px;margin:0 12px 8px;padding:0 9px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none}
+.library-find{display:flex;flex:none;align-items:center;gap:2px;padding:10px 8px 8px 10px}
+/* The search text starts on the same edge as the row names below it. */
+.library-search{flex:1;min-width:0;height:30px;min-height:30px;margin:0 4px 0 0;padding:0 8px 0 21px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none}
 .library-search::placeholder{color:var(--txt-3)}
-.library-search:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
-.library-scroll{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;padding:0 0 8px;scrollbar-width:thin}
+.library-search:focus-visible{border-color:var(--line-3);box-shadow:0 0 0 1px var(--focus)}
+.library-icon-button{display:grid;flex:none;place-items:center;width:30px;height:30px;border-radius:var(--r);color:var(--txt-3)}
+.library-scroll{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;padding:0 6px 8px;scrollbar-width:thin}
 
-/* Rows: selected rows take the accent fill; the open item adds the accent rule. Names wrap to two lines;
-   the inspector title and push review show them in full. */
-.library-row{position:relative;display:flex;align-items:center;min-width:0;min-height:31px;padding:0 6px 0 14px;user-select:none}
-.library-row.selected{background:var(--accent-soft)}
-.library-row:has([aria-current="true"])::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent)}
-.library-pick{flex:1;min-width:0;min-height:36px;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 0;text-align:left}
-.library-pick>svg{color:var(--txt-3)}
-.library-row.selected .library-pick>svg{color:var(--accent)}
+/* Rows: the open path takes a neutral surface; other paths that Push would also send show a check. No stripe and
+   no fill color, and weight never changes with state. Names wrap to two lines; the inspector title and push review
+   show them in full. */
+.library-row{position:relative;display:flex;align-items:center;min-width:0;min-height:32px;padding:0 4px 0 6px;border-radius:var(--r);user-select:none}
+.library-row:has([aria-current="true"]){background:var(--bg-3)}
+.library-pick{flex:1;min-width:0;min-height:34px;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;gap:6px;padding:5px 0;text-align:left}
+.library-pick:focus-visible{outline:2px solid var(--focus);outline-offset:1px;border-radius:var(--r)}
+.library-mark{display:grid;place-items:center;width:14px;height:14px;color:var(--txt)}
 .library-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:0;overflow:hidden;color:var(--txt-2);font-size:12.5px;font-weight:450;line-height:16px;white-space:normal;overflow-wrap:anywhere}
-.library-row.selected .library-name{color:var(--txt);font-weight:500}
+.library-row:is(.selected,:has([aria-current="true"])) .library-name{color:var(--txt)}
 .library-meta{flex:0 0 auto;color:var(--txt-3);font:11px/16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Center the visible glyphs, whose ink sits above the line-box midpoint. */
 .library-name,.library-meta{transform:translateY(1px)}
 /* Row actions keep their column and appear on hover, keyboard focus, or selection. */
 .library-more{flex:0 0 24px;width:24px;height:28px;margin-left:4px;border-radius:var(--r-s);color:var(--txt-3);font-size:16px;line-height:1;opacity:0;transition:opacity .12s,background-color .12s,color .12s}
 :is(.library-row,.library-folder):is(:hover,:focus-within) .library-more,.library-row.selected .library-more,.library-more[aria-expanded="true"]{opacity:1}
-.library-folder{display:flex;align-items:center;margin:0;padding:4px 6px 0 10px;user-select:none}
-.library-folder>button:first-child{display:flex;align-items:center;gap:6px;flex:1;min-width:0;height:29px;padding:0 4px;border-radius:var(--r-s);color:var(--txt-3);font-size:12px;font-weight:550;text-align:left}
+.library-folder{display:flex;align-items:center;margin:0;padding:6px 4px 0 2px;user-select:none}
+.library-folder>button:first-child{display:flex;align-items:center;gap:6px;flex:1;min-width:0;height:29px;padding:0 4px;border-radius:var(--r-s);color:var(--txt-3);font-size:12px;font-weight:500;text-align:left}
 .library-folder>button:first-child>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .library-folder>button:first-child>svg{flex:none;transition:transform .14s}
 .library-folder [aria-expanded="false"]>svg:first-child{transform:rotate(-90deg)}
-.library-group .library-row{padding-left:32px}
-.library-group .library-row:has([aria-current="true"])::before{left:18px}
+.library-group .library-row{padding-left:20px}
 .library-empty{padding:10px 14px;color:var(--txt-3);font-size:12px;line-height:1.5}
 .library-group .library-empty{padding-left:36px}
-.library-blocked{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:4px 12px 8px;padding:9px 11px;border-left:2px solid var(--bad);border-radius:0 var(--r) var(--r) 0;background:var(--bad-soft);color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.library-blocked{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:4px 12px 8px;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .library-blocked strong{color:var(--txt)}
 .library-blocked p{margin:0}
 .library-blocked button{margin:0}
 .library-rename{display:grid;grid-template-columns:minmax(0,1fr) 26px 26px;gap:2px;padding:3px 8px}
-.library-rename input{width:100%;min-width:0;height:30px;padding:0 8px;border:1px solid var(--accent);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none}
+.library-rename input{width:100%;min-width:0;height:30px;padding:0 8px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none;box-shadow:0 0 0 1px var(--focus)}
 .library-rename button{display:grid;place-items:center;padding:0;border-radius:var(--r-s);color:var(--txt-2)}
 .library-error{grid-column:1/-1;color:var(--bad-txt);font-size:11.5px}
 
@@ -65,24 +61,13 @@
 .library-properties footer{display:flex;justify-content:flex-end;margin-top:18px}
 .library-link{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 
-/* Footer: the push target and its explicit action share one row. */
-.library-push{display:flex;align-items:center;flex-shrink:0;gap:10px;min-height:48px;padding:8px 8px 8px 14px;border-top:1px solid var(--line)}
-.library-selection{display:flex;flex:1;align-items:center;gap:8px;min-width:0;color:var(--txt-2);font-size:12px;line-height:16px}
-.library-current-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;min-width:0;overflow:hidden;white-space:normal;overflow-wrap:anywhere}
-.library-selection .library-clear{display:grid;flex:none;place-items:center;width:24px;height:24px;border-radius:var(--r-s);color:var(--txt-3)}
-.library-selection .library-clear:hover{background:var(--bg-3);color:var(--txt)}
-.library-push>button{display:flex;flex:none;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font-size:12px;font-weight:550;transition:background-color .14s,border-color .14s}
-.library-push>button svg{color:var(--accent)}
-.library-push>button:disabled{opacity:.45;cursor:not-allowed}
-.library-push>button:disabled svg{color:inherit}
-.library-local{flex:none;padding-right:6px;color:var(--txt-3);font-size:11.5px}
+/* Multiple selection: one line with the count, how many are out of view, and Clear. Only while Push would send
+   more than the open path; it sits below the list so rows never move under the pointer. */
+.library-selection{display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;min-height:36px;padding:0 8px 0 14px;border-top:1px solid var(--line);color:var(--txt-2);font-size:12px;font-variant-numeric:tabular-nums}
+.library-clear{height:26px;padding:0 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550}
+.library-clear:focus-visible,.library-icon-button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 
 /* Save failures: one tone, one explanation, one recovery action. */
-.library-location{flex:none;min-width:0;padding:10px 12px;border-bottom:1px solid var(--line)}
-.library-save-status{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;padding:8px 10px;border-left:2px solid var(--bad);border-radius:0 var(--r) var(--r) 0;background:var(--bad-soft);color:var(--txt);font-size:12px;line-height:1.45}
-.library-save-status::before{content:'';width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--bad)}
-.library-save-status span{max-height:calc(5 * 1.45em);overflow-y:auto;overflow-wrap:anywhere;scrollbar-width:thin}
-.library-save-status button{grid-column:2;justify-self:start;min-height:28px;padding:0 10px}
 
 /* Divider between the collection and the selected item's structure. */
 .library-divider{position:relative;flex:0 0 5px;height:5px;border-top:1px solid var(--line);cursor:row-resize;touch-action:none}
@@ -91,15 +76,22 @@
 .library-structure{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden}
 .library-section-title{display:flex;align-items:center;gap:7px;flex:0 0 32px;height:32px;padding:0 14px;border-bottom:1px solid var(--line);color:var(--txt-3);font-size:12px;font-weight:550;text-align:left}
 .library-structure-body{flex:1;min-height:0;overflow:hidden}
-.library-connection{flex:0 0 auto;white-space:nowrap}
-.fieldsvg [data-heading-control]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.fieldsvg [data-heading-control]:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 @media (hover:hover){
-  .library-row:not(.selected):hover,.library-folder>button:first-child:hover{background:var(--bg-2)}
-  .library-folder>button:first-child:hover,.library-tools button:hover,.library-selection button:hover{color:var(--txt)}
-  .library-tools button:hover,.library-rename button:hover{background:var(--bg-3)}
+  .library-row:not(:has([aria-current="true"])):hover,.library-folder>button:first-child:hover{background:var(--bg-2)}
+  .library-folder>button:first-child:hover,.library-icon-button:hover,.library-clear:hover{color:var(--txt)}
+  .library-icon-button:hover,.library-clear:hover,.library-rename button:hover{background:var(--bg-3)}
   .library-more:hover,.library-more[aria-expanded="true"]{background:var(--bg-3);color:var(--txt)}
   .library-menu button:not(:disabled):hover{background:var(--bg-3)}
   .library-menu button.danger:not(:disabled):hover{background:var(--bad-soft)}
-  .library-push>button:not(:disabled):hover{border-color:var(--line-3);background:var(--bg-3)}
 }
 @media (pointer:coarse){.library-more{opacity:1}}
+
+/* A fixed local-feedback row; batch selection keeps its own count and Clear control. */
+.deletion-footer{flex:0 0 32px;height:32px;min-height:32px;padding:0 8px 0 14px;border-top:1px solid var(--line)}
+.deletion-notice{height:100%;display:flex;align-items:center;gap:6px;color:var(--txt-2);font:500 12px/1.25 var(--ui)}
+.deletion-copy{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.deletion-notice button{flex:0 0 42px;width:42px;height:28px;color:var(--txt);font:550 12px/1.25 var(--ui);border-radius:var(--r)}
+.deletion-notice button[aria-disabled]{color:var(--txt-3)}
+.deletion-notice button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+@media(hover:hover){.deletion-notice button:not([aria-disabled]):hover{background:var(--bg-3)}}

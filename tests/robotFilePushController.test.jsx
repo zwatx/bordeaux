@@ -19,15 +19,16 @@ vi.mock('react', async (original) => ({
     hooks.values[index] = dependencies;
   },
 }));
-import { useRobotFilePushController } from '../src/renderer/components/useRobotFilePushController';
+import { MAX_PUSH_PATHS, linkedOutside, useRobotFilePushController } from '../src/renderer/components/useRobotFilePushController';
+import { useRobotPushController } from '../src/renderer/components/useRobotPushController';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/shared/robotFileDelivery';
 const connection = { endpoint: { host: 'robot.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: 'SHA256:test' };
 const preview = { operationId: 'one', connection, files: [{ pathId: 'A', name: 'A', fileName: 'A.bdx', size: 64, sha256: 'abc' }] };
 let bridge, project, props;
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
-function render() {
+function render(hook = useRobotFilePushController) {
   hooks.cursor = 0;
-  const controller = useRobotFilePushController(props);
+  const controller = hook(props);
   for (const effect of hooks.effects.splice(0)) { const cleanup = effect(); if (cleanup) hooks.cleanups.push(cleanup); }
   return controller;
 }
@@ -122,6 +123,33 @@ describe('SFTP file push controller', () => {
     await prepare(); props = { ...props, catalogKey: 'changed' }; render();
     expect(render().preview).toBeNull(); expect(bridge.cancelRobotFiles).toHaveBeenCalledWith('one');
   });
+  it('leaves the connection alone when the project changes with no push captured', async () => {
+    await ready(); props = { ...props, catalogKey: 'changed' }; render();
+    expect(render()).toMatchObject({ phase: 'idle', error: '', connection });
+    expect(bridge.cancelRobotFiles).not.toHaveBeenCalled();
+  });
+  it.each(['projectKey', 'catalogKey', 'bookmarkKey'])('retires a completed push before a %s change without a stale alert', async key => {
+    await prepare(); await render().confirmPush();
+    const result = render().result;
+    expect(render()).toMatchObject({ phase: 'transferred', canRetry: false, preview: null });
+    props = { ...props, [key]: 'changed' }; render();
+    expect(render()).toMatchObject({ phase: 'transferred', error: '', connection, result });
+    expect(bridge.cancelRobotFiles).not.toHaveBeenCalled();
+    await render().retry();
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+  });
+  it('still applies a slow settings load after a project change with no push captured', async () => {
+    const pending = deferred(); bridge.getRobotFileConnection.mockReturnValue(pending.promise);
+    render(); props = { ...props, bookmarkKey: 'opened' }; render();
+    pending.resolve(connection); await Promise.resolve(); await Promise.resolve();
+    expect(render()).toMatchObject({ phase: 'idle', error: '', connection, host: 'robot.local' });
+  });
+  it('still invalidates a requested push when the project changes', async () => {
+    bridge.getRobotFileConnection.mockResolvedValueOnce({ endpoint: connection.endpoint });
+    await ready(); await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    props = { ...props, projectKey: 'other' }; render();
+    expect(render()).toMatchObject({ canRetry: false, error: 'The project changed. Choose Push again to review the current paths.' });
+  });
   it('surfaces failed preparation and supports a fresh retry', async () => {
     bridge.prepareRobotFiles.mockRejectedValueOnce(new Error('Path cannot be exported'));
     await prepare(); const c = render(); expect(c.phase).toBe('failed'); expect(c.error).toBe('Path cannot be exported');
@@ -144,5 +172,154 @@ describe('SFTP file push controller', () => {
     const c = render(); await c.requestPush({ kind: 'paths', pathIds: ['A'] });
     pending.resolve(connection); await Promise.resolve(); await Promise.resolve();
     expect(bridge.prepareRobotFiles).toHaveBeenCalledOnce(); expect(render().phase).toBe('review');
+  });
+});
+
+describe('linked paths outside a push', () => {
+  // A and B share a point; C is endpoint-linked to B and still being drawn; D stands alone.
+  const linkedProject = () => ({ paths: [
+    { id: 'A', name: 'Amp score', waypoints: [{ positionLink: 'g1' }, {}] },
+    { id: 'B', name: 'Source 2', waypoints: [{}, { positionLink: 'g1' }] },
+    { id: 'C', name: 'Trench', waypoints: [{}] },
+    { id: 'D', name: 'Solo', waypoints: [{}, {}] },
+  ], pathLinks: [{ fromPathId: 'C', toPathId: 'B' }, { fromPathId: 'gone', toPathId: 'A' }], routines: [] });
+  const B = { id: 'B', name: 'Source 2', pushable: true }, C = { id: 'C', name: 'Trench', pushable: false };
+  // Mirrors main's refusal of a path the captured project no longer has.
+  const prepared = (count = { value: 0 }) => async (source, ids) => {
+    if (ids.some((id) => !source.paths.some((path) => path.id === id))) throw new Error('A selected path is missing or ambiguous.');
+    return { operationId: 'op' + (++count.value), connection, files: ids.map((id) => ({ pathId: id, name: id, fileName: id + '.bdx', size: 1, sha256: 'x' })) };
+  };
+  const review = async (pathIds = ['A']) => { const c = await ready(); await c.requestPush({ kind: 'paths', pathIds }); return render(); };
+  beforeEach(() => { project = linkedProject(); bridge.prepareRobotFiles.mockImplementation(prepared()); });
+
+  it('lists the transitive endpoint and shared closure outside the selection in project order', () => {
+    expect(linkedOutside(project, ['A'])).toEqual([B, C]);
+    expect(linkedOutside(project, ['C', 'A'])).toEqual([B]);
+    expect(linkedOutside(project, ['D'])).toEqual([]);
+    expect(linkedOutside({ paths: [{ id: 'X' }, { id: 'Y', name: 'Y' }], pathLinks: [{ fromPathId: 'Y', toPathId: 'X' }] }, ['Y'])).toEqual([{ id: 'X', name: undefined, pushable: false }]);
+    expect(MAX_PUSH_PATHS).toBe(64);
+  });
+  it('publishes the note with its review and keeps it renderer-only', async () => {
+    const c = await review();
+    expect(c).toMatchObject({ phase: 'review', preview: { operationId: 'op1', linked: [B, C] } });
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledExactlyOnceWith(expect.anything(), ['A']);
+    await c.confirmPush();
+    expect(bridge.confirmRobotFiles).toHaveBeenCalledExactlyOnceWith('op1');
+  });
+  it('publishes the note after delayed settings and after trusting another robot', async () => {
+    const pending = deferred(); bridge.getRobotFileConnection.mockReturnValue(pending.promise);
+    await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    pending.resolve(connection); await new Promise((settle) => setTimeout(settle, 0));
+    expect(render()).toMatchObject({ phase: 'review', preview: { linked: [B, C] } });
+    await render().chooseAnotherRobot();
+    expect(render().preview).toBeNull();
+    await render().probeRobot();
+    expect(render()).toMatchObject({ phase: 'review', preview: { operationId: 'op2', linked: [B, C] } });
+  });
+  it('includes linked pushable paths from the captured project, even after the source changed, then reviews again', async () => {
+    const selection = ['A'];
+    const c = await ready(); await c.requestPush({ kind: 'paths', pathIds: selection });
+    const captured = bridge.prepareRobotFiles.mock.calls[0][0];
+    render().close();
+    project = { ...project, paths: project.paths.filter((path) => path.id !== 'B').map((path) => ({ ...path, name: 'Edited' })) };
+    render().openConnection();
+    await render().includeLinked('op1');
+    expect(bridge.cancelRobotFiles).toHaveBeenCalledExactlyOnceWith('op1');
+    expect(bridge.prepareRobotFiles).toHaveBeenLastCalledWith(captured, ['A', 'B']);
+    expect(bridge.prepareRobotFiles.mock.calls[1][0]).toBe(captured);
+    expect(render()).toMatchObject({ phase: 'review', preview: { operationId: 'op2', linked: [C] } });
+    expect(selection).toEqual(['A']);
+    expect(bridge.confirmRobotFiles).not.toHaveBeenCalled();
+    await render().confirmPush();
+    expect(bridge.confirmRobotFiles).toHaveBeenCalledExactlyOnceWith('op2');
+  });
+  it('ignores a duplicate, stale or cancelled Include', async () => {
+    const c = await review();
+    await c.includeLinked('stale');
+    expect(render()).toMatchObject({ phase: 'review', preview: { operationId: 'op1' } });
+    const first = c.includeLinked('op1'); const second = c.includeLinked('op1'); await Promise.all([first, second]);
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(2); expect(bridge.cancelRobotFiles).toHaveBeenCalledTimes(1);
+    await render().cancel();
+    expect(render().phase).toBe('cancelled');
+    await c.includeLinked('op2');
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(2);
+  });
+  it.each(['resolve', 'reject'])('drops an Include whose discard settles (%s) after invalidation', async (outcome) => {
+    const c = await review();
+    const pending = deferred(); bridge.cancelRobotFiles.mockReturnValueOnce(pending.promise);
+    const work = c.includeLinked('op1');
+    expect(render().phase).toBe('preparing');
+    props = { ...props, projectKey: 'other' }; render();
+    if (outcome === 'resolve') pending.resolve({ canceled: true }); else pending.reject(new Error('late discard'));
+    await work;
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+    expect(render()).toMatchObject({ phase: 'idle', preview: null, canRetry: false, error: 'The project changed. Choose Push again to review the current paths.' });
+  });
+  it.each(['resolve', 'reject'])('drops a public push whose discard settles (%s) after invalidation', async (outcome) => {
+    const c = await review();
+    const pending = deferred(); bridge.cancelRobotFiles.mockReturnValueOnce(pending.promise);
+    const work = c.requestPush({ kind: 'paths', pathIds: ['D'] });
+    props = { ...props, bookmarkKey: 'other' }; render();
+    if (outcome === 'resolve') pending.resolve({ canceled: true }); else pending.reject(new Error('late discard'));
+    await work;
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+    expect(render()).toMatchObject({ phase: 'idle', error: 'The project changed. Choose Push again to review the current paths.' });
+  });
+  it('refuses more than 64 paths before discarding the valid review, and allows exactly 64', async () => {
+    const many = (count) => ({ paths: Array.from({ length: count }, (_, index) => ({ id: 'P' + index, name: 'P' + index,
+      waypoints: index >= count - 2 ? [{}, { positionLink: 'end' }] : [{}, {}] })), routines: [] });
+    project = many(65);
+    let c = await review(project.paths.slice(0, 64).map((path) => path.id));
+    await c.includeLinked('op1');
+    expect(render()).toMatchObject({ phase: 'review', preview: { operationId: 'op1' }, error: 'Push sends at most 64 paths at once. Including these would make 65.' });
+    expect(bridge.cancelRobotFiles).not.toHaveBeenCalled(); expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+    hooks.values = []; hooks.effects = [];
+    project = many(64);
+    c = await review(project.paths.slice(0, 63).map((path) => path.id));
+    await c.includeLinked(c.preview.operationId);
+    expect(bridge.prepareRobotFiles.mock.lastCall[1]).toHaveLength(64);
+    expect(render().phase).toBe('review');
+  });
+  it('keeps the widened IDs for a fresh Retry after main refuses, and never drops a deleted path', async () => {
+    const c = await review();
+    bridge.prepareRobotFiles.mockRejectedValueOnce(new Error('Two paths would write the same robot file name.'));
+    await c.includeLinked('op1');
+    expect(render()).toMatchObject({ phase: 'failed', preview: null, canRetry: true, error: 'Two paths would write the same robot file name.' });
+    const captured = bridge.prepareRobotFiles.mock.calls[0][0];
+    project = { ...project, paths: project.paths.filter((path) => path.id !== 'B') };
+    await render().retry();
+    expect(bridge.prepareRobotFiles.mock.lastCall[0]).not.toBe(captured);
+    expect(bridge.prepareRobotFiles.mock.lastCall[1]).toEqual(['A', 'B']);
+    expect(render()).toMatchObject({ phase: 'failed', error: 'A selected path is missing or ambiguous.' });
+    project = linkedProject();
+    await render().retry();
+    expect(render()).toMatchObject({ phase: 'review', preview: { linked: [C] } });
+    expect(bridge.prepareRobotFiles.mock.lastCall[1]).toEqual(['A', 'B']);
+  });
+});
+
+describe('shipping robot delivery selection', () => {
+  it('routes desktop file-transfer capabilities through the supported controller', async () => {
+    bridge.robotDeliveryCapabilities = { fileTransfer: true, pathPush: true, routinePush: false };
+    render(useRobotPushController); await Promise.resolve();
+    const controller = render(useRobotPushController);
+    expect(controller.fileTransfer).toBe(true);
+    await controller.requestPush({ kind: 'paths', pathIds: ['A'] });
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledOnce();
+    expect(render(useRobotPushController).phase).toBe('review');
+  });
+  it('offers a local fallback without calling legacy transport APIs', () => {
+    bridge.robotDeliveryCapabilities = { fileTransfer: false, pathPush: true };
+    bridge.getRobotPairing = vi.fn(); bridge.prepareRobotPush = vi.fn();
+    const controller = render(useRobotPushController);
+    controller.requestPush({ kind: 'paths', pathIds: ['A'] });
+    const unavailable = render(useRobotPushController);
+    expect(unavailable.open).toBe(true);
+    expect(unavailable.deliveryAvailable).toBe(false);
+    expect(unavailable.unavailable.pathId).toBe('A');
+    expect(unavailable.unavailable.reason).toContain('export the path file locally');
+    expect(bridge.getRobotPairing).not.toHaveBeenCalled();
+    expect(bridge.prepareRobotPush).not.toHaveBeenCalled();
+    expect(bridge.prepareRobotFiles).not.toHaveBeenCalled();
   });
 });

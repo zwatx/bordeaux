@@ -73,4 +73,10 @@ describe("BDX selected-path batch preparation", () => {
     await expect(buildBdxOffThread(job)).resolves.toEqual({ fileName: "second.bdx" });
     expect(runWorkerTask).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/bdxWorker\.js$/), job, "BDX export");
   });
+  it("passes explicit-Save abort authority and requires actual worker termination", async () => {
+    const job = fixture(), signal = new AbortController().signal; runWorkerTask.mockResolvedValueOnce([]);
+    await buildBdxBatchOffThread(job, signal);
+    expect(runWorkerTask).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/bdxWorker\.js$/), job, "BDX path preparation", signal, { waitForTermination: true });
+  });
+
 });

@@ -72,6 +72,7 @@ export function duplicateWaypoint(path: EditablePath, index: number): EditablePa
 }
 
 export function reversePath(path: PathDoc): PathDoc {
+  if (path.waypoints.length < 2) return path;
   const lastWaypoint = path.waypoints[path.waypoints.length - 1];
   const endpointJiggle = lastWaypoint.jiggle ? { ...lastWaypoint.jiggle } : null;
   const oldSeg = path.waypoints.map((w) => w.segType);

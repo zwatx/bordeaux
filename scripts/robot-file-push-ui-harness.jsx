@@ -138,6 +138,34 @@ await test('Held Enter from Push cannot confirm the review it opens', async () =
   await act(async () => native({ key: 'Enter' }));
   assert(!mock.confirms.length, 'Repeated Enter never uploads');
 });
+await test('Include widens only this review from the captured project, by keyboard, before an explicit Upload', async () => {
+  // B shares its last point with Trench run (C), which the selection leaves out.
+  const linkedProject = { paths: [{ id: 'A', name: files[0].name, waypoints: [{}, {}] }, { id: 'B', name: files[1].name, waypoints: [{}, { positionLink: 'shared-1' }] },
+    { id: 'C', name: 'Trench run', waypoints: [{ positionLink: 'shared-1' }, {}] }], routines: [] };
+  props = { ...props, getProject: () => linkedProject }; await act(async () => root.render(<Harness />));
+  await prepare();
+  const note = () => document.querySelector('.rfp-linked');
+  assert(note()?.textContent === 'Linked to Trench run, which is not included. Include 1 path', 'Review names the linked path outside the push');
+  assert(document.activeElement?.textContent === 'Cancel', 'Cancel keeps first focus, not Include or Upload');
+  await native({ capture: 'linked-review' });
+  linkedProject.paths.splice(2, 1);
+  document.querySelector('.robot-push-close').focus();
+  for (let index = 0; index < 6 && !document.activeElement?.textContent.startsWith('Include'); index++) await act(async () => native({ key: 'Tab' }));
+  assert(document.activeElement?.textContent === 'Include 1 path', 'Tab reaches Include before the footer');
+  await act(async () => native({ key: 'Enter' }));
+  assert(mock.canceled.includes('upload-1') && mock.prepares.length === 2, 'Include discards the old review and prepares once');
+  assert(mock.prepares[1].args[1].join(',') === 'A,B,C' && mock.prepares[1].args[0].paths.length === 3, 'Captured project, widened in project order');
+  const widened = { operationId: 'upload-2', connection, files: [...files, { pathId: 'C', name: 'Trench run', fileName: 'C-path.bdx', size: 2048, sha256: 'd'.repeat(64) }] };
+  await resolve(mock.prepares[1], widened);
+  assert(controller.phase === 'review' && !note() && button('Upload 3 paths'), 'A new review lists the widened files');
+  assert(document.activeElement?.textContent === 'Cancel', 'The new review focuses Cancel');
+  assert(!mock.confirms.length && document.querySelector('#origin').textContent === 'Push selection', 'Nothing uploads and the origin is unchanged');
+  await native({ capture: 'linked-widened-review' });
+  await pointer('Upload 3 paths');
+  assert(mock.confirms.length === 1 && mock.confirms[0].args[0] === 'upload-2', 'Only the explicit Upload confirms the widened review');
+  await resolve(mock.confirms[0], { state: 'transferred', files: widened.files, directory: endpoint.directory });
+  assert(document.querySelector('dialog').textContent.includes('3 paths uploaded'), 'The result counts the widened files');
+});
 await test('Diagnostics stay reachable after Edit and Back', async () => {
   await action(() => controller.openConnection());
   await pointer('Edit');

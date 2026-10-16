@@ -12,7 +12,10 @@ function renderMetadata(project, routine, planning, outcomes = {}) {
   const markup = renderToStaticMarkup(React.createElement(RoutinePanel, {
     routine, paths: project.paths, run, time: 0, running: false, acq: { outcomes },
   }));
-  return (id) => markup.match(new RegExp('data-id="' + id + '"[\\s\\S]*?class="rt-step-meta">([^<]*)'))?.[1];
+  const field = (id, name) => markup.match(new RegExp('data-id="' + id + '"[\\s\\S]*?class="' + name + '[^"]*">([^<]*)'))?.[1];
+  const metadata = (id) => field(id, 'rt-step-meta');
+  metadata.duration = (id) => field(id, 'rt-step-dur');
+  return metadata;
 }
 
 describe('routine path preview status', () => {
@@ -24,7 +27,10 @@ describe('routine path preview status', () => {
       expect(renderMetadata(project, routine, { status: 'pending', values: {} })('drive')).toBe('Preparing preview…');
       const trajectory = getPlanner('profiledSpline').generate({ path, robot: project.robot, samplesPerSegment: 14 });
       const ready = { status: 'ready', values: { [path.id]: { finalTrajectory: trajectory, sample: { length: trajectory.totalDistanceM } } } };
-      expect(renderMetadata(project, routine, ready)('drive')).toMatch(/^\d+\.\d{2} s, \d+\.\d{2} m$/);
+      // Distance reads under the name; the exact planned duration sits in the duration column.
+      const ready_ = renderMetadata(project, routine, ready);
+      expect(ready_('drive')).toMatch(/^\d+\.\d{2} m$/);
+      expect(ready_.duration('drive')).toMatch(/^\d+\.\d{2} s$/);
     }
   });
 
@@ -44,15 +50,21 @@ describe('routine path preview status', () => {
     expect(alternate('nested-false')).toBe(status === 'pending' ? 'Preparing preview…' : 'Preview unavailable');
   });
 
+  // A ready plan set that lacks a selected path invalidates the whole preview: no row may claim it is still preparing
+  // or invent a duration. A reference to a deleted path is a source problem named on its own row.
   it('distinguishes an unavailable selected trajectory from an unbound path', () => {
     const project = createDemoProject();
-    const routine = { name: 'Routine', nodes: [
+    const drive = renderMetadata(project, { name: 'Routine', nodes: [{ id: 'drive', type: 'path', ref: project.paths[0].id }] }, { status: 'ready', values: {} });
+    expect(drive('drive')).toBe('Preview unavailable');
+    expect(drive.duration('drive')).toBe('');
+    const unbound = renderMetadata(project, { name: 'Routine', nodes: [
       { id: 'drive', type: 'path', ref: project.paths[0].id },
       { id: 'missing', type: 'path', ref: 'deleted-path' },
-    ] };
-    const metadata = renderMetadata(project, routine, { status: 'ready', values: {} });
-    expect(metadata('drive')).toBe('No trajectory available');
-    expect(metadata('missing')).toBe('Choose a path');
+      { id: 'blank', type: 'path', ref: '' },
+    ] }, { status: 'ready', values: {} });
+    expect(unbound('drive')).toBe('Preview unavailable');
+    expect(unbound('missing')).toBe('The referenced path is unavailable.');
+    expect(unbound('blank')).toBe('Choose a path');
   });
 });
 

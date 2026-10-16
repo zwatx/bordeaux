@@ -3,9 +3,28 @@ import { spawn } from "node:child_process";
 import electron from "electron";
 import fs from "node:fs/promises";
 import net from "node:net";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+
+const require = createRequire(import.meta.url);
+
+/** Seed an actual managed source before launch; first-use production startup intentionally has no demo. */
+async function seedSmokeProject(directory) {
+  const { createDemoProject } = require("../dist-electron/shared/project/defaults.js");
+  const { autosaveProjectFolder, projectWorkspacePath, readProject } = require("../dist-electron/electron/projectFiles.js");
+  const { readRecentProjectFiles, writeRecentProjectFiles } = require("../dist-electron/electron/recentProjectFiles.js");
+  const saved = await autosaveProjectFolder(directory, createDemoProject(), null, { createProject: true });
+  const workspace = projectWorkspacePath(directory);
+  const reopened = await readProject(workspace, { recordOpened: false });
+  assert.deepEqual(reopened.project, saved, "Smoke seed must roundtrip through the real project codec");
+  assert.ok(saved.paths.some(candidate => candidate.waypoints.length >= 2), "Smoke seed requires authored path geometry");
+  const recents = path.join(directory, "recent-projects.json");
+  await writeRecentProjectFiles(recents, [directory]);
+  assert.deepEqual(await readRecentProjectFiles(recents), [directory], "Smoke startup must discover the actual seeded source");
+  return workspace;
+}
 
 // The GUI smoke owns machine-wide desktop focus, even across separate clones.
 const smokeLockPort = 24968;
@@ -36,7 +55,8 @@ async function acquireSmokeLock() {
 const smokeLock = await acquireSmokeLock();
 let smokeDirectory;
 try {
-  smokeDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-electron-smoke-"));
+  smokeDirectory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-electron-smoke-")));
+  await seedSmokeProject(smokeDirectory);
   await fs.copyFile(new URL("./electron-smoke-renderer.js", import.meta.url), path.join(smokeDirectory, "renderer.js"));
   const robotRoot = path.join(smokeDirectory, "robot-project");
   await fs.mkdir(robotRoot, { recursive: true });
@@ -88,10 +108,10 @@ try {
   assert.ok(result.main > 0, "Main landmark must exist");
   assert.ok(result.nav > 0, "Navigation landmark must exist");
   for (const check of [
-    "api", "root", "validation", "motorPreset", "eventMarkerAutosave", "multiRoutineUi", "robotPushUi",
+    "api", "root", "startupAdopted", "validation", "motorPreset", "eventMarkerAutosave", "multiRoutineUi", "robotPushUi",
     "robotDiscovery", "robotBuilt", "robotRecent", "missingTypeEvidenceRejected", "eventlessBdxExported",
     "restored", "roundTrip", "editorRestored", "nodeGlobalsBlocked", "popupBlocked", "inlineScriptBlocked",
-    "filesWritten", "closedWithoutSavePrompt", "updaterIntegration", "updaterModalVisible", "unsavedDraftRetained", "folderBdxSaved", "sourceSavedOnBdxFailure",
+    "filesWritten", "invalidDraftBlockedClose", "closedWithExactSourceReceipt", "updaterIntegration", "updaterModalVisible", "unsavedDraftRetained", "folderBdxSaved", "sourceSavedOnBdxFailure",
   ]) assert.equal(result[check], true, check);
   for (const check of [
     "markerInspector", "linkAction", "commandEnabled", "commandSearch", "recentHiddenForSingleProject",

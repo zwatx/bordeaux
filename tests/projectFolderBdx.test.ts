@@ -193,3 +193,17 @@ describe("folder BDX generation", () => {
     expect(await fs.readFile(unrelated, "utf8")).toBe("made by hand");
   });
 });
+
+it("journals selected exports without removing sibling outputs or their pending ownership", async () => {
+  const directory = await folder();
+  await writeProjectFolderBdx(directory, [output("Selected.bdx", "old"), output("Sibling.bdx", "sibling")]);
+  const workspace = path.join(directory, ".bordeaux-workspace.json"), state = JSON.parse(await fs.readFile(workspace, "utf8"));
+  state.pendingGeneratedFiles = { "Paths/Pending.bdx": "a".repeat(64) }; await fs.writeFile(workspace, JSON.stringify(state));
+  await writeProjectFolderBdx(directory, [output("Selected.bdx", "explicit")], { mode: "selected" });
+  expect(await fs.readFile(path.join(directory, "Paths/Sibling.bdx"), "utf8")).toBe("sibling");
+  const updated = JSON.parse(await fs.readFile(workspace, "utf8"));
+  expect(updated.generatedFiles["Paths/Sibling.bdx"]).toBe(state.generatedFiles["Paths/Sibling.bdx"]);
+  expect(updated.pendingGeneratedFiles).toEqual(state.pendingGeneratedFiles);
+  await writeProjectFolderBdx(directory, [output("Selected.bdx", "next save"), output("Sibling.bdx", "sibling")]);
+  expect(await fs.readFile(path.join(directory, "Paths/Selected.bdx"), "utf8")).toBe("next save");
+});

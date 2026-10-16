@@ -24,6 +24,18 @@ Project files with a legacy project-wide `plannerId` still load. That field no l
 
 Input identity and structural checks live in `src/shared/planners/acceptedTrajectoryIdentity.ts`. Independent accepted-result validation and exact export selection live in `acceptedTrajectory.ts` and `src/shared/export/bdx.ts`. Keep physics validation in the worker/export boundary, off the renderer's main thread. `path-optimization.js` owns explicit candidate jobs; the project owns applied selections. A progress result is never an applied result.
 
+## Non-blocking editor planning
+
+Import `planPath` directly from `src/shared/planners/planPath.ts`. It wraps normal fixed-path planning and returns `{ status, trajectory, bestEffort, issues }`. An `ok` result preserves the strict planner's samples and timing. `degraded` means only display timing is available; `infeasible` means a known limit is broken or timing is unavailable. Both retain drawable best-effort samples when usable geometry is available within the sampling budget. Issues carry a path-fraction range, optional waypoint/segment and constraint values, a short message, and optional diagnostic detail.
+
+`bestEffort` is for drawing and playback only. It can contain abrupt speed changes, and failure-path validation uses normal sample density. Neither `degraded` nor `infeasible` is an exportable result. Export continues to use the strict planner and accepted-result validation. Soft reachability is opt-in; its default behavior is unchanged.
+
+Editable project source can contain an unfinished path with zero or one waypoint. The file codec uses `validateProjectSource` to save and recover those drafts while checking their other fields. `validateProject` and robot export still require at least two waypoints.
+
+Soft acceleration diagnostics report the worst interval's measured acceleration and achievable limit. Their range may extend through neighboring intervals moving in the same direction on the same binding constraint; averaging across the range must not cancel the overload.
+
+The production renderer uses this API in the editing worker, with immediate geometry updates and stale-result rejection. Editing feedback remains separate from accepted trajectory timing; applying an optimization, playback of accepted results, and export retain their exact-result ownership and strict validation.
+
 ## Verification
 
 Run `npm test`, `npm run typecheck`, and `npm run verify:renderer`. After building the renderer, run `node scripts/verify-optimizer-ui.mjs` for the real Electron/worker workflow, including idle stability, compare/apply, persistence, stale selection, and batch staging. This runner uses an isolated profile and in-memory project storage. Tests requiring local IPC/TCP sockets need an execution environment that permits them.

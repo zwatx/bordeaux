@@ -24,6 +24,13 @@ function Harness() {
   const [names, setNames] = React.useState({ a: 'Intake', b: 'Shooter' });
   const [owner, setOwner] = React.useState('a');
   const [nameCommits, setNameCommits] = React.useState(0);
+  // Opt-in first-match choosers: `pickOpen` is read only when `pickKey` remounts them.
+  const [pickKey, setPickKey] = React.useState(0);
+  const [pickOpen, setPickOpen] = React.useState(false);
+  const [picked, setPicked] = React.useState('');
+  const [picks, setPicks] = React.useState(0);
+  const pick = (v) => { setPicked(v); setPicks((count) => count + 1); };
+  const pickItems = ['Start intake', 'Stop intake', 'Shoot note', 'Climb'].map((v) => ({ value: v, label: v }));
   // Field gestures prevent the default focus change, as FieldView does.
   const keepFocus = (event) => event.preventDefault();
   const nodes = ['a', 'b'].map((id) => ({ id, type: 'function', cat: 'command', title: id, invocation: { commandId: 'test', arguments: { amount: 2 } } }));
@@ -58,6 +65,13 @@ function Harness() {
       h('button', { id: 'select-a', onClick: () => setWhich('a') }, 'Command A'),
       h('button', { id: 'select-b', onClick: () => setWhich('b') }, 'Command B'),
       h(StepInspector, { node: nodes.find((node) => node.id === which), paths: [], run: { segs: [] },
-        acq: { outcomes: {}, set: () => {}, select: () => {}, del: () => {} }, robotProject: { catalog: { projectName: 'Fixture', commands: [command] } } })));
+        acq: { outcomes: {}, set: () => {}, select: () => {}, del: () => {} }, robotProject: { catalog: { projectName: 'Fixture', commands: [command] } } }),
+      h(UI.Dropdown, { key: 'first:' + pickKey, id: 'first-match-choice', label: 'First match choices', value: picked, placeholder: 'No command', items: pickItems,
+        searchThreshold: 0, activateFirstMatch: true, defaultOpen: pickOpen, onChange: pick }),
+      h(UI.Dropdown, { key: 'short:' + pickKey, id: 'first-match-short', label: 'First match short', value: picked, placeholder: 'No command', items: pickItems.slice(0, 3),
+        activateFirstMatch: true, onChange: pick }),
+      h('button', { id: 'first-match-request', onClick: () => setPickOpen(true) }, 'Request open'),
+      h('button', { id: 'first-match-remount', onClick: () => setPickKey((k) => k + 1) }, 'Remount choosers'),
+      h('output', { id: 'first-match-picks' }, String(picks)), h('output', { id: 'first-match-value' }, picked)));
 }
 createRoot(document.getElementById('root')).render(h(Harness));

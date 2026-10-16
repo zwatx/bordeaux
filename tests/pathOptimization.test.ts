@@ -23,7 +23,7 @@ class FakeWorker {
   terminate() { this.terminated = true; }
 }
 
-function setup() {
+function setup({ cooperativeCancel = true, cancelResult = { status: 'canceled' } as any } = {}) {
   let project = createDemoProject();
   const jobs: Array<{ input: any; options: any; resolve: (value: any) => void; canceled: boolean }> = [];
   const planner = {
@@ -32,11 +32,12 @@ function setup() {
       const promise = new Promise((done) => { resolve = done; });
       const job = { input, options, resolve, canceled: false };
       jobs.push(job);
-      return { promise, cancel() { job.canceled = true; resolve({ status: 'canceled' }); } };
+      return { promise, cancel() { job.canceled = true; if (cooperativeCancel) resolve(cancelResult); } };
     },
   };
   const session = PathOptimization.create({ getProject: () => project, planner });
-  return { session, jobs, project, replace(next: typeof project) { project = next; session.sync(); } };
+  return { session, jobs, project, replace(next: typeof project) { project = next; session.sync(); },
+    adopt(next: typeof project) { session.reset(); project = next; session.sync(); } };
 }
 
 const preview = { prof: { totalTime: 3.7 }, finalTrajectory: { totalTimeS: 3.7 } };
@@ -216,5 +217,109 @@ describe('explicit path optimization ownership', () => {
     await pending;
     expect(session.getSnapshot().batch).toEqual({ completed: 2, total: 2 });
     expect(project.paths.every((path) => !path.optimization?.accepted)).toBe(true);
+  });
+});
+
+
+describe('optimizer document reset ownership', () => {
+  it('clears completed candidate and batch snapshots synchronously even for an identical document', async () => {
+    const h = setup(), id = h.project.paths[0].id;
+    const pending = h.session.startAll(); h.jobs[0].resolve({ status: 'success', value: preview }); await pending;
+    expect(h.session.getSnapshot().paths[id].value).toBe(preview);
+    expect(h.session.getSnapshot().batch).toEqual({ completed: 1, total: 1 });
+    const notify = vi.fn(); h.session.subscribe(notify);
+    h.adopt(structuredClone(h.project));
+    expect(h.session.getSnapshot()).toEqual({ paths: {}, batch: null, running: false }); expect(notify).toHaveBeenCalledOnce();
+    h.session.dispose();
+  });
+  it('discards cancellation incumbent on document reset while explicit same-document Cancel retains it', async () => {
+    const result = { status: 'canceled', incumbent: preview }, h = setup({ cancelResult: result }), id = h.project.paths[0].id;
+    let pending = h.session.start(id); h.session.cancel(); await pending;
+    expect(h.session.getSnapshot().paths[id]).toMatchObject({ status: 'canceled', value: preview });
+    pending = h.session.start(id); h.adopt(structuredClone(h.project)); await pending;
+    expect(h.jobs[1].canceled).toBe(true); expect(h.session.getSnapshot()).toEqual({ paths: {}, batch: null, running: false }); h.session.dispose();
+  });
+  it.each(['success', 'canceled', 'timeout', 'failure'])('rejects old uncooperative %s after same-ID/key document replacement', async status => {
+    const h = setup({ cooperativeCancel: false }), id = h.project.paths[0].id, pending = h.session.start(id);
+    h.adopt(structuredClone(h.project)); expect(h.jobs[0].canceled).toBe(true);
+    const empty = h.session.getSnapshot(), notify = vi.fn(); h.session.subscribe(notify);
+    h.jobs[0].resolve({ status, value: preview, incumbent: preview, error: { message: 'Old failure' } }); await pending;
+    expect(h.session.getSnapshot()).toBe(empty); expect(notify).not.toHaveBeenCalled(); h.session.dispose();
+  });
+  it('allows immediate new search and prevents old completion/finally from changing its running state', async () => {
+    const h = setup({ cooperativeCancel: false }), id = h.project.paths[0].id;
+    const old = h.session.start(id); h.adopt(structuredClone(h.project)); const current = h.session.start(id);
+    expect(h.jobs).toHaveLength(2); const searching = h.session.getSnapshot();
+    h.jobs[0].resolve({ status: 'success', value: { source: 'old' } }); await old;
+    expect(h.session.getSnapshot()).toBe(searching); expect(searching.running).toBe(true); expect(searching.paths[id].value).toBeNull();
+    h.jobs[1].resolve({ status: 'success', value: preview }); await current;
+    expect(h.session.getSnapshot().running).toBe(false); expect(h.session.getSnapshot().paths[id].value).toBe(preview); h.session.dispose();
+  });
+  it('rejects document A→B→A late results without reviving either prior search', async () => {
+    const h = setup({ cooperativeCancel: false }), a = h.project, id = a.paths[0].id;
+    const first = h.session.start(id); h.adopt(structuredClone(a)); const second = h.session.start(id);
+    h.adopt(a); const third = h.session.start(id); expect(h.jobs).toHaveLength(3);
+    const searching = h.session.getSnapshot();
+    h.jobs[1].resolve({ status: 'timeout', incumbent: preview }); await second;
+    h.jobs[0].resolve({ status: 'success', value: preview }); await first;
+    expect(h.session.getSnapshot()).toBe(searching);
+    const current = { source: 'current' }; h.jobs[2].resolve({ status: 'success', value: current }); await third;
+    expect(h.session.getSnapshot().paths[id].value).toBe(current); h.session.dispose();
+  });
+  it('retires old batch progress/next IDs/finally while a new single search owns the controller', async () => {
+    const h = setup({ cooperativeCancel: false }), id = h.project.paths[0].id;
+    h.project.paths.push({ ...structuredClone(h.project.paths[0]), id: 'old-only' });
+    const old = h.session.startAll(); h.adopt({ ...structuredClone(h.project), paths: [structuredClone(h.project.paths[0])] });
+    const current = h.session.start(id), searching = h.session.getSnapshot();
+    h.jobs[0].resolve({ status: 'canceled', incumbent: preview }); await old;
+    expect(h.session.getSnapshot()).toBe(searching); expect(searching.batch).toBeNull(); expect(searching.running).toBe(true);
+    expect(h.jobs).toHaveLength(2); expect(h.jobs.every(job => job.input.path.id === id)).toBe(true);
+    h.jobs[1].resolve({ status: 'success', value: preview }); await current; h.session.dispose();
+  });
+  it('keeps new batch counts and IDs independent from old batch continuation', async () => {
+    const h = setup({ cooperativeCancel: false }), id = h.project.paths[0].id;
+    h.project.paths.push({ ...structuredClone(h.project.paths[0]), id: 'old-only' });
+    const old = h.session.startAll();
+    const next = structuredClone(h.project); next.paths[1].id = 'new-only'; h.adopt(next);
+    const current = h.session.startAll(), searching = h.session.getSnapshot();
+    h.jobs[0].resolve({ status: 'success', value: { source: 'old' } }); await old;
+    expect(h.session.getSnapshot()).toBe(searching); expect(searching.batch).toEqual({ completed: 0, total: 2 }); expect(searching.running).toBe(true);
+    h.jobs[1].resolve({ status: 'success', value: preview }); await Promise.resolve(); await Promise.resolve();
+    expect(h.jobs).toHaveLength(3); expect(h.jobs.map(job => job.input.path.id)).toEqual([id, id, 'new-only']);
+    expect(h.session.getSnapshot().batch).toEqual({ completed: 1, total: 2 });
+    h.jobs[2].resolve({ status: 'success', value: preview }); await current;
+    expect(h.session.getSnapshot()).toMatchObject({ running: false, batch: { completed: 2, total: 2 } });
+    expect(h.session.getSnapshot().paths['old-only']).toBeUndefined(); h.session.dispose();
+  });
+  it('preserves same-document batch Cancel incumbent and stops queuing subsequent paths', async () => {
+    const h = setup({ cancelResult: { status: 'canceled', incumbent: preview } }), id = h.project.paths[0].id;
+    h.project.paths.push({ ...structuredClone(h.project.paths[0]), id: 'next' });
+    const pending = h.session.startAll(); h.session.cancel(); await pending;
+    expect(h.jobs).toHaveLength(1); expect(h.session.getSnapshot()).toMatchObject({ running: false, batch: { completed: 1, total: 2 } });
+    expect(h.session.getSnapshot().paths[id]).toMatchObject({ status: 'canceled', value: preview }); h.session.dispose();
+  });
+  it('stops old batch continuation after disposal without notifying detached subscribers', async () => {
+    const h = setup({ cooperativeCancel: false });
+    h.project.paths.push({ ...structuredClone(h.project.paths[0]), id: 'next' });
+    const pending = h.session.startAll(), notify = vi.fn(); h.session.subscribe(notify); const searching = h.session.getSnapshot();
+    h.session.dispose(); h.jobs[0].resolve({ status: 'success', value: preview }); await pending;
+    expect(h.session.getSnapshot()).toBe(searching); expect(notify).not.toHaveBeenCalled(); expect(h.jobs).toHaveLength(1);
+    await h.session.start(h.project.paths[0].id); expect(h.jobs).toHaveLength(1);
+  });
+  it('does not launch a retired request when reset occurs inside a search notification', async () => {
+    const h = setup();
+    const unsubscribe = h.session.subscribe(() => {
+      if (Object.values(h.session.getSnapshot().paths).some((path: any) => path.status === 'searching')) h.session.reset();
+    });
+    await h.session.start(h.project.paths[0].id);
+    expect(h.jobs).toHaveLength(0); expect(h.session.getSnapshot()).toEqual({ paths: {}, batch: null, running: false });
+    unsubscribe(); h.session.dispose();
+  });
+  it('keeps same-document path selection/immutable edits distinct from document reset', async () => {
+    const h = setup(), id = h.project.paths[0].id, pending = h.session.start(id);
+    const next = structuredClone(h.project); next.paths.push({ ...structuredClone(next.paths[0]), id: 'selected-other' });
+    next.editor = { ...next.editor, activePathId: 'selected-other' }; next.name = 'Renamed project'; h.replace(next);
+    expect(h.jobs[0].canceled).toBe(false); h.jobs[0].resolve({ status: 'success', value: preview }); await pending;
+    expect(h.session.getSnapshot().paths[id].value).toBe(preview); h.session.dispose();
   });
 });

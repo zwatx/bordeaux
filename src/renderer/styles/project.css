@@ -1,0 +1,171 @@
+/* Project chip: the project's name at full strength over one quiet status line. Failure is the only loud state.
+   It lives in a fixed toolbar slot; each line truncates on its own, while the button's accessible name and the
+   menu keep the whole name and status. */
+.project-control{position:relative;flex:0 1 auto;min-width:0;max-width:100%;-webkit-app-region:no-drag}
+.project-chip{display:grid;grid-template-columns:minmax(0,max-content) 12px;align-content:center;column-gap:5px;row-gap:1px;max-width:100%;height:38px;padding:0 8px;border:1px solid transparent;border-radius:var(--r);color:var(--txt);font-size:13px;font-weight:600;line-height:16px;text-align:left;transition:background-color .14s,border-color .14s}
+.project-chip:hover,.project-chip[aria-expanded="true"]{border-color:var(--line-2);background:var(--bg-2)}
+.project-chip:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.project-chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-chip-meta{display:flex;grid-column:1/-1;align-items:center;gap:8px;min-width:0;overflow:hidden;line-height:14px;white-space:nowrap}
+.project-chip-status,.project-chip-bdx{flex:none;color:var(--txt-3);font-size:11.5px;font-weight:500;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.project-chip:is([data-status="failed"],[data-status="recovered"]) .project-chip-status,.project-chip-bdx{display:inline-flex;align-items:center;gap:5px;color:var(--warn-txt)}
+.project-chip:is([data-status="failed"],[data-status="recovered"]) .project-chip-status::before,.project-chip-bdx::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--warn)}
+/* The chip is the only save surface, so a failure keeps a tint until it is fixed. */
+.project-chip:is([data-status="failed"],[data-status="recovered"]){border-color:color-mix(in oklab,var(--warn) 35%,transparent);background:var(--warn-soft)}
+/* Each new failure (keyed by try) briefly re-lights the word, so an instant failed Retry is still acknowledged. */
+.project-chip[data-status="failed"] .project-chip-status{animation:pj-ack .6s ease-out}
+@keyframes pj-ack{from{opacity:.25}}
+/* Saved and Saving share one width, so the chip does not shift while autosave runs. */
+.project-chip:not([data-status="failed"],[data-status="recovered"]) .project-chip-status{display:inline-grid}
+.project-chip:not([data-status="failed"],[data-status="recovered"]) .project-chip-status::after{content:'Saving';grid-area:1/1;height:0;visibility:hidden}
+.project-chip-chevron{display:flex;flex:none;align-self:center;color:var(--txt-3)}
+
+.project-menu{max-height:calc(100dvh - 88px);overflow-y:auto;position:absolute;left:0;top:calc(100% + 6px);z-index:250;width:300px;max-width:calc(100vw - 32px);padding:5px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}
+.project-menu-heading{display:flex;flex-direction:column;gap:4px;margin-bottom:5px;padding:10px 10px 12px;border-bottom:1px solid var(--line);color:var(--txt);font-size:13px;overflow-wrap:anywhere}
+.project-menu-heading>span{overflow:hidden;color:var(--txt-3);font:11px/1.5 var(--mono);text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.project-menu button{display:flex;align-items:center;justify-content:space-between;gap:20px;width:100%;min-height:32px;padding:6px 10px;border-radius:var(--r);color:var(--txt);font-size:12.5px;text-align:left}
+.project-menu button:hover:not(:disabled),.project-menu button:focus-visible{background:var(--bg-3)}
+.project-menu button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.project-menu button:disabled{color:var(--txt-3);cursor:default}
+.project-menu hr{height:1px;margin:5px 0;border:0;background:var(--line)}
+.project-menu-shortcut{color:var(--txt-3);font:11px var(--mono)}
+/* A recent's file and link time sit under its name, so long details never squeeze the name. */
+.project-menu .project-menu-recent{flex-direction:column;align-items:flex-start;gap:2px}
+.project-menu-recent .project-menu-shortcut{max-width:100%;overflow-wrap:anywhere}
+.project-menu-fact{margin:0 0 2px;padding:8px 10px 2px;color:var(--warn-txt);font-size:12px;font-weight:550;overflow-wrap:anywhere}
+.project-menu-cause{display:-webkit-box;margin-top:3px;overflow:hidden;color:var(--txt-2);font-weight:500;line-height:1.4;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.project-menu-fixes{display:flex;flex-wrap:wrap;gap:4px;padding:0 4px 6px;border-bottom:1px solid var(--line);margin-bottom:5px}
+.project-menu .project-menu-fixes button{white-space:nowrap;width:auto;min-height:28px;padding:0 10px;border:1px solid var(--line-2);background:var(--bg-3)}
+.project-menu .project-menu-fixes button:hover{background:var(--bg-4)}
+.project-menu-code{display:flex;justify-content:space-between;gap:12px;padding:6px 10px 2px;color:var(--txt-3);font-size:11.5px}
+/* The label keeps one line; the code's name and count wrap in full rather than truncate. */
+.project-menu-code>span:first-child{flex:none}
+.project-menu-code>span:last-child{min-width:0;color:var(--txt-2);text-align:right;overflow-wrap:anywhere}
+
+/* Projects sheet and New project: one small modal, shaped like a command palette. */
+.pj-sheet{width:min(520px,calc(100vw - 32px));max-height:min(560px,calc(100vh - 96px));margin:12vh auto auto;padding:0;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);box-shadow:0 24px 80px rgb(0 0 0/.55)}
+.pj-sheet[open]{display:flex;flex-direction:column;animation:pj-in .14s cubic-bezier(.2,.8,.2,1)}
+.pj-sheet::backdrop{background:rgb(0 0 0/.45)}
+@keyframes pj-in{from{opacity:0;transform:translateY(-4px) scale(.99)}}
+.pj-block{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 14px;border-bottom:1px solid var(--line);background:var(--warn-soft);color:var(--warn-txt);font-size:12.5px;font-weight:550}
+/* The subject may shorten; the fact keeps its own line and wraps rather than clip. */
+.pj-block-text{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0;line-height:1.4}
+.pj-block-subject{display:flex;min-width:0;white-space:nowrap}
+.pj-block-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.pj-block-subject>span:last-child{flex:none;white-space:pre}
+.pj-block-fact{color:var(--txt-2);font-weight:500;overflow-wrap:anywhere}
+.pj-block [data-fix="discard"]{margin-right:8px}
+.pj-progress{padding:9px 14px;border-bottom:1px solid var(--line);color:var(--txt-2);font-size:12.5px;font-weight:550}
+/* A native-menu switch: the window is inert at once, and the small status appears only if the switch takes a moment. */
+.pj-pending[open]{width:fit-content;min-width:160px;padding:12px 18px;justify-content:center;align-items:center;color:var(--txt-2);font-size:12.5px;font-weight:550;animation:pj-late .16s ease-out .3s both}
+.pj-pending::backdrop{background:transparent}
+.pj-pending:focus,.pj-pending:focus-visible{outline:none!important}
+@keyframes pj-late{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.pj-pending[open]{animation:none}}
+.pj-search{display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line);color:var(--txt-3)}
+.pj-search input{flex:1;min-width:0;height:46px;border:0;background:transparent;color:var(--txt);font-size:14.5px;outline:none}
+.pj-search input::-webkit-search-cancel-button{display:none}
+.pj-list{flex:1 1 auto;min-height:0;margin:0;padding:6px;overflow:auto;list-style:none}
+.pj-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;border-radius:var(--r)}
+.pj-row[data-active]{background:var(--bg-3)}
+.pj-open{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:46px;padding:6px 8px 6px 6px;border-radius:var(--r);text-align:left}
+.pj-open:focus-visible,.pj-remove:focus-visible,.pj-more:focus-visible,.pj-location:focus-visible,.pj-link:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pj-check{display:flex;justify-content:center;color:var(--accent)}
+.pj-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pj-name{display:-webkit-box;overflow:hidden;font-size:13px;font-weight:550;line-height:1.35;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+/* Locations truncate from the start; the marks in the text keep a leading slash in place. */
+.pj-hint{overflow:hidden;color:var(--txt-3);font:11px/1.4 var(--mono);text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.pj-row[data-status] .pj-name{color:var(--txt-2)}
+.pj-when{color:var(--txt-3);font-size:11.5px;white-space:nowrap}
+.pj-status{display:inline-flex;align-items:center;gap:10px;color:var(--warn-txt);font-size:11.5px;font-weight:550;white-space:nowrap}
+.pj-fix{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.pj-remove,.pj-more{display:flex;align-items:center;justify-content:center;width:30px;height:30px;margin-right:6px;border-radius:var(--r);color:var(--txt-3);opacity:0;transition:opacity .12s,background-color .12s,color .12s}
+.pj-row[data-active] :is(.pj-remove,.pj-more),.pj-remove:focus-visible,.pj-more:is(:focus-visible,[aria-expanded="true"]){opacity:1}
+.pj-remove:hover,.pj-more:is(:hover,[aria-expanded="true"]){background:var(--bg-4);color:var(--txt)}
+.pj-more{font-size:16px;line-height:1}
+/* Row actions use the app's context menu; disabled items never appear (each row lists only what it can do). */
+.pj-row-menu .ctxmenu-i:focus-visible{background:var(--bg-3);outline:2px solid var(--focus);outline-offset:-2px}
+.pj-row-error{grid-column:1/-1;padding:0 10px 8px 32px;color:var(--warn-txt);font-size:11.5px;overflow-wrap:anywhere}
+.pj-empty{display:flex;align-items:center;gap:12px;padding:12px 10px 12px 32px;color:var(--txt-3);font-size:12.5px}
+.pj-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-top:1px solid var(--line)}
+.pj-foot-actions{display:flex;gap:4px}
+.pj-foot kbd{color:var(--txt-3);font:11px var(--mono)}
+.pj-link{padding:4px 6px;margin:-4px 0;border-radius:var(--r-s);color:var(--accent);font-size:12px;font-weight:550}
+.pj-new{display:flex;flex-direction:column}
+.pj-label{color:var(--txt-3);font-size:12px}
+.pj-new>.pj-label{padding:14px 14px 6px}
+.pj-name-input{height:38px;margin:0 14px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font-size:14px;outline:none}
+.pj-name-input:focus{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
+.pj-new-error{padding:6px 14px 0;color:var(--bad-txt);font-size:12px}
+.pj-new-row{display:flex;align-items:center;gap:12px;padding:12px 14px 0}
+.pj-new-row>.pj-label{width:58px;flex:none}
+.pj-location{display:flex;flex:1;align-items:center;gap:8px;min-width:0;height:34px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt-2);font:12px var(--mono)}
+.pj-location>span:not(.pj-location-change){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.pj-location-change{flex:none;color:var(--txt-3);font:550 12px var(--ui)}
+.pj-location:hover{border-color:var(--line-3);background:var(--bg-3);color:var(--txt)}
+.pj-name-input[aria-invalid="true"],.pj-location[aria-invalid="true"]{border-color:var(--bad)}
+.pj-check-row{padding-bottom:14px;color:var(--txt-2);font-size:12.5px;cursor:pointer}
+.pj-check-row input{width:16px;height:16px;margin:0 0 0 1px;accent-color:var(--accent)}
+.pj-new .pj-foot{margin-top:auto}
+@media(max-width:1200px){.project-control{max-width:280px}}
+@media(prefers-reduced-motion:reduce){.pj-sheet[open]{animation:none}}
+
+/* Durability: the recovery receipt under the chip menu heading, and a label swap that keeps its width. */
+.project-menu-heading>.project-menu-receipt{overflow:visible;color:var(--txt-3);font:11.5px/1.45 var(--ui);font-variant-numeric:tabular-nums;white-space:normal;direction:ltr;text-overflow:clip}
+.project-menu-swap{display:inline-grid}
+.project-menu-swap::after{content:attr(data-reserve);grid-area:1/1;height:0;visibility:hidden}
+
+/* Recovered edits sit above the recents, separated by one rule. A copy is discarded only in two steps on its own row. */
+.pj-group{padding:8px 10px 4px 32px;color:var(--txt-3);font-size:11.5px}
+.pj-rule{height:1px;margin:6px 6px;background:var(--line)}
+.pj-recovery-status{color:var(--txt-3);font-weight:500;font-variant-numeric:tabular-nums}
+.pj-row[data-status="unreadable"] .pj-recovery-status{color:var(--warn-txt);font-weight:550}
+.pj-block-fact[data-repeat]{animation:pj-ack .6s ease-out}
+.pj-location-error{padding:6px 14px 0 84px}
+.pj-new-spacer{height:14px}
+
+/* Departure: one small sheet, fact first, receipt time second, the leave action alone on the left. */
+.pj-departure-body{display:flex;flex-direction:column;gap:8px;padding:16px 16px 12px}
+.pj-departure-title{display:-webkit-box;margin:0;overflow:hidden;font-size:13.5px;font-weight:550;line-height:1.35;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.pj-departure-facts{display:flex;flex-direction:column;gap:4px}
+.pj-departure-fact{color:var(--warn-txt);font-size:12.5px;font-weight:550;overflow-wrap:anywhere}
+.pj-departure-recovery{color:var(--txt-3);font-size:11.5px}
+.pj-departure time{font-variant-numeric:tabular-nums}
+.pj-departure-foot .delbtn{margin:0}
+
+/* The input hint sits by the field: never focusable, never in the pointer's way. */
+.pj-input-hint{position:fixed;z-index:400;max-width:280px;padding:6px 9px;border:1px solid color-mix(in oklab,var(--warn) 35%,transparent);border-radius:var(--r);background:color-mix(in oklab,var(--warn) 10%,var(--bg-2));color:var(--warn-txt);font-size:12px;font-weight:550;line-height:1.35;pointer-events:none;box-shadow:var(--shadow)}
+.project-chip-bdx-pending{flex:none;color:var(--txt-3);font-size:11.5px;font-weight:500;white-space:nowrap}
+.project-chip-meta>:is(.project-chip-bdx,.project-chip-bdx-pending){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.project-menu-pending{color:var(--txt-2);font-weight:500}
+.pj-departure:focus,.pj-departure:focus-visible{outline:none!important}
+
+/* Discarding a recovery copy: the row keeps its name and place; its right side becomes Back and the exact discard. */
+.pj-row[data-confirm]{background:var(--bad-soft)}
+.pj-row[data-confirm] .pj-open[aria-disabled="true"],.pj-row[data-kind="current"] .pj-open{cursor:default}
+.pj-confirm{display:flex;flex:none;align-items:center;gap:2px;margin-right:6px}
+.pj-confirm .delbtn{margin:0;color:var(--bad-txt);white-space:nowrap}
+.pj-confirm .delbtn[aria-disabled="true"]{opacity:.6;cursor:progress}
+/* A double-click on × or the confirmation never leaves a text selection behind. */
+.pj-remove,.pj-more,.pj-confirm button{-webkit-user-select:none;user-select:none}
+/* A long name in a confirming row wraps a line further before it truncates. */
+.pj-row[data-confirm] .pj-name{-webkit-line-clamp:3}
+/* This window's own copy holds the Restore column without showing or announcing it. */
+.pj-fix-slot{visibility:hidden}
+/* Manage keeps its height while copies load, within the sheet's own viewport bound. */
+.pj-list[data-manage]{min-height:min(330px,calc(100vh - 300px))}
+.pj-confirm .delbtn:focus-visible,.pj-confirm .qbtn:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.pj-slot{width:30px;margin-right:6px}
+.pj-recovery-word{color:var(--txt-3);font-weight:500}
+.pj-row[data-kind="busy"] .pj-recovery-word{color:var(--warn-txt)}
+/* Full storage: one fact with its fix, above the copies; Manage: a title row with main's count in place of search. */
+.pj-capacity{justify-content:space-between;padding-right:12px;color:var(--warn-txt);font-weight:550}
+.pj-manage-head{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;height:46px;padding:0 14px;border-bottom:1px solid var(--line)}
+.pj-manage-title{margin:0;font-size:13.5px;font-weight:550}
+.pj-manage-count{color:var(--txt-3);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pj-manage-count[data-full]{color:var(--warn-txt);font-weight:550}
+.pj-departure-recovery .pj-link{margin-left:4px}
+
+.robot-code-sources .pj-list{padding:12px 14px}
+.robot-code-sources .pj-list:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.robot-code-sources .pj-foot{justify-content:flex-end}

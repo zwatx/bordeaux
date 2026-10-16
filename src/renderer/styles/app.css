@@ -116,28 +116,36 @@
   src: url("../assets/98640faa-af85-4deb-8b67-c9c878328d73.woff2") format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-/* Bordeaux is a precise graphite instrument. One token set and one control family;
-   accent means the current object, keyboard focus, or the single primary commit. */
+/* Bordeaux is a precise graphite instrument. One token set and one control family. The chrome carries no hue:
+   brightness, weight and surface give hierarchy, and "accent" is the near-white that marks the current object,
+   keyboard focus, or the single primary commit (an inverted surface). Color is kept for meaning on the field and
+   timeline (alliance, zones, commands, problems, speed) and for save and push outcomes. */
 :root{
-  --bg:#0b0c0e;--bg-1:#101113;--bg-2:#16181b;--bg-3:#1d1f23;--bg-4:#24272c;--bg-5:#2d3138;
-  --line:#202327;--line-2:#2a2e34;--line-3:#393e46;
-  --txt:#f2f4f7;--txt-2:#c2c7cf;--txt-3:#8f96a0;
-  --accent:#7ea2ed;--accent-surface:#3f6fd0;--accent-surface-hover:#3563c2;--accent-2:#9ab6f0;--accent-soft:rgba(126,162,237,.14);--accent-line:rgba(126,162,237,.55);
+  --bg:oklch(.145 .003 286);--bg-1:oklch(.172 .003 286);--bg-2:oklch(.2 .003 286);--bg-3:oklch(.235 .003 286);--bg-4:oklch(.268 .003 286);--bg-5:oklch(.305 .003 286);
+  --line:oklch(.215 .003 286);--line-2:oklch(.255 .003 286);--line-3:oklch(.33 .003 286);
+  --txt:oklch(.945 .003 286);--txt-2:oklch(.79 .003 286);--txt-3:oklch(.625 .003 286);
+  --accent:oklch(.945 .003 286);--accent-2:oklch(1 0 0);--accent-soft:oklch(1 0 0/.075);--accent-line:oklch(1 0 0/.3);
+  --accent-surface:oklch(.91 .003 286);--accent-surface-hover:oklch(.97 .002 286);--on-accent:oklch(.17 .003 286);
   --good:#4bbf86;--bad:#d2655f;--bad-txt:#e89a96;--bad-soft:rgba(210,101,95,.1);--warn:#cf962f;--warn-txt:#d8bd88;--warn-soft:rgba(207,150,47,.08);
   --mono:'JetBrains Mono',ui-monospace,monospace;
   --ui:'Space Grotesk',system-ui,sans-serif;
   --shadow:0 14px 38px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.4);
   --elevation:0 0 0 1px oklch(1 0 0/.1),0 8px 24px oklch(0 0 0/.28);
-  --panel:rgba(16,17,19,.94);
-  --hud-surface:oklch(.165 .006 260/.94);--hud-ring:0 0 0 1px oklch(1 0 0/.1);
-  --ctl:oklch(.205 .009 260);--ctl-hover:oklch(.24 .011 260);--ctl-line:oklch(1 0 0/.13);
-  --focus:oklch(.72 .1 255/.82);
+  --panel:oklch(.172 .003 286/.95);
+  --hud-surface:oklch(.18 .003 286/.93);--hud-ring:0 0 0 1px oklch(1 0 0/.08);
+  --ctl:oklch(.2 .003 286);--ctl-hover:oklch(.232 .003 286);--ctl-line:oklch(1 0 0/.1);
+  --focus:oklch(.94 0 0/.82);
   --r-s:4px;--r:6px;--r-l:10px;
-  scrollbar-color:#30343b transparent;
+  scrollbar-color:oklch(.3 .003 286) transparent;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:var(--ui);font-synthesis:none;-webkit-font-smoothing:antialiased;overflow:hidden}
-::selection{color:var(--txt);background:oklch(.62 .14 260/.34)}
+::selection{color:var(--txt);background:oklch(1 0 0/.2)}
+/* The native search clear button is drawn in the text color instead of the platform accent. */
+input[type="search"]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;width:14px;height:14px;margin:0 -2px 0 6px;background:var(--txt-3);cursor:pointer;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 3l6 6M9 3L3 9' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center/12px 12px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 3l6 6M9 3L3 9' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center/12px 12px no-repeat}
+input[type="search"]::-webkit-search-cancel-button:hover{background:var(--txt)}
 #root{height:100%}
 button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:none}
 input,select,textarea{font-family:inherit}
@@ -150,10 +158,10 @@ input,select,textarea{font-family:inherit}
 .fatal-error{max-width:560px;margin:12vh auto;padding:28px;color:var(--txt);background:var(--panel);border:1px solid var(--line-2);border-radius:8px}.fatal-error h1{font-size:20px;margin:0 0 10px}.fatal-error p{color:var(--txt-3);margin:0 0 18px}.fatal-error button{min-height:36px;padding:0 14px}
 
 /* ============ controls: secondary, primary, quiet and quiet-danger ============ */
-/* Primary hover darkens so white 12px labels stay above 4.5:1 (rest 4.8, hover 5.6). */
-:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button,.library-save-status button){display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0;min-height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:550 12px/1.25 var(--ui);text-align:center;transition:background-color .14s,border-color .14s,color .14s,opacity .14s}
-:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button,.library-save-status button):disabled{opacity:.45;cursor:not-allowed}
-:is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary,.cmd-picker-custom button,.insert-preview-actions .primary{border-color:var(--accent-surface);background:var(--accent-surface);color:#fff}
+/* Primary is the one inverted surface: dark label on near-white (about 14:1), lighter on hover. */
+:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button){display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0;min-height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:550 12px/1.25 var(--ui);text-align:center;transition:background-color .14s,border-color .14s,color .14s,opacity .14s}
+:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button):disabled{opacity:.45;cursor:not-allowed}
+:is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary,.cmd-picker-custom button,.insert-preview-actions .primary{border-color:var(--accent-surface);background:var(--accent-surface);color:var(--on-accent)}
 .qbtn.quiet,.robot-push-actions button.quiet,.app-update-secondary button,.insert-preview-actions button:not(.primary){border-color:transparent;background:transparent;color:var(--txt-2)}
 .qbtn.wide,.rt-openbtn{width:100%}
 .rt-openbtn{margin-top:14px}
@@ -164,8 +172,8 @@ input,select,textarea{font-family:inherit}
 /* Inline text actions: accent text, no box. */
 .choice-change,.labview-text-action,.library-blocked button,.library-link button{padding:4px 6px;margin:-4px -6px;border-radius:var(--r-s);color:var(--accent);font-size:12px;font-weight:550;text-align:left}
 @media (hover:hover){
-  :is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button,.library-save-status button):hover:not(:disabled){border-color:var(--line-3);background:var(--bg-3)}
-  :is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary:hover:not(:disabled),.cmd-picker-custom button:hover:not(:disabled),.insert-preview-actions .primary:hover{border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:#fff}
+  :is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button):hover:not(:disabled){border-color:var(--line-3);background:var(--bg-3)}
+  :is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary:hover:not(:disabled),.cmd-picker-custom button:hover:not(:disabled),.insert-preview-actions .primary:hover{border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:var(--on-accent)}
   .qbtn.quiet:hover:not(:disabled),.robot-push-actions button.quiet:hover:not(:disabled),.app-update-secondary button:hover:not(:disabled),.insert-preview-actions button:not(.primary):hover{border-color:transparent;background:var(--bg-3);color:var(--txt)}
   .delbtn:hover,.delbtn:hover svg{color:var(--bad-txt)}.delbtn:hover{background:var(--bad-soft)}
   .choice-change:hover:not(:disabled),.labview-text-action:hover:not(:disabled),.library-blocked button:hover,.library-link button:hover{color:var(--accent-2);text-decoration:underline;text-underline-offset:3px}
@@ -201,19 +209,19 @@ input,select,textarea{font-family:inherit}
 .seg-hint{margin-top:6px}
 .seg-hint:empty{display:none}
 .chint{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
-/* Notices share one shape; the left rule carries the tone. */
-.rt-callout,.cmd-project-error,.cmd-project-warning,.cmd-project-notice,.cmd-schema-warning{display:flex;gap:9px;margin:10px 0;padding:9px 11px;border-left:2px solid var(--accent);border-radius:0 var(--r) var(--r) 0;background:var(--bg-2);color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+/* Notices are text in the content column; only problems add a soft tone band. No side rules. */
+.rt-callout,.cmd-project-error,.cmd-project-warning,.cmd-project-notice,.cmd-schema-warning{display:flex;gap:9px;margin:10px 0;color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .rt-callout svg{flex-shrink:0;margin-top:2px;color:var(--accent)}
 .cmd-project-error,.cmd-project-warning,.cmd-schema-warning{flex-direction:column;align-items:flex-start;gap:8px}
-.cmd-project-error,.rt-callout.error{border-left-color:var(--bad);background:var(--bad-soft);color:var(--txt)}
-.cmd-project-warning,.cmd-schema-warning{border-left-color:var(--warn);background:var(--warn-soft);color:var(--warn-txt)}
+.cmd-project-error,.rt-callout.error{padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt)}
+.cmd-project-warning,.cmd-schema-warning{padding:9px 11px;border-radius:var(--r);background:var(--warn-soft);color:var(--warn-txt)}
 .cmd-project-error .rt-openbtn{width:auto;margin:0}
 
 .toggle{display:flex;align-items:center;gap:8px}
 .toggle-track{position:relative;width:33px;height:18px;border:1px solid var(--line-3);border-radius:10px;background:var(--bg-4);transition:background-color .15s ease-out,border-color .15s ease-out}
 .toggle-thumb{position:absolute;top:1.5px;left:1.5px;width:13px;height:13px;border-radius:50%;background:var(--txt-2);transition:transform .15s cubic-bezier(.32,.72,0,1)}
 .toggle.on .toggle-track{border-color:var(--accent-surface);background:var(--accent-surface)}
-.toggle.on .toggle-thumb{transform:translateX(14.5px);background:#fff}
+.toggle.on .toggle-thumb{transform:translateX(14.5px);background:var(--on-accent)}
 /* The chosen option is a raised neutral surface; color alone never carries it. */
 .seg{--seg-count:1;display:grid;grid-template-columns:repeat(var(--seg-count),minmax(0,1fr));gap:2px;min-height:34px;padding:2px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-1)}
 .seg-indicator{display:none}
@@ -233,47 +241,91 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .pill.th{border-color:var(--accent-line);color:var(--accent)}
 
 /* ============ top bar ============ */
-.toolbar{height:50px;display:flex;align-items:center;gap:12px;padding:0 12px;background:var(--bg-1);border-bottom:1px solid var(--line-2);flex-shrink:0;z-index:30}
-[data-platform="darwin"] .toolbar{-webkit-app-region:drag;padding-left:82px}
-[data-platform="darwin"] .toolbar button,[data-platform="darwin"] .toolbar input,[data-platform="darwin"] .toolbar select,[data-platform="darwin"] .toolbar [role="dialog"]{-webkit-app-region:no-drag}
-.tb-left{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 0}
-.tb-right{display:flex;align-items:center;gap:6px;flex:0 0 auto}
-.brand-name{font-size:14px;font-weight:600}
-.pageswitch{display:flex;flex:none;gap:2px;padding:3px;border-radius:8px;background:var(--bg-2)}
-.pageswitch button{display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:5px;color:var(--txt-3);font-size:12.5px;font-weight:550;transition:color .14s,background-color .14s}
-.pageswitch button.on{background:var(--bg-5);color:var(--txt);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
-.pageswitch button.on svg{color:var(--accent)}
-.tbdiv{width:1px;height:20px;margin:0 4px;background:var(--line-2)}
-/* Toolbar actions share one ghost treatment with 40px targets; persistent actions stay rightmost. */
-.toolbar .tb-right>button{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;height:40px;min-width:40px;min-height:40px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:var(--txt-2);font-size:12.5px;font-weight:550;white-space:nowrap;transition:color .14s,background-color .14s}
-.toolbar .tb-right>:is(.iconbtn,.keyboard-help-trigger){width:40px;padding:0}
-/* Fits "Optimized" (~85px) so the Optimize/Optimized swap never moves the toolbar. */
-.toolbar .tb-right>.optimizer-toggle{min-width:88px}
-.toolbar .keyboard-help-trigger{font-size:14px}
-.toolbar .tb-right>.update-chip{height:30px;min-height:30px;padding:0 10px 0 9px;border:1px solid var(--line-2);border-radius:999px;color:var(--txt);font-size:12px}
+/* One bar, left to right: project · places · the place's actions · robot (destination, Push). The project slot has the
+   library's width, so the places start at the work area's edge and never move with status. */
+.toolbar{position:relative;z-index:30;display:flex;flex-shrink:0;align-items:center;height:44px;padding:0 8px 0 0;background:var(--bg-1);border-bottom:1px solid var(--line-2)}
+.tb-project{display:flex;flex:0 0 var(--library-width,264px);align-items:center;min-width:0;height:100%;padding:0 10px 0 8px}
+/* macOS: the bar is the window's drag region and the project slot clears the traffic lights. Only empty bar space
+   drags; every control, menu and dialog inside it opts out. */
+[data-platform="darwin"] .toolbar{-webkit-app-region:drag}
+[data-platform="darwin"] .tb-project{padding-left:80px}
+[data-platform="darwin"] .toolbar :is(button,input,select,a,[role="menu"],[role="dialog"],dialog,.project-control){-webkit-app-region:no-drag}
+.places{display:flex;flex:none;align-items:stretch;align-self:stretch;gap:4px;padding-left:4px}
+.place{position:relative;display:flex;align-items:center;padding:0 10px;color:var(--txt-3);font-size:13px;font-weight:500;transition:color .14s}
+.place[aria-current="page"]{color:var(--txt)}
+.place[aria-current="page"]::after{content:'';position:absolute;left:10px;right:10px;bottom:-1px;height:2px;border-radius:1px;background:var(--txt)}
+.tb-spacer{flex:1 1 0;min-width:8px}
+/* Toolbar actions are 40px targets with clear gaps; their surfaces only appear on hover, press or focus. */
+.tb-actions{display:flex;flex:none;align-items:center;gap:6px}
+.tb-text{min-width:0;height:40px;padding:0 12px;border-radius:var(--r);color:var(--txt-2);font-size:12.5px;font-weight:500;white-space:nowrap;transition:color .14s,background-color .14s}
+/* Fits "Optimized" so the Optimize/Optimized swap never moves the toolbar. */
+.tb-text.optimizer-toggle{min-width:88px}
+.tb-text[aria-expanded="true"]{background:var(--bg-3);color:var(--txt)}
+.tb-push{display:flex;flex:0 1 auto;align-items:center;min-width:0;margin-left:10px;padding-left:12px;border-left:1px solid var(--line-2)}
+.toolbar>.update-chip,.toolbar>.keyboard-help-trigger{flex:none;margin-left:6px}
+.toolbar .keyboard-help-trigger{display:grid;place-items:center;width:36px;min-width:36px;height:40px;min-height:40px;padding:0;border-color:transparent;background:transparent;color:var(--txt-3);font-size:13px}
+.toolbar .update-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 9px;border:1px solid var(--line-2);border-radius:999px;color:var(--txt);font-size:12px;white-space:nowrap}
 .update-chip-dot{width:6px;height:6px;border-radius:50%;background:var(--txt-3)}
 .update-chip.available .update-chip-dot,.update-chip.downloaded .update-chip-dot{background:var(--good)}
-.update-chip.downloading .update-chip-dot,.update-chip.installing .update-chip-dot{background:var(--accent);animation:update-chip-pulse 1.2s ease-in-out infinite alternate}
+.update-chip.downloading .update-chip-dot,.update-chip.installing .update-chip-dot{background:var(--txt);animation:update-chip-pulse 1.2s ease-in-out infinite alternate}
 .update-chip.error .update-chip-dot{background:var(--bad)}
 .update-chip.downloading{font-variant-numeric:tabular-nums}
 @keyframes update-chip-pulse{to{opacity:.35}}
-.toolbar .tb-right>[aria-pressed="true"],.toolbar .tb-right>[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent)}
 .iconbtn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);color:var(--txt-2)}
-.iconbtn.active{background:var(--accent-soft);color:var(--accent)}
+.toolbar .iconbtn{width:36px;height:40px}
+.iconbtn.active{background:var(--bg-4);color:var(--txt)}
 .iconbtn:disabled{opacity:.4;cursor:default}
+.toolbar :is(.tb-text,.iconbtn,.keyboard-help-trigger,.update-chip):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+/* A place's ring hugs its label, clear of the current-place rule at the bar's edge. */
+.place:focus-visible{outline:2px solid var(--focus);outline-offset:-7px;border-radius:12px}
+
+/* Push: a neutral bordered button whose label is its scope; the destination or last result sits to its left. */
+.push-control{display:flex;align-items:center;gap:10px;min-width:0}
+.push-status{display:flex;min-width:0;color:var(--txt-3);font-size:12px;line-height:16px}
+.push-progress{padding:0 6px;white-space:nowrap}
+.push-destination{position:relative;display:flex;align-items:center;gap:6px;min-width:0;max-width:260px;min-height:28px;padding:0 6px;border-radius:var(--r-s);color:inherit;text-align:left}
+.push-destination>.push-status-full{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.push-status-compact{display:none}
+.push-destination[data-tone="bad"]{color:var(--bad-txt)}
+.push-dot{flex:none;width:6px;height:6px;border-radius:50%}
+[data-tone="good"]>.push-dot{background:var(--good)}
+[data-tone="bad"]>.push-dot{background:var(--bad)}
+.push-button{position:relative;display:flex;flex:none;align-items:center;gap:12px;height:30px;padding:0 8px 0 12px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--bg-3);color:var(--txt);font-size:12.5px;font-weight:600;white-space:nowrap;transition:background-color .14s,border-color .14s}
+.push-button[data-shortcut]::after{content:attr(data-shortcut);color:var(--txt-3);font:500 11px/1 var(--ui);letter-spacing:.02em}
+.push-button:disabled{border-color:var(--line-2);background:transparent;color:var(--txt-3);cursor:not-allowed}
+/* Push and its destination keep compact surfaces with 40px-tall hit areas inside the bar. */
+:is(.push-button,.push-destination)::before{content:'';position:absolute;inset:-6px 0}
+.push-local{padding:0 6px;color:var(--txt-3);font-size:12px;white-space:nowrap}
+:is(.push-destination,.push-button):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media (hover:hover){
-  .pageswitch button:not(.on):hover{color:var(--txt)}
-  .iconbtn:hover:not(:disabled):not(.active),.toolbar .tb-right>button:hover:not(:disabled):not([aria-pressed="true"]):not([aria-expanded="true"]){background:var(--bg-3);color:var(--txt)}
+  .place:not([aria-current]):hover{color:var(--txt-2)}
+  .iconbtn:hover:not(:disabled):not(.active),.tb-text:hover,.toolbar .keyboard-help-trigger:hover{background:var(--bg-3);color:var(--txt)}
+  .push-destination:hover{background:var(--bg-3);color:var(--txt)}
+  .push-destination[data-tone="bad"]:hover{color:var(--bad-txt)}
+  .push-button:not(:disabled):hover{border-color:oklch(.4 .003 286);background:var(--bg-4)}
 }
-@media (max-width:1360px){
-  .app>.toolbar,.toolbar .tb-left{gap:8px}
-  .toolbar .brand-name{display:none}
-  .toolbar .pageswitch button{padding-inline:10px}
+
+/* Compact toolbar keeps every action and a readable destination at the native minimum.
+   Shortcut remains in the button title and aria-keyshortcuts; only its visual glyph retires. */
+@media (max-width:1280px){
+  .toolbar .tb-actions{gap:0}
+  .toolbar .optimizer-toggle{min-width:76px;padding-inline:6px}
+  .toolbar .tb-push{flex:0 0 auto;margin-left:4px;padding-left:4px}
+  .toolbar .push-control{gap:2px}
+  .toolbar .push-status{flex:0 0 64px;min-width:64px}
+  .toolbar .push-destination{width:64px;min-width:64px;max-width:64px}
+  .toolbar .push-destination[data-compact-status]{padding-inline:0}
+  .toolbar .push-destination[data-compact-status] .push-dot{display:none}
+  .toolbar .push-destination[data-compact-status] .push-status-full{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .toolbar .push-status-compact{display:block;white-space:nowrap}
+  .toolbar .push-all{padding-inline:4px}
+  .toolbar .push-button{padding-inline:8px}
+  .toolbar .push-button[data-shortcut]::after{display:none}
 }
 
 /* ============ stage ============ */
-.stage{flex:1;display:flex;position:relative;background:#0a0b0d;min-height:0;overflow:hidden}
-.fieldcol{position:relative;flex:1;min-width:0;min-height:0;overflow:hidden;background:#0a0b0d;container-type:inline-size}
+.stage{flex:1;display:flex;position:relative;background:var(--bg);min-height:0;overflow:hidden}
+.fieldcol{position:relative;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--bg);container-type:inline-size}
 .rail{position:relative;flex-shrink:0;display:flex;min-height:0;z-index:20}
 .rail.collapsed{width:0}
 .stage-plan{--inspector-width:320px}
@@ -333,7 +385,6 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .secbody{padding:0 6px 8px}
 /* Every outline item reserves the same grip, content and action columns. */
 .featrow{display:grid;grid-template-columns:14px minmax(0,1fr) 22px;align-items:center;gap:6px;min-height:34px;padding:0 4px;border-radius:var(--r-s);cursor:pointer}
-.featrow.sel{background:var(--accent-soft);box-shadow:inset 2px 0 var(--accent)}
 .featrow.dragging{opacity:.4}
 .featrow.over{box-shadow:inset 0 2px 0 var(--accent)}
 .featgrip,.featindent{grid-column:1;grid-row:1;width:14px}
@@ -454,7 +505,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .scrub{position:absolute;z-index:10;left:0;right:0;top:-20px;width:100%;height:58px;min-width:0;margin:0;opacity:0;cursor:ew-resize;touch-action:none}
 .timeline:has(.scrub:focus-visible){outline:2px solid rgb(255 255 255 / .7);outline-offset:2px}
 .timeline:has(.scrub:active) .timeline-playhead{width:2px;transform:translateX(-1px)}
-@media (hover:hover) and (pointer:fine){.tbtn:not(.play):hover{color:var(--txt);background:var(--bg-3)}.tbtn.play:hover,.rt-tp-btn.play:hover:not(:disabled){background:rgba(126,162,237,.22)}}
+@media (hover:hover) and (pointer:fine){.tbtn:not(.play):hover{color:var(--txt);background:var(--bg-3)}.tbtn.play:hover,.rt-tp-btn.play:hover:not(:disabled){background:var(--bg-4)}}
 
 /* telemetry graph, docked above the timeline */
 .velgraph{position:absolute;left:0;bottom:94px;z-index:26;display:flex;flex-direction:column;width:100%;height:154px;padding:10px 0 7px}
@@ -475,6 +526,10 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .vc-btn.active{background:var(--accent-soft);color:var(--accent)}
 .vc-pct{min-width:46px;height:28px;border-radius:var(--r-s);color:var(--txt);font:11.5px var(--mono)}
 .vc-div{width:1px;height:16px;margin:0 3px;background:var(--line-2)}
+.vc-text{height:28px;padding:0 9px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550}
+.vc-text[aria-pressed="true"]{background:var(--bg-4);color:var(--txt)}
+.vc-text:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+@media (hover:hover){.vc-text:hover{background:var(--bg-3);color:var(--txt)}}
 @media (hover:hover){.vc-btn:not(.active):hover,.vc-pct:hover{background:var(--bg-3);color:var(--txt)}}
 
 /* ============ robot page ============ */
@@ -576,7 +631,8 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .rp-add-profile:hover{border-color:var(--accent-line);color:var(--txt)}
 .rp-agent .delbtn,.rp-agent .qbtn.quiet{margin:0 0 14px -8px}
 .rp-check{display:flex;align-items:center;gap:8px;margin:-2px 0 14px;color:var(--txt-2);font-size:12px}
-.rp-proposal{display:flex;flex-direction:column;gap:6px;margin:0 0 18px;padding:12px 14px;border:1px solid var(--accent-line);border-left:2px solid var(--accent);border-radius:var(--r);background:var(--accent-soft);font-size:12px;line-height:1.45}
+/* A pending proposal is a ruled section of the column, not a card. */
+.rp-proposal{display:flex;flex-direction:column;gap:6px;margin:0 0 18px;padding:12px 0;border-block:1px solid var(--line);font-size:12px;line-height:1.45}
 .rp-proposal b{font-size:13px}
 .rp-proposal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
 @media(max-width:1180px){.rp-wrap{padding-inline:20px}.rp-controls{column-gap:20px}}
@@ -672,7 +728,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .cmd-toggle-track{position:relative;flex:0 0 33px;width:33px;height:18px;border:1px solid var(--line-3);border-radius:10px;background:var(--bg-4);transition:background-color .15s,border-color .15s}
 .cmd-toggle-track>span{position:absolute;top:1.5px;left:1.5px;width:13px;height:13px;border-radius:50%;background:var(--txt-2);transition:transform .15s cubic-bezier(.32,.72,0,1)}
 .cmd-toggle-input:checked+.cmd-toggle-track{border-color:var(--accent-surface);background:var(--accent-surface)}
-.cmd-toggle-input:checked+.cmd-toggle-track>span{transform:translateX(14.5px);background:#fff}
+.cmd-toggle-input:checked+.cmd-toggle-track>span{transform:translateX(14.5px);background:var(--on-accent)}
 .cmd-toggle-input:focus-visible+.cmd-toggle-track{outline:2px solid var(--focus);outline-offset:2px}
 .cmd-empty-params{color:var(--txt-3);font-size:11.5px;line-height:1.4}
 
@@ -715,6 +771,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .choice-browser{min-width:0;margin-block:12px}
 .choice-browser-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .choice-browser-heading .fieldlabel{margin:0}
+.choice-browser>.seg-hint{margin:0 0 8px}
 .choice-current{display:flex;align-items:start;gap:9px;padding:11px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2)}
 .choice-current>svg,.choice-result>svg{flex-shrink:0;color:var(--accent)}
 .choice-current>svg{margin-top:2px}
@@ -758,7 +815,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .optimizer-panel{width:100%;min-width:0;height:100%;overflow:auto;border-left:1px solid var(--line-2);background:var(--bg-1);font-size:12px}
 .optimizer-heading{display:flex;align-items:center;gap:10px;min-height:52px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--line)}
 .optimizer-heading strong{display:flex;align-items:center;gap:10px;flex:1;font-size:14px;font-weight:600}
-.optimizer-heading strong::before{content:'';flex:none;width:26px;height:26px;border-radius:var(--r);background:var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237ea2ed' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 6l6 6-6 6M13 6l6 6-6 6'/%3E%3C/svg%3E") center/15px no-repeat}
+.optimizer-heading strong::before{content:'';flex:none;width:26px;height:26px;border-radius:var(--r);background:var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c7c7c7' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 6l6 6-6 6M13 6l6 6-6 6'/%3E%3C/svg%3E") center/15px no-repeat}
 .optimizer-heading .iconbtn{width:28px;height:28px;color:var(--txt-3)}
 .optimizer-body{padding:16px}
 .optimizer-status{position:relative}
@@ -766,17 +823,18 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .optimizer-outcome.gain{color:var(--good)}
 .optimizer-progress{position:absolute;left:0;bottom:-10px;width:100%;height:2px;accent-color:var(--accent)}
 .optimizer-label{margin-bottom:6px;color:var(--txt-2);font-size:12px;font-weight:500}
-.optimizer-choice{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;margin-top:6px;padding:8px 10px;border:1px solid var(--line-2);border-radius:var(--r);color:var(--txt);font-size:12.5px;text-align:left;transition:background-color .14s,border-color .14s}
+/* Trajectory choices are flat list rows: the radio mark and one neutral surface show the previewed choice. */
+.optimizer-choice{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;margin-top:2px;padding:8px 10px;border-radius:var(--r);color:var(--txt);font-size:12.5px;text-align:left;transition:background-color .14s}
 .optimizer-choice::before{content:'';flex-shrink:0;width:10px;height:10px;border:1px solid var(--txt-3);border-radius:50%}
-.optimizer-choice[aria-pressed=true]{border-color:var(--accent-line);background:var(--accent-soft);box-shadow:inset 2px 0 var(--accent)}
-.optimizer-choice[aria-pressed=true]::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2px var(--bg-1)}
+.optimizer-choice[aria-pressed=true]{background:var(--bg-3)}
+.optimizer-choice[aria-pressed=true]::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2px var(--bg-3)}
 .optimizer-choice:disabled{opacity:.45;cursor:not-allowed}
 .optimizer-choice-name{display:flex;flex:1;align-items:center;gap:8px}
 .optimizer-choice small{color:var(--txt-3);font-size:11px;white-space:nowrap}
 .optimizer-choice b{font:600 12.5px var(--mono);font-variant-numeric:tabular-nums}
 .optimizer-main{width:100%;min-height:36px;margin-top:16px}
 .optimizer-reset{display:block;min-height:32px;margin:6px auto 0;padding:0 12px;border-radius:var(--r);color:var(--txt-2);font-size:12px;font-weight:550}
-.optimizer-failure{margin:0 0 14px;padding:9px 11px;border-left:2px solid var(--bad);border-radius:0 var(--r) var(--r) 0;background:var(--bad-soft);color:var(--txt);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.optimizer-failure{margin:0 0 14px;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .optimizer-panel details{margin-top:14px;border-top:1px solid var(--line);color:var(--txt-2)}
 .optimizer-panel summary{padding:10px 0;font-size:12px;font-weight:550}
 .optimizer-panel summary>span{margin-left:auto;color:var(--txt-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
@@ -798,11 +856,11 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .optimizer-details ul{margin:8px 0 0;padding-left:16px}
 .optimizer-error{color:var(--bad-txt)}
 /* Identify the owner of a search when another path is selected. */
-.optimizer-background{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:9px 11px;border-left:2px solid var(--accent);border-radius:0 var(--r) var(--r) 0;background:var(--bg-2);color:var(--txt-2);font-size:12px;line-height:1.5}
+.optimizer-background{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--txt-2);font-size:12px;line-height:1.5}
 .optimizer-background>span{flex:1;min-width:0}
 .optimizer-background strong{display:block;color:var(--txt);font-weight:550;overflow-wrap:anywhere}
 .optimizer-background button{flex:none}
-@media (hover:hover){.optimizer-choice:not(:disabled):not([aria-pressed=true]):hover,.optimizer-search-actions button:not(:disabled):hover{background:var(--bg-3)}.optimizer-reset:hover{background:var(--bg-3);color:var(--txt)}.optimizer-batch button:hover{color:var(--txt)}}
+@media (hover:hover){.optimizer-choice:not(:disabled):not([aria-pressed=true]):hover{background:var(--bg-2)}.optimizer-search-actions button:not(:disabled):hover{background:var(--bg-3)}.optimizer-reset:hover{background:var(--bg-3);color:var(--txt)}.optimizer-batch button:hover{color:var(--txt)}}
 
 /* Passive field feedback occupies one row; longer explanations are opt-in. */
 .field-status{position:relative;display:flex;align-items:center;width:max-content;max-width:100%;min-width:0;border:1px solid var(--line-2);border-radius:var(--r);background:var(--hud-surface);box-shadow:var(--elevation);color:var(--txt-2);font-size:12px;line-height:1.4;pointer-events:auto}

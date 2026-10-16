@@ -7,6 +7,9 @@ import type { AgentProposal, AgentSessionSnapshot } from "../shared/agent/types"
 import type { RobotEndpoint, RobotPairing, RobotProbe, RobotRuntimeStatus } from "./robotSftpTransport";
 import type { RobotPushPreview, RobotPushProgress, RobotPushResult } from "./robotPush";
 import type { RobotRetentionOperationResult, RobotRetentionPreview, RobotRetentionProgress } from "./robotRetention";
+import type { CreateNamedProjectRequest, OpenedProject, RecentProjectEntry, RecentProjectRevealTarget, ProjectCopyDefaultsRequest, ProjectCopyDefaults } from "../shared/project/desktopProjects";
+import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectPersistenceUpdate, ProjectRecoveredFrom, ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectSaveCheckpointRequest, ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectTransitionToken, RestoredProjectRecovery } from "../shared/project/projectPersistence";
+import type { ProjectDepartureRequest, ProjectDepartureResponse, ProjectDepartureResume, ProjectDurabilityContext } from "../shared/project/projectDurability";
 
 type McpStatus = { enabled: boolean; generation: number };
 /** Main accepts a snapshot only for the MCP access generation it was published in. */
@@ -22,6 +25,7 @@ const bordeauxAPI = {
   setAppUpdatesVisible: (visible: boolean): Promise<void> => ipcRenderer.invoke("appUpdates:visible", visible),
   openAppUpdateReleases: (): Promise<void> => ipcRenderer.invoke("appUpdates:releases"),
   copyAppUpdateDetails: (): Promise<void> => ipcRenderer.invoke("appUpdates:copyDetails"),
+  copyProjectDetails: (text: string): Promise<void> => ipcRenderer.invoke("project:copyDetails", text),
   onAppUpdateState: (handler: (state: AppUpdateState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: AppUpdateState) => handler(state);
     ipcRenderer.on("appUpdates:state", listener);
@@ -41,19 +45,69 @@ const bordeauxAPI = {
   openProjectFile: () => ipcRenderer.invoke("project:openFile"),
   openProject: () => ipcRenderer.invoke("project:open"),
   openRecentProject: (index: number) => ipcRenderer.invoke("project:openRecent", index),
+  listRecentProjects: (): Promise<RecentProjectEntry[]> => ipcRenderer.invoke("project:listRecent"),
+  removeRecentProject: (id: string): Promise<{ removed: boolean }> => ipcRenderer.invoke("project:removeRecent", id),
+  openRecentProjectById: (id: string): Promise<OpenedProject> => ipcRenderer.invoke("project:openRecentById", id),
+  revealRecentProject: (target: RecentProjectRevealTarget): Promise<ProjectRevealResult> => ipcRenderer.invoke("project:revealRecent", target),
+  createNamedProject: (request: CreateNamedProjectRequest): Promise<OpenedProject> => ipcRenderer.invoke("project:createNamed", request),
+  getProjectCopyDefaults: (request: ProjectCopyDefaultsRequest): Promise<ProjectCopyDefaults> => ipcRenderer.invoke("project:copyDefaults", request),
+  getProjectCreationDefaults: (): Promise<{ parentDirectory: string }> => ipcRenderer.invoke("project:creationDefaults"),
+  /** Returns a chosen parent folder without opening or activating anything. */
+  chooseProjectParentDirectory: (current?: string): Promise<{ parentDirectory: string } | null> => ipcRenderer.invoke("project:chooseParent", current),
   restoreLastProject: () => ipcRenderer.invoke("project:restoreLast"),
   newProject: () => ipcRenderer.invoke("project:new"),
   saveProject: (project: BordeauxProject, saveAs = false) => ipcRenderer.invoke("project:save", project, saveAs),
   autosaveProject: (project: BordeauxProject) => ipcRenderer.invoke("project:autosave", project),
+  getProjectSession: (): Promise<ProjectSession> => ipcRenderer.invoke("project:session"),
+  beginProjectTransition: (context: ProjectDurabilityContext): Promise<ProjectTransitionToken> => ipcRenderer.invoke("project:transitionBegin", context),
+  endProjectTransition: (token: ProjectTransitionToken): Promise<{ ended: boolean; busy?: boolean }> => ipcRenderer.invoke("project:transitionEnd", token),
+  setProjectLifecycleReady: (context: ProjectDurabilityContext, ready: boolean): Promise<{ accepted: boolean }> => ipcRenderer.invoke("project:lifecycleReady", context, ready),
+  getProjectStartup: (request: ProjectStartupRequest): Promise<ProjectStartupResult> => ipcRenderer.invoke("project:startup", request),
+  adoptProjectStartup: (startupId: string, transition: ProjectTransitionToken): Promise<OpenedProject & { session: ProjectSession }> => ipcRenderer.invoke("project:startupAdopt", startupId, transition),
+  cancelProjectStartup: (transition: ProjectTransitionToken): Promise<{ cancelled: boolean; busy?: boolean }> => ipcRenderer.invoke("project:startupCancel", transition),
+  detachProjectStartup: (request: ProjectStartupRequest): Promise<ProjectStartupDetachResult> => ipcRenderer.invoke("project:startupDetach", request),
+  checkpointProject: (request: ProjectCheckpointRequest): Promise<ProjectPersistenceUpdate> => ipcRenderer.invoke("project:checkpoint", request),
+  /** Subscribe before invoking: source completion precedes the existing automatic BDX result. */
+  saveProjectWithCheckpoint: (request: ProjectSaveCheckpointRequest): Promise<ProjectCheckpointSaveResult> => ipcRenderer.invoke("project:saveWithCheckpoint", request),
+  getProjectCheckpoint: (context: ProjectDurabilityContext, operationId: string): Promise<ProjectPersistenceUpdate | null> => ipcRenderer.invoke("project:checkpointReplay", context, operationId),
+  cancelProjectCheckpoint: (context: ProjectDurabilityContext, operationId: string): Promise<{ cancelled: boolean }> => ipcRenderer.invoke("project:checkpointCancel", context, operationId),
+  listProjectRecoveries: (options?: ProjectRecoveryListOptions): Promise<ProjectRecoveryListing> => ipcRenderer.invoke("project:listRecoveries", options),
+  prepareProjectRecoveryDiscard: (context: ProjectDurabilityContext, id: string): Promise<ProjectRecoveryDiscardConfirmation> => ipcRenderer.invoke("project:prepareRecoveryDiscard", context, id),
+  discardProjectRecovery: (context: ProjectDurabilityContext, token: string): Promise<{ removed: boolean }> => ipcRenderer.invoke("project:discardRecovery", context, token),
+  restoreProjectRecovery: (context: ProjectDurabilityContext, recordId: string): Promise<RestoredProjectRecovery> => ipcRenderer.invoke("project:restoreRecovery", context, recordId),
+  readProjectRecovery: (context: ProjectDurabilityContext, recordId: string): Promise<{ project: BordeauxProject; recoveredFrom: ProjectRecoveredFrom }> => ipcRenderer.invoke("project:readRecovery", context, recordId),
+  revealProjectRecovery: (id: string): Promise<void> => ipcRenderer.invoke("project:revealRecovery", id),
+  reloadProjectSource: (request: ProjectReloadRequest): Promise<ProjectReloadResult> => ipcRenderer.invoke("project:reloadSource", request),
+  revealProjectSource: (context: ProjectDurabilityContext, file: string): Promise<ProjectRevealResult> => ipcRenderer.invoke("project:revealSource", context, file),
+  noteProjectEditingResumed: (context: ProjectDurabilityContext, installAttemptId: string): Promise<{ accepted: boolean }> => ipcRenderer.invoke("project:editingResumed", context, installAttemptId),
+  respondProjectDeparture: (response: ProjectDepartureResponse): Promise<{ accepted: boolean }> => ipcRenderer.invoke("project:departureResponse", response),
+  resumeProjectDeparture: (token: ProjectDepartureResume): Promise<{ accepted: boolean }> => ipcRenderer.invoke("project:departureResume", token),
+  onProjectCheckpoint: (handler: (update: ProjectPersistenceUpdate) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: ProjectPersistenceUpdate) => handler(update);
+    ipcRenderer.on("project:checkpointUpdate", listener);
+    return () => ipcRenderer.removeListener("project:checkpointUpdate", listener);
+  },
+  onProjectDeparture: (handler: (request: ProjectDepartureRequest) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: ProjectDepartureRequest) => handler(request);
+    ipcRenderer.on("project:departure", listener);
+    return () => ipcRenderer.removeListener("project:departure", listener);
+  },
+  onProjectDepartureCancelled: (handler: (requestId: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, requestId: string) => handler(requestId);
+    ipcRenderer.on("project:departureCancelled", listener);
+    return () => ipcRenderer.removeListener("project:departureCancelled", listener);
+  },
   previewBetaDiagnostic: (project: BordeauxProject) => ipcRenderer.invoke("diagnostics:preview", project),
   saveBetaDiagnostic: (previewId: string) => ipcRenderer.invoke("diagnostics:save", previewId),
   validateProject: (project: BordeauxProject) => ipcRenderer.invoke("project:validate", project),
   listRecentRobotProjects: () => ipcRenderer.invoke("robotProject:listRecent"),
-  linkRobotProject: () => ipcRenderer.invoke("robotProject:link"),
-  openRecentRobotProject: (id: string) => ipcRenderer.invoke("robotProject:openRecent", id),
-  refreshRobotProject: () => ipcRenderer.invoke("robotProject:refresh"),
-  inspectLabviewCommands: () => ipcRenderer.invoke("robotProject:inspectLabview"),
-  buildRobotCatalog: () => ipcRenderer.invoke("robotProject:buildCatalog"),
+  restoreProjectRobotCode: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:restore", context),
+  useSuggestedRobotCode: (context: ProjectDurabilityContext, id: string) => ipcRenderer.invoke("robotProject:useSuggested", context, id),
+  linkRobotProject: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:link", context),
+  openRecentRobotProject: (id: string, context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:openRecent", id, context),
+  refreshRobotProject: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:refresh", context),
+  inspectLabviewCommands: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:inspectLabview", context),
+  buildRobotCatalog: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:buildCatalog", context),
   getRobotPairing: (): Promise<RobotPairing | null> => ipcRenderer.invoke("robot:getPairing"),
   probeRobot: (endpoint: RobotEndpoint): Promise<RobotProbe> => ipcRenderer.invoke("robot:probe", endpoint),
   confirmRobotPairing: (hostKeyFingerprint: string, runtimeId: string): Promise<RobotPairing> => ipcRenderer.invoke("robot:confirmPairing", hostKeyFingerprint, runtimeId),

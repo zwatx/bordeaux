@@ -1,3 +1,6 @@
+import { planPath } from "../../shared/planners/planPath";
+import { isOptimizationOutdated } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
 import { optimizeCorridorFinal } from "../../shared/planners/corridorFinal";
 import { getPlanner } from "../../shared/planners";
@@ -247,6 +250,35 @@ export function previewForTrajectory(path, robot, trajectory, derive = PM.derive
   );
 }
 
+/** Opt-in editing contract; legacy final/optimization jobs retain their existing API. */
+export function processEditingPlanningJob(job) {
+  const input = { path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment || 56 };
+  const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
+  const currentAccepted = job.path.optimization?.accepted && !isOptimizationOutdated(job.path, job.robot, job.field);
+  let plan = accepted
+    ? { status: 'ok', trajectory: accepted, bestEffort: { samples: accepted.samples, totalTimeS: accepted.totalTimeS }, issues: [] }
+    : planPath(input);
+  if (currentAccepted && !accepted) {
+    plan = { ...plan, status: 'infeasible', trajectory: null, issues: [...plan.issues, {
+      code: 'planner', severity: 'error', f0: 0, f1: 1,
+      message: 'Selected optimization could not be validated',
+    }] };
+  }
+  let comparison;
+  let derived = projectEditingTiming(editingGeometry(plan.trajectory?.optimizedPath || input.path, 14, job.robot), plan.bestEffort, plan.issues);
+  if (plan.trajectory) {
+    let projected = false;
+    try { derived = previewForTrajectory(input.path, job.robot, plan.trajectory, PM.derivePath, input.samplesPerSegment); projected = true; }
+    catch (error) {
+      derived = { ...derived, finalTrajectory: plan.trajectory, finalOptimization: plan.trajectory.optimization };
+      comparison = { status: 'error', message: error?.message || String(error) };
+    }
+    derived = { ...derived, trajectorySamples: plan.bestEffort.samples, acceptedTrajectory: Boolean(accepted) };
+    if (projected) comparison = { status: 'ready', projectionVersion: 1, previewDensity: input.samplesPerSegment };
+  }
+  return { ...plan, derived, acceptedTrajectory: Boolean(accepted), comparison };
+}
+
 export function processPathPreviewJob(
   job,
   derive = PM.derivePath,
@@ -256,6 +288,9 @@ export function processPathPreviewJob(
 ) {
   const startedAt = performance.now();
   try {
+    if (job.mode === 'editing') {
+      return { id: job.id, quality: job.quality, value: processEditingPlanningJob(job), durationMs: performance.now() - startedAt };
+    }
     const path = authoredPath(job.path);
     // Keep pointer editing on the low-latency geometry pass. Final planning
     // replaces it with the authoritative physics result after the edit settles.

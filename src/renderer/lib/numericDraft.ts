@@ -17,8 +17,10 @@ export function committedDraftValue(
   const parsed = parseFiniteDraftNumber(raw);
   if (parsed == null) return null;
   // An untouched display value must not round-trip through unit conversion:
-  // floating-point drift can invalidate planning and move keyboard focus.
-  let next = typeof stored === 'number' && parsed === displayed ? stored : toCanonical(parsed);
+  // floating-point drift can invalidate planning and move keyboard focus. Visiting
+  // a field also must not clamp an existing value to that editor's typing bounds.
+  if (typeof stored === 'number' && parsed === displayed) return stored;
+  let next = toCanonical(parsed);
   if (min != null) next = Math.max(min, next);
   if (max != null) next = Math.min(max, next);
   return next;

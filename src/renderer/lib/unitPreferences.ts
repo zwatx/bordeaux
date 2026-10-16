@@ -3,6 +3,14 @@ type UnitDefinition = { label: string; factor: number };
 type UnitStorage = Pick<Storage, "getItem" | "setItem">;
 type UnitRoot = { dataset: DOMStringMap | Record<string, string> };
 
+/** Angular limits stay in degrees in both unit systems; positive values never display as zero. */
+export function formatAngularLimit(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+  const magnitude = Math.abs(value);
+  const text = value.toFixed(magnitude >= 100 ? 0 : magnitude >= 10 ? 1 : 2);
+  return String(Number(value !== 0 && Number(text) === 0 ? value.toPrecision(2) : text));
+}
+
 // The document selects display units; local storage supplies the default for older files.
 // Project geometry, planning, validation, and export remain SI.
 export function createUnitPreferences(storage: UnitStorage = localStorage, root: UnitRoot = document.documentElement) {

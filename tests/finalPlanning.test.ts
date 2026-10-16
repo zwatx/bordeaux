@@ -26,7 +26,7 @@ class FakeWorker {
 function finalPlanningModule() {
   return loadRendererExport<{
     create(options: { workerFactory: () => FakeWorker; deadlines?: { common: number; stress: number; hard: number } }): {
-      request(input: { path: unknown; robot: unknown; plannerId: string; optimize?: boolean }, options: { interactiveResult?: unknown; deadline?: "common" | "stress" | "hard"; onProgress?: (value: unknown) => void }): {
+      request(input: { path: unknown; robot: unknown; plannerId: string; optimize?: boolean }, options: { interactiveResult?: unknown; deadline?: "common" | "stress" | "hard"; failureNote?: string; onProgress?: (value: unknown) => void }): {
         promise: Promise<Record<string, unknown>>;
         cancel(): void;
       };
@@ -95,6 +95,24 @@ describe("final planning execution", () => {
       fallbackProvisional: true,
       fallbackReason: "Final planning was canceled; continuing with the last interactive result.",
     });
+    expect(worker.terminated).toBe(true);
+  });
+
+  it.each(['failure', 'timeout', 'canceled'] as const)('reports a blocked routine preview on %s without claiming interactive playback', async outcome => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const planner = finalPlanningModule().create({ workerFactory: () => worker });
+    const request = planner.request({ path: {}, robot: {}, plannerId: 'profiledSpline' }, {
+      failureNote: 'Routine preview is unavailable.',
+    });
+    if (outcome === 'failure') worker.fail('worker unavailable');
+    else if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(6_000);
+    else request.cancel();
+    const result = await request.promise;
+    expect(result.status).toBe(outcome);
+    expect(result.fallback).toBeUndefined();
+    expect(result.fallbackReason).toMatch(/routine preview is unavailable\./i);
+    expect(result.fallbackReason).not.toMatch(/continuing|interactive result/i);
     expect(worker.terminated).toBe(true);
   });
 

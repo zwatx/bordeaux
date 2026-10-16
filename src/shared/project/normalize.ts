@@ -1,3 +1,4 @@
+import { normalizeLabviewProjectPath } from "./labviewLink";
 import { alignedWaypointHandles } from "./waypointHandles";
 import { createMarkerId, createPathId, createPathLinkId, createRoutineId } from "./ids";
 
@@ -40,6 +41,8 @@ function normalizeNodes(nodes: unknown, paths: readonly unknown[], depth = 0): u
         const path = paths[node.ref];
         node.ref = isRecord(path) ? path.id ?? "" : "";
       }
+    } else if (node.type === "repeat") {
+      node.nodes = normalizeNodes(node.nodes, paths, depth + 1);
     } else if (node.type === "decision") {
       node.then = normalizeNodes(node.then, paths, depth + 1);
       node.else = normalizeNodes(node.else, paths, depth + 1);
@@ -137,5 +140,9 @@ export function normalizeProject(value: unknown): unknown {
   const plannerId = source.plannerId === "optimizedTrajectory" ? "optimizedTrajectory" : "profiledSpline";
   const canonicalSource = { ...source };
   delete canonicalSource.routine;
+  if (isRecord(canonicalSource.editor) && typeof canonicalSource.editor.labviewProjectPath === "string") {
+    try { canonicalSource.editor = { ...canonicalSource.editor, labviewProjectPath: normalizeLabviewProjectPath(canonicalSource.editor.labviewProjectPath) }; }
+    catch { /* Preserve invalid input for validation; never erase it and enable bookmark fallback. */ }
+  }
   return { ...canonicalSource, paths, pathLinks, routines, activeRoutineId, plannerId };
 }

@@ -104,5 +104,5 @@ export function rememberRobotProject(
 }
 
 export function summarizeRobotProjectBookmarks(bookmarks: RobotProjectBookmark[]): RobotProjectBookmarkSummary[] {
-  return bookmarks.map(({ id, projectName, folderName, lastLinkedAt }) => ({ id, projectName, folderName, lastLinkedAt }));
+  return bookmarks.map(({ id, projectName, folderName, lastLinkedAt, projectPath }) => ({ id, projectName, folderName, lastLinkedAt, locationHint: path.dirname(projectPath) }));
 }
