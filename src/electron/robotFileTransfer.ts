@@ -40,7 +40,7 @@ export async function uploadRobotFiles(
   files: Array<{ fileName: string; contents: Buffer }>,
   signal?: AbortSignal,
   factory: RobotSftpSessionFactory = connectRobotSftp,
-): Promise<void> {
+): Promise<{ directoryCreated: boolean }> {
   const endpoint = validateRobotFileEndpoint(connection.endpoint);
   if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
     throw new RobotTransportError("invalid_request", "Review the robot SSH identity before transferring files");
@@ -74,13 +74,14 @@ export async function uploadRobotFiles(
   const published: string[] = [];
   let publishing: string | undefined;
   let stage = "check the destination directory";
+  let directoryCreated = false;
   try {
     operation.throwIfAborted();
     if (session.hostKeyFingerprint !== connection.hostKeyFingerprint) {
       throw new RobotTransportError("re_pair_required", "The robot SSH host key changed; connect again before transferring files");
     }
     const directory = requireDirectories(session);
-    await directory(endpoint.directory, true, operation);
+    directoryCreated = (await directory(endpoint.directory, true, operation)).created;
     for (const file of files) {
       operation.throwIfAborted();
       stage = "check the destination directory";
@@ -108,13 +109,14 @@ export async function uploadRobotFiles(
       published.push(file.fileName);
       publishing = undefined;
     }
+    return { directoryCreated };
   } catch (error) {
     const reason = deadline.aborted ? "SFTP transfer timed out" : signal?.aborted ? "SFTP transfer was cancelled"
       : error instanceof Error ? error.message : "SFTP transfer failed";
     const code = deadline.aborted ? "timed_out" : signal?.aborted ? "cancelled"
       : error instanceof RobotTransportError ? error.code : "transfer_failed";
     throw new RobotTransportError(code,
-      `Could not ${stage}: ${reason}. ${published.length} of ${files.length} files verified on the robot${published.length ? ` (${published.join(", ")})` : ""}.${publishing ? ` ${publishing} may have been replaced; its final bytes were not verified.` : ""}`,
+      `Could not ${stage}: ${reason}. ${published.length} of ${files.length} files verified on the robot${published.length ? ` (${published.join(", ")})` : ""}.${publishing ? ` ${publishing} may have been replaced; its final bytes were not verified.` : ""}${directoryCreated ? ` Created robot folder ${endpoint.directory}.` : ""}`,
       { cause: error });
   } finally {
     if (temporary) {

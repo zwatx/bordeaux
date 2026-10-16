@@ -12,4 +12,6 @@ export interface RobotFileResult {
   state: "transferred";
   files: RobotFilePreview["files"];
   directory: string;
+  /** True only when this upload received confirmation that it created the destination. */
+  directoryCreated: boolean;
 }

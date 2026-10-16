@@ -8,7 +8,7 @@ const connection: RobotFileConnection = { endpoint: { host: "roborio-2468-frc.lo
 const file = (): PreparedRobotFile => ({ pathId: "path-1", name: "Opening", fileName: "Opening.bdx", contents: Buffer.from("BDX fixture") });
 function setup(initial: RobotFileConnection | null = connection) {
   const persist = vi.fn(async () => undefined);
-  const transport = { probe: vi.fn(async () => structuredClone(connection)), upload: vi.fn(async (_connection: RobotFileConnection, _files: Array<{ fileName: string; contents: Buffer }>, _signal?: AbortSignal) => undefined) };
+  const transport = { probe: vi.fn(async () => structuredClone(connection)), upload: vi.fn(async (_connection: RobotFileConnection, _files: Array<{ fileName: string; contents: Buffer }>, _signal?: AbortSignal) => ({ directoryCreated: false })) };
   return { delivery: new RobotFileDelivery(initial, persist, transport), persist, transport };
 }
 describe("reviewed robot file delivery", () => {
@@ -52,15 +52,16 @@ describe("reviewed robot file delivery", () => {
     expect(persist).toHaveBeenCalledExactlyOnceWith(connection);
     expect(transport.upload).not.toHaveBeenCalled();
   });
-  it("uploads immutable reviewed bytes and destination only once", async () => {
+  it.each([false, true])("uploads immutable reviewed bytes and forwards actual creation (%s) only once", async (directoryCreated) => {
     const { delivery, transport } = setup();
+    transport.upload.mockResolvedValueOnce({ directoryCreated });
     const original = file(), validate = vi.fn(async () => undefined);
     const preview = delivery.prepare([original], validate);
     original.contents.fill(0); preview.connection.endpoint.host = "changed.local"; preview.files[0].fileName = "wrong.bdx";
     const result = await delivery.confirm(preview.operationId);
     expect(transport.upload.mock.calls[0][0]).toEqual(connection);
     expect(transport.upload.mock.calls[0][1][0]).toMatchObject({ fileName: "Opening.bdx", contents: Buffer.from("BDX fixture") });
-    expect(result).toMatchObject({ state: "transferred", directory: DEFAULT_ROBOT_PATH_DIRECTORY });
+    expect(result).toMatchObject({ state: "transferred", directory: DEFAULT_ROBOT_PATH_DIRECTORY, directoryCreated });
     expect(validate).toHaveBeenCalledOnce();
     await expect(delivery.confirm(preview.operationId)).rejects.toThrow(/Review/);
   });
@@ -81,7 +82,7 @@ describe("reviewed robot file delivery", () => {
   it("locks confirmation, allows upload cancellation, and waits for shutdown", async () => {
     let finish!: () => void;
     let signal!: AbortSignal;
-    const transport = { probe: vi.fn(async () => connection), upload: vi.fn(async (_c: RobotFileConnection, _f: Array<{ fileName: string; contents: Buffer }>, s?: AbortSignal) => { signal = s!; await new Promise<void>(resolve => { finish = resolve; }); s!.throwIfAborted(); }) };
+    const transport = { probe: vi.fn(async () => connection), upload: vi.fn(async (_c: RobotFileConnection, _f: Array<{ fileName: string; contents: Buffer }>, s?: AbortSignal) => { signal = s!; await new Promise<void>(resolve => { finish = resolve; }); s!.throwIfAborted(); return { directoryCreated: false }; }) };
     const delivery = new RobotFileDelivery(connection, async () => undefined, transport);
     const preview = delivery.prepare([file()], async () => undefined);
     const confirmed = delivery.confirm(preview.operationId);
@@ -96,6 +97,28 @@ describe("reviewed robot file delivery", () => {
 });
 
 describe("remembered robot destination", () => {
+  it("saves a robot IP while offline, reloads it, and still requires SSH identity review", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-offline-ip-"));
+    try {
+      const filePath = path.join(directory, "connection.json");
+      const endpoint = { host: "10.24.68.2", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
+      const { transport } = setup(null);
+      const delivery = new RobotFileDelivery(null, value => writeRobotFileConnection(filePath, value), transport);
+      await delivery.saveSettings(endpoint);
+      const restored = new RobotFileDelivery(await readRobotFileConnection(filePath), async () => undefined, transport);
+      expect(restored.settings()).toEqual({ endpoint }); expect(restored.current()).toBeNull();
+      expect(() => restored.prepare([file()], async () => undefined)).toThrow(/Connect/);
+      expect(transport.probe).not.toHaveBeenCalled(); expect(transport.upload).not.toHaveBeenCalled();
+    } finally { await fs.rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each([{ host: "" }, { host: "user@robot" }, { port: 0 }, { port: 65536 }, { directory: "/etc" }])("rejects invalid offline settings %j before persisting or connecting", async (change) => {
+    const { delivery, transport, persist } = setup();
+    await expect(delivery.saveSettings({ ...connection.endpoint, ...change })).rejects.toThrow();
+    expect(delivery.settings()).toEqual(connection); expect(delivery.current()).toEqual(connection);
+    expect(persist).not.toHaveBeenCalled(); expect(transport.probe).not.toHaveBeenCalled(); expect(transport.upload).not.toHaveBeenCalled();
+  });
+
   it("restores unverified settings without manufacturing SSH trust", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-file-settings-"));
     try {

@@ -148,7 +148,8 @@ export type RobotRemoteFile =
 
 export interface RobotSftpSession {
   readonly hostKeyFingerprint: string;
-  ensureDirectory?(directory: string, create: boolean, signal: AbortSignal): Promise<void>;
+  /** created refers to the selected directory, not any missing ancestors. */
+  ensureDirectory?(directory: string, create: boolean, signal: AbortSignal): Promise<{ created: boolean }>;
   read(file: RobotRemoteFile, maxBytes: number, signal: AbortSignal): Promise<Buffer>;
   write(file: RobotRemoteFile, contents: Buffer, signal: AbortSignal): Promise<void>;
   exists(file: RobotRemoteFile, signal: AbortSignal): Promise<boolean>;

@@ -17,7 +17,7 @@ function fixture() {
   let closed = 0;
   const session: RobotSftpSession = {
     hostKeyFingerprint: fingerprint,
-    async ensureDirectory(_directory, create) { directories.push(create); },
+    async ensureDirectory(_directory, create) { directories.push(create); return { created: false }; },
     async read(file) { const value = stored.get(key(file)); if (!value) throw new Error("Absent file"); return value; },
     async write(file, data) { if (stored.has(key(file))) throw new Error("Exists"); stored.set(key(file), Buffer.from(data)); },
     async exists(file) { return stored.has(key(file)); },
@@ -48,13 +48,39 @@ describe("direct robot SFTP path delivery", () => {
   it("pins host identity and publishes exact bytes while preserving other paths", async () => {
     const f = fixture();
     f.stored.set("opening.bdx", Buffer.from("old"));
-    await uploadRobotFiles(connection, files, undefined, f.factory);
+    expect(await uploadRobotFiles(connection, files, undefined, f.factory)).toEqual({ directoryCreated: false });
     expect(f.requests[0].expectedHostKeyFingerprint).toBe(fingerprint);
     expect(f.requests[0].credentials).toEqual({ username: "admin", password: "" });
     expect(f.stored.get("opening.bdx")).toEqual(files[0].contents);
     expect(f.stored.get("unrelated.bdx")?.toString()).toBe("preserve");
     expect(f.stored.size).toBe(2);
     expect(f.closed()).toBe(1);
+  });
+
+  it("reports a confirmed folder creation even when later read-back fails", async () => {
+    const f = fixture();
+    f.session.ensureDirectory = async (_directory, create) => ({ created: create });
+    f.session.read = async () => Buffer.from("corrupt");
+    await expect(uploadRobotFiles(connection, files, undefined, f.factory))
+      .rejects.toThrow(`0 of 1 files verified on the robot. Created robot folder ${endpoint.directory}.`);
+    expect(f.stored.has("opening.bdx")).toBe(false);
+  });
+
+  it("does not connect or mutate when already cancelled", async () => {
+    const f = fixture();
+    const cancel = new AbortController(); cancel.abort();
+    await expect(uploadRobotFiles(connection, files, cancel.signal, f.factory)).rejects.toThrow();
+    expect(f.requests).toEqual([]); expect(f.directories).toEqual([]);
+  });
+
+  it("reports known folder creation without claiming files were uploaded when cancelled afterwards", async () => {
+    const f = fixture();
+    const cancel = new AbortController();
+    f.session.ensureDirectory = async () => { cancel.abort(); return { created: true }; };
+    const failure = await uploadRobotFiles(connection, files, cancel.signal, f.factory).catch(error => error);
+    expect(failure.code).toBe("cancelled");
+    expect(failure.message).toContain(`0 of 1 files verified on the robot. Created robot folder ${endpoint.directory}.`);
+    expect(f.stored.size).toBe(1); expect(f.stored.has("opening.bdx")).toBe(false);
   });
 
   it("rejects changed host keys before creating directories or writing", async () => {
