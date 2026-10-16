@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import { buildReachabilityInput, countLinearConstraintViolations, insertOptimizationBoundaries } from "./optimizationConstraints";
 import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_TRAJECTORY_SAMPLES } from "./limits";
-import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "./profiledSpline";
+import { profiledSplineOptimizationInputs, profiledSplineOptimizationSeed, profiledSplinePlanner } from "./profiledSpline";
 import { solveReachabilityProfile, type ReachabilityInput, type ReachabilityStatus } from "./reachability";
 import { validateOptimizedTrajectory, type TrajectoryValidationResult } from "./trajectoryValidation";
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
@@ -18,7 +18,7 @@ const R = (value: number, places = 4) => Number(value.toFixed(places));
 const MAX_REFINEMENT_PASSES = 2;
 
 /** Retain authored boundaries when constraint knots are inserted into a refined seed. */
-function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectorySample[]): number[] | undefined {
+export function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectorySample[]): number[] | undefined {
   if (!base.waypointSampleIndices) return undefined;
   const remapped = new Map<number, number>();
   const boundaries = new Set(base.waypointSampleIndices);
@@ -33,7 +33,8 @@ function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectoryS
   return base.waypointSampleIndices.map((index) => remapped.get(index)!);
 }
 
-function remapTiming(samples: TrajectorySample[], velocities: number[], fullPrecision = false): TrajectorySample[] {
+/** Integrates a sample-aligned speed profile into timestamps and rates. */
+export function remapTiming(samples: TrajectorySample[], velocities: number[], fullPrecision = false): TrajectorySample[] {
   if (samples.length < 2) return samples;
 
   const times = new Array(samples.length).fill(0);
@@ -366,8 +367,7 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
   id: "optimizedTrajectory",
   generate(input): PlannerResult {
     const started = performance.now();
-    const base = profiledSplinePlanner.generate(input);
-    const optimizationSeed = profiledSplineOptimizationSeed(input);
+    const { base, seed: optimizationSeed } = profiledSplineOptimizationInputs(input);
     const solveTimeMs = performance.now() - started;
 
     if (base.samples.length < 2) {

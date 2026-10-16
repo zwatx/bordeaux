@@ -101,7 +101,7 @@ function samplePeriod(samples: readonly TrajectorySample[]): number {
   return Number.isFinite(best) ? Math.max(0.01, Math.min(0.05, best)) : 0.02;
 }
 
-function nextMovingSampleIndices(samples: readonly TrajectorySample[]): number[] {
+export function nextMovingSampleIndices(samples: readonly TrajectorySample[]): number[] {
   const indices = new Array<number>(samples.length).fill(-1);
   let runStart = 0;
   while (runStart < samples.length) {
@@ -312,7 +312,7 @@ export function applyStationaryActions(path: PathDoc, result: PlannerResult, rob
       const jiggleStrokeDuration = jiggleTicks * period;
       const jiggleDuration = jiggle && positions ? jiggleStrokeDuration * jiggle.strokes : 0;
       const waitTicks = ticks.wait;
-      const waitDuration = waitTicks * period;
+      const waitDuration = Math.max(0, waypoint.wait ?? 0);
       const duration = turnDuration + jiggleDuration + waitDuration;
       if (duration <= EPSILON) continue;
       const arrivalTime = arrival.t;
@@ -393,7 +393,8 @@ export function applyStationaryActions(path: PathDoc, result: PlannerResult, rob
         samples[sampleCount] = {
           ...arrival,
           i: 0,
-          t: arrivalTime + turnDuration + jiggleDuration + tick * period,
+          // Keep the authored duration; the final hold interval may be shorter.
+          t: tick === waitTicks ? arrivalTime + duration : arrivalTime + turnDuration + jiggleDuration + tick * period,
           s: arrival.s + addedDistance,
           f: arrival.f,
           headingRad: finalJiggleHeading ?? waitHeading,
@@ -419,7 +420,8 @@ export function applyStationaryActions(path: PathDoc, result: PlannerResult, rob
   let cumulativeDuration = 0;
   actions.forEach(({ waypoint, index }) => {
     const ticks = plannedTicks.get(index)!;
-    const duration = (ticks.turn + ticks.jiggle * (waypoint.jiggle?.strokes ?? 0) + ticks.wait) * period;
+    const duration = (ticks.turn + ticks.jiggle * (waypoint.jiggle?.strokes ?? 0)) * period
+      + Math.max(0, waypoint.wait ?? 0);
     if (duration <= EPSILON) return;
     cumulativeDuration += duration;
     markerOffsets.push({

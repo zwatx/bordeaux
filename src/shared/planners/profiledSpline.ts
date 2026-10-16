@@ -62,7 +62,7 @@ function markersFor(
   });
 }
 
-function generateProfiledSpline(input: PlannerInput, fullPrecision: boolean): PlannerResult {
+function deriveProfiledSpline(input: PlannerInput): ReturnType<typeof PM.derivePath> {
   const samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT;
   if (!Number.isInteger(samplesPerSegment) || samplesPerSegment < 1) {
     throw new Error("Planner samples per segment must be a positive integer");
@@ -73,7 +73,10 @@ function generateProfiledSpline(input: PlannerInput, fullPrecision: boolean): Pl
   }
   // Stationary rotations are sampled by the shared post-processor. Keep the
   // authored turn visible to heading continuity, but do not time it here.
-  const derived = PM.derivePath(input.path, input.robot, samplesPerSegment, { skipStationaryActions: true });
+  return PM.derivePath(input.path, input.robot, samplesPerSegment, { skipStationaryActions: true });
+}
+
+function projectProfiledSpline(input: PlannerInput, derived: ReturnType<typeof PM.derivePath>, fullPrecision: boolean): PlannerResult {
   const pts = derived.sample.pts || [];
   const metrics = derived.metrics || {};
   const times = derived.prof.t || [];
@@ -98,19 +101,25 @@ function generateProfiledSpline(input: PlannerInput, fullPrecision: boolean): Pl
     totalTimeS: value(derived.prof.totalTime || 0, 4),
     totalDistanceM: value(totalDistanceM, 4),
     samples,
-    waypointSampleIndices: derived.wpIdx,
+    waypointSampleIndices: derived.wpIdx?.slice(),
     markers: markersFor(input, pts, times, fullPrecision),
     diagnostics: diagnosticsFor(input.path.name, derived),
   };
 }
 
 export function profiledSplineOptimizationSeed(input: PlannerInput): PlannerResult {
-  return generateProfiledSpline(input, true);
+  return projectProfiledSpline(input, deriveProfiledSpline(input), true);
+}
+
+/** Rounded fallback and unrounded optimization seed from one identical initial derivation. */
+export function profiledSplineOptimizationInputs(input: PlannerInput): { base: PlannerResult; seed: PlannerResult } {
+  const derived = deriveProfiledSpline(input);
+  return { base: projectProfiledSpline(input, derived, false), seed: projectProfiledSpline(input, derived, true) };
 }
 
 export const profiledSplinePlanner: TrajectoryPlanner = {
   id: "profiledSpline",
   generate(input: PlannerInput): PlannerResult {
-    return generateProfiledSpline(input, false);
+    return projectProfiledSpline(input, deriveProfiledSpline(input), false);
   },
 };
