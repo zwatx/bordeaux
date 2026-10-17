@@ -15,23 +15,30 @@ import { routeCandidateIssue } from "../src/shared/planners/routeValidation";
 import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/shared/types";
 
 const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v1/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
-// Captured from the original pm.ts before extracting its anchor predicate.
+// Math transcendental results differ by a few ULPs between supported Node versions.
+// Keep all values and structure, ignoring only sub-nanounit noise in these regression fingerprints.
+function trajectoryFingerprint(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value, (_key, item) =>
+    typeof item === "number" && Number.isFinite(item) ? Number(item.toFixed(9)) : item)).digest("hex");
+}
+
+// Captured from the original pm.ts before extracting its anchor predicate, at the precision above.
 const normalHashes: Record<string, string> = {
-  "corpus-blue-table-trench": "4a7d57202c1d63d2adaa1a2e81a962339fae46f6b492d733b55018c3683c2416",
-  "corpus-blue-away-bump": "5eb22b8863b56cdfcd5a930aa7fa5f83e93feffc68e8897653a2cd8ed438af48",
-  "corpus-neutral-slalom": "421f54c2ab5deb1597edf2cb15f8d9ae60d7cfcac83fad0030e7083f71c1a2f6",
-  "corpus-red-away-trench": "c516b7bf69ca857c31a296ed3a478265859635b044fb42dce19f502893593bab",
-  "corpus-blue-table-bump": "be3f55a65baf1e4286071ebd3da6f5de7acc47f031ce5bf89ae004cd8dd8a27b"
+  "corpus-blue-table-trench": "b46a240c7b2671690b7e7f257f4ef0b259b0edadc73844918507d74b7b2f797b",
+  "corpus-blue-away-bump": "7d09787fb7d4a11a2f863e94ebb6128c1eeec3d44b15fbd50c9e3bcf73bbf7ac",
+  "corpus-neutral-slalom": "7f98bd0c4b357dd263462702ab55584208685426b06735b91bdd7ba18ed6b18e",
+  "corpus-red-away-trench": "f02a8cecc6b80289897a5f33ca3b43a0e3f798863d25f8901009801b0ad1a030",
+  "corpus-blue-table-bump": "8ec70c229d93ee9374e04cbafa35a9309f6fae30680a5a3e78ad8419ca795b19"
 };
 const anchorHashes: Record<string, string> = {
-  "manual-false": "9d1bd989a794a221cb878ac0f701c56e925ce6edce7321a17097c467206553f2",
-  "manual-true": "5d1db22f52692a3f2803f0c3dfa35e68903cb503ba588c9aca05bc6bcec5f4e8",
-  "tangent-turn-manual": "a6d86030cce7ee5eea7d280e7177f4d82f4613eb11536d5230448effcdfc68e3",
-  "manual-tangent": "c08f77a86a4aeabd4f67374dd0994a14bc5d3459f882314626801ba9a89077c7",
-  "targets-false": "f734ed11a29f72b65eff63a1a9e7cac7993d04a56168b6558198e4aaa619e0c9",
-  "targets-true": "53724797ba2ff89b7a4aab277ebb37af4cf6f3964d98901f45c42f1b4c8340b0",
-  "tangent-turn-targets": "a6d86030cce7ee5eea7d280e7177f4d82f4613eb11536d5230448effcdfc68e3",
-  "targets-tangent": "2df9600accf0de54f9441b86818f9e12e950354ecd35e288a40a7f42fbdb692f"
+  "manual-false": "286213b2cf0d329919f078cf8f1ccf06a01c709a5da6ae1837e299c8532c16a3",
+  "manual-true": "3bed155bfef216fe2eaae59289ec0c6f73fb079c2b4c7f0fefb67f67dabdfbdc",
+  "tangent-turn-manual": "8439059835beffc93bab593f3fbf95e64575db7f57020b6bacbbd61d63968f89",
+  "manual-tangent": "350491f0fe5f6068d9541f9006bb3e73e9b845e9c808526c4305bc73e394f470",
+  "targets-false": "af0b736b24413f0c791801eaf2672477dadd430320010a50c03e26e2f7b04350",
+  "targets-true": "e79d6280447bd62f04ebb42154ce24953ce289805e1d8ca3e289fa5f0c9a96ee",
+  "tangent-turn-targets": "8439059835beffc93bab593f3fbf95e64575db7f57020b6bacbbd61d63968f89",
+  "targets-tangent": "3b9fb763fcfa08d5805cfc23a438916cc3689adb507790f16972da256786061e"
 };
 const tangentPaths = corpus.paths.filter((p) => p.headingMode === "tangent");
 const robot = createDemoProject().robot;
@@ -84,7 +91,7 @@ describe("route heading semantics match Normal", () => {
     for (const [id, input] of Object.entries(inputs)) {
       const samples = normal(input).samples;
       const derived = PM.derivePath(input.path, input.robot, 56);
-      expect(createHash("sha256").update(JSON.stringify([samples, derived])).digest("hex")).toBe(anchorHashes[id]);
+      expect(trajectoryFingerprint([samples, derived])).toBe(anchorHashes[id]);
       expect(samples.length).toBeGreaterThan(2);
     }
   });
@@ -103,7 +110,7 @@ describe("route heading semantics match Normal", () => {
     const matching = normal({ ...input, path: changed });
     expect(matching.samples).toEqual(actual.samples);
     expect(input.path).toEqual(original);
-    expect(createHash("sha256").update(JSON.stringify(actual.samples)).digest("hex")).toBe(normalHashes[source.id]);
+    expect(trajectoryFingerprint(actual.samples)).toBe(normalHashes[source.id]);
     const issue = routeCandidateIssue(input, actual);
     expect(issue).toEqual(routeCandidateIssue({ ...input, path: changed }, matching));
     if (["corpus-blue-away-bump", "corpus-neutral-slalom", "corpus-blue-table-bump"].includes(source.id)) expect(issue).toBeUndefined();
