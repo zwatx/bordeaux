@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import vm from "node:vm";
+import ts from "typescript";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildLabviewCatalog, discoverLabviewProject, isLabviewProject, resolveLabviewProject } from "../src/electron/labviewProject";
 
 const roots: string[] = [];
@@ -18,6 +20,44 @@ async function write(root: string, file: string, contents = "source hashing sent
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true }))); });
 
 describe("native LabVIEW project source discovery", () => {
+  it("preserves distinct differently cased files on a case-sensitive host filesystem", async ({ skip }) => {
+    const root = await fixture("<Project/>"), upper = path.join(root, "Robot.lvproj"), lower = path.join(root, "robot.lvproj");
+    try { await fs.writeFile(lower, "<Project/>", { flag: "wx" }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return skip(); throw error; }
+    expect((await resolveLabviewProject(upper, { canonical: true })).projectFile).toBe(upper);
+    expect((await resolveLabviewProject(lower, { canonical: true })).projectFile).toBe(lower);
+  });
+
+  it("canonicalizes Windows drive and parent spelling only after original-component checks (simulated filesystem)", async () => {
+    // Run the actual exported resolver with win32 path semantics and a declared case-insensitive FS adapter.
+    // This is not native Windows, an NI test, or a substitute for the real Link/Save/export host regression.
+    const selected = "c:\\repo\\pathSproject\\rOBOT.lvproj", canonical = "C:\\Repo\\PathsProject\\Robot.lvproj";
+    const seen: string[] = [];
+    const lstat = vi.fn(async (file: string) => {
+      seen.push(file);
+      const isFile = path.win32.extname(file).toLowerCase() === ".lvproj";
+      return { isFile: () => isFile, isDirectory: () => !isFile, isSymbolicLink: (): boolean => false, dev: 1, ino: isFile ? 2 : 1 };
+    });
+    const realpath = vi.fn(async (file: string) => { expect(seen).toContain(selected); expect(file).toBe(selected); return canonical; });
+    const sandbox = { fs: { lstat, realpath }, path: path.win32, exports: {} as Record<string, (...args: any[]) => any> };
+    const text = await fs.readFile("src/electron/labviewProjectDiscovery.ts", "utf8");
+    const ast = ts.createSourceFile("labviewProjectDiscovery.ts", text, ts.ScriptTarget.Latest, true);
+    for (const name of ["statLabviewLocalPath", "resolveLabviewProject"]) {
+      const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+      if (!declaration) throw new Error(`Missing actual resolver function ${name}`);
+      vm.runInNewContext(ts.transpileModule(declaration.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, sandbox);
+    }
+    expect(await sandbox.exports.resolveLabviewProject(selected, { canonical: true })).toEqual({ root: path.win32.dirname(canonical), projectFile: canonical });
+    expect(realpath).toHaveBeenCalledOnce();
+    expect(seen).toContain("c:\\repo"); expect(seen).toContain(canonical);
+    realpath.mockClear();
+    expect(await sandbox.exports.resolveLabviewProject(selected)).toEqual({ root: path.win32.dirname(selected), projectFile: selected });
+    expect(realpath).not.toHaveBeenCalled();
+    lstat.mockImplementation(async () => ({ isFile: () => false, isDirectory: () => true, isSymbolicLink: () => true, dev: 1, ino: 1 }));
+    await expect(sandbox.exports.resolveLabviewProject(selected, { canonical: true })).rejects.toThrow("links and junctions");
+    expect(realpath).not.toHaveBeenCalled();
+  });
+
   it("expands NI.DISK folders using document-file relative URLs and preserves source previews", async () => {
     const root = await fixture(`<Project><Item Name="My Computer" Type="My Computer"><Item Name="Timer.vi" Type="VI" URL="../Support Code/Timer.vi"/></Item>
       <Item Name="Target" Type="RT myRIO"><Item Name="Drive" Type="Folder" URL="../Drive"><Property Name="NI.DISK" Type="Bool">true</Property></Item>

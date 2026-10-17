@@ -1,7 +1,7 @@
 // @ts-expect-error The renderer math module is intentionally JavaScript.
 import { PM } from "../src/renderer/lib/pathMath";
 import { describe, expect, it } from "vitest";
-import { createUnitPreferences } from "../src/renderer/lib/unitPreferences";
+import { createUnitPreferences, formatAngularLimit } from "../src/renderer/lib/unitPreferences";
 import { wheelZoomFactor } from "../src/renderer/lib/zoom";
 import { loadRendererExport } from "./helpers/loadRendererExport";
 import { PathEdit } from "../src/renderer/assets/path-edit";
@@ -59,6 +59,34 @@ function pointerDragHarness() {
 }
 
 describe("renderer utilities", () => {
+  it.each([
+    [720, "720"], [540, "540"], [123.4, "123"], [99.96, "100"], [45, "45"], [12.34, "12.3"],
+    [5, "5"], [0.6, "0.6"], [0.01, "0.01"], [0.0149, "0.01"], [0.005, "0.01"],
+    [0.004, "0.004"], [0.0012345, "0.0012"], [1e-7, "1e-7"], [Number.MIN_VALUE, "5e-324"], [0, "0"],
+  ] as const)("displays angular limit %s without hiding positive values", (value, text) => {
+    expect(formatAngularLimit(value)).toBe(text);
+    if (value > 0) expect(Number(formatAngularLimit(value))).toBeGreaterThan(0);
+  });
+
+  it.each(["metric", "imperial"])("uses the same truthful angular caption and accessible limit in %s", (system) => {
+    const { prefs } = unitPreferences(system);
+    const ui = loadRendererExport<{ constraintRangeSummary: (range: unknown, constraints: unknown, robot: unknown) => unknown }>(
+      new URL("../src/renderer/components/ui.jsx", import.meta.url), "UI", {
+        context: { React: { createElement: () => null }, createPortal: () => null, PointerDrag: {},
+          PM: { effectiveConstraints: (constraints: unknown) => constraints }, UnitPrefs: prefs, formatAngularLimit },
+      });
+    const limits = { maxVel: 4, maxAccel: 3, maxAngVel: 540, maxAngAccel: 720 };
+    expect(ui.constraintRangeSummary({ maxAngVel: 0.01, maxAngAccel: 0.01 }, limits, { maxSpeed: 4 })).toEqual({
+      key: "maxAngAccel", text: "α ≤ 0.01°/s²", ariaLabel: "maximum angular acceleration 0.01 degrees per second squared",
+    });
+    expect(ui.constraintRangeSummary({ maxAngVel: 0.004 }, limits, { maxSpeed: 4 })).toEqual({
+      key: "maxAngVel", text: "ω ≤ 0.004°/s", ariaLabel: "maximum angular velocity 0.004 degrees per second",
+    });
+    expect(ui.constraintRangeSummary({ maxAngVel: 270 }, limits, { maxSpeed: 4 })).toEqual({
+      key: "maxAngVel", text: "ω ≤ 270°/s", ariaLabel: "maximum angular velocity 270 degrees per second",
+    });
+  });
+
   it("normalizes large finite headings without iterative subtraction", () => {
     const pathMath = PM;
     expect(pathMath.angWrap(1e12)).toBeGreaterThanOrEqual(-Math.PI);

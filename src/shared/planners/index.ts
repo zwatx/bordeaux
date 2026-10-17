@@ -107,6 +107,31 @@ export const planners: Record<TrajectoryPlannerId, TrajectoryPlanner> = {
   optimizedTrajectory: optimizedTrajectoryPlanner,
 };
 
+/**
+ * Shared front end of fixed-path planning: drops legacy timing priority,
+ * clamps limits to the robot's physical capability, and removes waits from
+ * the moving solve (stationary actions re-insert them afterwards).
+ */
+export function canonicalPlanningInput(input: PlannerInput): {
+  physicalInput: PlannerInput;
+  planningInput: PlannerInput;
+} {
+  const canonicalPath = withoutLegacyTimingPriority(input.path);
+  const physicalInput = physicalPlannerInput(canonicalPath === input.path ? input : { ...input, path: canonicalPath });
+  const { path } = physicalInput;
+  const hasStationaryPause = path.waypoints.some((waypoint) => waypoint.turnInPlace || (waypoint.wait ?? 0) > 0);
+  const planningInput = hasStationaryPause
+    ? {
+        ...physicalInput,
+        path: {
+          ...path,
+          waypoints: path.waypoints.map((waypoint) => (waypoint.wait ?? 0) > 0 ? { ...waypoint, wait: 0 } : waypoint),
+        },
+      }
+    : physicalInput;
+  return { physicalInput, planningInput };
+}
+
 export function getPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
   const planner = planners[id];
   return {
@@ -115,19 +140,8 @@ export function getPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
       const maxAngDecel = input.path.constraints.maxAngDecel;
       if (maxAngDecel !== undefined && !Number.isFinite(maxAngDecel)) throw new Error("maxAngDecel must be a finite number");
       if (maxAngDecel !== undefined && maxAngDecel <= 0) throw new Error("maxAngDecel must be greater than zero");
-      const canonicalPath = withoutLegacyTimingPriority(input.path);
-      const physicalInput = physicalPlannerInput(canonicalPath === input.path ? input : { ...input, path: canonicalPath });
+      const { physicalInput, planningInput } = canonicalPlanningInput(input);
       const { path, robot } = physicalInput;
-      const hasStationaryPause = path.waypoints.some((waypoint) => waypoint.turnInPlace || (waypoint.wait ?? 0) > 0);
-      const planningInput = hasStationaryPause
-        ? {
-            ...physicalInput,
-            path: {
-              ...path,
-              waypoints: path.waypoints.map((waypoint) => (waypoint.wait ?? 0) > 0 ? { ...waypoint, wait: 0 } : waypoint),
-            },
-          }
-        : physicalInput;
       // Both planner families need the same physics-aware fixed-geometry timing.
       // The optimized family may subsequently improve the corridor, while the
       // profiled family stops here. The legacy spline timing is still used as

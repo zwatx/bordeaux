@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("Robot project bookmarks", () => {
-  it("persists bounded project records while renderer summaries omit paths", async () => {
+  it("persists bounded records while summaries expose a display location and omit the project file authority", async () => {
     const filePath = await temporaryFile();
     const robotOne = path.resolve("/tmp/robot-one");
     const robotTwo = path.resolve("/tmp/robot-two");
@@ -40,9 +40,18 @@ describe("Robot project bookmarks", () => {
       id: restored[0].id,
       projectName: "Robot One Renamed",
       folderName: "robot-one",
+      locationHint: path.dirname(robotOne),
       lastLinkedAt: "2026-08-04T14:00:00.000Z",
     });
     expect(summaries[0]).not.toHaveProperty("projectPath");
+  });
+
+  it("distinguishes same-named clones even when linked at the same time", () => {
+    const first = path.resolve("/tmp/clone-a/robot/Robot.lvproj"), second = path.resolve("/tmp/clone-b/robot/Robot.lvproj");
+    const when = new Date("2026-10-16T12:00:00Z");
+    const summaries = summarizeRobotProjectBookmarks(rememberRobotProject(rememberRobotProject([], first, "Robot", when), second, "Robot", when));
+    expect(summaries.map(item => item.locationHint)).toEqual([path.dirname(second), path.dirname(first)]);
+    expect(summaries.every(item => !("projectPath" in item))).toBe(true);
   });
 
   it("drops unspecified runtime bookmarks and preserves LabVIEW projects", async () => {

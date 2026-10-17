@@ -3,10 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const output = process.env.BORDEAUX_LIBRARY_UI_OUTPUT;
+const rendererHtml = process.env.BORDEAUX_LIBRARY_UI_RENDERER;
+if (!rendererHtml) throw new Error('Run verify-library-ui.mjs to build the isolated legacy integration fixture');
 app.setPath('userData', path.join(output, 'user-data'));
 const errors = [], checks = [], prepared = [], diagnosticPreviews = [], diagnosticSaves = [];
-let win, saved, finishPush;
+let win, saved, finishPush, lastProblemActivationDiagnostic;
+const problemActivationNative = [];
 let connectionFromSettings = false;
+let editorPlace = 'Paths';
 let deferInspection = false, finishInspection;
 const inspection = () => ({ verifiedAt: new Date().toISOString(), comparison: { paths: {}, routines: {} }, status: { activeRevision: 'fixture-revision', retainedRevisions: [] } });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,13 +18,15 @@ const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toStr
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
 async function click(selector, text) {
   if (selector === '[aria-label="Save project"]') {
-    await click('[aria-label="Project menu"]');
-    await click('.project-menu [role="menuitem"]', 'Save');
+    await click('.project-chip');
+    await click('.project-menu [role="menuitem"][data-action="save"]');
     return;
   }
   if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.settings-general')))) {
-    await click('.pageswitch button', 'Settings'); connectionFromSettings = true;
+    await click('.place', 'Settings'); connectionFromSettings = true;
   }
+  // Settings is a place in the toolbar; returning goes back to the place it was entered from (the old Editor button).
+  if (selector === '.place' && text === 'Settings') editorPlace = (await evaluate(() => document.querySelector('.place[aria-current="page"]')?.textContent)) || editorPlace;
   await wait(() => evaluate((selector, text) => {
     const el = [...document.querySelectorAll(selector)].find((item) => text == null || (item.firstElementChild?.textContent.trim() === text || item.textContent.trim() === text));
     return Boolean(el && !el.disabled && !el.closest('[inert]'));
@@ -31,7 +37,7 @@ async function click(selector, text) {
     el.click();
   }, selector, text); await delay(50);
   if (connectionFromSettings && (selector === '[aria-label="Close robot connection"]' || selector === '[aria-label="Close diagnostic bundle"]')) {
-    connectionFromSettings = false; await click('.pageswitch button', 'Editor');
+    connectionFromSettings = false; await click('.place', editorPlace);
   }
 }
 async function pointerClick(selector, modifiers = []) {
@@ -56,6 +62,102 @@ async function key(keyCode, modifiers = []) {
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   await delay(60);
 }
+async function assertDeletionFeedback(message, name) {
+  const notice = await evaluate(() => {
+    const footer = document.querySelector('.deletion-footer'), row = footer?.querySelector('.deletion-notice');
+    const button = row?.querySelector('button'), status = footer?.querySelector('[role="status"]');
+    return { message: row?.querySelector('.deletion-copy')?.textContent, detail: status?.textContent,
+      polite: status?.getAttribute('aria-live'), atomic: status?.getAttribute('aria-atomic'),
+      action: button?.getAttribute('aria-label'), enabled: Boolean(button && !button.disabled && button.getAttribute('aria-disabled') !== 'true'),
+      confirms: window.__confirms };
+  });
+  assert.equal(notice.message, message);
+  assert.ok(notice.detail?.includes(name), 'The deletion announcement identifies its actual target');
+  assert.equal(notice.polite, 'polite'); assert.equal(notice.atomic, 'true');
+  assert.equal(notice.action, 'Undo: ' + notice.detail); assert.equal(notice.enabled, true);
+  assert.deepEqual(notice.confirms, [], 'Local deletion offers Undo without a native confirmation');
+}
+// Problems disclosure checks use semantic relationships, independently of menu CSS classes.
+function inspectProblemsDisclosure() {
+  const panel = document.querySelector('aside.pp[aria-label="Properties"]');
+  const triggers = [...(panel?.querySelectorAll('button[aria-haspopup="menu"]') || [])];
+  const visible = triggers.filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+  const trigger = visible[0], count = trigger?.textContent.trim().match(/^Problems\s+([1-9]\d*)$/);
+  const issues = [...document.querySelectorAll('.pt svg g.pt-issue')];
+  const menu = trigger && document.getElementById(trigger.getAttribute('aria-controls'));
+  return {
+    current: Boolean(panel && document.querySelector('.fieldcol') && document.querySelector('.pt') && !document.querySelector('.fieldcol[data-planning-ready="false"]')),
+    present: triggers.length === 1 && visible.length === 1 && Boolean(trigger.getAttribute('aria-controls')) && Number(count?.[1]) === issues.length && issues.length > 0,
+    absent: triggers.length === 0 && issues.length === 0 && !panel?.querySelector('.pp-problem,[role="menu"]'),
+    oldLabels: document.querySelectorAll('.pt-issue-label').length,
+    open: Boolean(trigger?.getAttribute('aria-expanded') === 'true' && menu?.getAttribute('role') === 'menu' && panel.contains(menu) && menu.matches(':popover-open')),
+  };
+}
+async function waitProblemsDisclosure(present, label) {
+  await wait(async () => { const state = await evaluate(inspectProblemsDisclosure); return state.current && state.oldLabels === 0 && state[present ? 'present' : 'absent']; }, label);
+}
+async function assertProblemsForeground() {
+  assert.equal(win.isFocused(), true, 'Problems gesture requires native foreground focus');
+  assert.equal(await evaluate(() => document.hasFocus()), true, 'Problems gesture requires renderer focus');
+}
+async function problemsPointerClick(selector) {
+  await assertProblemsForeground();
+  const point = await evaluate(selector => {
+    const targets = [...document.querySelectorAll(selector)].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    if (targets.length !== 1) throw new Error('Expected exactly one visible Problems-flow target: ' + selector);
+    const el = targets[0];
+    if (el.disabled || el.closest('[inert]')) throw new Error('Unavailable Problems-flow target: ' + selector);
+    el.scrollIntoView({ block: 'nearest' });
+    const box = el.getBoundingClientRect(), x = Math.round(box.x + box.width / 2), y = Math.round(box.y + box.height / 2);
+    if (!el.contains(document.elementFromPoint(x, y))) throw new Error('Obscured Problems-flow target: ' + selector);
+    return { x, y };
+  }, selector);
+  win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+  win.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+  await delay(80);
+}
+async function selectFirstDisclosedProblem() {
+  await problemsPointerClick('aside.pp[aria-label="Properties"] button[aria-haspopup="menu"]');
+  await wait(async () => (await evaluate(inspectProblemsDisclosure)).open, 'native Problems popover opens');
+  await assertProblemsForeground(); await key('Home');
+  const firstName = await evaluate(() => {
+    const trigger = document.querySelector('aside.pp[aria-label="Properties"] button[aria-haspopup="menu"]');
+    const menu = document.getElementById(trigger.getAttribute('aria-controls'));
+    const rows = [...menu.querySelectorAll('[role="menuitemradio"]')];
+    if (rows.length !== document.querySelectorAll('.pt svg g.pt-issue').length || !rows.every((row, index) => row.getAttribute('aria-label')?.startsWith((index + 1) + '. '))) throw new Error('Problems rows must retain the full original issue order');
+    if (document.activeElement !== rows[0]) throw new Error('Native Home must focus original issue index zero');
+    return rows[0].getAttribute('aria-label');
+  });
+  await assertProblemsForeground(); await key('Enter');
+  await wait(() => evaluate(() => {
+    const panel = document.querySelector('aside.pp[aria-label="Properties"]');
+    const trigger = panel.querySelector('button[aria-haspopup="menu"]');
+    const issues = [...document.querySelectorAll('.pt svg g.pt-issue')];
+    return panel.querySelector('.pp-problem') && issues[0]?.classList.contains('selected') && issues.filter(issue => issue.classList.contains('selected')).length === 1
+      && trigger.getAttribute('aria-expanded') === 'false' && !panel.querySelector('[role="menu"]') && document.activeElement === trigger;
+  }), 'original first issue selects the shared panel/underlay and closes with trigger focus');
+  const title = await evaluate(() => document.querySelector('aside.pp[aria-label="Properties"] .pp-title').textContent);
+  assert.ok(title.length > 0 && firstName.startsWith('1. ' + title), 'Shared panel describes the original first menu issue');
+}
+async function stampProblemActivation(label) {
+  const native = { label, at: Date.now(), visible: win.isVisible(), focused: win.isFocused() };
+  const stamped = await evaluate(label => { const trace = window.__problemActivationDiagnostic; if (!trace) return false; trace.active = true; trace.capture(label); return true; }, label);
+  if (stamped) problemActivationNative.push(native);
+}
+async function retainProblemActivationDiagnostic() {
+  const renderer = await evaluate(() => {
+    const trace = window.__problemActivationDiagnostic;
+    return trace && { timeOrigin: performance.timeOrigin, workers: trace.workers, dom: trace.dom, events: trace.events };
+  });
+  if (renderer) lastProblemActivationDiagnostic = { renderer, native: problemActivationNative.slice() };
+  if (lastProblemActivationDiagnostic) await fs.writeFile(path.join(output, 'problem-post-undo-diagnostic.json'), JSON.stringify(lastProblemActivationDiagnostic, null, 2));
+}
+async function restoreProblemActivationDiagnostic() {
+  await retainProblemActivationDiagnostic();
+  const cleanup = await evaluate(() => window.__restoreProblemActivationDiagnostic?.());
+  if (lastProblemActivationDiagnostic && cleanup) { lastProblemActivationDiagnostic.cleanup = cleanup; await fs.writeFile(path.join(output, 'problem-post-undo-diagnostic.json'), JSON.stringify(lastProblemActivationDiagnostic, null, 2)); }
+}
 async function input(selector, value) {
   await evaluate((selector, value) => {
     const el = document.querySelector(selector);
@@ -64,21 +166,16 @@ async function input(selector, value) {
   }, selector, value); await delay(50);
 }
 const check = (name) => { checks.push(name); console.log('PASS ' + name); };
-// Reported divider values and the rendered library height, which must change together.
-const dividerState = () => evaluate(() => {
-  const divider = document.querySelector('.library-divider');
-  return { now: Number(divider.getAttribute('aria-valuenow')), min: Number(divider.getAttribute('aria-valuemin')), max: Number(divider.getAttribute('aria-valuemax')), height: document.querySelector('.library-top').getBoundingClientRect().height };
-});
 const activePathId = () => evaluate(() => document.querySelector('.library-pick[aria-current="true"]').dataset.libraryItem);
-const editorReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.outline .featselect').length > 1), label);
-// Selects the second outline waypoint and nudges it right with a real key press.
+const editorReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.pt-wp').length > 1), label);
+// Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
-  await evaluate(() => { const row = document.querySelectorAll('.outline .featselect')[1]; row.click(); row.focus(); });
+  await evaluate(() => { const point = document.querySelectorAll('.pt-wp')[1]; point.click(); point.blur(); });
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
   await delay(80);
 }
 async function keyboardUndo() {
-  await evaluate(() => document.querySelector('.outline .featselect').focus());
+  await evaluate(() => document.activeElement?.blur());
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] });
   await delay(80);
 }
@@ -115,12 +212,12 @@ app.whenReady().then(async () => {
       routines: [{ id: 'routine-a', name: 'Routine A', nodes: [{ id: 'step-a', type: 'path', ref: 'library-path-0' }, { id: 'decision-a', type: 'decision', cond: '', thenLabel: 'Piece collected', elseLabel: 'Try again', then: [{ id: 'step-then', type: 'path', ref: 'library-path-1' }], else: [{ id: 'step-else', type: 'path', ref: 'library-path-0' }] }, { id: 'step-finish', type: 'path', ref: 'library-path-1' }] }, { id: 'routine-b', name: 'Routine B', nodes: [] }], activeRoutineId: 'routine-a', editor: { activePathId: 'library-path-0' } };
     win = new BrowserWindow({ show: false, width: 1440, height: 900, useContentSize: true, webPreferences: { contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'verify-library-ui-preload.cjs') } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:font/woff2")) errors.push(details.message); });
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Opening move'), 'restored library');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move'), 'restored library');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 200);
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0, 'Normal browsing must not show batch-selection controls');
     assert.equal(await evaluate(() => document.querySelectorAll('.toolbar .library-connection,.toolbar .document-settings-trigger,.toolbar .exportrobot').length), 0);
-    await click('.pageswitch button', 'Settings');
+    await click('.place', 'Settings');
     assert.equal(await evaluate(() => !!document.querySelector('.settings-general .library-connection')), true);
     await click('[aria-label="Display units"] button', 'Imperial');
     assert.equal(await evaluate(() => [...document.querySelectorAll('[aria-label="Display units"] button')].find((button) => button.textContent === 'Imperial').getAttribute('aria-pressed')), 'true');
@@ -183,16 +280,16 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('[aria-label="Vertex 1 X"]').value), '-0.254');
     await click('.rp-shapes button', 'Rectangle');
     check('custom footprint respects displayed units, invalid drafts, Escape, and narrow layout');
-    await click('.pageswitch button', 'Editor');
+    await click('.place', editorPlace);
     check('Settings contains connection and working display units; toolbar has no connection, units, or JSON export');
     await wait(() => evaluate(() => document.querySelector('[data-role="wp"]') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable field');
-    await pointerClick('.wpfeatrow:nth-child(2) .featselect', ['shift']);
+    await pointerClick('rect[data-role="wp"][data-idx="1"]', ['shift']);
     await click('[aria-label="Save project"]');
     assert.equal(saved.paths[0].waypoints.length, 2, 'Shift-click deletes the authored waypoint');
     await key('Z', ['meta']);
-    await wait(() => evaluate(() => document.querySelectorAll('.wpfeatrow').length === 3 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'undo deleted waypoint');
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length === 3 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'undo deleted waypoint');
     check('Shift-click deletes a waypoint and Undo restores it');
-    await evaluate(() => document.querySelectorAll('.outline .featselect')[1].click());
+    await evaluate(() => document.querySelectorAll('.pt-wp')[1].click());
     const numericBefore = await evaluate(() => document.querySelector('.numinput').value);
     await evaluate(() => { const field = document.querySelector('.numinput'); field.focus(); field.select(); });
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '2' });
@@ -205,7 +302,7 @@ app.whenReady().then(async () => {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
     await delay(80);
-    await evaluate(() => document.querySelectorAll('.outline .featselect')[1].click());
+    await evaluate(() => document.querySelectorAll('.pt-wp')[1].click());
     assert.equal(await evaluate(() => document.querySelector('.numinput').value), numericBefore, 'Escape must discard the numeric draft');
     check('numeric typing preserves focus and tool selection, and Escape discards the draft');
     await wait(() => evaluate(() => document.querySelector('[data-heading-control]') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'heading menu target');
@@ -219,9 +316,9 @@ app.whenReady().then(async () => {
     await key('Escape');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.ctxmenu'))), false);
     assert.equal(await evaluate(() => document.activeElement.hasAttribute('data-heading-control')), true);
-    assert.equal(await evaluate(() => document.querySelector('.wpfeatrow:nth-child(2) .featselect').getAttribute('aria-pressed')), 'true');
+    assert.equal(await evaluate(() => document.querySelectorAll('.pt-wp')[1].getAttribute('aria-pressed')), 'true');
     check('heading menu opens by keyboard, navigates, and restores focus without clearing selection');
-    await click('[aria-label="Hide inspector"]');
+    if (await evaluate(() => !!document.querySelector('[aria-label="Hide inspector"]'))) await click('[aria-label="Hide inspector"]');
     await delay(250); // Wait for the inspector width transition before measuring the field target.
     const headingPoint = await evaluate(() => {
       const circle = document.querySelector('[data-heading-control] circle');
@@ -278,11 +375,11 @@ app.whenReady().then(async () => {
     }
     check('robot and diagnostic modals isolate editor tool, nudge, delete, and undo shortcuts');
     const maxVelocityBefore = saved.paths[0].constraints.maxVel;
-    await click('.cbar');
+    // The path speed limit is edited in place in the timeline header.
     const enterVelocity = async (raw) => {
       await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable numeric constraints');
       await evaluate(() => {
-        const input = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === 'Max velocity').querySelector('input');
+        const input = [...document.querySelectorAll('.pt-limits .numrow')].find((row) => row.querySelector('label')?.textContent === 'Speed').querySelector('input');
         input.focus(); input.select();
       });
       await win.webContents.insertText(raw);
@@ -321,32 +418,35 @@ app.whenReady().then(async () => {
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(100);
       for (const inspector of ['open', 'closed']) {
-        if (inspector === 'closed') await pointerClick('[aria-label="Hide inspector"]');
+        // The full inspector opens from the docked properties' More.
+        const open = await evaluate(() => document.querySelector('.pp-more').getAttribute('aria-expanded') === 'true');
+        if (open !== (inspector === 'open')) await pointerClick('.pp-more');
         await fs.writeFile(path.join(output, `editor-tools-${width}-${inspector}.png`), (await win.webContents.capturePage()).toPNG());
       }
-      await pointerClick('[title="Show inspector"]');
     }
     win.setContentSize(1440, 900);
     check('five editor tools support pointer and keyboard selection; removed sculpt shortcuts preserve the active tool');
     const beforeNudge = structuredClone(saved.paths[0].waypoints[1]);
-    await evaluate(() => { const row = document.querySelectorAll('.outline .featselect')[1]; row.click(); row.focus(); });
+    await evaluate(() => { const point = document.querySelectorAll('.pt-wp')[1]; point.click(); point.focus(); });
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
     await delay(80); await click('[aria-label="Save project"]');
     assert.ok(Math.abs(saved.paths[0].waypoints[1].x - beforeNudge.x - .05) < 1e-6);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'nudge settles');
-    await evaluate(() => document.querySelectorAll('.outline .featselect')[1].focus());
+    await evaluate(() => document.querySelectorAll('.pt-wp')[1].focus());
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' });
     await delay(80); await click('[aria-label="Save project"]');
     assert.equal(saved.paths[0].waypoints.length, 2);
-    await evaluate(() => document.querySelector('.outline .featselect').focus());
+    await evaluate(() => document.querySelector('.pt-wp').focus());
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] });
     await delay(80); await click('[aria-label="Save project"]');
     assert.equal(saved.paths[0].waypoints.length, 3);
-    await evaluate(() => document.querySelector('.outline .featselect').focus());
+    await evaluate(() => document.querySelector('.pt-wp').focus());
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] });
     await delay(80); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.paths[0].waypoints[1], beforeNudge);
-    check('outline focus preserves arrow nudge, Delete, and undo shortcuts');
+    // Pointer modality only (programmatic click and focus); real Tab → Enter → arrow navigation of points is
+    // covered by work/rethink/tools/production/flow-corrections.mjs (PART=keys).
+    check('after a pointer selection, timeline point focus preserves arrow nudge, Delete, and undo shortcuts');
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'restored trajectory');
     const original = structuredClone(saved.paths[0].waypoints[1]);
     const point = await evaluate(() => { const r = document.querySelector('[data-role="wp"][data-idx="1"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
@@ -375,10 +475,10 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0);
     check('native Shift and Command/Control pointer selection works directly on rows without a selection mode');
     await input('.library-search', 'Opening');
-    assert.equal(await evaluate(() => document.querySelector('.library-selection').textContent), 'Includes hidden');
-    assert.equal(await evaluate(() => document.querySelector('.library-current-name').title), '2 paths selected, including hidden paths');
-    assert.equal(await evaluate(() => document.querySelector('.library-push > button').textContent.trim()), 'Push 2 paths');
-    await click('.library-push > button');
+    assert.equal(await evaluate(() => document.querySelector('.library-selection > span').textContent), '2 selected · 1 hidden');
+    assert.equal(await evaluate(() => document.querySelector('.push-button').title), '2 paths · Ctrl+Shift+P');
+    assert.equal(await evaluate(() => document.querySelector('.push-button').textContent.trim()), 'Push 2 paths');
+    await click('.push-button');
     await wait(() => prepared.length === 1, 'captured scope');
     assert.deepEqual(prepared[0].scope, { kind: 'paths', pathIds: ['library-path-0', 'library-path-1'] });
     await wait(() => evaluate(() => document.querySelector('#robot-push-title')?.textContent === 'Review push'), 'review');
@@ -418,42 +518,54 @@ app.whenReady().then(async () => {
     await input('.library-search', '');
     await pointerClick('[data-library-item="library-path-0"]');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 1, 'Plain click returns to one selected path');
-    assert.equal(await evaluate(() => document.querySelector('.library-push > button').textContent.trim()), 'Push path');
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.library-tools button')].some((button) => ['Select', 'Done'].includes(button.textContent.trim()))), false);
+    assert.equal(await evaluate(() => document.querySelector('.push-button').textContent.trim()), 'Push path');
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.library-find button')].some((button) => ['Select', 'Done'].includes(button.textContent.trim() || button.getAttribute('aria-label')))), false);
     check('plain row click replaces a batch with the current path and there is no Select mode');
     await click('[aria-label="Actions for Opening move"]');
     await click('.library-menu button', 'Delete');
     assert.match(await evaluate(() => document.querySelector('.library-blocked').textContent), /Routine A/);
+    win.setContentSize(1100, 720); await delay(150);
+    assert.deepEqual(await evaluate(() => {
+      const notice = document.querySelector('.library-blocked');
+      return { border: getComputedStyle(notice).borderLeftWidth, role: notice.getAttribute('role'),
+        title: notice.querySelector('strong').textContent, focused: document.activeElement === notice.querySelector('button') };
+    }), { border: '0px', role: 'alert', title: 'Cannot delete Opening move', focused: true }, 'Blocked deletion explains the reference without a left stripe and focuses its recovery action');
+    await fs.writeFile(path.join(output, 'library-blocked-1100.png'), (await win.webContents.capturePage()).toPNG());
+    win.setContentSize(1440, 900); await delay(100);
     await click('.library-blocked button');
-    assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Routine A');
+    assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Routine A');
     check('referenced deletion explains and opens its routine');
-    await click('.library-tools button', 'New routine');
+    await click('[aria-label="New routine"]');
     await input('.library-rename input', 'Fresh routine');
     await click('[aria-label="Save name"]');
-    assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Fresh routine');
+    assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Fresh routine');
     assert.equal(await evaluate(() => document.querySelector('.routine-workspace-flow .rt-empty').checkVisibility()), true, 'New routine starts in the central flow empty state');
     await wait(() => evaluate(() => document.activeElement.matches('.library-pick')), 'renamed routine restores row focus');
     await click('[aria-label="Save project"]');
     assert.ok(saved.routines.some((routine) => routine.name === 'Fresh routine'));
-    await click('.pageswitch button', 'Settings'); await click('.pageswitch button', 'Editor');
-    assert.equal(await evaluate(() => document.querySelector('.library-tabs [aria-selected="true"]').textContent), 'Routines');
+    await click('.place', 'Settings'); await click('.place', editorPlace);
+    assert.equal(await evaluate(() => document.querySelector('.place[aria-current="page"]').textContent), 'Routines');
     check('inline naming restores focus; Save and return-to-editor retain routine mode');
-    await click('.library-tabs button', 'Paths');
+    await click('.place', 'Paths');
     await input('.library-search', 'no matches');
     assert.match(await evaluate(() => document.querySelector('.library-empty').textContent), /No matching names/);
-    await click('.library-tabs button', 'Routines'); await click('.library-tabs button', 'Paths');
+    await click('.place', 'Routines'); await click('.place', 'Paths');
     assert.equal(await evaluate(() => document.querySelector('.library-search').value), 'no matches');
     await input('.library-search', '');
-    await evaluate(() => document.querySelector('.library-divider').focus());
-    const dividerBefore = await dividerState();
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' }); await delay(60);
-    const dividerAfter = await dividerState();
-    assert.equal(dividerAfter.now, 53);
-    assert.ok(dividerAfter.height > dividerBefore.height + 20, 'The divider key moves the rendered library boundary: ' + JSON.stringify([dividerBefore, dividerAfter]));
-    check('search persists per tab and divider works from the keyboard');
+    // Paths fill the column; the resizable boundary is now between the field and the band under it.
+    const bandState = () => evaluate(() => { const divider = document.querySelector('.band-divider'); return { now: Number(divider.getAttribute('aria-valuenow')), height: document.querySelector('.path-band').getBoundingClientRect().height }; });
+    await evaluate(() => document.querySelector('.band-divider').focus());
+    const bandBefore = await bandState();
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Up' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Up' }); await delay(60);
+    const bandAfter = await bandState();
+    assert.equal(bandAfter.now, bandBefore.now + 16);
+    assert.ok(Math.abs(bandAfter.height - bandBefore.height - 16) < 1, 'The divider key moves the rendered band boundary: ' + JSON.stringify([bandBefore, bandAfter]));
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' }); await delay(60);
+    assert.equal((await bandState()).now, bandBefore.now, 'Enter restores the balanced band');
+    check('search persists per tab and the band divider works from the keyboard');
     await click('[aria-label="New folder"]');
     await input('.library-rename input', 'Practice'); await click('[aria-label="Save name"]');
-    await click('.library-tools button', 'New path');
+    await click('[aria-label="New path"]');
     await input('.library-rename input', 'Managed path'); await click('[aria-label="Save name"]');
     await pointerClick('[data-library-item="library-path-0"]', ['shift']);
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), await evaluate(() => document.querySelectorAll('.library-pick').length), 'Newly created active path anchors the next range selection');
@@ -461,7 +573,7 @@ app.whenReady().then(async () => {
     check('creating a path makes it the anchor for the next Shift range');
     await click('[aria-label="Actions for Managed path"]'); await click('.library-menu button', 'Duplicate');
     await click('[aria-label="Save name"]');
-    assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Managed path copy');
+    assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Managed path copy');
     await click('[aria-label="Actions for Managed path copy"]');
     await click('.library-menu button', 'Move or link…');
     await evaluate(() => {
@@ -483,6 +595,7 @@ app.whenReady().then(async () => {
     assert.ok(practiceMembers.length >= 2, 'Practice has several members: ' + JSON.stringify(practiceMembers));
     await evaluate(() => { window.__confirms = []; window.confirm = (message) => { window.__confirms.push(message); return true; }; });
     await click('[aria-label="Actions for folder Practice"]'); await click('.library-menu button', 'Delete folder');
+    await assertDeletionFeedback('Folder deleted · Paths kept', 'Practice');
     await click('[aria-label="Save project"]');
     assert.ok(!saved.pathFolders.some((folder) => folder.name === 'Practice'));
     assert.ok(!saved.paths.find((item) => item.id === managed.id).folderId);
@@ -525,7 +638,7 @@ app.whenReady().then(async () => {
     await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
     const restoredLibrary = structuredClone({ paths: saved.paths, pathFolders: saved.pathFolders });
     const confirmsBeforeReload = await evaluate(() => window.__confirms);
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
+    await win.loadFile(rendererHtml);
     await editorReady('library reopened after folder undo');
     await evaluate((list) => { window.__confirms = list; window.confirm = (message) => { window.__confirms.push(message); return true; }; }, confirmsBeforeReload);
     await click('[aria-label="Save project"]');
@@ -535,11 +648,11 @@ app.whenReady().then(async () => {
     const managedOriginal = structuredClone(saved.paths.find((item) => item.name === 'Managed path'));
     const managedIndex = saved.paths.findIndex((item) => item.id === managedOriginal.id);
     await click('[aria-label="Actions for Managed path"]'); await click('.library-menu button', 'Delete');
+    await assertDeletionFeedback('Path deleted', 'Managed path');
     await click('[aria-label="Save project"]');
     assert.ok(!saved.paths.some((item) => item.name === 'Managed path'));
     const confirms = await evaluate(() => window.__confirms);
-    assert.equal(confirms.length, 2);
-    assert.ok(confirms.every((message) => message.includes('You can undo this.') && !/cannot be undone/i.test(message)), 'Deletion confirmations describe Undo truthfully: ' + JSON.stringify(confirms));
+    assert.deepEqual(confirms, [], 'Folder and path deletion never prompt for confirmation');
     // A newer edit to the visible path is undone before the older deletion; Redo replays both in order.
     await editorReady('path editor after deletion');
     const visiblePathId = await activePathId();
@@ -557,7 +670,7 @@ app.whenReady().then(async () => {
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.ok(Math.abs(saved.paths.find((item) => item.id === visiblePathId).waypoints[1].x - beforeVisibleEdit.x - .05) < 1e-6, 'Redo replays the path edit');
     check('create, duplicate, move, append/link, and undoable folder and path deletion preserve data in chronological order');
-    await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+    await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
     const dragRoutine = async (from, to, valid) => {
       const points = await evaluate((from, to) => {
         const grip = document.querySelector(`[data-id="${from}"] .rt-grip`), target = document.querySelector(`[data-id="${to}"] .rt-step-body`);
@@ -568,20 +681,28 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: 'mouseDown', ...points.a, button: 'left', clickCount: 1 });
       await wait(() => evaluate(() => Boolean(document.querySelector('.rt-panel.dragging'))), 'routine pointer drag begins');
       win.webContents.sendInputEvent({ type: 'mouseMove', ...points.b, button: 'left' });
-      if (valid) await wait(() => evaluate(() => Boolean(document.querySelector('.drop-before,.drop-after'))), 'supported routine drop feedback');
+      if (valid) await wait(() => evaluate(() => Boolean(document.querySelector('.drop-before:not(.drop-invalid),.drop-after:not(.drop-invalid)'))), 'supported routine drop feedback');
       else await delay(100);
-      assert.equal(await evaluate(() => Boolean(document.querySelector('.drop-before,.drop-after'))), valid, 'Drop feedback must match supported sibling moves');
+      assert.equal(await evaluate(() => Boolean(document.querySelector('.drop-before:not(.drop-invalid),.drop-after:not(.drop-invalid)'))), valid, 'Drop feedback must match the typed structural move guard');
       win.webContents.sendInputEvent({ type: 'mouseUp', ...points.b, button: 'left', clickCount: 1 });
       await delay(100); await click('[aria-label="Save project"]');
     };
     const routineBeforeDrag = structuredClone(saved.routines.find((r) => r.id === 'routine-a'));
-    await dragRoutine('step-a', 'step-then', false);
+    await dragRoutine('decision-a', 'step-then', false);
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineBeforeDrag);
+    assert.equal(await evaluate(() => document.querySelector('.rt-flow-note')?.textContent.includes('A step cannot move inside itself.')), true, 'Rejected descendant move explains its guard');
+    await dragRoutine('step-a', 'step-then', true);
+    const routineCrossList = saved.routines.find((r) => r.id === 'routine-a');
+    assert.deepEqual(routineCrossList.nodes.map((node) => node.id), ['decision-a', 'step-finish']);
+    assert.deepEqual(routineCrossList.nodes[0].then.map((node) => node.id), ['step-then', 'step-a']);
+    assert.deepEqual(routineCrossList.nodes[0].then[1], routineBeforeDrag.nodes[0], 'Cross-list drag preserves the complete moved step');
+    await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineBeforeDrag, 'One Undo restores the exact routine after a cross-list move');
     await dragRoutine('step-a', 'step-finish', true);
     assert.equal(saved.routines.find((r) => r.id === 'routine-a').nodes.at(-1).id, 'step-a');
     const routineAfterDrag = structuredClone(saved.routines.find((r) => r.id === 'routine-a'));
     // Undo on a path never reaches back into the routine edited before switching.
-    await click('.library-tabs button', 'Paths');
+    await click('.place', 'Paths');
     await editorReady('path editor after routine edit');
     const scopedPathId = await activePathId();
     const beforeScopedEdit = structuredClone(saved.paths.find((item) => item.id === scopedPathId).waypoints[1]);
@@ -591,50 +712,35 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.paths.find((item) => item.id === scopedPathId).waypoints[1], beforeScopedEdit, 'First Undo reverses the path edit');
     await keyboardUndo(); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineAfterDrag, 'A second path Undo leaves the routine intact');
-    await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+    await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
     await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineBeforeDrag);
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineAfterDrag, 'Redo restores the routine edit on its own surface');
     await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineBeforeDrag);
-    await click('.library-tabs button', 'Paths');
-    check('native routine drag commits supported sibling moves; path and routine Undo stay on their own surfaces');
+    await click('.place', 'Paths');
+    check('native routine drag supports cross-list and sibling moves, rejects descendants, and keeps path and routine Undo on their own surfaces');
     for (const [width, height] of [[1440, 900], [1280, 800], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       const geometry = await evaluate(() => {
 
         const rail = document.querySelector('.library-rail');
-        return { sharedPositions: ['.pageswitch', '[aria-label=\"Project menu\"]'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), overflow: document.documentElement.scrollWidth > innerWidth, fieldWidth: document.querySelector('.fieldcol').getBoundingClientRect().width, railWidth: rail.getBoundingClientRect().width, pushVisible: document.querySelector('.library-push > button').checkVisibility() };
+        return { sharedPositions: ['.places', '.project-chip'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), overflow: document.documentElement.scrollWidth > innerWidth, fieldWidth: document.querySelector('.fieldcol').getBoundingClientRect().width, railWidth: rail.getBoundingClientRect().width, pushVisible: document.querySelector('.push-button').checkVisibility() };
       });
       assert.equal(geometry.overflow, false); assert.ok(geometry.fieldWidth >= 350); assert.equal(geometry.pushVisible, true);
       assert.equal(geometry.railWidth, 264, 'Library width remains fixed across supported sizes');
 
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('Home');
-      assert.equal(await evaluate(() => { const button = document.querySelector('.library-push > button').getBoundingClientRect(), section = document.querySelector('.library-top').getBoundingClientRect(); return button.bottom <= section.bottom; }), true, 'Push remains reachable at the minimum library height');
-      // The reported minimum is the rendered minimum, and every key step moves the boundary.
-      const atMinimum = await dividerState();
-      assert.equal(atMinimum.now, atMinimum.min, 'Home reports the effective minimum at ' + width);
-      assert.ok(Math.abs(atMinimum.height - 280) <= 1, 'The effective minimum is the rendered minimum: ' + JSON.stringify(atMinimum));
-      for (const [keyCode, direction] of [['Down', 1], ['Up', -1]]) {
-        let previous = await dividerState();
-        while (direction > 0 ? previous.now < previous.max : previous.now > previous.min) {
-          await key(keyCode);
-          const next = await dividerState();
-          assert.ok((next.height - previous.height) * direction > 1, keyCode + ' moves the rendered divider at ' + width + ': ' + JSON.stringify([previous, next]));
-          previous = next;
-        }
-      }
+      // Push lives in the toolbar, so it stays inside it at every supported height.
+      assert.equal(await evaluate(() => { const button = document.querySelector('.push-button').getBoundingClientRect(), bar = document.querySelector('.toolbar').getBoundingClientRect(); return button.bottom <= bar.bottom && button.top >= bar.top && button.right <= innerWidth; }), true, 'Push stays inside the toolbar at ' + width);
       await pointerClick('[data-library-item="library-path-0"]');
       await pointerClick('[data-library-item="library-path-1"]', [process.platform === 'darwin' ? 'meta' : 'control']);
-      assert.equal(await evaluate(() => document.querySelector('.library-push > button').checkVisibility()), true);
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('End');
-      for (let index = 0; index < 5; index++) await key('Up');
+      assert.equal(await evaluate(() => document.querySelector('.push-button').checkVisibility()), true);
       await fs.writeFile(path.join(output, `paths-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+      await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
       const flowGeometry = await evaluate(() => {
         const flow = document.querySelector('.routine-workspace-flow'), stage = document.querySelector('.stage-auto');
-        return { sharedPositions: ['.pageswitch', '[aria-label=\"Project menu\"]'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), width: flow.getBoundingClientRect().width, height: flow.getBoundingClientRect().height, stageHeight: stage.getBoundingClientRect().height, railWidth: document.querySelector('.library-rail').getBoundingClientRect().width, inRail: Boolean(flow.closest('.library-rail')), flowInRail: Boolean(document.querySelector('.library-rail .rt-panel')), overflow: document.documentElement.scrollWidth > innerWidth, contentOverflow: flow.querySelector('.rt-scroll').scrollWidth > flow.querySelector('.rt-scroll').clientWidth };
+        return { sharedPositions: ['.places', '.project-chip'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), width: flow.getBoundingClientRect().width, height: flow.getBoundingClientRect().height, stageHeight: stage.getBoundingClientRect().height, railWidth: document.querySelector('.library-rail').getBoundingClientRect().width, inRail: Boolean(flow.closest('.library-rail')), flowInRail: Boolean(document.querySelector('.library-rail .rt-panel')), overflow: document.documentElement.scrollWidth > innerWidth, contentOverflow: flow.querySelector('.rt-scroll').scrollWidth > flow.querySelector('.rt-scroll').clientWidth };
       });
       assert.equal(flowGeometry.railWidth, geometry.railWidth);
       assert.deepEqual(flowGeometry.sharedPositions, geometry.sharedPositions, 'Shared toolbar actions stay anchored when switching to routines at ' + width);
@@ -651,11 +757,12 @@ app.whenReady().then(async () => {
         const key = header.querySelector('.rt-brkey').getBoundingClientRect();
         const name = header.querySelector('.rt-brname').getBoundingClientRect();
         const count = header.querySelector('.rt-brcount').getBoundingClientRect();
-        return { keyRight: key.right, nameLeft: name.left, nameRight: name.right, countLeft: count.left };
+        return { keyLeft: key.left, keyRight: key.right, nameRight: name.right, countLeft: count.left };
       }));
       assert.ok(branches.length > 0);
+      // Route rows read name, then its rule, then the count.
       for (const branch of branches) {
-        assert.ok(branch.keyRight <= branch.nameLeft && branch.nameRight <= branch.countLeft, 'Branch labels and counts must not overlap: ' + JSON.stringify(branch));
+        assert.ok(branch.nameRight <= branch.keyLeft && branch.keyRight <= branch.countLeft, 'Branch labels and counts must not overlap: ' + JSON.stringify(branch));
       }
       await fs.writeFile(path.join(output, `routine-inspector-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await click('[aria-label="Routine view"] button', 'Field preview');
@@ -663,87 +770,96 @@ app.whenReady().then(async () => {
       assert.equal(await evaluate(() => document.querySelector('.routine-workspace-flow').checkVisibility()), false);
       await click('[aria-label="Routine view"] button', 'Flow');
       assert.equal(await evaluate(() => document.querySelector('.rt-step[data-id="step-then"] .rt-step-body').getAttribute('aria-pressed')), 'true');
-      assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Routine A');
+      assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Routine A');
       if (width === 1440) {
         await click('.rail-r button', 'Open in path editor');
-        assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Collect second');
+        assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Collect second');
         assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.library-pick[aria-pressed="true"]')].map((item) => item.dataset.libraryItem)), ['library-path-1'], 'Opening a routine step path must replace the prior saved batch');
-        await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+        await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
         await click('.rt-step[data-id="step-then"] .rt-step-body');
       }
       await click('[aria-label="Close step inspector"]');
-      await click('.library-tabs button', 'Paths');
+      await click('.place', 'Paths');
     }
     check('200-item library keeps fixed width; populated flow owns central workspace at three desktop sizes and preserves selection across preview');
-    // At the minimum library height, a long selected name and a save failure still leave Push and Retry usable.
+    // At the minimum library height, a long selected name and a save failure leave Push usable in the toolbar,
+    // and the project chip, the only save surface, keeps Retry reachable by pointer and keyboard.
     const longName = 'Opening move from the far source side through the center line and back to the scoring position';
     await pointerClick('[data-library-item="library-path-0"]');
     await click('[aria-label="Actions for Opening move"]'); await click('.library-menu button', 'Rename');
     await input('.library-rename input', longName); await click('[aria-label="Save name"]');
     saveFailure = 'Could not save Library verification: the project folder /Volumes/Field laptop/Bordeaux projects/Library verification is read-only.';
     await click('[aria-label="Save project"]');
-    await wait(() => evaluate(() => !!document.querySelector('.library-save-status button')), 'save failure with retry');
+    const chipStatus = () => evaluate(() => document.querySelector('.project-chip').dataset.status);
+    await wait(async () => await chipStatus() === 'failed', 'save failure on the chip');
     const minimumLayout = () => evaluate(() => {
-      const top = document.querySelector('.library-top'), library = top.firstElementChild, divider = document.querySelector('.library-divider'), rail = document.querySelector('.library-rail');
+      const top = document.querySelector('.library-top'), library = top.firstElementChild, rail = document.querySelector('.library-rail');
       const bounds = top.getBoundingClientRect();
-      const reach = (element) => {
+      const reach = (element, area) => {
         if (!element) return null;
         const r = element.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
-        return { inside: r.top >= bounds.top - .5 && r.bottom <= bounds.bottom + .5 && r.height > 0, hit: element.contains(document.elementFromPoint(x, y)), text: element.textContent.trim() };
+        return { inside: r.top >= area.top - .5 && r.bottom <= area.bottom + .5 && r.left >= area.left - .5 && r.right <= area.right + .5 && r.height > 0, hit: element.contains(document.elementFromPoint(x, y)), text: element.textContent.trim() };
       };
-      return { push: reach(document.querySelector('.library-push > button')), retry: reach(document.querySelector('.library-save-status button')),
-        name: reach(document.querySelector('.library-current-name')), clipped: library.scrollHeight - top.clientHeight,
-        now: Number(divider.getAttribute('aria-valuenow')), min: Number(divider.getAttribute('aria-valuemin')), max: Number(divider.getAttribute('aria-valuemax')),
-        height: bounds.height, rail: rail.clientHeight };
+      const viewport = { top: 0, left: 0, bottom: innerHeight, right: innerWidth };
+      return { push: reach(document.querySelector('.push-button'), viewport), chip: reach(document.querySelector('.project-chip'), viewport),
+        name: reach(document.querySelector('.library-pick[aria-current="true"] .library-name'), bounds), clipped: library.scrollHeight - top.clientHeight,
+        banner: Boolean(document.querySelector('.library-save-status, .library-location')), height: bounds.height, rail: rail.clientHeight };
     });
+    const retryFocused = () => evaluate(() => document.activeElement?.matches('#project-menu [data-fix]') && document.activeElement.textContent === 'Retry');
+    // The full inspector opens from the docked properties' More; Tab from the last row action reaches Push.
+    const openInspector = async () => { if (await evaluate(() => document.querySelector('.pp-more').getAttribute('aria-expanded') !== 'true')) await click('.pp-more'); };
+    // Push is the toolbar's robot end: Tab from the last place passes the place actions and the destination to reach it.
+    const tabToPush = async () => { await evaluate(() => document.querySelector('.place:last-child').focus()); for (let i = 0; i < 8 && !(await evaluate(() => document.activeElement?.matches('.push-button'))); i++) await key('Tab'); };
     for (const [width, height] of [[1100, 720], [1440, 900]]) {
       win.setContentSize(width, height); await delay(150);
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('Home');
+      await openInspector();
       const layout = await minimumLayout();
       assert.equal(layout.name.text, longName);
       const ordinaryTitle = await evaluate(() => { const t = document.querySelector('.ctxinsp .ctxinsp-t'); return t && { text: t.textContent, height: t.clientHeight, content: t.scrollHeight }; });
       assert.ok(ordinaryTitle && ordinaryTitle.text === longName && ordinaryTitle.content <= ordinaryTitle.height + 1, 'An ordinary long inspector title is shown whole without scrolling at ' + width + ': ' + JSON.stringify(ordinaryTitle));
       assert.ok(layout.clipped <= 1, 'Nothing is clipped at the minimum library height at ' + width + ': ' + JSON.stringify(layout));
-      for (const control of ['push', 'retry', 'name']) assert.deepEqual([layout[control].inside, layout[control].hit], [true, true], control + ' is visible and hit-testable at ' + width + ': ' + JSON.stringify(layout));
-      assert.equal(layout.now, layout.min, 'Home reports the effective minimum');
-      assert.ok(Math.abs(layout.height - layout.rail * layout.min / 100) <= layout.rail / 100, 'The rendered minimum matches the reported range: ' + JSON.stringify(layout));
-      await key('Down');
-      const lower = await minimumLayout();
-      assert.ok(lower.now > layout.now && lower.height > layout.height + 1, 'The next key step moves the rendered divider: ' + JSON.stringify([layout, lower]));
-      assert.ok(Math.abs(lower.height - lower.rail * lower.now / 100) <= lower.rail / 100, 'Divider geometry tracks its reported value');
-      await key('Home');
-      await fs.writeFile(path.join(output, `divider-minimum-save-error-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      // Keyboard: Shift+Tab from the divider reaches Push; Tab from the active tab reaches Retry.
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('Tab', ['shift']);
-      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.library-push > button')), true, 'Push is reachable by keyboard at ' + width);
-      await evaluate(() => document.querySelector('.library-tabs [aria-selected="true"]').focus()); await key('Tab');
-      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.library-save-status button')), true, 'Retry is reachable by keyboard at ' + width);
+      assert.equal(layout.banner, false, 'The library has no save banner; the chip carries the failure');
+      for (const control of ['push', 'chip', 'name']) assert.deepEqual([layout[control].inside, layout[control].hit], [true, true], control + ' is visible and hit-testable at ' + width + ': ' + JSON.stringify(layout));
+      await fs.writeFile(path.join(output, `paths-save-error-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      // Keyboard: Tab from the last row action reaches Push; ArrowDown on the chip opens its menu on Retry, and Enter retries.
+      await tabToPush();
+      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.push-button')), true, 'Push is reachable by keyboard at ' + width);
+      await evaluate(() => document.querySelector('.project-chip').focus()); await key('Down');
+      assert.equal(await retryFocused(), true, 'Retry is reachable by keyboard at ' + width);
+      const menu = await evaluate(() => { const r = document.querySelector('#project-menu').getBoundingClientRect(); return { bottom: r.bottom, right: r.right }; });
+      assert.ok(menu.bottom <= height && menu.right <= width, 'The chip menu fits at ' + width + ': ' + JSON.stringify(menu));
+      await fs.writeFile(path.join(output, `paths-save-error-menu-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      const keyed = saveAttempts;
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' }); win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+      await wait(async () => saveAttempts > keyed && await chipStatus() === 'failed', 'keyboard retry attempted');
+      assert.equal(await evaluate(() => document.activeElement?.classList.contains('project-chip')), true, 'Keyboard Retry returns focus to the chip');
       // Pointer: Retry runs another save; it fails again and keeps its recovery action.
       const attempts = saveAttempts;
-      await pointerClick('.library-save-status button');
-      await wait(async () => saveAttempts > attempts && await evaluate(() => !!document.querySelector('.library-save-status button')), 'retry attempted');
+      await pointerClick('.project-chip'); await pointerClick('#project-menu [data-fix]');
+      await wait(async () => saveAttempts > attempts && await chipStatus() === 'failed', 'retry attempted');
+      assert.equal(await evaluate(() => document.activeElement?.classList.contains('project-chip')), true, 'Pointer Retry returns focus to the chip');
       assert.ok((await minimumLayout()).push.hit, 'Push stays reachable after a failed retry');
     }
-    // A pending retry leaves Push reachable; completing it clears the failure.
+    // A pending retry retains the failed outcome until it succeeds; aria-busy reports the in-flight write.
     saveFailure = ''; deferredSave = {}; deferredSave.promise = new Promise((resolve) => { deferredSave.resolve = resolve; });
     const pendingAttempts = saveAttempts;
-    await pointerClick('.library-save-status button');
-    await wait(async () => saveAttempts > pendingAttempts && await evaluate(() => !document.querySelector('.library-save-status')), 'pending retry');
+    await pointerClick('.project-chip'); await pointerClick('#project-menu [data-fix]');
+    await wait(async () => saveAttempts > pendingAttempts && await evaluate(() => document.querySelector('.project-chip').getAttribute('aria-busy') === 'true'), 'pending retry');
+    assert.equal(await chipStatus(), 'failed', 'Retry keeps the previous failure visible until the write completes');
     const pendingLayout = await minimumLayout();
     assert.deepEqual([pendingLayout.push.inside, pendingLayout.push.hit], [true, true], 'Push stays reachable while a retry is pending');
     assert.ok(pendingLayout.clipped <= 1);
-    await fs.writeFile(path.join(output, 'divider-minimum-save-pending-1440.png'), (await win.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output, 'paths-save-pending-1440.png'), (await win.webContents.capturePage()).toPNG());
     deferredSave.resolve(); deferredSave = null;
     const openingName = () => saved.paths.find((item) => item.id === 'library-path-0').name;
-    await wait(async () => openingName() === longName && await evaluate(() => !document.querySelector('.library-save-status')), 'retry saved');
+    await wait(async () => openingName() === longName && await chipStatus() !== 'failed', 'retry saved');
+    assert.equal(await evaluate(() => document.querySelector('.project-chip').getAttribute('aria-busy')), null, 'Completed retry clears the busy state');
     await click('[aria-label="Actions for ' + longName + '"]'); await click('.library-menu button', 'Rename');
     await input('.library-rename input', 'Opening move'); await click('[aria-label="Save name"]');
     await click('[aria-label="Save project"]');
     assert.equal(openingName(), 'Opening move');
     win.setContentSize(1100, 720); await delay(150);
-    await evaluate(() => document.querySelector('.library-divider').focus()); await key('End');
-    for (let index = 0; index < 5; index++) await key('Up');
-    check('minimum library height with a long name and a failed or pending save keeps Push and Retry visible, reachable, and tracks the divider range');
+    check('a long name and a failed or pending save keep Push reachable in the toolbar and chip Retry reachable by pointer and keyboard');
     // Any nonblank name is valid, so a 5000-character name must keep the same bounded minimum,
     // a complete and scrollable name, reachable actions and outline, and a working divider.
     const hugeName = 'W'.repeat(5000), moreButton = '.library-pick[data-library-item="library-path-0"] + .library-more';
@@ -752,10 +868,16 @@ app.whenReady().then(async () => {
     await click('[aria-label="Save project"]');
     assert.equal(openingName(), hugeName, 'Save keeps the complete name');
     const hugeLayout = async () => ({ ...await minimumLayout(), ...await evaluate(() => {
-      const name = document.querySelector('.library-current-name'), top = document.querySelector('.library-top');
-      const outline = document.querySelector('.outline .featselect'), r = outline.getBoundingClientRect();
-      return { nameScroll: { height: name.clientHeight, content: name.scrollHeight, lineHeight: parseFloat(getComputedStyle(name).lineHeight), label: name.title }, cssMin: parseFloat(getComputedStyle(top).minHeight),
-        outline: r.height > 0 && outline.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) };
+      const push = document.querySelector('.push-button');
+      const text = document.createRange(); text.selectNodeContents(push);
+      const textBox = text.getBoundingClientRect(), pushBox = push.getBoundingClientRect();
+      // Waypoints stay reachable on the timeline whatever the path's name.
+      const point = document.querySelector('.pt-wp'), r = point.getBoundingClientRect();
+      // The intentional ::before hit area extends beyond the button and contributes to scrollHeight.
+      // Measure the actual scope text instead, including its position within the visible button.
+      return { nameScroll: { oneLine: getComputedStyle(push).whiteSpace === 'nowrap' && textBox.height <= push.clientHeight
+          && textBox.top >= pushBox.top && textBox.bottom <= pushBox.bottom, label: push.title, scope: push.textContent.trim() },
+        points: r.height > 0 && point.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) };
     }) });
     // The inspector header stays bounded: the complete title scrolls within it, while the close
     // button and body actions remain visible and topmost at their centers.
@@ -776,8 +898,8 @@ app.whenReady().then(async () => {
           lineHeight: parseFloat(getComputedStyle(title).lineHeight), point: { x: Math.round(t.x + t.width / 2), y: Math.round(t.y + t.height / 2) } },
         // The left padding of the body is its own surface, so the wheel cannot land on a control.
         body: { height: body.clientHeight, content: body.scrollHeight, top: body.scrollTop, point: { x: Math.round(b.left + 6), y: Math.round(b.top + b.height / 2) } },
-        tool: document.querySelector('.toolrail-b[aria-pressed="true"]')?.getAttribute('aria-label'), features: document.querySelectorAll('.outline .featselect').length,
-        time: document.querySelector('.timecode-now')?.textContent };
+        tool: document.querySelector('.toolrail-b[aria-pressed="true"]')?.getAttribute('aria-label'), features: document.querySelectorAll('.pt-wp').length,
+        time: document.querySelector('.pt-clock-now')?.textContent };
     });
     const assertInspectorUsable = (layout, width) => {
       assert.ok(layout, 'The path inspector is open at ' + width);
@@ -834,32 +956,19 @@ app.whenReady().then(async () => {
     let inspectorBodyScrolled = false;
     for (const [width, height] of [[1100, 720], [1440, 900]]) {
       win.setContentSize(width, height); await delay(150);
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('Home');
+      await openInspector();
       const layout = await hugeLayout();
       assert.equal(layout.name.text, hugeName, 'The selected name is not truncated at ' + width);
-      // The footer names the push target on one clamped line; the inspector title below keeps the whole name readable.
-      assert.ok(layout.nameScroll.height <= layout.nameScroll.lineHeight + 1 && layout.nameScroll.label === hugeName, 'The long push-target name stays on one line with its full text available: ' + JSON.stringify({ ...layout.nameScroll, label: layout.nameScroll.label.length }));
-      assert.ok(layout.cssMin <= layout.rail * layout.max / 100 + 1, 'The CSS minimum stays within the divider maximum at ' + width + ': ' + JSON.stringify(layout));
+      // Push names its scope on one line; its title and the inspector retain the full path name.
+      assert.ok(layout.nameScroll.oneLine && layout.nameScroll.label === hugeName + ' · Ctrl+Shift+P', 'The long push-target name stays on one line (Push says its scope) with its full text available: ' + JSON.stringify({ ...layout.nameScroll, label: layout.nameScroll.label.length }));
+      assert.equal(layout.nameScroll.scope, 'Push path', 'The visible Push label stays the exact scope even with a 5000-character name');
       assert.ok(layout.clipped <= 1, 'Nothing is clipped at the minimum at ' + width + ': ' + JSON.stringify(layout));
       for (const control of ['push', 'name']) assert.deepEqual([layout[control].inside, layout[control].hit], [true, true], control + ' is visible and hit-testable at ' + width + ': ' + JSON.stringify(layout));
-      assert.equal(layout.outline, true, 'The path outline stays reachable at ' + width);
-      assert.equal(layout.now, layout.min);
-      assert.ok(layout.min < layout.max, 'The divider keeps a usable range at ' + width + ': ' + JSON.stringify(layout));
-      assert.ok(Math.abs(layout.height - layout.rail * layout.min / 100) <= layout.rail / 100, 'The rendered minimum matches the reported range: ' + JSON.stringify(layout));
-      let previous = layout;
-      while (previous.now < previous.max) {
-        await key('Down');
-        const next = await hugeLayout();
-        assert.ok(next.now > previous.now && next.height > previous.height + 1, 'Each Down step moves the rendered divider at ' + width + ': ' + JSON.stringify([previous, next]));
-        assert.ok(Math.abs(next.height - next.rail * next.now / 100) <= next.rail / 100, 'Divider geometry tracks its reported value');
-        assert.ok(next.push.hit && next.clipped <= 1);
-        previous = next;
-      }
-      await key('Home');
-      // Keyboard: Shift+Tab from the divider reaches Push.
-      await fs.writeFile(path.join(output, `divider-minimum-5000-character-name-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await evaluate(() => document.querySelector('.library-divider').focus()); await key('Tab', ['shift']);
-      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.library-push > button')), true, 'Push is reachable by keyboard at ' + width);
+      assert.equal(layout.points, true, 'Timeline waypoints stay reachable at ' + width);
+      // Keyboard: Tab from the last row action reaches Push.
+      await fs.writeFile(path.join(output, `paths-5000-character-name-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      await tabToPush();
+      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.push-button')), true, 'Push is reachable by keyboard at ' + width);
       // The row menu still opens within the viewport from its pointer trigger, and Escape returns focus.
       await pointerClick(moreButton);
       const menu = await evaluate(() => { const el = document.querySelector('.library-menu'), r = el?.getBoundingClientRect(); return el && { top: r.top, bottom: r.bottom, height: innerHeight, focused: el.contains(document.activeElement) }; });
@@ -899,24 +1008,24 @@ app.whenReady().then(async () => {
         await wait(() => evaluate(() => document.querySelector('.ctxinsp-body').scrollTop === 0), 'wheel returns the inspector body to the top at ' + width);
         inspectorBodyScrolled = true;
       }
-      // Pointer closes at the exact close button and focus returns to the tab; keyboard reopens.
+      // Pointer closes at the exact close button and focus returns to More; keyboard reopens.
       await nativeClick((await inspectorLayout()).close);
-      await wait(() => evaluate(() => !document.querySelector('.ctxinsp') && document.activeElement === document.querySelector('.inspector-tab')), 'pointer closes the inspector and focuses its tab at ' + width);
+      await wait(() => evaluate(() => !document.querySelector('.ctxinsp') && document.activeElement === document.querySelector('.pp-more')), 'pointer closes the inspector and focuses More at ' + width);
       await key('Tab', ['shift']); await key('Tab');
-      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.inspector-tab')), true, 'Keyboard reaches the inspector tab at ' + width);
+      assert.equal(await evaluate(() => document.activeElement === document.querySelector('.pp-more')), true, 'Keyboard reaches More at ' + width);
       await key('Space');
       await wait(() => evaluate(() => !!document.querySelector('.ctxinsp .ctxinsp-x')), 'keyboard reopens the inspector at ' + width);
       const reopenedInspector = await inspectorLayout();
       assertInspectorUsable(reopenedInspector, width);
-      assert.equal(reopenedInspector.time, inspector.time, 'Space on the inspector tab does not start playback at ' + width);
+      assert.equal(reopenedInspector.time, inspector.time, 'Space on More does not start playback at ' + width);
       await fs.writeFile(path.join(output, `inspector-5000-character-name-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     assert.equal(inspectorBodyScrolled, true, 'The inspector body overflowed and wheel-scrolled at a supported size');
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate((name) => document.querySelector('.library-current-name')?.textContent === name, hugeName), 'reopened 5000-character name');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate((name) => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === name, hugeName), 'reopened 5000-character name');
     assert.equal(await evaluate((name) => document.querySelector('.library-pick[data-library-item="library-path-0"] .library-name').textContent === name, hugeName), true, 'Reload shows the complete name');
-    // After reload the inspector body stays inert until planning settles, so wait for current
-    // planning and an enabled Swap action; the layout assertions stay below.
+    // After reload, open the full inspector and wait for current planning and an enabled Swap action.
+    await openInspector();
     await wait(() => evaluate((name) => {
       const title = document.querySelector('.ctxinsp .ctxinsp-t'), body = document.querySelector('.ctxinsp-body');
       const swap = document.querySelector('.ctxinsp-hd [aria-label="Swap start/end"]');
@@ -929,18 +1038,17 @@ app.whenReady().then(async () => {
     await click('[aria-label="Save project"]');
     assert.equal(openingName(), 'Opening move');
     win.setContentSize(1100, 720); await delay(150);
-    await evaluate(() => document.querySelector('.library-divider').focus()); await key('End');
-    for (let index = 0; index < 5; index++) await key('Up');
-    check('a valid 5000-character name keeps the capped minimum, divider range, Push, outline, menus, and a bounded inspector title with reachable close, Swap start/end, Place waypoint, and scrolling body usable at both supported sizes and survives save/reload');
-    await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
-    await click('.rt-branches .rt-add');
+    check('a valid 5000-character name keeps Push, timeline waypoints, menus, and a bounded inspector title with reachable close, Swap start/end, Place waypoint, and scrolling body usable at both supported sizes and survives save/reload');
+    await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
+    await click('.rt-branch .rt-add');
     const branchBefore = saved.routines.find((routine) => routine.id === 'routine-a').nodes.find((node) => node.id === 'decision-a').then.length;
-    await evaluate(() => [...document.querySelectorAll('.rt-branches .rt-ch-row')].find((button) => button.querySelector('.rt-ch-t').textContent === 'Path').click());
+    // Add lists project paths first; Enter adds the first one to the route.
+    await key('Enter');
     await delay(80); await click('[aria-label="Save project"]');
     assert.equal(saved.routines.find((routine) => routine.id === 'routine-a').nodes.find((node) => node.id === 'decision-a').then.length, branchBefore + 1);
-    assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-branches .rt-step.sel'))));
+    assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-branch .rt-step.sel'))));
     check('adding a path in a populated decision branch selects the new step in the main flow');
-    await click('.library-tabs button', 'Paths');
+    await click('.place', 'Paths');
     deferInspection = true;
     await click('.library-connection');
     await wait(() => Boolean(finishInspection), 'pending robot inspection');
@@ -973,18 +1081,22 @@ app.whenReady().then(async () => {
     check('unpaired connection keeps diagnostics reachable, focused, and locally saveable');
 
     saved = { ...saved, name: 'Simple library', paths: saved.paths.slice(0, 2).map((item) => ({ ...item, folderId: undefined })), pathFolders: [], pathLinks: [], editor: { ...saved.editor, activePathId: 'library-path-0' }, activeRoutineId: 'routine-a' };
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Opening move'), 'simple restored library');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move'), 'simple restored library');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 2);
-    await click('.pageswitch button', 'Settings');
+    await click('.place', 'Settings');
     await click('[aria-label="Display units"] button', 'Imperial');
-    await click('.pageswitch button', 'Editor');
-    await wait(() => evaluate(() => !!document.querySelector('.wpfeatrow .featmeta')), 'Imperial waypoint coordinates');
-    assert.equal(await evaluate(() => document.querySelector('.wpfeatrow .featmeta').textContent), `${(saved.paths[0].waypoints[0].x / .3048).toFixed(1)}, ${(saved.paths[0].waypoints[0].y / .3048).toFixed(1)} ft`);
-    await click('.pageswitch button', 'Settings');
+    await click('.place', editorPlace);
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0), 'Imperial waypoint coordinates');
+    await click('.pt-wp');
+    const coordinate = (label) => evaluate((label) => { const row = [...document.querySelectorAll('.pp .numrow')].find((r) => r.querySelector('.numlbl')?.textContent === label); return row && row.querySelector('input').value + ' ' + row.querySelector('.numunit').textContent; }, label);
+    assert.equal(await coordinate('X'), `${(saved.paths[0].waypoints[0].x / .3048).toFixed(2)} ft`);
+    assert.equal(await coordinate('Y'), `${(saved.paths[0].waypoints[0].y / .3048).toFixed(2)} ft`);
+    await click('.place', 'Settings');
     await click('[aria-label="Display units"] button', 'Metric');
-    await click('.pageswitch button', 'Editor');
-    check('waypoint outline coordinates use the selected unit system');
+    await click('.place', editorPlace);
+    assert.equal(await coordinate('X'), `${saved.paths[0].waypoints[0].x.toFixed(2)} m`);
+    check('docked waypoint coordinates use the selected unit system');
 
     assert.equal(await evaluate(() => document.querySelectorAll('.library-folder').length), 0, 'Root paths must not be wrapped in a synthetic Unfiled folder');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0);
@@ -1009,24 +1121,55 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => !document.querySelector('.library-properties')), 'native path properties Escape close');
     assert.equal(await evaluate(() => document.activeElement.dataset.libraryItem), 'library-path-0');
     check('item popover supports keyboard, Escape focus restoration, outside dismissal, and separate native properties');
+    const flatRowState = () => evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d');
+      return [...document.querySelectorAll('.library-row')].map((row) => {
+        const style = getComputedStyle(row), pick = row.querySelector('.library-pick');
+        context.clearRect(0, 0, 1, 1); context.fillStyle = style.backgroundColor; context.fillRect(0, 0, 1, 1);
+        return { id: pick.dataset.libraryItem, current: pick.getAttribute('aria-current') === 'true', selected: pick.getAttribute('aria-pressed') === 'true',
+          marked: Boolean(row.querySelector('.library-mark svg')), height: row.getBoundingClientRect().height,
+          borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth], shadow: style.boxShadow,
+          pseudo: ['::before', '::after'].map((pseudo) => getComputedStyle(row, pseudo).content),
+          rgba: [...context.getImageData(0, 0, 1, 1).data], weight: getComputedStyle(row.querySelector('.library-name')).fontWeight };
+      });
+    });
+    const assertFlatRows = (rows) => {
+      assert.ok(rows.length > 1 && rows.filter((row) => row.current).length === 1, 'Exactly one open row has the selection surface');
+      assert.ok(rows.every((row) => row.height <= 36 && row.borders.every((width) => width === '0px') && row.shadow === 'none'
+        && row.pseudo.every((content) => content === 'none')), 'Paths remain compact rows without borders, shadows or selection stripes: ' + JSON.stringify(rows));
+      assert.ok(rows.every((row) => row.current ? row.rgba[3] > 0 && Math.max(...row.rgba.slice(0, 3)) - Math.min(...row.rgba.slice(0, 3)) <= 6
+        : row.rgba[3] === 0), 'Only the open row has a neutral surface, including when other paths are selected for Push: ' + JSON.stringify(rows));
+      assert.equal(new Set(rows.map((row) => row.weight)).size, 1, 'Selection does not change name weight');
+    };
+    const movePointerOffLibrary = async () => {
+      const point = await evaluate(() => { const r = document.querySelector('.fieldcol').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...point }); await delay(100);
+      await wait(() => evaluate(() => !document.querySelector('.library-row:hover')), 'pointer leaves library before resting-row checks');
+    };
+    // Chromium retains synthetic :hover on hidden windows; verify these resting surfaces in the visible app.
+    win.show(); win.focus(); win.webContents.focus();
     for (const [width, height] of [[1440, 900], [1280, 800], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await pointerClick('[data-library-item="library-path-0"]');
-      const rows = await evaluate(() => [...document.querySelectorAll('.library-row')].map((el) => ({ height: el.getBoundingClientRect().height, borderRadius: getComputedStyle(el).borderRadius, shadow: getComputedStyle(el).boxShadow })));
-      assert.ok(rows.every((row) => row.height <= 36 && row.borderRadius === '0px' && row.shadow === 'none'), 'Paths must be flat compact rows: ' + JSON.stringify(rows));
+      await movePointerOffLibrary(); assertFlatRows(await flatRowState());
       await fs.writeFile(path.join(output, `simple-paths-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await pointerClick('[data-library-item="library-path-1"]', [process.platform === 'darwin' ? 'meta' : 'control']);
+      await movePointerOffLibrary();
+      const selectedRows = await flatRowState(); assertFlatRows(selectedRows);
+      const selectedNeighbor = selectedRows.find((row) => row.id === 'library-path-1');
+      assert.deepEqual([selectedNeighbor.current, selectedNeighbor.selected, selectedNeighbor.marked, selectedNeighbor.rgba[3]], [false, true, true, 0], 'Push selection uses a check mark without a second selection surface');
       await fs.writeFile(path.join(output, `simple-multiselect-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await pointerClick('[data-library-item="library-path-0"]', [process.platform === 'darwin' ? 'meta' : 'control']);
-      assert.equal(await evaluate(() => document.querySelector('.library-current-name').textContent), 'Collect second', 'Single-item push label follows selected ID even when editor stays on another path');
+      assert.equal(await evaluate(() => document.querySelector('.push-button').title), 'Collect second · Ctrl+Shift+P', 'Single-item push label follows selected ID even when editor stays on another path');
       await click('[aria-label="Actions for Opening move"]');
       await fs.writeFile(path.join(output, `simple-menu-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await key('Escape');
-      await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+      await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
       if (await evaluate(() => Boolean(document.querySelector('[aria-label="Close step inspector"]')))) await click('[aria-label="Close step inspector"]');
       await delay(500);
       await fs.writeFile(path.join(output, `simple-routines-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await click('.library-tabs button', 'Paths');
+      await click('.place', 'Paths');
     }
     check('two root paths use flat rows, direct modifier selection, accurate scoped push names, and uncluttered item popovers');
     // Exercise simultaneous notices with the application's real CSS at narrow field widths.
@@ -1065,24 +1208,31 @@ app.whenReady().then(async () => {
     }
     check('simultaneous passive statuses occupy one consistent-size row with bounded diagnostic details');
     saved = { ...saved, name: 'Shared waypoint verification', paths: [...saved.paths, { ...structuredClone(saved.paths[0]), id: 'unlinked-path', name: 'Independent path' }].map((path, index) => ({ ...path, headingMode: 'tangent', startVel: .4, goalVel: .6, waypoints: path.waypoints.map((waypoint, at) => ({ ...waypoint, theta: index === 0 ? 15 : 130, thetaOn: true, stop: false })) })) };
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Opening move' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'shared waypoint fixture ready');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'shared waypoint fixture ready');
     const saveCurrent = async () => { await click('[aria-label="Save project"]'); };
     const editNumber = async (label, value) => {
       await wait(() => evaluate((label) => { const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input'); return field && !field.matches(':disabled') && !field.closest('[inert]'); }, label), 'editable ' + label);
       await evaluate((label) => {
         const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
         if (!field || field.matches(':disabled')) throw new Error('Numeric field unavailable: ' + label);
-        field.focus(); field.select();
+        field.focus();
       }, label);
+      // Num first replaces its formatted value with an editing draft, then selects it on the next frame.
+      await wait(() => evaluate((label) => {
+        const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
+        return document.hasFocus() && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length;
+      }, label), 'focused and selected ' + label);
       await win.webContents.insertText(String(value));
       // insertText delivers input asynchronously; blurring before it lands would leave an uncommitted draft.
       await wait(() => evaluate((text) => document.activeElement?.value === text, String(value)), 'typed ' + label + ' value');
-      await evaluate(() => { const field = document.activeElement; field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); field.blur(); });
+      await key('Tab'); // One real blur commits the draft once; dispatching focusout and then blurring creates two edits.
       await delay(80); await saveCurrent();
     };
     const numericState = (label) => evaluate((label) => { const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input'); return field ? { value: Number(field.value), disabled: field.matches(':disabled') } : null; }, label);
-    await click('.cbar');
+    // The path's full inspector: clear the selection, then open More.
+    const pathInspector = async () => { await evaluate(() => document.activeElement?.blur()); await key('Escape'); await openInspector(); };
+    await pathInspector();
     assert.deepEqual(await numericState('Entry speed'), { value: .4, disabled: false });
     assert.deepEqual(await numericState('Exit speed'), { value: .6, disabled: false });
     const facingBaseline = structuredClone(saved.paths[0].waypoints[0]);
@@ -1101,7 +1251,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.paths[0].waypoints[0].nextC, facingBaseline.nextC);
     assert.equal(saved.paths[0].waypoints[0].x, facingBaseline.x);
     assert.equal(saved.paths[0].waypoints[0].y, facingBaseline.y);
-    await click('.cbar');
+    await pathInspector();
 
     await editNumber('Initial robot facing', 42);
     assert.equal(saved.paths[0].waypoints[0].theta, 42);
@@ -1111,26 +1261,26 @@ app.whenReady().then(async () => {
     assert.equal(saved.paths[0].startVel, .5); assert.equal(saved.paths[0].goalVel, .7);
     for (const [index, toggle, label, speed] of [[0, 'Stop at entry', 'Entry speed', .5], [saved.paths[0].waypoints.length - 1, 'Stop at exit', 'Exit speed', .7]]) {
       await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'endpoint ready');
-      await evaluate((index) => document.querySelectorAll('.outline .featselect')[index].click(), index);
+      await evaluate((index) => document.querySelectorAll('.pt-wp')[index].click(), index);
       await click('[aria-label="' + toggle + '"]'); await saveCurrent();
       assert.equal(saved.paths[0].waypoints[index].stop, true);
-      await click('.cbar');
+      await pathInspector();
       assert.deepEqual(await numericState(label), { value: 0, disabled: true }, 'Stopped endpoints display effective zero speed');
-      await evaluate((index) => document.querySelectorAll('.outline .featselect')[index].click(), index);
+      await evaluate((index) => document.querySelectorAll('.pt-wp')[index].click(), index);
       await click('[aria-label="' + toggle + '"]'); await saveCurrent();
-      await click('.cbar');
+      await pathInspector();
       assert.deepEqual(await numericState(label), { value: speed, disabled: false }, 'Removing the stop restores the stored endpoint speed');
     }
     check('summary facing changes preserve tangents; vi/vf edit independently and endpoint stops show effective zero');
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'waypoint link inspector ready');
-    await evaluate(() => document.querySelector('.outline .featselect').click());
+    await evaluate(() => document.querySelector('.pt-wp').click());
     const independentBefore = structuredClone(saved.paths[2]);
     const linkBaseline = saved.paths.slice(0, 2).map((path) => structuredClone(path.waypoints[0]));
     assert.equal(await evaluate(() => document.querySelectorAll('#waypoint-position-link-results [role="option"]').length), 0, 'Ordinary waypoints are absent from the inline chooser');
     assert.equal(await evaluate(() => document.querySelector('#waypoint-position-link-results .choice-empty')?.textContent), 'Name a shared point in another path to link it here.');
     await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), saved.paths[1].id);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'target point ready');
-    await evaluate(() => document.querySelector('.outline .featselect').click());
+    await evaluate(() => document.querySelector('.pt-wp').click());
     await click('[aria-label="Linkable waypoint"]');
     await wait(() => evaluate(() => { const input = document.querySelector('[aria-label="Linkable point name"]'); return input && !input.disabled && !input.closest('[inert]'); }), 'named point editable');
     await pointerClick('[aria-label="Linkable point name"]');
@@ -1138,14 +1288,14 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Linkable point name');
     await win.webContents.insertText('Scoring position');
     await wait(() => evaluate(() => document.querySelector('[aria-label="Linkable point name"]').value === 'Scoring position'), 'typed point name');
-    await evaluate(() => { const input = document.querySelector('[aria-label="Linkable point name"]'); input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); input.blur(); });
+    await key('Tab');
     await delay(80);
     await saveCurrent();
     assert.equal(saved.paths[1].waypoints[0].positionName, 'Scoring position', 'Named point saved from actual typing');
     linkBaseline[1] = structuredClone(saved.paths[1].waypoints[0]);
     await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), saved.paths[0].id);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'source point ready');
-    await evaluate(() => document.querySelector('.outline .featselect').click());
+    await evaluate(() => document.querySelector('.pt-wp').click());
     await pointerClick('#waypoint-position-link');
     assert.equal(await evaluate(() => document.querySelectorAll('#waypoint-position-link-results [role="option"]').length), 1, 'Only the opted-in named point is offered');
     await win.webContents.insertText('Scoring');
@@ -1201,14 +1351,15 @@ app.whenReady().then(async () => {
     const planningReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), label);
     const openLinkedFixture = async (kind) => {
       saved = linkedFixture(kind);
-      await win.loadFile(path.resolve('dist-renderer/index.html'));
-      await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Linked A' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), kind + ' link fixture');
+      await win.loadFile(rendererHtml);
+      await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Linked A' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), kind + ' link fixture');
       await evaluate(() => { window.confirm = () => true; });
       await saveCurrent();
     };
     const showPath = async (id) => { await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), id); await planningReady('path ' + id); };
     const inspectWaypoint = async (index) => {
-      await evaluate((index) => { const row = document.querySelectorAll('.outline .featselect')[index]; row.click(); row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); }, index);
+      await evaluate((index) => document.querySelectorAll('.pt-wp')[index].click(), index);
+      await openInspector();
       await delay(100);
     };
     const savedPath = (id) => saved.paths.find((item) => item.id === id);
@@ -1216,7 +1367,7 @@ app.whenReady().then(async () => {
     const linkedGeometry = () => ({ links: saved.pathLinks.map((link) => [link.fromPathId, link.toPathId]), paths: saved.paths.map((item) => [item.id, item.waypoints.map((point) => [point.x, point.y, point.positionLink])]) });
     const reopenLinked = async () => {
       const before = linkedGeometry();
-      await win.loadFile(path.resolve('dist-renderer/index.html'));
+      await win.loadFile(rendererHtml);
       await wait(() => evaluate(() => document.querySelectorAll('.library-pick').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'linked fixture reopened');
       await saveCurrent();
       assert.deepEqual(linkedGeometry(), before, 'Reopening keeps linked geometry unchanged');
@@ -1276,8 +1427,8 @@ app.whenReady().then(async () => {
     await reopenLinked();
     check('an endpoint unlink cannot be undone past a newer edit to the unlinked path; undo order, redo, and reload stay consistent');
     saved = sharedVerification;
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent === 'Opening move' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'shared waypoint fixture reopened');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move' && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'shared waypoint fixture reopened');
     await evaluate(() => {
       window.__routinePendingCheck = { samples: 0, violations: [] };
       window.__routinePendingObserver = new MutationObserver(() => {
@@ -1288,7 +1439,7 @@ app.whenReady().then(async () => {
       });
       window.__routinePendingObserver.observe(document.querySelector('#root'), { subtree: true, childList: true, characterData: true });
     });
-    await click('.library-tabs button', 'Routines'); await click('[data-library-item="routine-a"]');
+    await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
     await wait(() => evaluate(() => !document.querySelector('.routine-status.planning')), 'routine planning settles');
     const pending = await evaluate(() => { window.__routinePendingObserver.disconnect(); return window.__routinePendingCheck; });
     assert.ok(pending.samples > 0, 'Regression must observe an actual pending routine render');
@@ -1303,7 +1454,7 @@ app.whenReady().then(async () => {
       })),
     })) };
     saved.editor = { activePathId: saved.paths[0].id };
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
+    await win.loadFile(rendererHtml);
     await wait(() => evaluate(() => {
       const labels = [...document.querySelectorAll('.library-meta')];
       return labels.length === 2 && labels.every((label) => /^\d+\.\d{2} s$/.test(label.textContent));
@@ -1325,30 +1476,35 @@ app.whenReady().then(async () => {
     const beforeFailure = structuredClone(saved.paths[0]);
     await evaluate((pathId) => {
       const post = Worker.prototype.postMessage;
+      window.__injectedPlanningFailures = 0;
       window.__restoreWorkerPost = () => { Worker.prototype.postMessage = post; delete window.__restoreWorkerPost; };
       Worker.prototype.postMessage = function (message, ...args) {
-        if (message.quality === 'interactive' && message.path.id === pathId && message.path.waypoints[0].x === 2.25) {
-          setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: message.id, error: { message: 'Injected interactive planning failure' } } })), 0);
+        if (message.mode === 'editing' && message.quality === 'final' && message.path.id === pathId && message.path.waypoints[0].x === 2.25) {
+          window.__injectedPlanningFailures++;
+          setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: message.id, error: { message: 'Injected final planning failure' } } })), 0);
           return;
         }
         return post.call(this, message, ...args);
       };
     }, saved.paths[0].id);
-    await click('.wpfeatrow .featselect');
+    await click('.pt-wp');
     await editNumber('X', 2.25);
     await click('.optimizer-toggle');
-    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Injected interactive planning failure')), 'current error shown over retained preview');
-    assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldcol[data-planning-ready="false"]'))), true, 'Stale geometry must stay inert');
+    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Injected final planning failure')), 'current error shown over retained preview');
+    assert.ok(await evaluate(() => window.__injectedPlanningFailures > 0), 'The current final-planning request receives the injected failure');
+    // The optimizer's own baseline failed; the editor keeps the current geometry editable.
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldsvg').closest('[inert]'))), false, 'The field stays editable while the optimizer baseline fails');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.optimizer-panel').closest('[inert]'))), false, 'Error recovery must remain usable');
-    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Undo last edit');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Optimize');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-recovery').textContent), 'Edit path');
     await fs.writeFile(path.join(output, 'optimizer-interactive-failure.png'), (await win.webContents.capturePage()).toPNG());
-    await click('.optimizer-main');
+    await keyboardUndo();
     await wait(() => evaluate(() => !document.querySelector('.optimizer-failure') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'Undo recovers planning');
     await evaluate(() => window.__restoreWorkerPost());
     await click('[aria-label="Save project"]');
     assert.deepEqual(saved.paths[0].waypoints, beforeFailure.waypoints);
     await click('.optimizer-toggle');
-    check('interactive planning failure retains the preview, exposes the current error, and recovers through Undo');
+    check('an optimizer baseline failure exposes the current error, leaves editing available, and recovers through Undo');
 
     const beforeRepair = structuredClone(saved);
     // Explicit angular limits make heading tracking fail authoritative validation.
@@ -1357,32 +1513,199 @@ app.whenReady().then(async () => {
       id: 'repair-path', name: 'Restored path', targets: [{ f: .5, deg: 135 }],
       ranges: [{ f0: .3, f1: .65, anchor: 'param', maxAngVel: .01, maxAngAccel: .01 }] };
     saved = { ...corpus, paths: [repairPath], routines: [], pathLinks: [], editor: { activePathId: repairPath.id } };
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => document.querySelector('.library-current-name')?.textContent.includes('Restored path')), 'restored repair fixture');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent.includes('Restored path')), 'restored repair fixture');
     await pointerClick('.optimizer-toggle');
-    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Heading tracking could not satisfy the configured angular limits')), 'real final-planning failure');
-    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Edit path');
-    await pointerClick('.optimizer-main');
-    if (await evaluate(() => [...document.querySelectorAll('.sechead-toggle')].some((el) => el.textContent.includes('Zones') && el.getAttribute('aria-expanded') === 'false'))) { await evaluate(() => [...document.querySelectorAll('.sechead-toggle')].find((el) => el.textContent.includes('Zones')).setAttribute('data-repair-section', '')); await pointerClick('[data-repair-section]'); }
-    await pointerClick('[aria-label^="Zone,"]');
-    assert.ok(await evaluate(() => document.querySelector('.ctxinsp-body')?.textContent.includes('Planning failed.')));
-    assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldcol[data-planning-ready="false"]'))), true);
+    await wait(() => evaluate(() => {
+      const failure = document.querySelector('.optimizer-failure')?.textContent || '';
+      return failure.includes('Turn rate') && failure.includes('0.01 °/s');
+    }), 'real final-planning angular-limit failure');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Optimize');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-recovery').textContent), 'Edit path');
+    await pointerClick('.optimizer-recovery');
+    await wait(() => evaluate(() => !!document.querySelector('.ctxinsp')), 'Edit path opens the full inspector');
+    // No repair mode: the problem is shown on the timeline and the zone edits normally.
+    await click('.pt-zone-tag');
+    await wait(() => evaluate(() => !!document.querySelector('.ctxinsp .range-limits')), 'zone limits in the inspector');
+    await waitProblemsDisclosure(true, 'full Problems count matches current timeline issue underlays');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldsvg').closest('[inert]'))), false, 'A planning problem never freezes the field');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(100);
-      await fs.writeFile(path.join(output, `planning-repair-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      await fs.writeFile(path.join(output, `planning-problem-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
-    await evaluate(() => document.activeElement.blur());
-    await key('Space'); await delay(120);
-    assert.equal(await evaluate(() => document.querySelector('.timecode-now').textContent), '0.00', 'Space cannot play invalid timing');
+    // Native text preflight requires real focus: hidden Electron windows can change activeElement
+    // without dispatching focusout/blur, so they cannot certify invalid-draft ownership.
+    win.show(); win.focus(); win.webContents.focus();
+    await wait(() => evaluate(() => document.hasFocus()), 'native focus for field problem input checks');
+    // A problem is a semantic control in every tool; hit its real painted descendants.
+    await click('[aria-label="Save project"]');
+    const problemSource = structuredClone(saved.paths[0]);
+    const hitProblemPart = async (part, modifiers = [], diagnostic = false) => {
+      const point = await evaluate((part, diagnostic) => {
+        const el = document.querySelector('.field-issue-badge[role="button"] ' + part);
+        if (!el) throw new Error('Missing badge part ' + part);
+        const box = el.getBoundingClientRect();
+        for (let y = 1; y < 8; y++) for (let x = 1; x < 8; x++) {
+          const p = { x: Math.round(box.x + box.width*x/8), y: Math.round(box.y + box.height*y/8) };
+          if (document.elementFromPoint(p.x,p.y) === el) { if (diagnostic) { window.__problemActivationDiagnostic.point = p; window.__problemActivationDiagnostic.capture('coordinate'); } return p; }
+        }
+        throw new Error('No actual pointer hit on badge ' + part);
+      }, part, diagnostic);
+      const sent = label => { if (diagnostic) problemActivationNative.push({ label, at: Date.now(), point, visible: win.isVisible(), focused: win.isFocused() }); };
+      sent('send-move'); win.webContents.sendInputEvent({ type:'mouseMove', ...point });
+      sent('send-down'); win.webContents.sendInputEvent({ type:'mouseDown', ...point, button:'left', clickCount:1, modifiers });
+      sent('send-up'); win.webContents.sendInputEvent({ type:'mouseUp', ...point, button:'left', clickCount:1, modifiers });
+      await delay(50);
+      const selected = await evaluate(diagnostic => {
+        if (diagnostic) window.__problemActivationDiagnostic.capture('50ms-assert');
+        return Boolean(document.querySelector('.field-issue-badge[aria-pressed="true"]') && document.querySelector('.pp-problem'));
+      }, diagnostic);
+      if (diagnostic) await retainProblemActivationDiagnostic();
+      assert.equal(selected, true);
+    };
+    await wait(() => evaluate(() => document.querySelector('.field-issue-badge[role="button"]')), 'interactive located problem');
+    for (const toolName of ['Select / move','Place waypoint','Rotation target','Place command','Zone']) {
+      await pointerClick('.toolrail [aria-label="' + toolName + '"]');
+      for (const modifiers of [[], ['shift']]) {
+        await hitProblemPart('path', modifiers);
+        await hitProblemPart('.field-issue-hit', modifiers);
+        await hitProblemPart('.field-problem-caption text', modifiers);
+      }
+    }
+    await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.paths[0], problemSource, 'Triangle, caption and hit area never edit under any tool or Shift');
+    // Native Tab with an authored waypoint selected: deletion keys belong to the badge before activation.
+    await pointerClick('.pt-wp');
+    await evaluate(() => document.querySelector('.fieldsvg').focus());
+    for (let count=0; count<160 && !await evaluate(() => document.activeElement?.matches('.field-issue-badge[role="button"]')); count++) await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.field-issue-badge[role="button"]')), true, 'Tab reaches a real badge');
+    await key('Delete'); await key('Backspace');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), false, 'Delete before activation leaves waypoint selection alone');
+    await key('Enter');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), true, 'Enter selects the problem');
+    await key('Space');
+    assert.equal(await evaluate(() => document.querySelector('.pt-play')?.getAttribute('aria-label')), 'Play trajectory', 'Space does not start playback');
+    await key('Escape');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), false);
+    assert.equal(await evaluate(() => document.querySelector('.toolrail-b[aria-pressed="true"]')?.getAttribute('aria-label')), 'Zone', 'Owned Escape does not change the tool');
+    await key('Enter');
+    for (const [width,height] of [[1440,900],[1100,720]]) {
+      win.setContentSize(width,height); await delay(150);
+      await fs.writeFile(path.join(output, `field-problem-selected-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.paths[0], problemSource, 'Problem keyboard interaction never edits the source');
+    check('field problem triangle, caption and hit area own all tools and Shift; Tab/Enter/Space/Delete/Backspace/Escape keep source and playback safe');
+    // Invalid drafts keep focus; warning inspection cannot silently blur away an unfinished value.
+    await evaluate(() => document.activeElement?.blur()); await key('Escape');
+    await pointerClick('.pt-limits input'); await key('Home'); await key('End', ['shift']);
+    await evaluate(() => document.activeElement.select());
+    assert.equal(await evaluate(() => document.hasFocus() && document.activeElement?.matches('.pt-limits input')), true, 'Native speed input has focus before typing');
+    await win.webContents.insertText('not-a-number');
+    await wait(() => evaluate(() => document.activeElement?.value === 'not-a-number'), 'invalid speed draft entered');
+    const blockedPoint = await evaluate(() => { const r=document.querySelector('.field-issue-badge path').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}; });
+    win.webContents.sendInputEvent({type:'mouseDown',...blockedPoint,button:'left',clickCount:1});
+    win.webContents.sendInputEvent({type:'mouseUp',...blockedPoint,button:'left',clickCount:1});await delay(80);
+    assert.equal(await evaluate(() => document.activeElement?.matches('.pt-limits input[aria-invalid="true"]')), true, 'Invalid draft retains focus');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), false, 'Blocked selection leaves problems unselected');
+    await key('Escape'); await key('Tab');
+    // Hold only the real editing-worker request; current geometry stays editable with the exact held problem list.
+    await evaluate(() => {
+      const post = Worker.prototype.postMessage, queued = [], listeners = new Map(); let holding = true, nextWorker = 0;
+      const trace = window.__problemActivationDiagnostic = { active: false, point: null, workers: [], dom: [], events: [] };
+      const describe = element => element && ({ tag: element.tagName, id: element.id, role: element.getAttribute('role'), dataRole: element.getAttribute('data-role'), dataIndex: element.getAttribute('data-idx'), index: element.closest?.('.field-issue-badge')?.getAttribute('data-idx'), opacity: element.getAttribute('opacity'), label: element.getAttribute('aria-label'), class: element.getAttribute('class'), value: element.value, invalid: element.getAttribute('aria-invalid') });
+      trace.capture = label => {
+        const first = document.querySelector('.field-issue-badge[role="button"]'), hit = trace.point && document.elementFromPoint(trace.point.x, trace.point.y);
+        trace.dom.push({ label, at: performance.now(), focus: document.hasFocus(), active: describe(document.activeElement), invalid: [...document.querySelectorAll('[data-project-draft][aria-invalid="true"]')].map(describe),
+          ready: document.querySelector('.fieldcol')?.getAttribute('data-planning-ready'), inert: Boolean(document.querySelector('.fieldsvg')?.closest('[inert]')), modal: Boolean(document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')), popovers: document.querySelectorAll('[popover]:popover-open').length,
+          point: trace.point, hit: describe(hit), first: describe(first), firstBox: first?.getBoundingClientRect().toJSON(), stale: document.querySelectorAll('.pt-issue.stale').length,
+          selectedBadges: [...document.querySelectorAll('.field-issue-badge[aria-pressed="true"]')].map(element => element.getAttribute('data-idx')), selectedUnderlays: [...document.querySelectorAll('.pt svg g.pt-issue')].flatMap((element, index) => element.classList.contains('selected') ? [index] : []),
+          issueCount: document.querySelectorAll('.pt svg g.pt-issue').length, panel: Boolean(document.querySelector('.pp-problem')), panelTitle: document.querySelector('.pp-title')?.textContent });
+      };
+      const pointer = event => {
+        if (!trace.active) return;
+        trace.events.push({ type: event.type, at: performance.now(), trusted: event.isTrusted, buttons: event.buttons, pointerId: event.pointerId, x: event.clientX, y: event.clientY, target: describe(event.target) });
+        trace.capture(event.type + '-capture'); queueMicrotask(() => trace.capture(event.type + '-after-dispatch'));
+      };
+      for (const type of ['pointermove', 'pointerdown', 'pointerup']) window.addEventListener(type, pointer, true);
+      const wrapped = function(message, ...args) {
+        if (message?.mode === 'editing') {
+          if (!listeners.has(this)) {
+            const worker = ++nextWorker, ids = new Set();
+            const listener = event => { if (ids.has(event.data?.id)) trace.workers.push({ phase: 'response', worker, id: event.data.id, type: event.data.type || (event.data.error ? 'error' : 'result'), at: performance.now() }); };
+            this.addEventListener('message', listener); listeners.set(this, { worker, ids, listener });
+          }
+          const item = listeners.get(this); item.ids.add(message.id); trace.workers.push({ phase: 'request', worker: item.worker, id: message.id, type: message.mode, held: holding, at: performance.now() });
+          if (holding) { queued.push([this, message, args]); return; }
+        }
+        return post.call(this, message, ...args);
+      };
+      Worker.prototype.postMessage = wrapped;
+      window.__releaseProblemTiming = () => {
+        holding = false;
+        for (const [worker, message, args] of queued.splice(0)) { trace.workers.push({ phase: 'release', worker: listeners.get(worker).worker, id: message.id, type: message.mode, at: performance.now() }); post.call(worker, message, ...args); }
+        delete window.__releaseProblemTiming;
+      };
+      window.__restoreProblemActivationDiagnostic = () => {
+        window.__releaseProblemTiming?.(); if (Worker.prototype.postMessage === wrapped) Worker.prototype.postMessage = post;
+        for (const [worker, item] of listeners) worker.removeEventListener('message', item.listener);
+        for (const type of ['pointermove', 'pointerdown', 'pointerup']) window.removeEventListener(type, pointer, true);
+        delete window.__problemActivationDiagnostic; delete window.__restoreProblemActivationDiagnostic;
+        return { workerListeners: 0, pointerListeners: 0, wrapperRestored: Worker.prototype.postMessage === post, queued: queued.length };
+      };
+    });
+    await pointerClick('.pt-limits input');await key('Home');await key('End',['shift']);await evaluate(() => document.activeElement.select());await win.webContents.insertText('3');await key('Enter');
+    await wait(() => evaluate(() => document.querySelector('.field-issue-badge[opacity="0.5"]')), 'held field problems while timing request is pending');
+    await hitProblemPart('path');
+    assert.equal(await evaluate(() => document.querySelector('.pp-problem')?.textContent.includes('Updating…')), true);
+    assert.equal(await evaluate(() => document.querySelector('.fieldsvg').closest('[inert]')!=null), false, 'Held warnings do not freeze geometry');
+    for(const [width,height] of [[1440,900],[1100,720]]){win.setContentSize(width,height);await delay(150);await fs.writeFile(path.join(output,`field-problem-pending-${width}.png`),(await win.webContents.capturePage()).toPNG());}
+    await evaluate(() => window.__releaseProblemTiming());
+    await wait(() => evaluate(() => !document.querySelector('.field-issue-badge[opacity="0.5"]') && !document.querySelector('.pp-problem')), 'fresh result retires held selection');
+    await stampProblemActivation('before-undo');
+    await pointerClick('[title^="Undo"]'); await Promise.all([stampProblemActivation('after-undo'), delay(150)]); await click('[aria-label="Save project"]'); await stampProblemActivation('after-save');
+    assert.deepEqual(saved.paths[0],problemSource,'One Undo restores the one speed edit; warning inspection added no history');
+    await stampProblemActivation('before-hit');
+    try { await hitProblemPart('path', [], true); } finally { await restoreProblemActivationDiagnostic(); }
+    await pointerClick('.pp-problem .pp-action'); await click('[aria-label="Save project"]');
+    assert.equal(saved.paths[0].ranges.length,problemSource.ranges.length+1,'Explicit Slow here adds one zone');
+    await pointerClick('[title^="Undo"]');await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.paths[0],problemSource,'One Undo restores explicit Slow here');
+    check('invalid drafts retain focus, pending geometry stays inspectable, fresh timing clears selection, and explicit Slow here is exactly one undoable edit');
+    // Dismissing the real popover leaves the actual timeline zone tag unobscured.
+    await problemsPointerClick('aside.pp[aria-label="Properties"] button[aria-haspopup="menu"]');
+    await wait(async () => (await evaluate(inspectProblemsDisclosure)).open, 'Problems popover opens before zone-tag dismissal proof');
+    await assertProblemsForeground(); await key('Escape');
+    await wait(() => evaluate(() => {
+      const panel = document.querySelector('aside.pp[aria-label="Properties"]'), trigger = panel.querySelector('button[aria-haspopup="menu"]');
+      return trigger.getAttribute('aria-expanded') === 'false' && !panel.querySelector('[role="menu"]') && document.activeElement === trigger;
+    }), 'native Escape closes Problems and restores trigger focus before zone-tag activation');
+    await problemsPointerClick('.pt-zone-tag');
+    await wait(() => evaluate(() => document.querySelector('.ctxinsp .range-limits')), 'unobscured timeline tag restores the zone inspector');
     await pointerClick('.ctxinsp .delbtn');
-    await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'deleting the invalid range restores planning');
+    await waitProblemsDisclosure(false, 'deleting the invalid range clears the disclosure, underlays and selected problem');
     await click('[aria-label="Save project"]');
     assert.equal(saved.paths[0].ranges.length, 0);
     assert.deepEqual(saved.paths[0].waypoints, repairPath.waypoints);
-    check('restored failed planning keeps authored repair accessible while blocking stale playback');
+    check('a restored path with a planning problem stays editable: the problem shows on the timeline and removing the zone clears it');
+    await pointerClick('[title^="Undo"]');
+    await waitProblemsDisclosure(true, 'Undo restores the invalid range and its full current Problems count/underlays');
+    await selectFirstDisclosedProblem();
+    await pointerClick('[title^="Redo"]');
+    await waitProblemsDisclosure(false, 'fresh repaired result retires the disclosure, menu, underlays and selected problem');
+    await pointerClick('[title^="Undo"]');
+    await waitProblemsDisclosure(true, 'Undo restores another full current Problems count/underlays');
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), false, 'The old selected problem never returns automatically with another result');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(100);
+      await fs.writeFile(path.join(output, `problem-selection-cleared-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    await pointerClick('[title^="Redo"]');
+    await waitProblemsDisclosure(false, 'leave the repaired path without disclosure, menu, underlays or selected problem');
+    check('timeline problem selection clears on replacement and never resurrects through actual Undo and Redo');
     saved = beforeRepair;
     win.setContentSize(1440, 900);
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
+    await win.loadFile(rendererHtml);
     await wait(() => evaluate(() => document.querySelector('.fieldcol') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'normal fixture after repair');
 
 
@@ -1390,18 +1713,26 @@ app.whenReady().then(async () => {
     saved.paths[0].waypoints[1] = { ...saved.paths[0].waypoints[1], thetaOn: true, theta: -178, stop: true, wait: 12.5 };
     saved.routines = [{ id: 'long-flow', name: 'Long content check', nodes: [{ id: 'long-step', type: 'path', ref: saved.paths[0].id }] }];
     saved.activeRoutineId = 'long-flow';
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.wpfeatrow').length === 3), 'badge-rich waypoint fixture');
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.pt-wp').length === 3), 'badge-rich waypoint fixture');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(100);
-      const waypointLayout = await evaluate(() => { const row = document.querySelectorAll('.wpfeatrow')[1], name = row.querySelector('.featnm'), details = row.querySelector('.featdetails'); return { name: name.textContent, fits: name.scrollWidth <= name.clientWidth, separated: details.getBoundingClientRect().top >= name.getBoundingClientRect().bottom, detailsFit: details.scrollWidth <= details.clientWidth }; });
+      await click('.pt-wp', '1'); await openInspector();
+      // The docked panel shows the stopped, pinned waypoint's values without clipping.
+      const waypointLayout = await evaluate(() => { const panel = document.querySelector('.pp'), title = panel.querySelector('.pp-title'), rows = [...panel.querySelectorAll('.numrow')];
+        return { name: title.textContent, fits: title.scrollWidth <= title.clientWidth, separated: !panel.querySelector('.pp-body').scrollWidth || panel.querySelector('.pp-body').scrollWidth <= panel.querySelector('.pp-body').clientWidth, detailsFit: rows.every((row) => row.scrollWidth <= row.clientWidth + 1) }; });
       assert.deepEqual(waypointLayout, { name: 'Waypoint 1', fits: true, separated: true, detailsFit: true });
-      assert.equal(await evaluate(() => ['.library-name', '.library-current-name', '.ctxinsp-t'].every((selector) => { const el = document.querySelector(selector); return el.scrollWidth <= el.clientWidth && getComputedStyle(el).whiteSpace === 'normal'; })), true, 'Primary path names wrap instead of clipping across library and inspector');
-      // Library rows clamp long names to two lines and the push footer to one; the inspector title shows the whole name.
-      assert.deepEqual(await evaluate(() => { const row = document.querySelector('.library-pick[aria-current="true"] .library-name'), footer = document.querySelector('.library-current-name'), title = document.querySelector('.ctxinsp-t'), line = (el) => parseFloat(getComputedStyle(el).lineHeight);
-        return { row: row.clientHeight <= line(row) * 2 + 1, footer: footer.clientHeight <= line(footer) + 1 && footer.title === footer.textContent, title: title.textContent === title.title && title.scrollHeight <= title.clientHeight + 1 }; }), { row: true, footer: true, title: true }, 'Clamped library names keep the complete name in the inspector title');
+      assert.equal(await evaluate(() => ['.library-name', '.ctxinsp-t'].every((selector) => { const el = document.querySelector(selector); return el.scrollWidth <= el.clientWidth && getComputedStyle(el).whiteSpace === 'normal'; })), true, 'Primary path names wrap instead of clipping across library and inspector');
+      // Library rows clamp long names to two lines and Push keeps its one-line scope label with the whole name as its title; the inspector title shows the whole name.
+      assert.deepEqual(await evaluate(() => { const row = document.querySelector('.library-pick[aria-current="true"] .library-name'), footer = document.querySelector('.push-button'), title = document.querySelector('.ctxinsp-t'), line = (el) => parseFloat(getComputedStyle(el).lineHeight);
+        const range = document.createRange(); range.selectNodeContents(footer);
+        const textBox = range.getBoundingClientRect(), buttonBox = footer.getBoundingClientRect();
+        return { row: row.clientHeight <= line(row) * 2 + 1,
+          footer: getComputedStyle(footer).whiteSpace === 'nowrap' && textBox.height <= footer.clientHeight
+            && textBox.top >= buttonBox.top && textBox.bottom <= buttonBox.bottom && footer.textContent.trim() === 'Push path' && footer.title === row.textContent + ' · Ctrl+Shift+P',
+          title: title.textContent === title.title && title.scrollHeight <= title.clientHeight + 1 }; }), { row: true, footer: true, title: true }, 'Clamped library names keep the complete name in the inspector title');
       await fs.writeFile(path.join(output, `waypoint-badges-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await click('.library-tabs button', 'Routines');
+      await click('.place', 'Routines');
       await click('.rt-step-body');
       const beforeHover = await evaluate(() => { const el = document.querySelector('.rt-step-body'); return el.getBoundingClientRect().width; });
       const point = await evaluate(() => { const r = document.querySelector('.rt-step-body').getBoundingClientRect(); return { x: Math.round(r.x+20), y: Math.round(r.y+20) }; });
@@ -1410,7 +1741,7 @@ app.whenReady().then(async () => {
       assert.equal(routineLayout.width, beforeHover, 'Hover must reserve action space');
       assert.equal(routineLayout.fits, true); assert.equal(routineLayout.wraps, true);
       await fs.writeFile(path.join(output, `routine-long-name-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await click('[aria-label="Close step inspector"]'); await click('.library-tabs button', 'Paths');
+      await click('[aria-label="Close step inspector"]'); await click('.place', 'Paths');
     }
     check('waypoint badges and long routine names remain readable without hover layout shifts at both supported sizes');
 
@@ -1418,7 +1749,7 @@ app.whenReady().then(async () => {
     const facing = { directionDeg: 0, requiresTargetFacing: true };
     saved = { ...corpus, paths: [{ ...structuredClone(source), id: 'profile-path', name: 'Profile path' }], routines: [], pathLinks: [], editor: { activePathId: 'profile-path' },
       robot: { ...corpus.robot, planning: { notes: 'existing notes', shooter: facing } } };
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
+    await win.loadFile(rendererHtml);
     await editorReady('robot profile fixture');
     await evaluate(() => window.bordeauxAPI.__libraryAgent.setAccess(true, 1));
     // Propose against the settled published context, as the MCP bridge does.
@@ -1458,16 +1789,16 @@ app.whenReady().then(async () => {
       await fs.writeFile(path.join(output, `settings-notes-edited-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     assert.equal((await notesSelection()).focused, true, 'Settings notes keep focus through the screenshots');
-    await click('.pageswitch button', 'Editor'); await editorReady('editor after Settings');
+    await click('.place', editorPlace); await editorReady('editor after Settings');
     await keyboardUndo(); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.robot.planning, { notes: 'new operator notes', shooter: facing }, 'Undo reverts the proposal and keeps the newer Settings notes');
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.robot.planning, { notes: 'new operator notes', shooter: { directionDeg: 90, requiresTargetFacing: true } }, 'Redo reapplies only the proposal');
     await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.robot.planning, { notes: 'new operator notes', shooter: facing });
-    await win.loadFile(path.resolve('dist-renderer/index.html'));
+    await win.loadFile(rendererHtml);
     await editorReady('reopened robot profile');
-    await click('.pageswitch button', 'Settings');
+    await click('.place', 'Settings');
     await evaluate(() => window.bordeauxAPI.__libraryAgent.setAccess(true, 1));
     await wait(() => evaluate(() => document.querySelector('.rp-notes')?.value === 'new operator notes'), 'reopened Settings notes');
     assert.equal(await evaluate(() => document.querySelector('input[aria-label="Shooter direction"]').value), '0', 'The reopened shooter direction is the pre-proposal value');
@@ -1476,7 +1807,7 @@ app.whenReady().then(async () => {
       await evaluate(() => document.querySelector('.rp-notes').scrollIntoView({ block: 'center' }));
       await fs.writeFile(path.join(output, `settings-notes-reopened-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
-    await click('.pageswitch button', 'Editor');
+    await click('.place', editorPlace);
     console.log('Settings notes cleared by ' + notesClearedBy);
     check('Undo of an applied robot profile proposal keeps newer Settings notes through Redo, save, and reload');
     if (process.env.BORDEAUX_DURATION_PROJECT) {
@@ -1484,28 +1815,14 @@ app.whenReady().then(async () => {
       saved.editor = { activePathId: saved.paths[0].id };
       saved.routines = [{ id: 'duration-regression', name: 'Duration regression', nodes: saved.paths.map((path, index) => ({ id: 'duration-step-' + index, type: 'path', ref: path.id })) }];
       saved.activeRoutineId = 'duration-regression';
-      await win.loadFile(path.resolve('dist-renderer/index.html'));
+      await win.loadFile(rendererHtml);
       await wait(() => evaluate(() => document.querySelectorAll('.library-meta').length > 1 && [...document.querySelectorAll('.library-meta')].every((label) => /^\d+\.\d{2} s$/.test(label.textContent))), 'actual project durations with stale optimization');
-      await evaluate(() => document.querySelectorAll('.outline .sechead-toggle').forEach((button) => { if (button.getAttribute('aria-expanded') === 'false') button.click(); }));
       assert.equal(await evaluate(() => document.querySelector('.field-status')?.textContent.includes('Using normal trajectory') || false), false, 'Normal fallback does not show a passive banner');
-      const outlineLayout = await evaluate(() => ({
-        titleTag: document.querySelector('.library-section-title').tagName,
-        addButtons: document.querySelectorAll('.outline .sechead .mini').length,
-        rowStarts: [...document.querySelectorAll('.outline .featselect')].map((row) => row.getBoundingClientRect().x),
-        labelTransforms: [...document.querySelectorAll('.ctxinsp .numlbl,.ctxinsp .cgroup-h')].map((label) => getComputedStyle(label).textTransform),
-      }));
-      assert.equal(outlineLayout.titleTag, 'DIV', 'Outline title does not add another collapse control');
-      assert.equal(outlineLayout.addButtons, 0, 'Features are placed using the field tools');
-      assert.ok(outlineLayout.rowStarts.length > 4 && Math.max(...outlineLayout.rowStarts) - Math.min(...outlineLayout.rowStarts) < 1, 'Waypoint and feature content columns align');
-      assert.ok(outlineLayout.labelTransforms.every((value) => value === 'none'), 'Inspector labels preserve sentence case');
-      const segmentLayout = await evaluate(() => [...document.querySelectorAll('.segfeatrow')].map((row) => {
-        const name = row.querySelector('.featnm'), meta = row.querySelector('.featmeta');
-        return { wraps: getComputedStyle(name).whiteSpace === 'normal', fits: name.scrollWidth <= name.clientWidth + 1, stacked: meta.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
-      }));
-      assert.ok(segmentLayout.length > 0 && segmentLayout.every((row) => row.wraps && row.fits && row.stacked), 'Segment names wrap without truncation, with curve type below');
-      check('outline groups share aligned item rows without nested collapse or arbitrary add controls');
+      const labelTransforms = await evaluate(() => [...document.querySelectorAll('.pp .numlbl,.pp-row-label,.pt-gutter')].map((label) => getComputedStyle(label).textTransform));
+      assert.ok(labelTransforms.length > 0 && labelTransforms.every((value) => value === 'none'), 'Band labels preserve sentence case');
+      check('band labels preserve sentence case with actual project durations');
       await fs.writeFile(path.join(output, 'actual-project-durations.png'), (await win.webContents.capturePage()).toPNG());
-      await click('.library-tabs button', 'Routines');
+      await click('.place', 'Routines');
       await wait(() => evaluate(() => !document.querySelector('.routine-status') && document.querySelectorAll('.rt-step.path').length > 1), 'actual routine uses current normal trajectories');
       assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-step-meta')].some((label) => /unavailable|Preparing/.test(label.textContent))), false);
       await fs.writeFile(path.join(output, 'actual-project-routine.png'), (await win.webContents.capturePage()).toPNG());
@@ -1514,5 +1831,5 @@ app.whenReady().then(async () => {
     assert.deepEqual(errors, []);
     await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
     app.exit(0);
-  } catch (error) { console.error(error); console.error(errors); if (win) { console.error('Field status:', await evaluate(() => document.querySelector('.field-status')?.textContent)); await fs.writeFile(path.join(output, 'failure-project.json'), JSON.stringify(saved, null, 2)); } await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors, failure: error.message }, null, 2)); if (win) await fs.writeFile(path.join(output, 'failure.png'), (await win.webContents.capturePage()).toPNG()); app.exit(1); }
+  } catch (error) { try { if (win && !win.isDestroyed()) await restoreProblemActivationDiagnostic(); } catch (diagnosticError) { console.error('Problem diagnostic cleanup:', diagnosticError); } console.error(error); console.error(errors); if (win) { console.error('Field status:', await evaluate(() => document.querySelector('.field-status')?.textContent)); await fs.writeFile(path.join(output, 'failure-project.json'), JSON.stringify(saved, null, 2)); } await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors, failure: error.message }, null, 2)); if (win) await fs.writeFile(path.join(output, 'failure.png'), (await win.webContents.capturePage()).toPNG()); app.exit(1); }
 });

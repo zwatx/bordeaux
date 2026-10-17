@@ -11,9 +11,11 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 
 // A real SSH/SFTP v3 server, deliberately without OpenSSH rename extensions.
 // Its filesystem models the selected runtime directory, including a linked parent.
-async function robot({ linked = false, denyWrite = false } = {}) {
-  const files = new Map([[`${directory}/existing.bdx`, Buffer.from("old")], [`${directory}/unrelated.bdx`, Buffer.from("untouched")]]);
+async function robot({ linked = false, denyWrite = false, missingFolder = false, denyMkdir = false } = {}) {
+  const files = new Map<string, Buffer>(missingFolder ? [] : [[`${directory}/existing.bdx`, Buffer.from("old")], [`${directory}/unrelated.bdx`, Buffer.from("untouched")]]);
   const directories = new Set(["/home", "/home/lvuser", "/home/lvuser/natinst", "/home/lvuser/natinst/bin", directory]);
+  if (missingFolder) directories.delete(directory);
+  const created: string[] = [];
   const writes: string[] = [];
   const writeModes: Array<number | undefined> = [];
   const clients = new Set<Connection>();
@@ -39,6 +41,11 @@ async function robot({ linked = false, denyWrite = false } = {}) {
         sftp.on("LSTAT", (id, target) => stat(id, target, false));
         sftp.on("STAT", (id, target) => stat(id, target, true));
         sftp.on("FSTAT", (id, handle) => stat(id, handles.get(handle.toString())!, true));
+        sftp.on("MKDIR", (id, target) => {
+          if (denyMkdir) { sftp.status(id, S.PERMISSION_DENIED); return; }
+          if (directories.has(target)) { sftp.status(id, S.FAILURE); return; }
+          directories.add(target); created.push(target); sftp.status(id, S.OK);
+        });
         sftp.on("OPEN", (id, target, flags, attrs) => {
           if (flags & O.WRITE) {
             if (denyWrite) { sftp.status(id, S.PERMISSION_DENIED); return; }
@@ -76,7 +83,7 @@ async function robot({ linked = false, denyWrite = false } = {}) {
     for (const client of clients) client.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  return { files, writes, writeModes, endpoint: { host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory } };
+  return { files, writes, writeModes, created, endpoint: { host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory } };
 }
 
 describe("path delivery against a real SSH/SFTP connection", () => {
@@ -85,9 +92,39 @@ describe("path delivery against a real SSH/SFTP connection", () => {
     const connection = await probeRobotFiles(r.endpoint);
     expect(r.writes).toEqual([]);
     const contents = Buffer.from([0, 255, 128, 10, 0, 7]);
-    await uploadRobotFiles(connection, [{ fileName: "new.bdx", contents }, { fileName: "existing.bdx", contents }]);
+    expect(await uploadRobotFiles(connection, [{ fileName: "new.bdx", contents }, { fileName: "existing.bdx", contents }])).toEqual({ directoryCreated: false });
     expect(r.files).toEqual(new Map([[`${directory}/existing.bdx`, contents], [`${directory}/unrelated.bdx`, Buffer.from("untouched")], [`${directory}/new.bdx`, contents]]));
     expect(r.writeModes).toEqual([0o644, 0o644, 0o644]);
+  }, 15_000);
+
+  it("creates a missing Paths folder only on confirmed upload and reports it once", async () => {
+    const r = await robot({ missingFolder: true });
+    const connection = await probeRobotFiles(r.endpoint);
+    expect(r.created).toEqual([]); expect(r.writes).toEqual([]);
+    const files = [{ fileName: "new.bdx", contents: Buffer.from("bdx") }];
+    expect(await uploadRobotFiles(connection, files)).toEqual({ directoryCreated: true });
+    expect(r.created).toEqual([directory]);
+    expect(r.files.get(`${directory}/new.bdx`)).toEqual(files[0].contents);
+    expect(await uploadRobotFiles(connection, files)).toEqual({ directoryCreated: false });
+    expect(r.created).toEqual([directory]);
+  }, 15_000);
+
+  it("rejects permission-denied folder creation without uploading or reporting creation", async () => {
+    const r = await robot({ missingFolder: true, denyMkdir: true });
+    const connection = await probeRobotFiles(r.endpoint);
+    const failure = await uploadRobotFiles(connection, [{ fileName: "new.bdx", contents: Buffer.from("bdx") }]).catch(error => error);
+    expect(failure.message).toMatch(/permission denied/i);
+    expect(failure.message).not.toContain("Created robot folder");
+    expect(r.created).toEqual([]); expect(r.writes).toEqual([]);
+  }, 15_000);
+
+  it("retains a confirmed folder creation when the subsequent upload is denied", async () => {
+    const r = await robot({ missingFolder: true, denyWrite: true });
+    const connection = await probeRobotFiles(r.endpoint);
+    const failure = await uploadRobotFiles(connection, [{ fileName: "new.bdx", contents: Buffer.from("bdx") }]).catch(error => error);
+    expect(failure.message).toMatch(/permission denied/i);
+    expect(failure.message).toContain(`0 of 1 files verified on the robot. Created robot folder ${directory}.`);
+    expect(r.created).toEqual([directory]); expect(r.writes).toEqual([]); expect(r.files.size).toBe(0);
   }, 15_000);
 
   it("retains the permission failure and preserves existing files", async () => {

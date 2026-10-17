@@ -1,11 +1,36 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { PM } from "../src/shared/math/pm";
+import { optimizedTrajectoryPlanner } from "../src/shared/planners/optimizedTrajectory";
+import * as trajectoryValidation from "../src/shared/planners/trajectoryValidation";
+import retimingFixture from "./fixtures/optimizer-local-retiming.json";
 import { headingAt } from "../src/shared/math/headingAnchors";
 import { buildCanonicalPathState } from "../src/shared/planners/pathState";
 import { accelerationBoundsForSpeedSquared, solveReachabilityProfile } from "../src/shared/planners/reachability";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { TrajectorySample } from "../src/shared/types";
+import type { PlannerInput, TrajectorySample } from "../src/shared/types";
 
 describe("planner hot-path regressions", () => {
+  it("reuses dense geometry while freshly validating each local retiming", () => {
+    // Actual slalom coordinate-search trial: two refinement passes followed by
+    // local retiming. Timing changes; each refinement's geometry stays fixed.
+    const input = structuredClone(retimingFixture) as PlannerInput;
+    const derive = vi.spyOn(PM, "derivePath");
+    const validate = vi.spyOn(trajectoryValidation, "validateOptimizedTrajectory");
+    try {
+      const result = optimizedTrajectoryPlanner.generate(input);
+      expect(result.optimization).toMatchObject({ fallback: false, refinementPasses: 2 });
+      expect(result.totalTimeS).toBeCloseTo(2.66136, 6);
+      expect(input).toEqual(retimingFixture);
+      expect(validate.mock.calls.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(validate.mock.calls.map(call => call[1])).size).toBe(validate.mock.calls.length);
+      expect(validate.mock.results.at(-1)!.value.violations).toEqual([]);
+      const densities = derive.mock.calls.map(call => call[2]);
+      for (const density of [448, 896, 1792]) {
+        expect(densities.filter(value => value === density).length).toBe(1);
+      }
+    } finally { vi.restoreAllMocks(); }
+  });
+
   it("locates dense heading anchors with bounded lookup work", () => {
     let reads = 0;
     const anchors = Array.from({ length: 10001 }, (_, index) => ({

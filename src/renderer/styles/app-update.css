@@ -8,7 +8,7 @@
 .app-update-description{max-height:42px;margin:6px 0 0;overflow:auto;color:var(--txt-2);font-size:12.5px;line-height:1.5}
 /* An interrupted update carries the error tone, and its retry is the primary action. */
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-header h2::before{content:'';flex:none;width:8px;height:8px;border-radius:50%;background:var(--bad)}
-.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action{border-color:var(--accent-surface);background:var(--accent-surface);color:#fff}
+.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action{border-color:var(--accent-surface);background:var(--accent-surface);color:var(--on-accent)}
 .app-update-notes{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:18px 24px 24px;border-top:1px solid var(--line);background:var(--bg);line-height:1.65;overflow-wrap:anywhere}
 .app-update-notes:focus-visible{outline:2px solid var(--focus);outline-offset:-3px}
 .app-update-notes h4{margin:20px 0 8px;font-size:13px;font-weight:600;line-height:1.4}
@@ -31,4 +31,6 @@
 .app-update-secondary{display:flex;gap:8px}
 .app-update-dialog .app-update-action{min-width:96px;min-height:32px;border-color:var(--line-3);background:var(--bg-3)}
 .app-update-dialog .app-update-footer button{min-height:32px}
-@media (hover:hover){.app-update-dialog .app-update-action:hover:not(:disabled){background:var(--bg-4)}.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action:hover:not(:disabled){border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:#fff}}
+@media (hover:hover){.app-update-dialog .app-update-action:hover:not(:disabled){background:var(--bg-4)}.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action:hover:not(:disabled){border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:var(--on-accent)}}
+/* Waiting for main to accept a Close: the controls stay focusable but read as unavailable, like the shared disabled style. */
+.app-update-dialog button[aria-disabled="true"]{opacity:.45;cursor:progress}

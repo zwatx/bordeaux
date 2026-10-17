@@ -4,8 +4,8 @@ import { AUTO } from '../src/renderer/lib/routineModel';
 const output = (kind, extra = {}) => ({ name: 'result', schema: { kind, ...extra } });
 const command = (branch) => ({ id: 'command', type: 'function', cat: 'command', invocation: { commandId: 'scan', arguments: {} }, outputBranch: branch });
 describe('command output branching', () => {
-  it('offers commands, paths, and waits without standalone decisions', () => {
-    expect(AUTO.AUTHORABLE_STEPS.map((step) => step.id)).toEqual(['path', 'command', 'wait']);
+  it('offers branch and bounded control authoring alongside commands, paths, and waits', () => {
+    expect(AUTO.AUTHORABLE_STEPS.map((step) => step.id)).toEqual(['path', 'command', 'decision', 'repeat', 'end', 'wait']);
   });
   it('creates boolean and named routes with exact values and numeric fallback', () => {
     expect(AUTO.newOutputBranch(output('boolean')).routes.map((route) => route.value)).toEqual([true, false]);
@@ -36,7 +36,8 @@ describe('command output branching', () => {
     const routine = { nodes: [command(branch), wait('join', 3)] };
     const run = AUTO.buildRun(routine, [], {}, { command: branch.routes[1].id });
     expect(run.steps.map((step) => step.node.id)).toEqual(['command', 'no', 'join']);
-    expect(run.total).toBe(5.45);
+    expect(run.total).toBe(5);
+    expect(run.duration).toEqual({ minS: 5, maxS: null, unknownCount: 1, usesLimits: false });
     expect(AUTO.buildRun(routine, [], {}, { command: 'stale-id' }).steps.map((step) => step.node.id)).toEqual(['command', 'yes', 'join']);
   });
 });

@@ -5,6 +5,7 @@ import { buildCanonicalPathState } from "../planners/pathState";
 import { BinaryWriter, encodeBinaryEnvelope, utf8, type BinaryKind } from "./binaryCodec";
 import { densifyRobotSamples } from "./robotSamples";
 import { portableFileStem } from "../portableFileName";
+import { robotSchemaValueError } from "../robotCommands";
 
 export interface BinarySelection { kind: BinaryKind; id: string }
 export interface BdxParameterType { niType: string; choices?: string[] }
@@ -47,7 +48,9 @@ export function encodeBdxArgument(type: BdxParameterType, value: unknown): { tag
   else if (integerTypes[type.niType]) {
     const [typeTag, width, signed] = integerTypes[type.niType]; tag = typeTag;
     if (width === 8 && typeof value !== "string") throw new Error(`NI ${type.niType} requires an exact decimal string`);
-    if (typeof value === "string" ? !/^-?(0|[1-9][0-9]*)$/.test(value) || value.length > 21 : typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`NI ${type.niType} requires an exact integer`);
+    if (typeof value === "string"
+      ? robotSchemaValueError(value, { kind: "integerString", valueType: type.niType }) !== null
+      : typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`NI ${type.niType} requires an exact integer`);
     writer.integer(BigInt(value as string | number), width, signed);
   } else if (type.niType === "SGL" || type.niType === "DBL") {
     tag = type.niType === "SGL" ? 10 : 11; if (typeof value !== "number") throw new Error(`NI ${type.niType} requires a number`); writer.dbl(value, tag === 10);

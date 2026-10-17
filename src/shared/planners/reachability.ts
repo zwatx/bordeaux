@@ -41,6 +41,43 @@ export interface ReachabilityResult {
   velocities: number[];
   iterations: number;
   reason?: string;
+  /** Soft solves only: where the returned profile exceeds a limit. */
+  violations?: ReachabilityViolation[];
+}
+
+export type ReachabilityViolationKind =
+  | "acceleration"
+  | "deceleration"
+  | "speed"
+  | "speed-step"
+  | "start-velocity"
+  | "goal-velocity"
+  | "stopped-interval";
+
+/**
+ * A contiguous run of intervals [startInterval, endInterval] whose soft profile
+ * exceeds one limit family. Acceleration runs include adjacent intervals
+ * moving in the same direction on the same binding constraint; measured/limit
+ * describe the worst violating interval, rather than an endpoint average.
+ * Units: m/s² for acceleration kinds, m/s for speed and boundary kinds.
+ */
+export interface ReachabilityViolation {
+  kind: ReachabilityViolationKind;
+  startInterval: number;
+  endInterval: number;
+  worstInterval: number;
+  measured: number;
+  limit: number;
+  constraint?: string;
+}
+
+export interface ReachabilityOptions {
+  /**
+   * Never fail on infeasible limits: clamp to the least-infeasible speed at
+   * each failing interval, continue, and report the violations. Results for
+   * feasible inputs are identical to the strict solve.
+   */
+  soft?: boolean;
 }
 
 function invalid(reason: string): ReachabilityResult {
@@ -411,12 +448,183 @@ function controllablePredecessor(
 }
 
 /**
+ * Soft-solve replacement for an empty controllable predecessor: the single
+ * speed² that minimizes the acceleration gap to the successor set.
+ */
+function leastInfeasiblePredecessor(
+  input: ReachabilityInput,
+  index: number,
+  pointLimit: number,
+  next: ControllableInterval,
+): ControllableInterval {
+  const hold = Math.min(pointLimit, Math.max(0, next.minimum));
+  const distance = input.positions[index + 1] - input.positions[index];
+  if (distance <= EPSILON) return { minimum: hold, maximum: hold };
+  const transitionScale = 2 * distance;
+  const gap = (speedSquared: number): number => {
+    const control = controlBoundsForInterval(input, index, speedSquared, distance);
+    if (!control) return Number.POSITIVE_INFINITY;
+    const minimum = Math.max(control.minimum, (next.minimum - speedSquared) / transitionScale);
+    const maximum = Math.min(control.maximum, (next.maximum - speedSquared) / transitionScale);
+    return minimum - maximum;
+  };
+  let left = 0;
+  let right = pointLimit;
+  for (let iteration = 0; iteration < 56; iteration += 1) {
+    const first = (left * 2 + right) / 3;
+    const second = (left + right * 2) / 3;
+    if (gap(first) <= gap(second)) right = second;
+    else left = first;
+  }
+  const candidates = [0, pointLimit, left, right, (left + right) * 0.5];
+  const center = candidates.reduce((best, candidate) => gap(candidate) < gap(best) ? candidate : best, candidates[0]);
+  const value = Number.isFinite(gap(center)) ? center : hold;
+  return { minimum: value, maximum: value };
+}
+
+/** Largest speed² at or below `speedSquared` with nonempty acceleration bounds. */
+function controllableSpeedSquaredCeiling(
+  input: ReachabilityInput,
+  index: number,
+  speedSquared: number,
+  distance: number,
+): number {
+  if (controlBoundsForInterval(input, index, 0, distance) === null) return 0;
+  let feasible = 0;
+  let infeasible = speedSquared;
+  for (let iteration = 0; iteration < 48; iteration += 1) {
+    const candidate = (feasible + infeasible) * 0.5;
+    if (controlBoundsForInterval(input, index, candidate, distance)) feasible = candidate;
+    else infeasible = candidate;
+  }
+  return feasible;
+}
+
+/** The acceleration constraint whose own bound is tightest in one direction. */
+function bindingConstraintLabel(
+  input: ReachabilityInput,
+  index: number,
+  speedSquared: number,
+  distance: number,
+  direction: "acceleration" | "deceleration" | "speed",
+): string {
+  const candidates: { label: string; bound: number }[] = direction === "deceleration"
+    ? [{ label: "linear-deceleration", bound: -input.decelerationLimits[index] }]
+    : [{ label: "linear-acceleration", bound: input.accelerationLimits[index] }];
+  const freeSpeed = input.freeSpeeds[index];
+  if (direction !== "deceleration" && freeSpeed < 1e8 && distance > EPSILON) {
+    const motorAcceleration = input.motorAccelerationLimits?.[index] ?? input.accelerationLimits[index];
+    const coefficient = 2 * distance * motorAcceleration / freeSpeed;
+    const endVelocity = Math.max(0, (
+      Math.sqrt(coefficient ** 2 + 4 * (speedSquared + 2 * distance * motorAcceleration)) - coefficient
+    ) * 0.5);
+    candidates.push({ label: "motor-acceleration", bound: Math.max(0, (endVelocity ** 2 - speedSquared) / (2 * distance)) });
+  }
+  const constraintBounds = [
+    ...(input.accelerationConstraints?.[index] ?? []).map((constraint) => ({
+      label: constraint.label ?? "drivetrain",
+      bounds: accelerationBoundsForInterval([constraint], speedSquared, distance),
+    })),
+    ...(input.scalarAccelerationConstraints?.[index] ?? []).map((constraint) => ({
+      label: constraint.label ?? "drivetrain",
+      bounds: accelerationBoundsForInterval([], speedSquared, distance, [constraint]),
+    })),
+  ];
+  const empty = constraintBounds.find((entry) => entry.bounds === null);
+  if (empty) return empty.label;
+  for (const entry of constraintBounds) {
+    candidates.push({
+      label: entry.label,
+      bound: direction === "deceleration" ? entry.bounds!.minimum : entry.bounds!.maximum,
+    });
+  }
+  // Prefer the authored linear limit unless another is materially tighter.
+  const margin = (bound: number) => Math.max(EPSILON, Math.abs(bound) * 0.05);
+  return candidates.reduce((best, candidate) => (
+    direction === "deceleration"
+      ? candidate.bound > best.bound + margin(best.bound) ? candidate : best
+      : candidate.bound < best.bound - margin(best.bound) ? candidate : best
+  ), candidates[0]).label;
+}
+
+interface SoftIntervalRecord {
+  kind: ReachabilityViolationKind;
+  interval: number;
+  measured: number;
+  limit: number;
+  constraint?: string;
+}
+
+/**
+ * Groups soft-solve records into maneuvers. An acceleration violation is
+ * extended over neighboring intervals that ride the same limit, and the
+ * reported value remains the actual overload at the worst interval.
+ */
+function summarizeSoftViolations(
+  input: ReachabilityInput,
+  speedSquared: readonly number[],
+  bounds: readonly (ControllableInterval | null)[],
+  records: readonly SoftIntervalRecord[],
+): ReachabilityViolation[] {
+  const accelerationAt = (index: number) => {
+    const distance = input.positions[index + 1] - input.positions[index];
+    return distance > EPSILON ? (speedSquared[index + 1] - speedSquared[index]) / (2 * distance) : 0;
+  };
+  const saturated = (index: number, kind: "acceleration" | "deceleration", constraint: string | undefined) => {
+    const bound = bounds[index];
+    if (!bound || input.positions[index + 1] - input.positions[index] <= EPSILON) return false;
+    const limit = kind === "acceleration" ? bound.maximum : bound.minimum;
+    const tolerance = Math.max(1e-6, Math.abs(limit) * 5e-3);
+    const acceleration = accelerationAt(index);
+    const sameDirection = kind === "acceleration"
+      ? acceleration > 0 && limit > 0 && acceleration >= limit - tolerance
+      : acceleration < 0 && limit < 0 && acceleration <= limit + tolerance;
+    return sameDirection && bindingConstraintLabel(
+      input, index, speedSquared[index], input.positions[index + 1] - input.positions[index], kind,
+    ) === constraint;
+  };
+  const sorted = [...records].sort((left, right) => left.interval - right.interval);
+  const violations: ReachabilityViolation[] = [];
+  for (const record of sorted) {
+    let startInterval = record.interval;
+    let endInterval = record.interval;
+    if (record.kind === "acceleration" || record.kind === "deceleration") {
+      while (startInterval > 0 && saturated(startInterval - 1, record.kind, record.constraint)) startInterval -= 1;
+      while (endInterval < bounds.length - 1 && saturated(endInterval + 1, record.kind, record.constraint)) endInterval += 1;
+    }
+    const previous = violations.at(-1);
+    if (previous && previous.kind === record.kind && previous.constraint === record.constraint && startInterval <= previous.endInterval + 1) {
+      previous.endInterval = Math.max(previous.endInterval, endInterval);
+      if (record.measured - record.limit > previous.measured - previous.limit) {
+        previous.worstInterval = record.interval;
+        previous.measured = record.measured;
+        previous.limit = record.limit;
+        previous.constraint = record.constraint;
+      }
+      continue;
+    }
+    const { interval, ...values } = record;
+    violations.push({ ...values, startInterval, endInterval, worstInterval: interval });
+  }
+  return violations;
+}
+
+/**
  * Computes the fastest controllable scalar speed profile over a fixed path.
  * The backward pass finds the maximum speed that can still reach the authored
  * goal; the forward pass takes the greatest acceleration-safe speed inside
  * that controllable envelope.
+ *
+ * With `soft`, infeasible limits do not fail the solve: each failing interval
+ * is clamped to its least-infeasible speed and reported in `violations`.
+ * Malformed input (counts, non-finite values) is still `invalid-input`.
  */
-export function solveReachabilityProfile(input: ReachabilityInput): ReachabilityResult {
+export function solveReachabilityProfile(
+  input: ReachabilityInput,
+  options: ReachabilityOptions = {},
+): ReachabilityResult {
+  const soft = options.soft === true;
+  const softRecords: SoftIntervalRecord[] = [];
   const count = input.positions.length;
   if (count < 2) return invalid("Reachability optimization requires at least two path samples.");
   if (input.velocityLimits.length !== count) return invalid("Velocity limit count must match path sample count.");
@@ -483,14 +691,24 @@ export function solveReachabilityProfile(input: ReachabilityInput): Reachability
   }
 
   const velocitySquaredLimits = input.velocityLimits.map((velocity) => velocity ** 2);
-  const startSquared = input.startVelocity ** 2;
-  const goalSquared = input.goalVelocity ** 2;
+  let startSquared = input.startVelocity ** 2;
+  let goalSquared = input.goalVelocity ** 2;
+  // Soft mode must never turn finite authored values into an infinite profile.
+  // Preserve the strict solver's existing numeric contract.
+  if (soft && (![startSquared, goalSquared, ...velocitySquaredLimits].every(Number.isFinite)
+    || input.positions.some((position, index) => index > 0 && !Number.isFinite(position - input.positions[index - 1])))) {
+    return invalid("Soft reachability arithmetic exceeds the finite numeric range.");
+  }
   const boundaryTolerance = 1e-8;
   if (startSquared > velocitySquaredLimits[0] + boundaryTolerance) {
-    return invalid("Start velocity exceeds the local velocity limit.");
+    if (!soft) return invalid("Start velocity exceeds the local velocity limit.");
+    softRecords.push({ kind: "start-velocity", interval: 0, measured: input.startVelocity, limit: input.velocityLimits[0] });
+    startSquared = velocitySquaredLimits[0];
   }
   if (goalSquared > velocitySquaredLimits[count - 1] + boundaryTolerance) {
-    return invalid("Goal velocity exceeds the local velocity limit.");
+    if (!soft) return invalid("Goal velocity exceeds the local velocity limit.");
+    softRecords.push({ kind: "goal-velocity", interval: count - 2, measured: input.goalVelocity, limit: input.velocityLimits[count - 1] });
+    goalSquared = velocitySquaredLimits[count - 1];
   }
 
   const controllable = new Array<ControllableInterval>(count);
@@ -503,43 +721,98 @@ export function solveReachabilityProfile(input: ReachabilityInput): Reachability
       controllable[index + 1],
     );
     if (!predecessor) {
-      return { status: "infeasible", velocities: [], iterations: count - 1, reason: `Drivetrain acceleration bounds are empty at interval ${index}.` };
+      if (!soft) {
+        return { status: "infeasible", velocities: [], iterations: count - 1, reason: `Drivetrain acceleration bounds are empty at interval ${index}.` };
+      }
+      // The forward pass measures and records the resulting violation.
+      controllable[index] = leastInfeasiblePredecessor(input, index, velocitySquaredLimits[index], controllable[index + 1]);
+      continue;
     }
     controllable[index] = predecessor;
   }
-  if (startSquared < controllable[0].minimum - boundaryTolerance) {
+  // Soft solves keep the authored start and record the forward-pass violation.
+  if (!soft && startSquared < controllable[0].minimum - boundaryTolerance) {
     return { status: "infeasible", velocities: [], iterations: count - 1, reason: "Goal velocity is unreachable from the authored start velocity and stops." };
   }
-  if (startSquared > controllable[0].maximum + boundaryTolerance) {
+  if (!soft && startSquared > controllable[0].maximum + boundaryTolerance) {
     return { status: "infeasible", velocities: [], iterations: count - 1, reason: "Start velocity cannot decelerate to the authored goal and stops." };
   }
 
   const speedSquared = new Array<number>(count).fill(0);
+  const softBounds: (ControllableInterval | null)[] = soft ? new Array(count - 1).fill(null) : [];
+  const clampToControllable = (value: number, index: number) => Math.max(
+    controllable[index].minimum,
+    Math.min(controllable[index].maximum, value),
+  );
   speedSquared[0] = startSquared;
   for (let index = 0; index < count - 1; index += 1) {
     const distance = Math.max(0, input.positions[index + 1] - input.positions[index]);
     if (distance <= EPSILON) {
       if (speedSquared[index] < controllable[index + 1].minimum - boundaryTolerance
         || speedSquared[index] > controllable[index + 1].maximum + boundaryTolerance) {
-        return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Zero-distance interval ${index} requires incompatible velocities.` };
+        if (!soft) {
+          return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Zero-distance interval ${index} requires incompatible velocities.` };
+        }
+        speedSquared[index + 1] = clampToControllable(speedSquared[index], index + 1);
+        softRecords.push({
+          kind: "speed-step",
+          interval: index,
+          measured: Math.abs(Math.sqrt(speedSquared[index + 1]) - Math.sqrt(speedSquared[index])),
+          limit: 0,
+        });
+        continue;
       }
       speedSquared[index + 1] = speedSquared[index];
       continue;
     }
     const control = controlBoundsForInterval(input, index, speedSquared[index], distance);
     if (!control) {
-      return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Drivetrain acceleration bounds are empty at interval ${index}.` };
+      if (!soft) {
+        return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Drivetrain acceleration bounds are empty at interval ${index}.` };
+      }
+      softRecords.push({
+        kind: "speed",
+        interval: index,
+        measured: Math.sqrt(speedSquared[index]),
+        limit: Math.sqrt(controllableSpeedSquaredCeiling(input, index, speedSquared[index], distance)),
+        constraint: bindingConstraintLabel(input, index, speedSquared[index], distance, "speed"),
+      });
+      speedSquared[index + 1] = clampToControllable(speedSquared[index], index + 1);
+      continue;
     }
+    if (soft) softBounds[index] = control;
     const reachableMinimum = speedSquared[index] + 2 * control.minimum * distance;
     const reachableMaximum = speedSquared[index] + 2 * control.maximum * distance;
     const nextMinimum = Math.max(controllable[index + 1].minimum, reachableMinimum, 0);
     const nextMaximum = Math.min(controllable[index + 1].maximum, reachableMaximum, velocitySquaredLimits[index + 1]);
     if (nextMinimum > nextMaximum + 1e-7) {
-      return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Velocity caps require impossible acceleration at interval ${index}: ${nextMinimum} exceeds ${nextMaximum}.` };
+      if (!soft) {
+        return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Velocity caps require impossible acceleration at interval ${index}: ${nextMinimum} exceeds ${nextMaximum}.` };
+      }
+      // Enter the controllable set at its nearest edge; the overshoot is the violation.
+      const targetMaximum = Math.min(controllable[index + 1].maximum, velocitySquaredLimits[index + 1]);
+      const targetMinimum = Math.min(targetMaximum, Math.max(controllable[index + 1].minimum, 0));
+      const accelerating = reachableMaximum < targetMinimum;
+      speedSquared[index + 1] = accelerating ? targetMinimum : targetMaximum;
+      const required = (speedSquared[index + 1] - speedSquared[index]) / (2 * distance);
+      softRecords.push({
+        kind: accelerating ? "acceleration" : "deceleration",
+        interval: index,
+        measured: Math.abs(required),
+        limit: Math.abs(accelerating ? control.maximum : control.minimum),
+        constraint: bindingConstraintLabel(
+          input,
+          index,
+          speedSquared[index],
+          distance,
+          accelerating ? "acceleration" : "deceleration",
+        ),
+      });
+      continue;
     }
     speedSquared[index + 1] = nextMaximum;
   }
-  if (Math.abs(speedSquared[count - 1] - goalSquared) > boundaryTolerance) {
+  if (!soft && Math.abs(speedSquared[count - 1] - goalSquared) > boundaryTolerance) {
     return { status: "infeasible", velocities: [], iterations: (count - 1) * 2, reason: "Goal velocity is unreachable from the authored start velocity and stops." };
   }
   speedSquared[count - 1] = goalSquared;
@@ -547,6 +820,10 @@ export function solveReachabilityProfile(input: ReachabilityInput): Reachability
   for (let index = 0; index < count - 1; index += 1) {
     const distance = input.positions[index + 1] - input.positions[index];
     if (distance > EPSILON && speedSquared[index] + speedSquared[index + 1] <= EPSILON) {
+      if (soft) {
+        softRecords.push({ kind: "stopped-interval", interval: index, measured: 0, limit: 0 });
+        continue;
+      }
       return {
         status: "invalid-input",
         velocities: [],
@@ -556,9 +833,26 @@ export function solveReachabilityProfile(input: ReachabilityInput): Reachability
     }
   }
 
+  const velocities = speedSquared.map((value) => Math.sqrt(Math.max(0, value)));
+  if (soft) {
+    if (!speedSquared.every(Number.isFinite) || !velocities.every(Number.isFinite)) {
+      return invalid("Soft reachability arithmetic exceeds the finite numeric range.");
+    }
+    const violations = summarizeSoftViolations(input, speedSquared, softBounds, softRecords);
+    if (!violations.every((violation) => Number.isFinite(violation.measured) && Number.isFinite(violation.limit))) {
+      return invalid("Soft reachability diagnostics exceed the finite numeric range.");
+    }
+    return {
+      status: violations.length > 0 ? "infeasible" : "optimal",
+      velocities,
+      iterations: (count - 1) * 2,
+      ...(violations.length > 0 ? { reason: "Soft reachability exceeded one or more limits." } : {}),
+      violations,
+    };
+  }
   return {
     status: "optimal",
-    velocities: speedSquared.map((value) => Math.sqrt(Math.max(0, value))),
+    velocities,
     iterations: (count - 1) * 2,
   };
 }

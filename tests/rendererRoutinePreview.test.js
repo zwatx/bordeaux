@@ -76,6 +76,16 @@ describe("routine planning", () => {
     expect(paths[2]).toBe(c);
   });
 
+  it("plans repeat and unselected routes once and reports missing references before claiming ready", async () => {
+    const project = createDemoProject(), first = project.paths[0], other = { ...first, id: "other", name: "Other" };
+    const routine = { id: "routine", nodes: [{ id: "loop", type: "repeat", times: 50, nodes: [{ id: "branch", type: "decision", then: [{ id: "first", type: "path", ref: first.id }], else: [{ id: "other", type: "path", ref: other.id }, { id: "first-again", type: "path", ref: first.id }] }] }] };
+    const paths = [first, other];
+    render(true, routine, paths, project.robot, project.field, project.plannerId); await settle();
+    expect(render(true, routine, paths, project.robot, project.field, project.plannerId).status).toBe("ready");
+    expect(planning.request).toHaveBeenCalledTimes(2);
+    expect(render(true, routine, [first], project.robot, project.field, project.plannerId)).toMatchObject({ status: "error", error: "1 path is missing from this routine.", missingPathIds: ["other"] });
+  });
+
   it("keeps ready plans when a Wait edit leaves referenced paths unchanged", async () => {
     const project = createDemoProject();
     const path = project.paths[0];
@@ -99,7 +109,7 @@ describe("routine planning", () => {
     await settle();
     expect(render(true, edited, renamed, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "ready" });
     expect(planning.request).toHaveBeenCalledTimes(2);
-    expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ path: renamed[0], field: project.field }), { deadline: "common" });
+    expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ path: renamed[0], field: project.field }), { deadline: "common", failureNote: "Routine preview is unavailable." });
   });
 
   it("replans for a new field and treats the prior field's plans as stale", async () => {
@@ -112,7 +122,7 @@ describe("routine planning", () => {
     expect(render(true, routine, project.paths, project.robot, field, "profiledSpline")).toMatchObject({ status: "pending", values: {} });
     await settle();
     expect(render(true, routine, project.paths, project.robot, field, "profiledSpline")).toMatchObject({ status: "ready" });
-    expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ field }), { deadline: "common" });
+    expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ field }), { deadline: "common", failureNote: "Routine preview is unavailable." });
   });
 
   it.each([

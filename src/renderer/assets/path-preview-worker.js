@@ -1,5 +1,8 @@
+import { planPath } from "../../shared/planners/planPath";
+import { isOptimizationOutdated } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
-import { optimizeCorridorFinal } from "../../shared/planners/corridorFinal";
+import { optimizeRouteFinal } from "../../shared/planners/routeFinal";
 import { getPlanner } from "../../shared/planners";
 import { authoredPath, getAcceptedTrajectory } from "../../shared/planners/acceptedTrajectory";
 
@@ -241,21 +244,60 @@ function interactiveTrajectory(input) {
 
 /** Projects the exact selected result without rerunning the optimizer. */
 export function previewForTrajectory(path, robot, trajectory, derive = PM.derivePath, perSegment = 56) {
-  return applyFinalTrajectoryToPreview(
-    derive(trajectory.optimizedPath || authoredPath(path), robot, perSegment, trajectory.planner),
-    trajectory,
-  );
+  let geometry = derive(trajectory.optimizedPath || authoredPath(path), robot, perSegment, trajectory.planner);
+  const required = trajectory.routeGeometry?.requiredPointIndices;
+  if (required) {
+    // Solver knots describe the curve; only authored required points can own
+    // editor selections and stationary-action indices.
+    geometry = { ...geometry,
+      wpIdx: required.map((index) => geometry.wpIdx[index]),
+      wpFrac: required.map((index) => geometry.wpFrac[index]),
+    };
+  }
+  return applyFinalTrajectoryToPreview(geometry, trajectory);
+}
+
+/** Opt-in editing contract; legacy final/optimization jobs retain their existing API. */
+export function processEditingPlanningJob(job) {
+  const input = { path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment || 56 };
+  const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
+  const currentAccepted = job.path.optimization?.accepted && !isOptimizationOutdated(job.path, job.robot, job.field);
+  let plan = accepted
+    ? { status: 'ok', trajectory: accepted, bestEffort: { samples: accepted.samples, totalTimeS: accepted.totalTimeS }, issues: [] }
+    : planPath(input);
+  if (currentAccepted && !accepted) {
+    plan = { ...plan, status: 'infeasible', trajectory: null, issues: [...plan.issues, {
+      code: 'planner', severity: 'error', f0: 0, f1: 1,
+      message: 'Selected optimization could not be validated',
+    }] };
+  }
+  let comparison;
+  let derived = projectEditingTiming(editingGeometry(plan.trajectory?.optimizedPath || input.path, 14, job.robot), plan.bestEffort, plan.issues);
+  if (plan.trajectory) {
+    let projected = false;
+    try { derived = previewForTrajectory(input.path, job.robot, plan.trajectory, PM.derivePath, input.samplesPerSegment); projected = true; }
+    catch (error) {
+      derived = { ...derived, finalTrajectory: plan.trajectory, finalOptimization: plan.trajectory.optimization };
+      comparison = { status: 'error', message: error?.message || String(error) };
+    }
+    derived = { ...derived, trajectorySamples: plan.bestEffort.samples, acceptedTrajectory: Boolean(accepted) };
+    if (projected) comparison = { status: 'ready', projectionVersion: 1, previewDensity: input.samplesPerSegment };
+  }
+  return { ...plan, derived, acceptedTrajectory: Boolean(accepted), comparison };
 }
 
 export function processPathPreviewJob(
   job,
   derive = PM.derivePath,
-  optimize = optimizeCorridorFinal,
+  optimize = optimizeRouteFinal,
   profile = interactiveTrajectory,
   emitProgress = () => {},
 ) {
   const startedAt = performance.now();
   try {
+    if (job.mode === 'editing') {
+      return { id: job.id, quality: job.quality, value: processEditingPlanningJob(job), durationMs: performance.now() - startedAt };
+    }
     const path = authoredPath(job.path);
     // Keep pointer editing on the low-latency geometry pass. Final planning
     // replaces it with the authoritative physics result after the edit settles.
@@ -269,17 +311,17 @@ export function processPathPreviewJob(
     }
     if (job.optimize === true) {
       const toPreview = (trajectory) => previewForTrajectory(path, job.robot, trajectory, derive, job.perSegment);
-      const finalTrajectory = optimize(
+      const search = optimize(
         { path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment },
         {
           budgetTier: job.deadline,
           budgetMs: job.deadlineMs,
-          corridorM: job.path.optimization?.corridorM ?? 0.15,
           onProgress: (trajectory) => emitProgress({
             id: job.id,
             type: 'progress',
             quality: job.quality,
-            value: toPreview(trajectory),
+            value: { ...toPreview(trajectory), routeSearch: { status: 'feasible',
+              seedStatus: trajectory.optimization?.seedStatus || 'unknown' } },
             durationMs: performance.now() - startedAt,
           }),
           // Counters only: the incumbent and its projected preview are unchanged.
@@ -292,6 +334,17 @@ export function processPathPreviewJob(
           }),
         },
       );
+      // The injected legacy planner remains useful to historical worker tests;
+      // production uses the explicit route-search envelope, including no result.
+      const finalTrajectory = search.candidate || (search.optimization ? search : null);
+      const routeSearch = search.status ? {
+        status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
+        seedStatus: search.seedStatus || 'unknown',
+      } : undefined;
+      if (!finalTrajectory) return {
+        id: job.id, quality: job.quality,
+        value: { routeSearch }, durationMs: performance.now() - startedAt,
+      };
       if (finalTrajectory.optimization?.fallback) {
         return {
           id: job.id,
@@ -303,7 +356,7 @@ export function processPathPreviewJob(
       return {
         id: job.id,
         quality: job.quality,
-        value: toPreview(finalTrajectory),
+        value: { ...toPreview(finalTrajectory), routeSearch },
         durationMs: performance.now() - startedAt,
       };
     }
@@ -333,6 +386,6 @@ export function processPathPreviewJob(
 
 if (typeof self !== 'undefined') {
   self.onmessage = (event) => self.postMessage(
-    processPathPreviewJob(event.data, PM.derivePath, optimizeCorridorFinal, interactiveTrajectory, (progress) => self.postMessage(progress)),
+    processPathPreviewJob(event.data, PM.derivePath, optimizeRouteFinal, interactiveTrajectory, (progress) => self.postMessage(progress)),
   );
 }

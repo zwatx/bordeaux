@@ -232,7 +232,7 @@ describe("corridor final optimization", () => {
     expect(published).toBe(2);
   }), 15_000);
 
-  it("never worsens the validated result as deterministic work increases", () => {
+  it("never worsens the validated result as deterministic work increases", () => withWorkBudget(() => {
     const fixture = corpus.cases[1];
     const path = project.paths.find((candidate) => candidate.id === fixture.pathId)!;
     let previousTime = Number.POSITIVE_INFINITY;
@@ -245,9 +245,13 @@ describe("corridor final optimization", () => {
       expect(result.optimization?.status).not.toBe("optimal");
       expect(result.optimization!.validatedCandidates! + result.optimization!.rejectedCandidates!)
         .toBe(result.optimization?.evaluations);
+      expect(result.optimization?.evaluations).toBeGreaterThan(0);
+      expect(result.optimization?.evaluations).toBeLessThanOrEqual(maximumEvaluations);
+      expect(["completed", "work-budget"]).toContain(result.optimization?.termination);
+      if (result.optimization?.termination === "work-budget") expect(result.optimization.evaluations).toBe(maximumEvaluations);
       previousTime = result.totalTimeS;
     }
-  }, 30_000);
+  }), 30_000);
 
   it("reports bounded candidate rejection evidence separately from result quality", () => {
     const fixture = corpus.cases[1];
@@ -263,7 +267,7 @@ describe("corridor final optimization", () => {
     expect(result.optimization?.rejectionReasons).toContainEqual({ reason: "Missed a required gate", count: 4 });
   });
 
-  it("is deterministic at a fixed evaluation ceiling", () => {
+  it("is deterministic at a fixed evaluation ceiling", () => withWorkBudget(() => {
     const fixture = corpus.cases[1];
     const path = project.paths.find((candidate) => candidate.id === fixture.pathId)!;
     const input = { path, robot: project.robot, samplesPerSegment: 56 };
@@ -281,5 +285,7 @@ describe("corridor final optimization", () => {
     expect(second.optimizedPath).toEqual(first.optimizedPath);
     expect(second.samples).toEqual(first.samples);
     expect(second.optimization?.evaluations).toBe(first.optimization?.evaluations);
-  }, 30_000);
+    expect(first.optimization).toMatchObject({ termination: "work-budget", evaluations: options.maximumEvaluations });
+    expect(second.optimization).toMatchObject({ termination: "work-budget", evaluations: options.maximumEvaluations });
+  }), 30_000);
 });

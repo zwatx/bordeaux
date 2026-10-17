@@ -27,7 +27,7 @@ async function snapshot(name) { await fs.writeFile(path.join(output, name + '.pn
 ipcMain.handle('branches:restore', () => ({ project: saved }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
-async function save() { const before = saves; await click('button[aria-label="Project menu"]'); await click('[role="menuitem"]', 'Save'); await wait(() => saves > before, 'save'); }
+async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save'); }
 app.whenReady().then(async () => {
   try {
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v1/corpus.bordeaux.json', 'utf8'));
@@ -37,32 +37,33 @@ app.whenReady().then(async () => {
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     win.focus(); win.webContents.focus();
-    await wait(() => evaluate(() => document.querySelectorAll('.wpfeatrow .featselect').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(120);
-      const rect = () => evaluate(() => { const r = document.querySelector('.cbar').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+      const rect = () => evaluate(() => { const r = document.querySelector('.pp-more').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
       const beforePress = await rect();
       const point = { x: Math.round(beforePress.x + beforePress.width / 2), y: Math.round(beforePress.y + beforePress.height / 2) };
-      assert.equal(await evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.cbar'), point), true);
+      assert.equal(await evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.pp-more'), point), true);
       win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
       await delay(100);
-      assert.deepEqual(await rect(), beforePress, 'Constraint bar must not shift while pressed');
+      assert.deepEqual(await rect(), beforePress, 'Path properties More must not shift while pressed');
       await snapshot('constraints-pressed-' + width);
       win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
       await delay(100);
-      assert.deepEqual(await rect(), beforePress, 'Constraint bar must not shift after click');
+      assert.deepEqual(await rect(), beforePress, 'Path properties More must not shift after click');
     }
     win.setContentSize(1440, 900); await delay(100);
-    console.log('PASS Constraint bar remains fixed during mouse-down and after click at both supported sizes');
-    await click('.wpfeatrow .featselect');
-    await click('.pageswitch button', 'Editor'); await key('Tab');
-    assert.equal(await evaluate(() => document.activeElement.textContent.trim()), 'Settings');
+    console.log('PASS Path properties More (the path limits entry point) remains fixed during mouse-down and after click at both supported sizes');
+    await click('.pt-wp');
+    // Paths is already the current place, so this only moves keyboard focus into the toolbar's places.
+    await click('.places .place', 'Paths'); await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement.textContent.trim()), 'Routines');
     const before = structuredClone(first.waypoints);
     for (const k of ['Right', 'Delete', 'Backspace']) await key(k);
     await save(); assert.deepEqual(saved.paths[0].waypoints, before);
     await snapshot('editor-1440');
     console.log('PASS Keyboard-focused toolbar controls cannot nudge or delete the selected waypoint');
-    await click('.pageswitch button', 'Settings');
+    await click('.places .place', 'Settings');
     await click('input[aria-label="Robot width"]');
     await key('Home'); win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End', modifiers: ['shift'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'End', modifiers: ['shift'] });
     await win.webContents.insertText('invalid'); await key('Enter');
@@ -78,25 +79,38 @@ app.whenReady().then(async () => {
     await save(); assert.equal(saved.robot.w, 0.8128);
     await snapshot('settings-1440');
     console.log('PASS Robot numeric Escape/Enter preserves exact values and decoration drags cannot change dimensions');
-    await click('.pageswitch button', 'Editor');
-    await click('.library-tabs button', 'Routines'); await click('[data-library-item="route-test"]');
+    await click('.places .place', 'Paths');
+    await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
     await click('[data-id="path-a"] .rt-step-body'); await click('button[aria-label="Close step inspector"]');
     assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-a');
     await click('.rt-add'); await key('Escape');
     assert.equal(await evaluate(() => document.activeElement.classList.contains('rt-add')), true);
     assert.equal(await evaluate(() => document.querySelector('.rt-add').getAttribute('aria-expanded')), 'false');
-    await click('.rt-gap-btn'); await key('Escape');
-    assert.equal(await evaluate(() => document.activeElement.classList.contains('rt-gap-btn')), true);
-    // Confirm an explicit deletion; never exercise live robot transports.
+    // Add after a row (A) and Escape return focus to that row.
+    await click('[data-id="path-a"] .rt-step-body'); await key('A');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a path or step');
+    await key('Escape');
+    assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-a');
+    // Explicit local deletion offers exact-target Undo; never exercise live robot transports.
     await evaluate(() => { window.__confirms = []; window.confirm = (message) => { window.__confirms.push(message); return true; }; });
-    await click('[data-id="path-a"] button[aria-label="Delete step"]');
+    const assertStepNotice = async () => {
+      const notice = await evaluate(() => {
+        const footer = document.querySelector('.deletion-footer'), status = footer?.querySelector('[role="status"]'), button = footer?.querySelector('.deletion-notice button');
+        return { copy: footer?.querySelector('.deletion-copy')?.textContent, detail: status?.textContent, polite: status?.getAttribute('aria-live'), atomic: status?.getAttribute('aria-atomic'), action: button?.getAttribute('aria-label'), enabled: Boolean(button && !button.disabled && button.getAttribute('aria-disabled') !== 'true'), confirms: window.__confirms };
+      });
+      assert.equal(notice.copy, 'Step deleted');
+      assert.equal(notice.detail, 'Deleted “' + first.name + '”.');
+      assert.equal(notice.polite, 'polite'); assert.equal(notice.atomic, 'true');
+      assert.equal(notice.action, 'Undo: ' + notice.detail); assert.equal(notice.enabled, true);
+      assert.deepEqual(notice.confirms, [], 'Step deletion offers Undo without a native confirmation');
+    };
+    await click('[data-id="path-a"] .rt-step-body'); await key('Delete');
+    await assertStepNotice();
     assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-b');
-    await click('[data-id="path-b"] button[aria-label="Delete step"]');
+    await key('Delete');
+    await assertStepNotice();
     assert.equal(await evaluate(() => document.activeElement.classList.contains('rt-add')), true);
-    const stepConfirms = await evaluate(() => window.__confirms);
-    assert.equal(stepConfirms.length, 2);
-    assert.ok(stepConfirms.every((message) => message.endsWith('You can undo this.') && !/branch/i.test(message)), 'Plain steps own no branches: ' + JSON.stringify(stepConfirms));
-    await key('Enter'); await click('.rt-ch-row', 'PathFollow a planned trajectory');
+    await key('Enter'); await key('Enter');
     console.log('PASS Routine close/delete and Escape on add-step choosers restore usable keyboard focus');
     await wait(() => evaluate(() => !!document.querySelector('button[aria-label="Play routine"]:not(:disabled)')), 'routine preview ready');
     await evaluate(() => document.querySelector('button[aria-label="Play routine"]').focus());

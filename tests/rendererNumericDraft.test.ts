@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadRendererExport } from "./helpers/loadRendererExport";
 import { committedDraftValue, parseFiniteDraftNumber } from "../src/renderer/lib/numericDraft";
+import { formatAngularLimit } from "../src/renderer/lib/unitPreferences";
 
 type ElementNode = { type: unknown; props: Record<string, unknown>; children: unknown[] };
 
@@ -22,6 +23,13 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
   let unitSystem = "metric";
   const document = { activeElement: null as unknown };
   const frames: Array<() => void> = [];
+  let renderedTree: ElementNode;
+  let scrubHandlers: { move: (event: { clientX: number }) => void; end: () => void; cancel: () => void };
+  const scrubKeys = new Map<string, (event: unknown) => void>();
+  const rendererWindow = {
+    addEventListener: (type: string, listener: (event: unknown) => void) => scrubKeys.set(type, listener),
+    removeEventListener: (type: string) => scrubKeys.delete(type),
+  };
   const React = {
     createElement: element,
     useEffect: (effect: () => void, dependencies: unknown[]) => {
@@ -52,7 +60,10 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
     React,
     committedDraftValue,
     PM: {},
-    PointerDrag: { useController: () => ({ start: () => undefined }) },
+    PointerDrag: { useController: () => ({
+      start: (_event: unknown, handlers: typeof scrubHandlers) => { scrubHandlers = handlers; },
+      cancel: () => scrubHandlers.cancel(),
+    }) },
     UnitPrefs,
     UI: {},
     document,
@@ -62,7 +73,7 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
     ? loadRendererExport<{ Num: (props: Record<string, unknown>) => ElementNode }>(
         new URL("../src/renderer/components/ui.jsx", import.meta.url),
         "UI",
-        { context: { ...context, createPortal: () => null } },
+        { context: { ...context, createPortal: () => null }, window: rendererWindow },
       ).Num
     : loadRendererExport<{ BigNum: (props: Record<string, unknown>) => ElementNode }>(
         new URL("../src/renderer/components/RobotPage.jsx", import.meta.url),
@@ -71,7 +82,8 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
       ).BigNum;
   const onChange = vi.fn();
   const props = { label: "Value", value: 1, unit: "m", imperialUnit: "in", onChange, ...overrides };
-  const render = () => {
+  const render = (patch: Record<string, unknown> = {}) => {
+    Object.assign(props, patch);
     let tree: ElementNode;
     for (let pass = 0; pass < 2; pass += 1) {
       stateIndex = 0;
@@ -83,9 +95,18 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
       pendingEffects = [];
       effects.forEach((effect) => effect());
     }
+    renderedTree = tree!;
     return inputIn(tree!)!;
   };
-  return { render, onChange, document, flushFrames: () => frames.splice(0).forEach(callback => callback()), setUnitSystem: (next: string) => { unitSystem = next; } };
+  return { render, onChange, document,
+    startScrub: () => {
+      const label = renderedTree.children.find(child => (child as ElementNode)?.type === "label") as ElementNode;
+      (label.props.onPointerDown as Function)({ button: 0, clientX: 0, preventDefault() {} });
+    },
+    moveScrub: (clientX: number) => scrubHandlers.move({ clientX }),
+    endScrub: () => scrubHandlers.end(),
+    cancelScrub: () => scrubKeys.get("keydown")?.({ key: "Escape", preventDefault() {}, stopPropagation() {} }),
+    flushFrames: () => frames.splice(0).forEach(callback => callback()), setUnitSystem: (next: string) => { unitSystem = next; } };
 }
 
 function numInput(projectDraft?: boolean): ElementNode {
@@ -185,6 +206,44 @@ function commandNumberInput(onChange: (value: number) => void, overrides = {}): 
 }
 
 describe("renderer numeric drafts", () => {
+  it("formats angular inputs without changing the default numeric precision", () => {
+    expect(numericDraftHarness("Num", { value: 0.01, unit: "°/s", precision: 0, format: formatAngularLimit }).render().props.value).toBe("0.01");
+    expect(numericDraftHarness("Num", { value: 0.01, unit: "°/s", precision: 0 }).render().props.value).toBe("0");
+  });
+
+  it.each(["Num", "BigNum"] as const)("preserves an untouched %s below its editor minimum on blur and Enter", (kind) => {
+    for (const commit of ["blur", "Enter"]) {
+      const harness = numericDraftHarness(kind, { value: 0.004, min: 0.01, unit: "°/s", format: formatAngularLimit });
+      let input = harness.render();
+      (input.props.onFocus as Function)({ target: { select() {} } }); input = harness.render();
+      expect(input.props.value).toBe("0.004");
+      if (commit === "blur") (input.props.onBlur as Function)({ target: { value: input.props.value } });
+      else {
+        const target = { value: input.props.value, blur() {} };
+        (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target, currentTarget: target });
+      }
+      expect(harness.onChange).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still clamps edited drafts and keeps exact typed angular values", () => {
+    for (const [min, raw, expected] of [[0.01, "0.004", 0.01], [undefined, "0.0123", 0.0123]] as const) {
+      const harness = numericDraftHarness("Num", { value: 1, min, unit: "°/s", format: formatAngularLimit });
+      let input = harness.render();
+      (input.props.onChange as Function)({ target: { value: raw } }); input = harness.render();
+      (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target: { value: raw, blur() {} } });
+      expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(expected);
+    }
+  });
+
+  it("uses angular formatting for a scrub preview and commits the exact preview once", () => {
+    const harness = numericDraftHarness("Num", { value: 0.01, step: 0.001, unit: "°/s", format: formatAngularLimit });
+    harness.render(); harness.startScrub(); harness.moveScrub(4);
+    expect(harness.render().props.value).toBe(formatAngularLimit(0.042));
+    expect(harness.onChange).not.toHaveBeenCalled(); harness.endScrub();
+    expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(0.042);
+  });
+
   it.each(["", "   ", "not-a-number"])("rejects an invalid numeric draft %#", (raw) => {
     expect(parseFiniteDraftNumber(raw)).toBeNull();
   });
@@ -334,6 +393,65 @@ describe("renderer numeric drafts", () => {
     (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target: { value: "2", blur } });
     expect(blur).toHaveBeenCalled();
     expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(2);
+  });
+
+  it("shows an externally restored Num value after Enter commits without a blur event", () => {
+    const harness = numericDraftHarness("Num", { value: 4 });
+    let input = harness.render();
+    (input.props.onChange as Function)({ target: { value: "2.7" } });
+    input = harness.render();
+    // The observed offscreen sequence changes DOM focus but emits no blur event.
+    // Exercise the actual Num handler without assuming blur performs its cleanup.
+    const target = { value: "2.7", blur: vi.fn(() => { harness.document.activeElement = null; }) };
+    harness.document.activeElement = target;
+    (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target });
+    expect(target.blur).toHaveBeenCalledOnce();
+    expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(2.7);
+    input = harness.render({ value: 2.7 });
+    expect(Number(input.props.value)).toBe(2.7);
+
+    // Parent Undo restores the canonical value after the committed edit.
+    input = harness.render({ value: 4 });
+    expect(input.props.value).toBe("4.00");
+    (input.props.onBlur as Function)({ target: { value: "2.7" } });
+    expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(2.7);
+  });
+
+  it.each(["release", "cancel"])("keeps Num Enter during a scrub deferred to %s", (finish) => {
+    const harness = numericDraftHarness("Num", { value: 4 });
+    harness.render();
+    harness.startScrub();
+    harness.moveScrub(10);
+    let input = harness.render();
+    const preview = Number(input.props.value);
+    expect(preview).toBe(4.8);
+    const blur = vi.fn();
+    (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target: { value: String(preview), blur } });
+    expect(blur).not.toHaveBeenCalled();
+    expect(harness.onChange).not.toHaveBeenCalled();
+    expect(Number(harness.render().props.value)).toBe(preview);
+    if (finish === "release") {
+      harness.endScrub();
+      expect(harness.onChange).toHaveBeenCalledExactlyOnceWith(preview);
+      input = harness.render({ value: preview });
+    } else {
+      harness.cancelScrub();
+      expect(harness.onChange).not.toHaveBeenCalled();
+      input = harness.render();
+    }
+    expect(Number(input.props.value)).toBe(finish === "release" ? preview : 4);
+  });
+
+  it("does not round-trip an untouched Num presentation on Enter without blur", () => {
+    const harness = numericDraftHarness("Num", { value: 4.12345 });
+    let input = harness.render();
+    expect(input.props.value).toBe("4.12");
+    const blur = vi.fn();
+    (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, target: { value: "4.12", blur } });
+    expect(blur).toHaveBeenCalledOnce();
+    expect(harness.onChange).not.toHaveBeenCalled();
+    input = harness.render({ value: 5.67891 });
+    expect(input.props.value).toBe("5.68");
   });
 
   it("keeps the exact canonical BigNum value when display units change while it is focused", () => {

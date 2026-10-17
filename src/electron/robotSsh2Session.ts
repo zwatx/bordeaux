@@ -131,26 +131,32 @@ class Ssh2RobotSession implements RobotSftpSession {
     private readonly cleanup: () => void,
   ) {}
 
-  async ensureDirectory(directory: string, create: boolean, signal: AbortSignal): Promise<void> {
-    validateRobotFileDirectory(directory);
+  private async directoryStat(target: string, signal: AbortSignal): Promise<Stats | null> {
+    let stat = await guarded<Stats | null>(signal, this.timedOut, (resolve, reject) => {
+      this.sftp.lstat(target, (error, value) => {
+        if (!error) resolve(value);
+        else if ((error as Error & { code?: number }).code === 2) resolve(null);
+        else reject(operationError(signal, this.timedOut, error));
+      });
+    });
+    // LabVIEW's runtime directory may be linked into the lvuser home. Follow
+    // directories only; read/exists still reject links at selected file names.
+    if (stat?.isSymbolicLink()) {
+      stat = await guarded<Stats>(signal, this.timedOut, (resolve, reject) => {
+        this.sftp.stat(target, (error, value) => error ? reject(operationError(signal, this.timedOut, error)) : resolve(value));
+      });
+    }
+    return stat;
+  }
+
+  async ensureDirectory(directory: string, create: boolean, signal: AbortSignal): Promise<{ created: boolean }> {
+    directory = validateRobotFileDirectory(directory);
+    let created = false;
     const parts = directory.split("/").filter(Boolean);
     for (let index = 1; index <= parts.length; index += 1) {
       const target = `/${parts.slice(0, index).join("/")}`;
       const combined = AbortSignal.any([signal, this.sessionSignal]);
-      let stat = await guarded<Stats | null>(combined, this.timedOut, (resolve, reject) => {
-        this.sftp.lstat(target, (error, value) => {
-          if (!error) resolve(value);
-          else if ((error as Error & { code?: number }).code === 2) resolve(null);
-          else reject(operationError(combined, this.timedOut, error));
-        });
-      });
-      // LabVIEW's runtime directory may be linked into the lvuser home. Follow
-      // directories only; read/exists still reject links at selected file names.
-      if (stat?.isSymbolicLink()) {
-        stat = await guarded<Stats>(combined, this.timedOut, (resolve, reject) => {
-          this.sftp.stat(target, (error, value) => error ? reject(operationError(combined, this.timedOut, error)) : resolve(value));
-        });
-      }
+      let stat = await this.directoryStat(target, combined);
       if (!stat) {
         // Required system/account roots cannot be created by an upload. Detect
         // them during the read-only probe too, before presenting a usable target.
@@ -161,12 +167,27 @@ class Ssh2RobotSession implements RobotSftpSession {
           throw new RobotTransportError("transfer_failed", `Required robot directory ${target} is unavailable.${hint}`);
         }
         // Probe tolerates missing upload directories, but never creates anything.
-        if (!create) return;
-        await callbackOperation(combined, this.timedOut, (callback) => this.sftp.mkdir(target, { mode: 0o755 }, callback));
+        if (!create) return { created: false };
+        try {
+          await callbackOperation(combined, this.timedOut, (callback) => this.sftp.mkdir(target, { mode: 0o755 }, callback));
+          if (index === parts.length) created = true;
+        } catch (error) {
+          const cause = error instanceof RobotTransportError ? error.cause : error;
+          const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+          // SFTP v3 reports an existing-directory race as generic FAILURE (4).
+          // Confirm it became a directory, without claiming this upload created it.
+          if (combined.aborted || this.timedOut() || (code !== 4 && code !== 11 && code !== "EEXIST")) throw error;
+          stat = await this.directoryStat(target, combined);
+          if (!stat) throw error;
+          if (!stat.isDirectory() || stat.isSymbolicLink()) {
+            throw new RobotTransportError("transfer_failed", "Robot destination contains a non-directory");
+          }
+        }
       } else if (!stat.isDirectory() || stat.isSymbolicLink()) {
         throw new RobotTransportError("transfer_failed", "Robot destination contains a non-directory");
       }
     }
+    return { created };
   }
 
   async read(file: RobotRemoteFile, maxBytes: number, signal: AbortSignal): Promise<Buffer> {

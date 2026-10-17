@@ -16,6 +16,13 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
     if (next.length !== previous.length || next.some((path, index) => path !== previous[index])) referencedPaths.current = next;
     return referencedPaths.current;
   }, [routine, projectPaths]);
+  const missingPathIds = useMemo(() => {
+    const missing = new Set();
+    AUTO.walk(routine?.nodes, node => {
+      if (node.type === 'path' && !projectPaths.some(path => path.id === node.ref)) missing.add(node.ref || '(unselected)');
+    });
+    return [...missing];
+  }, [routine, projectPaths]);
   const [planningState, setPlanningState] = useState(() => ({
     paths, robot, field, plannerId, status: 'idle', values: {}, error: '',
   }));
@@ -29,7 +36,7 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
         if (!active) return;
         currentRequest = planner.request(
           { key: path.id, path, robot, field, plannerId },
-          { deadline: 'common' },
+          { deadline: 'common', failureNote: 'Routine preview is unavailable.' },
         );
         const result = await currentRequest.promise;
         if (!active) return;
@@ -52,6 +59,7 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
       if (currentRequest) currentRequest.cancel();
     };
   }, [enabled, planner, paths, robot, field, plannerId]);
+  if (enabled && missingPathIds.length) return { status: 'error', values: {}, error: `${missingPathIds.length} ${missingPathIds.length === 1 ? 'path is' : 'paths are'} missing from this routine.`, missingPathIds };
   return enabled
     && planningState.paths === paths
     && planningState.robot === robot

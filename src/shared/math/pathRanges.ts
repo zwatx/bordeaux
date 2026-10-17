@@ -20,9 +20,11 @@ export function waypointFracs(doc: Pick<PathDoc, "waypoints">, smp: Pick<Sampled
   return doc.waypoints.map((_, k) => { const i = Math.min(pts.length - 1, Math.round(k * perSeg)); return pts[i].s / total; });
 }
 
-export function effectiveRanges(doc: Pick<PathDoc, "waypoints" | "ranges">, smp: Pick<SampledPath, "pts" | "length" | "wpIdx">): ConstraintRange[] {
+export function effectiveRanges(doc: Pick<PathDoc, "waypoints" | "ranges" | "routeRequiredPointIndices">, smp: Pick<SampledPath, "pts" | "length" | "wpIdx">): ConstraintRange[] {
   const ranges = doc.ranges || []; const total = smp.length || 1;
-  const wf = ranges.some((r) => r.anchor === 'wp') ? waypointFracs(doc, smp) : null;
+  const generatedFractions = ranges.some((r) => r.anchor === 'wp') ? waypointFracs(doc, smp) : null;
+  const wf = generatedFractions && doc.routeRequiredPointIndices
+    ? doc.routeRequiredPointIndices.map((i) => generatedFractions[i]) : generatedFractions;
   return ranges.map((r) => {
     let f0 = r.f0, f1 = r.f1;
     if (r.anchor === 'dist') { f0 = (r.d0 != null ? r.d0 : (r.f0 || 0) * total) / total; f1 = (r.d1 != null ? r.d1 : (r.f1 || 0) * total) / total; }

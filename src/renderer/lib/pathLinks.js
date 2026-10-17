@@ -166,4 +166,45 @@ function waypointName(project, path, index) {
   return index === 0 ? 'Start' : index === (path?.waypoints?.length || 0) - 1 ? 'End' : 'Waypoint ' + index;
 }
 
-export const PathLinks = { copyPose, sync, reconcile, linkPosition, unlinkPosition, positionMembers, waypointName };
+// One choice per connected position, including unnamed points and legacy endpoint links.
+function linkChoices(project, pathId, index) {
+  const pi = project.paths.findIndex((path) => path.id === pathId), graph = positionGraph(project);
+  const selected = pi + ':' + index;
+  if (!graph.members.has(selected)) return [];
+  const visited = connectedKeys(graph, [selected]), choices = [];
+  for (const key of graph.members.keys()) {
+    if (visited.has(key)) continue;
+    const component = connectedKeys(graph, [key]);
+    component.forEach((member) => visited.add(member));
+    const members = [...component].map((member) => graph.members.get(member)).sort((a, b) => a.pi - b.pi || a.wi - b.wi);
+    const representative = members.find((member) => member.pi !== pi);
+    if (!representative) continue;
+    const path = project.paths[representative.pi], at = representative.wi;
+    const position = at === 0 ? 'Start' : at === path.waypoints.length - 1 ? 'End' : 'Waypoint ' + at;
+    const named = members.find((member) => member.waypoint.positionName);
+    const paths = [...new Set(members.map((member) => member.pi))];
+    choices.push({ value: path.id + ':' + at, pathId: path.id, index: at,
+      label: named ? named.waypoint.positionName : path.name + ' · ' + position,
+      meta: paths.length > 1 ? paths.length + ' paths' : named ? path.name + ' · ' + position : '',
+      searchText: paths.map((member) => project.paths[member].name).join(' ') });
+  }
+  const order = new Map(project.paths.map((path, at) => [path.id, at]));
+  return choices.sort((a, b) => order.get(a.pathId) - order.get(b.pathId) || a.index - b.index);
+}
+
+// linkPosition has already merged endpoint-connected members under this group id.
+function nameNewSharedPoint(project, pathId, index) {
+  const pi = project.paths.findIndex((path) => path.id === pathId), waypoint = project.paths[pi]?.waypoints[index];
+  if (!waypoint?.positionLink) return project;
+  const points = project.paths.flatMap((path) => path.waypoints);
+  if (points.some((point) => point.positionLink === waypoint.positionLink && point.positionName)) return project;
+  const names = new Set(points.filter((point) => typeof point.positionName === 'string').map((point) => point.positionName.trim().toLowerCase()));
+  let number = 1;
+  while (names.has('shared point ' + number)) number += 1;
+  const paths = project.paths.slice(), waypoints = paths[pi].waypoints.slice();
+  waypoints[index] = { ...waypoint, positionName: 'Shared point ' + number };
+  paths[pi] = { ...paths[pi], waypoints };
+  return { ...project, paths };
+}
+
+export const PathLinks = { copyPose, sync, reconcile, linkPosition, unlinkPosition, positionMembers, waypointName, linkChoices, nameNewSharedPoint };

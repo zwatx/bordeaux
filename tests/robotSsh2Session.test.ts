@@ -91,7 +91,7 @@ describe("direct file SSH session confinement", () => {
     const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory });
     expect(f.mkdir).not.toHaveBeenCalled();
     const contents = Buffer.from([0, 1, 255, 128]);
-    await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents }]);
+    expect(await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents }])).toEqual({ directoryCreated: true });
     expect(f.mkdir.mock.calls.map(([target]) => target)).toEqual([
       "/home/lvuser/natinst", "/home/lvuser/natinst/bin", directory,
     ]);
@@ -105,11 +105,64 @@ describe("direct file SSH session confinement", () => {
     const f = setup({ "/natinst": "dir", "/natinst/bin": "dir" });
     const session = await connect();
     try {
-      await session.ensureDirectory!("/natinst/bin/Paths", false, signal);
+      expect(await session.ensureDirectory!("/natinst/bin/Paths", false, signal)).toEqual({ created: false });
       expect(f.mkdir).not.toHaveBeenCalled();
-      await session.ensureDirectory!("/natinst/bin/Paths", true, signal);
+      expect(await session.ensureDirectory!("/natinst/bin/Paths", true, signal)).toEqual({ created: true });
       expect(f.mkdir).toHaveBeenCalledWith("/natinst/bin/Paths", { mode: 0o755 }, expect.any(Function));
+      expect(await session.ensureDirectory!("/natinst/bin/Paths", true, signal)).toEqual({ created: false });
+      expect(f.mkdir).toHaveBeenCalledOnce();
     } finally { await session.close(); }
+  });
+
+  it("accepts a directory created concurrently without claiming it made the folder", async () => {
+    const entries = { "/natinst": "dir", "/natinst/bin": "dir" } as Record<string, "dir" | "file">;
+    setup(entries);
+    mock.sftp.mkdir = vi.fn((target, _options, callback) => {
+      entries[target] = "dir";
+      callback(Object.assign(new Error("Already exists"), { code: 4 }));
+    });
+    const session = await connect();
+    try { expect(await session.ensureDirectory!("/natinst/bin/Paths", true, signal)).toEqual({ created: false }); }
+    finally { await session.close(); }
+  });
+
+  it.each(["absent", "file", "denied"])("rejects failed mkdir (%s) before file writes without claiming creation", async (kind) => {
+    const entries = { "/natinst": "dir", "/natinst/bin": "dir" } as Record<string, "dir" | "file">;
+    setup(entries);
+    mock.sftp.mkdir = vi.fn((target, _options, callback) => {
+      if (kind === "file") entries[target] = "file";
+      callback(Object.assign(new Error(kind === "denied" ? "Permission denied" : "Cannot create"), { code: kind === "denied" ? 3 : 4 }));
+    });
+    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
+    const failure = await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("bdx") }]).catch(error => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).not.toContain("Created robot folder");
+    expect(mock.sftp.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a cancelled mkdir as confirmed creation or continue uploading", async () => {
+    setup({ "/natinst": "dir", "/natinst/bin": "dir" });
+    const cancel = new AbortController();
+    mock.sftp.mkdir = vi.fn((_target, _options, callback) => { cancel.abort(); callback(); });
+    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
+    const failure = await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("bdx") }], cancel.signal).catch(error => error);
+    expect(failure.code).toBe("cancelled");
+    expect(failure.message).not.toContain("Created robot folder");
+    expect(mock.sftp.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unacknowledged mkdir on timeout without continuing to file writes", async () => {
+    setup({ "/natinst": "dir", "/natinst/bin": "dir" });
+    mock.sftp.mkdir = vi.fn();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const session = await connect();
+    try {
+      const failure = expect(session.ensureDirectory!("/natinst/bin/Paths", true, signal)).rejects.toMatchObject({ code: "timed_out" });
+      await vi.advanceTimersByTimeAsync(2000);
+      await failure;
+      expect(mock.sftp.mkdir).toHaveBeenCalledOnce();
+      expect(mock.sftp.writeFile).not.toHaveBeenCalled();
+    } finally { await session.close(); vi.useRealTimers(); }
   });
 
   it.each(["file"] as const)("rejects a %s in destination ancestry", async (kind) => {

@@ -105,4 +105,21 @@ describe("one-request worker lifecycle", () => {
     expect(terminate).toHaveBeenCalledTimes(1);
     await terminate.mock.results[0].value;
   });
+  it("retains explicit-Save work until its requested termination actually settles", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const original = Worker.prototype.terminate;
+    let terminated!: Promise<number>;
+    const terminate = vi.spyOn(Worker.prototype, "terminate").mockImplementation(function (this: Worker) {
+      terminated = original.call(this);
+      return terminated.then(async code => { await gate; return code; });
+    });
+    const controller = new AbortController(); let settled = false;
+    const pending = runWorkerTask(filename, { kind: "wait" }, "Test", controller.signal, { waitForTermination: true });
+    const observed = pending.catch(error => { settled = true; throw error; });
+    const rejected = expect(observed).rejects.toThrow("canceled");
+    controller.abort(); await terminated; expect(settled).toBe(false); expect(terminate).toHaveBeenCalledTimes(1);
+    release(); await rejected;
+  });
+
 });

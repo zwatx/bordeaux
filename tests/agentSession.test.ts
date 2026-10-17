@@ -8,7 +8,8 @@ import { AgentSessionService, runAgentPlanningJobDirect } from "../src/electron/
 import type { RepairCandidate } from "../src/shared/agent/types";
 import { createDemoProject } from "../src/shared/project/defaults";
 import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/shared/types";
-import { validateProject } from "../src/shared/validation";
+import { validateProject, validateProjectSource } from "../src/shared/validation";
+import { buildBdxExport } from "../src/shared/export/bdx";
 
 function snapshot(revision = 0) {
   const project = createDemoProject();
@@ -231,10 +232,45 @@ describe("agent session and private bridge", () => {
     expect(flippedBlue[0].matches[0].displayPoint).not.toEqual(blue[0].matches[0].displayPoint);
   });
 
-  it("ignores invalid transient snapshots without replacing the last valid session", async () => {
+  it.each([0, 1])("publishes editable source with a %i-waypoint sibling, including a fresh session", async (count) => {
     const service = new AgentSessionService(() => {}, () => null);
+    const access = service.resetAccess(true);
+    const initial = snapshot();
+    expect(service.publishEditorSnapshot({ ...initial, accessGeneration: access.generation })).toBe("published");
+    const next = structuredClone(initial);
+    next.revision = 1;
+    next.project.name = "Current edited project";
+    const unfinished = { ...structuredClone(next.project.paths[0]), id: "unfinished", name: "Unfinished",
+      waypoints: next.project.paths[0].waypoints.slice(0, count), markers: [], targets: [], ranges: [] };
+    next.project.paths.push(unfinished);
+    expect(validateProjectSource(next.project).ok).toBe(true);
+    expect(service.publishEditorSnapshot({ ...next, accessGeneration: access.generation })).toBe("published");
+    const expected = { revision: 1, projectName: next.project.name,
+      paths: expect.arrayContaining([{ id: unfinished.id, name: unfinished.name, waypointCount: count }]) };
+    expect(await service.request({ method: "inspect_session" })).toMatchObject(expected);
+    expect(await service.request({ method: "analyze_path", params: {} })).toMatchObject({ pathId: initial.activePathId });
+    const fresh = new AgentSessionService(() => {}, () => null);
+    const freshAccess = fresh.resetAccess(true);
+    expect(fresh.publishEditorSnapshot({ ...next, activePathId: unfinished.id, accessGeneration: freshAccess.generation })).toBe("published");
+    expect(await fresh.request({ method: "inspect_session" })).toMatchObject({ ...expected, activePathId: unfinished.id });
+    expect(await fresh.request({ method: "inspect_robot_profile" })).toHaveProperty("planning", next.project.robot.planning ?? null);
+    // Source inspection does not grant execution readiness to an unfinished selected path.
+    await expect(fresh.request({ method: "analyze_path", params: {} })).rejects.toThrow("Add at least two waypoints");
+    await expect(fresh.request({ method: "repair_path", params: { findingIds: [] } })).rejects.toThrow("Add at least two waypoints");
+    expect(() => buildBdxExport({ ...next.project, paths: [unfinished], routines: [] })).toThrow(/at least two waypoints/i);
+  });
+
+  it("retires the previous session after an invalid current publication and recovers on valid source", async () => {
+    let aborted = false;
+    const service = new AgentSessionService(() => {}, () => null, (_job, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => { aborted = true; reject(new Error("aborted")); }, { once: true });
+    }));
     const initial = snapshot();
     service.publishSnapshot(initial);
+    const proposal: any = await service.request({ method: "propose_robot_profile", params: {
+      intent: "Configure shooter", planning: { shooter: { directionDeg: 0, requiresTargetFacing: true } },
+    } });
+    const pending = service.request({ method: "analyze_path", params: {} });
 
     const invalid = structuredClone(initial);
     invalid.revision = 1;
@@ -244,10 +280,13 @@ describe("agent session and private bridge", () => {
     });
 
     expect(service.tryPublishSnapshot(invalid)).toBe(false);
-    expect(await service.request({ method: "inspect_session" })).toMatchObject({
-      sessionId: initial.sessionId,
-      revision: initial.revision,
-    });
+    await expect(pending).rejects.toThrow("aborted");
+    expect(aborted).toBe(true);
+    expect(service.getActiveProposal()).toBeNull();
+    expect(await service.request({ method: "get_proposal", params: { proposalId: proposal.proposalId } })).toMatchObject({ status: "stale" });
+    await expect(service.request({ method: "inspect_session" })).rejects.toThrow("wait for the editor to finish loading");
+    service.publishSnapshot({ ...initial, revision: 2 });
+    expect(await service.request({ method: "inspect_session" })).toMatchObject({ revision: 2 });
   });
 
   it("stages proposals without changing the renderer snapshot and marks them stale on edit", async () => {

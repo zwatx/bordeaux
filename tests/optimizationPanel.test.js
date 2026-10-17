@@ -9,14 +9,15 @@ const render = (patch) => renderToStaticMarkup(React.createElement(OptimizationP
 }));
 
 describe('optimizer planning failure', () => {
-  it('offers editing instead of an indefinitely disabled search when planning fails', () => {
-    const markup = render({ pending: true, error: new Error('Entry speed exceeds the limit <4 m/s>.') });
-    expect(markup).toContain('role="alert"');
+  it('keeps route search available when the starting curve cannot be timed', () => {
+    const markup = render({ pending: false, error: new Error('Entry speed exceeds the limit <4 m/s>.'), recovery: { label: 'Edit path' } });
     expect(markup).toContain('Entry speed exceeds the limit &lt;4 m/s&gt;.');
-    expect(markup).toMatch(/<button[^>]*class="optimizer-main"[^>]*>Edit path<\/button>/);
-    expect(markup).not.toContain('disabled');
+    expect(markup).toMatch(/<button[^>]*class="qbtn optimizer-recovery"[^>]*>Edit path<\/button>/);
+    expect(markup).toMatch(/class="optimizer-main primary">Optimize<\/button>/);
+    expect(markup).toMatch(/class="optimizer-choice" disabled=""[^>]*aria-label="Preview normal trajectory"/);
+    expect(markup).toContain('Unavailable');
     expect(markup).not.toContain('Preparing path');
-    expect(markup).not.toContain('Trajectory comparison');
+    expect(markup).toContain('Trajectory comparison');
   });
 
   it('keeps pending work quiet and enables search after planning succeeds', () => {
@@ -24,7 +25,7 @@ describe('optimizer planning failure', () => {
     expect(loading).toContain('<progress');
     expect(loading).toContain('aria-busy="true"');
     expect(loading).not.toContain('Preparing path…');
-    expect(loading).toMatch(/class="optimizer-main primary" disabled=""/);
+    expect(loading).toMatch(/class="optimizer-main primary">Optimize<\/button>/);
     expect(loading).not.toContain('role="alert"');
     const ready = render({ pending: false, baselineTime: 3 });
     expect(ready).toContain('3.00 s');
@@ -57,7 +58,7 @@ describe('optimization job ownership', () => {
     expect(markup).toContain('4.00 s');
   });
   it('preserves an explicit current-path Apply while another path is searching', () => {
-    const markup = render({ ...background, candidate: { finalTrajectory: { totalTimeS: 3 } } });
+    const markup = render({ ...background, candidate: { finalTrajectory: { totalTimeS: 3, optimization: { fallback: false } } } });
     expect(markup).toContain('1.00 s faster, 25.0%');
     expect(markup).toMatch(/class="optimizer-main primary">Apply optimized<\/button>/);
     expect(markup).toContain('Cancel optimization for Scoring approach');
@@ -67,5 +68,76 @@ describe('optimization job ownership', () => {
     expect(markup).toContain('aria-label="Cancel all optimization searches"');
     expect(markup).toContain('Cancel all');
     expect(markup).toContain('Invalid geometry');
+  });
+});
+
+describe('waypoint-route outcomes', () => {
+  const candidate = { finalTrajectory: { totalTimeS: 3, optimization: { fallback: false } } };
+  it('offers a feasible route without inventing a Normal time or gain', () => {
+    const markup = render({ candidate, error: new Error('Seed cannot be timed'), baselineTime: null });
+    expect(markup).toContain('Route found');
+    expect(markup).toContain('3.00 s');
+    expect(markup).toContain('Apply optimized');
+    expect(markup).not.toContain('faster,');
+    expect(markup).not.toContain('%');
+  });
+  it('offers a safe route even when its time exceeds a drawn curve known to be invalid', () => {
+    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid' } }, baselineTime: 2 });
+    expect(markup).toContain('Route found');
+    expect(markup).toContain('Apply optimized');
+    expect(markup).not.toContain('No faster route found');
+    expect(markup).not.toContain('faster,');
+  });
+  it('does not promote a slower route just because seed qualification is unknown', () => {
+    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'unknown' } }, baselineTime: 2 });
+    expect(markup).not.toContain('Route found');
+    expect(markup).not.toContain('Apply optimized');
+    expect(markup).toContain('No faster route found');
+  });
+  it.each([
+    { optimization: { fallback: true } },
+    { diagnostics: [{ severity: 'error', message: 'Invalid route' }] },
+    { optimization: { fallback: false, termination: 'unsupported' } },
+  ])('never offers invalid or fallback output for Apply: %j', (patch) => {
+    const markup = render({ candidate: { finalTrajectory: { ...candidate.finalTrajectory, ...patch } }, error: new Error('Seed failed') });
+    expect(markup).not.toContain('Apply optimized');
+    expect(markup).not.toContain('Route found');
+  });
+  it('shows bounded exhaustion and unsupported reasons without claiming infeasibility', () => {
+    const exhausted = render({ searchStatus: 'no-candidate', searchReason: 'No validated route was found within this search.' });
+    expect(exhausted).toContain('No route found');
+    expect(exhausted).not.toContain('Search deeper looks longer.');
+    expect(exhausted).not.toContain('infeasible');
+    const unsupported = render({ searchStatus: 'unsupported', searchReason: 'Jiggle is not supported.' });
+    expect(unsupported).toContain('Not supported for this path');
+    expect(unsupported).toContain('Jiggle is not supported.');
+  });
+  it('shows decisive search rejection details even without a candidate trajectory', () => {
+    const markup = render({ searchStatus: 'no-candidate', candidate: { routeSearch: { status: 'no-candidate',
+      statistics: { evaluations: 4, rejectionReasons: [{ reason: 'Required point overlaps the HUB.', count: 4 }] } } } });
+    expect(markup).toContain('Required point overlaps the HUB.');
+    expect(markup).toContain('4 checked');
+    expect(markup).toContain('<summary>Details</summary>');
+    expect(markup).not.toContain('Search deeper looks longer.');
+  });
+  it('explains legacy selection in the chosen units without exposing deviation tuning', () => {
+    const markup = render({ accepted: { totalTimeS: 3 }, path: { id: 'path', optimization: { corridorM: .3, accepted: { version: 1 } } }, unitSystem: 'imperial' });
+    expect(markup).toContain('Earlier optimization applied');
+    expect(markup).toContain('0.98 ft');
+    expect(markup).toContain('Optimize again');
+    expect(markup).not.toContain('Path freedom');
+    expect(markup).not.toContain('<input');
+  });
+});
+
+
+describe('outdated selection copy', () => {
+  it('identifies current Normal timing while describing completed batch searches in the past tense', () => {
+    const markup = render({ stale: true, baselineTime: 4, paths: [{ id: 'path', name: 'Approach' }],
+      state: { running: false, batch: { completed: 1, total: 1 }, paths: { path: { status: 'success' } } } });
+    expect(markup).toContain('Needs update');
+    expect(markup).toMatch(/Normal<small>In use<\/small>/);
+    expect(markup).toContain('<small>Searched</small>');
+    expect(markup).not.toContain('<small>Ready</small>');
   });
 });

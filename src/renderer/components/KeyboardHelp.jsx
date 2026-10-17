@@ -7,9 +7,9 @@ export function KeyboardHelp() {
   const close = () => { dialog.current?.close(); trigger.current?.focus(); };
   const shortcuts = [
     ['Select / move', '1 or V'], ['Place waypoint', '2 or W'], ['Place rotation', '3 or R'], ['Place command', '4 or M'], ['Create zone', '5 or C'],
-    ['Delete a field or outline feature', 'Shift-click'], ['Delete selection', 'Delete / Backspace'], ['Play / pause', 'Space'], ['Fit field', 'F'], ['Toggle grid', 'G'], ['Cancel / select tool', 'Esc'],
+    ['Delete a field or outline feature', 'Shift-click'], ['Delete selection', 'Delete / Backspace'], ['Play / pause', 'Space'], ['Fit field', 'F'], ['Focus field', '\\'], ['Toggle grid', 'G'], ['Cancel / select tool', 'Esc'],
     ['Move selection', 'Arrow keys'], ['Larger move', 'Shift + arrows'], ['Fine waypoint move', 'Alt + arrows'], ['Undo', shortcutLabel('Z')], ['Redo', shortcutLabel('Z', { shift: true })],
-    ['Open project folder', shortcutLabel('O')], ['Open project file', shortcutLabel('O', { shift: true })], ['Save project and BDX files', shortcutLabel('S')], ['Save to another folder', shortcutLabel('S', { shift: true })], ['Rename library item', 'F2'],
+    ['Projects', shortcutLabel('O')], ['New project', shortcutLabel('N')], ['Open project file', shortcutLabel('O', { shift: true })], ['Save project and BDX files', shortcutLabel('S')], ['Save copy', shortcutLabel('S', { shift: true })], ['Rename library item', 'F2'],
   ];
   return h(React.Fragment, null,
     h('button', { ref: trigger, type: 'button', className: 'qbtn keyboard-help-trigger', 'aria-label': 'Keyboard shortcuts', title: 'Keyboard shortcuts', onClick: () => dialog.current.showModal() }, '?'),

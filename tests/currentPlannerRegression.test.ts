@@ -6,13 +6,14 @@ import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../sr
 import { fixedPathSamples, getPlanner } from "../src/shared/planners";
 import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
 import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
+import { routeCandidateFailure } from "../src/shared/planners/routeValidation";
 import { validateOptimizedTrajectory } from "../src/shared/planners/trajectoryValidation";
 import { effectivePathConstraints, robotHardLimits } from "../src/shared/robotLimits";
 import type { PlannerResult } from "../src/shared/types";
 
 type DemoProject = ReturnType<typeof createDemoProject>;
 
-function finalPreview(path: DemoProject["paths"][number], project: DemoProject, optimize = false) {
+function finalPreview(path: DemoProject["paths"][number], project: DemoProject, optimize = false, solver?: typeof optimizeCorridorFinal) {
   return processPathPreviewJob({
     id: 1,
     quality: "final",
@@ -23,7 +24,7 @@ function finalPreview(path: DemoProject["paths"][number], project: DemoProject, 
     perSegment: 56,
     deadline: "common",
     deadlineMs: 5_000,
-  });
+  }, undefined, solver);
 }
 
 function liveTranslationPriorityProject() {
@@ -446,7 +447,7 @@ describe("current planner regressions", () => {
     }
   });
 
-  it("keeps an ordinary two-point path when corridor topology is ambiguous", () => {
+  it("preserves legacy ambiguous-corridor fallback and finds a qualified HUB detour", () => {
     const project = createDemoProject();
     const path = project.paths[0];
     path.waypoints = buildWaypoints([
@@ -454,7 +455,7 @@ describe("current planner regressions", () => {
       { x: 6.36, y: 4.99, theta: 0 },
     ]);
 
-    const result = finalPreview(path, project, true);
+    const result = finalPreview(path, project, true, optimizeCorridorFinal);
 
     expect(result.error).toBeUndefined();
     expect(result.finalFallbackReason).toBeUndefined();
@@ -463,6 +464,12 @@ describe("current planner regressions", () => {
       fallback: false,
       constraintViolations: 0,
     });
+    const route = finalPreview(path, project, true);
+    expect(route.error).toBeUndefined();
+    expect(route.finalFallbackReason).toBeUndefined();
+    expect(route.value.finalTrajectory, JSON.stringify(route.value.routeSearch)).toBeDefined();
+    expect(route.value.finalOptimization.optimizationClass).toBe("route");
+    expect(routeCandidateFailure({ path, robot: project.robot }, route.value.finalTrajectory, project.field)).toBeUndefined();
   });
 
   it("does not globally slow the live translation-priority path", () => {

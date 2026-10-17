@@ -37,7 +37,7 @@ ipcMain.handle('branches:restore', () => ({ project: saved, location }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true, location }; });
 ipcMain.handle('branches:autosave', (_event, project) => { autosaves.push(project); return { saved: true, location }; });
-async function save() { const before = saves; await click('button[aria-label="Project menu"]'); await click('[role="menuitem"]', 'Save'); await wait(() => saves > before, 'save');
+async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save');
 }
 app.whenReady().then(async () => {
   try {
@@ -47,23 +47,24 @@ app.whenReady().then(async () => {
     saved = { ...corpus, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-planning-recovery-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
-    await wait(() => evaluate(() => !!document.querySelector('.cbar') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'current trajectory');
-    assert.ok(await evaluate(() => document.querySelector('.project-menu-trigger')?.textContent.includes('Recovery project') || document.querySelector('.toolbar').textContent.includes('Recovery project')));
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'current trajectory');
+    assert.ok(await evaluate(() => document.querySelector('.project-chip-name')?.textContent.includes('Recovery project') || document.querySelector('.toolbar').textContent.includes('Recovery project')));
+    // Editing planning jobs carry mode "editing"; this failure is injected only for the 0.5 m/s limit.
     await evaluate(() => {
       const post = Worker.prototype.postMessage;
       window.restorePlanner = () => { Worker.prototype.postMessage = post; delete window.restorePlanner; };
       Worker.prototype.postMessage = function(message, ...args) {
-        if (message.quality === 'interactive' && message.path.constraints.maxVel === 0.5) {
+        if (message.mode === 'editing' && message.path.constraints.maxVel === 0.5) {
           setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: message.id, error: { message: 'Controlled planning failure' } } })), 0);
           return;
         }
         return post.call(this, message, ...args);
       };
     });
-    await click('.cbar');
+    // Path limits are edited in place: Speed and Acceleration in the timeline header.
     async function number(label, value, pauseForAutosave = false) {
       const selector = await evaluate(label => {
-        const el = [...document.querySelectorAll('.ctxinsp label')].find(el => el.textContent === label);
+        const el = [...document.querySelectorAll('.path-band label.numlbl')].find(el => el.textContent === label);
         if (!el) throw Error('Missing number ' + label);
         return '#' + CSS.escape(el.htmlFor);
       }, label);
@@ -82,66 +83,75 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter', modifiers: [] });
       await delay(100);
     }
-    await number('Max velocity', 0.5, true);
-    await wait(() => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Trajectory unavailable'), 'failure banner');
+    const speedLimitShown = () => evaluate(() => { const row = [...document.querySelectorAll('.pt-limits .numrow')].find((r) => r.querySelector('.numlbl')?.textContent === 'Speed'); return row?.querySelector('input').value; });
+    await number('Speed', 0.5, true);
+    await wait(() => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Couldn’t time this path'), 'failure banner');
     await snapshot('failure-before-recovery');
-    assert.ok(await evaluate(() => document.querySelector('.cbar').textContent.includes('0.5')), 'Constraint summary reflects the failed authored value, not stale timing');
-    assert.equal(await evaluate(() => !!document.querySelector('.field-status').closest('[inert]')), false, 'Planning failure details and recovery must accept native input');
-    assert.equal(await evaluate(() => !!document.querySelector('.ctxinsp-body').closest('[inert]')), false, 'Authored limit edits remain usable');
-    assert.equal(await evaluate(() => !!document.querySelector('.fieldsvg').closest('[inert]')), true, 'Stale field geometry remains inert');
-    assert.equal(await evaluate(() => !!document.querySelector('.transport').closest('[inert]')), true, 'Stale playback remains inert');
-    await click('[aria-label="Hide inspector"]');
+    assert.equal(await speedLimitShown(), '0.50', 'The authored limit shows the failed value');
+    const blocked = await evaluate(() => ({
+      status: !!document.querySelector('.field-status').closest('[inert]'),
+      band: !!document.querySelector('.path-band').closest('[inert]'),
+      field: !!document.querySelector('.fieldsvg').closest('[inert]'),
+      ready: document.querySelector('.fieldcol').dataset.planningReady,
+      points: document.querySelectorAll('.pt-wp').length,
+    }));
+    assert.equal(blocked.status, false, 'Planning failure details and recovery accept native input');
+    assert.equal(blocked.band, false, 'Properties and timeline stay usable');
+    assert.equal(blocked.field, false, 'A failed timing job never freezes the field');
+    assert.equal(blocked.ready, 'true', 'Current geometry stays editable');
+    assert.ok(blocked.points > 0, 'Current geometry stays drawn');
     await click('.field-status summary');
     assert.equal(await evaluate(() => document.querySelector('.field-status details').open), true);
     assert.ok(await evaluate(() => document.querySelector('.field-status-details').textContent.includes('Controlled planning failure')));
-    await click('.field-status-action');
-    await wait(() => evaluate(() => !!document.querySelector('.ctxinsp-body') && !document.querySelector('.optimizer-panel')), 'direct limit recovery');
+    assert.equal(await evaluate(() => document.querySelector('.field-status-action')?.textContent), 'Try again');
     for (const [width, height] of [[1440,900],[1100,720]]) {
       win.setContentSize(width,height); await delay(100); await snapshot('repair-' + width);
     }
-    await number('Max velocity', 2);
-    await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && !document.querySelector('.field-status-label')), 'edited limit restores trajectory');
+    win.setContentSize(1440, 900); await delay(100);
+    await number('Speed', 2);
+    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true' && !document.querySelector('.field-status-label')), 'edited limit restores trajectory');
     await save();
     assert.equal(saved.name, 'Recovery project');
     assert.equal(saved.paths[0].constraints.maxVel, 2);
     assert.deepEqual(saved.paths[0].waypoints, first.waypoints);
     await snapshot('recovered');
-    await number('Max acceleration', 1.25);
+    await number('Acceleration', 1.25);
     await save();
     assert.equal(saved.paths[0].constraints.maxAccel, 1.25);
     assert.equal(saved.paths[0].constraints.maxDecel, 1.25);
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.ctxinsp label')].some(el => /decel/i.test(el.textContent))), false);
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.path-band label')].some(el => /decel/i.test(el.textContent))), false);
     await evaluate(() => window.restorePlanner());
-    await number('Max velocity', 0.5);
-    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'real whole-path 0.5 velocity trajectory');
+    await number('Speed', 0.5);
+    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true' && !document.querySelector('.field-status-label')), 'real whole-path 0.5 velocity trajectory');
     await save(); assert.equal(saved.paths[0].constraints.maxVel, 0.5);
     await snapshot('low-velocity-path');
-    console.log('PASS Native failure details/recovery, current limit edits, inert stale geometry/playback, restored trajectory');
+    console.log('PASS Native failure details and Try again, current limit edits, field and timeline stay editable, restored trajectory');
 
-    // A final-planning worker that never answers reaches the real production deadline.
+    // A planning worker that never answers reaches the real deadline; editing stays available throughout.
     await evaluate(() => {
       const post = Worker.prototype.postMessage;
       window.restorePlanner = () => { Worker.prototype.postMessage = post; delete window.restorePlanner; };
       Worker.prototype.postMessage = function(message, ...args) {
-        if (message.quality === 'final' && message.path?.constraints?.maxVel === 0.6) return;
+        if (message.mode === 'editing' && message.path?.constraints?.maxVel === 0.6) return;
         return post.call(this, message, ...args);
       };
     });
-    await number('Max velocity', 0.6);
-    await wait(() => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Planning timed out'), 'timeout notice');
+    await number('Speed', 0.6);
+    await delay(1500);
+    assert.equal(await evaluate(() => !!document.querySelector('.fieldsvg').closest('[inert]')), false, 'Pending timing never freezes the field');
+    await wait(async () => { await delay(400); return evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Couldn’t time this path'); }, 'timeout notice');
     const timeout = await evaluate(() => ({
       detail: document.querySelector('.field-status-details').textContent,
       action: document.querySelector('.field-status-action')?.textContent,
       fieldInert: !!document.querySelector('.fieldsvg').closest('[inert]'),
-      transportInert: !!document.querySelector('.transport').closest('[inert]'),
+      bandInert: !!document.querySelector('.path-band').closest('[inert]'),
       statusInert: !!document.querySelector('.field-status').closest('[inert]'),
     }));
-    assert.match(timeout.detail, /did not finish within 5 s/);
-    assert.match(timeout.detail, /Playback and field editing stay unavailable/);
-    assert.doesNotMatch(timeout.detail, /continuing|interactive result/i, 'A blocked editor must not claim to continue');
+    assert.match(timeout.detail, /timed out/i);
+    assert.doesNotMatch(timeout.detail, /stay unavailable|continuing|interactive result/i, 'Editing is never described as blocked');
     assert.equal(timeout.action, 'Try again');
-    assert.equal(timeout.fieldInert, true, 'Timed-out geometry stays inert');
-    assert.equal(timeout.transportInert, true, 'Timed-out playback stays inert');
+    assert.equal(timeout.fieldInert, false, 'Timed-out timing leaves the field editable');
+    assert.equal(timeout.bandInert, false, 'Timed-out timing leaves the timeline usable');
     assert.equal(timeout.statusInert, false, 'The retry action accepts native input');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(100); await snapshot('timeout-' + width);
@@ -151,7 +161,7 @@ app.whenReady().then(async () => {
     await click('.field-status-action', 'Try again');
     await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true' && !document.querySelector('.field-status-label')), 'retry restores the trajectory');
     await save(); assert.equal(saved.paths[0].constraints.maxVel, 0.6);
-    console.log('PASS Final-planning timeout explains the blocked editor and recovers with Try again');
+    console.log('PASS A planning timeout keeps editing available and recovers with Try again');
   } catch (error) { console.error(error); if(win) await snapshot('failure'); process.exitCode=1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });

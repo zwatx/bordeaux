@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 // @ts-expect-error The production worker is an intentional JavaScript module.
-import { applyFinalTrajectoryToPreview, processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
+import { applyFinalTrajectoryToPreview, previewForTrajectory, processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 // @ts-expect-error The renderer path math is an intentional JavaScript module.
 import { PM } from "../src/renderer/lib/pathMath";
 import { fixedPathSamples, getPlanner } from "../src/shared/planners";
 import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
+import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
 import { createAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
 import { scaleTrajectoryTiming } from "../src/shared/planners/optimizedTrajectory";
 import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/shared/project/defaults";
@@ -38,6 +39,41 @@ function finalTrajectory(status = "optimal"): any {
 }
 
 describe("path preview worker final optimization", () => {
+  it.each(['unknown', 'valid', 'invalid'])('preserves explicit %s seed qualification in checkpoints and completion', (seedStatus) => {
+    const messages: any[] = [];
+    const candidate = finalTrajectory(); candidate.optimization.seedStatus = seedStatus;
+    const result = processPathPreviewJob({ id: 1, quality: 'final', optimize: true, path: {}, robot: {}, perSegment: 56 }, derived,
+      (_input: unknown, options: any) => {
+        options.onProgress(candidate);
+        return { candidate, status: 'feasible', seedStatus };
+      }, undefined, (message: unknown) => messages.push(message));
+    expect(result.error).toBeUndefined();
+    expect(result.value.routeSearch.seedStatus).toBe(seedStatus);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].value.routeSearch.seedStatus).toBe(seedStatus);
+    expect(messages[0].value.finalTrajectory.optimization.seedStatus).toBe(seedStatus);
+  });
+  it.each(['unsupported', 'no-candidate', 'cancelled'])('preserves a route-search %s outcome without inventing a preview', (status) => {
+    const project = createDemoProject();
+    const derive = () => { throw new Error('No candidate exists to project'); };
+    const result = processPathPreviewJob({ id: 1, quality: 'final', optimize: true, path: project.paths[0], robot: project.robot }, derive,
+      () => ({ status, reason: 'Bounded search outcome', termination: status === 'unsupported' ? 'unsupported' : 'work-budget', statistics: { evaluations: 4 } }));
+    expect(result.error).toBeUndefined();
+    expect(result.value).toEqual({ routeSearch: { status, reason: 'Bounded search outcome', termination: status === 'unsupported' ? 'unsupported' : 'work-budget', statistics: { evaluations: 4 }, seedStatus: 'unknown' } });
+    expect(result.value.finalTrajectory).toBeUndefined();
+  });
+
+  it('projects solver geometry while editor waypoint indices retain their required-point meaning', () => {
+    const project = createDemoProject();
+    const geometry = { ...derived(), wpIdx: [0, 1, 2], wpFrac: [0, .5, 1] };
+    const trajectory = { ...finalTrajectory(), routeGeometry: { version: 1, requiredPointIndices: [0, 2] } };
+    const result = previewForTrajectory(project.paths[0], project.robot, trajectory, () => geometry);
+    expect(result.wpIdx).toEqual([0, 2]);
+    expect(result.wpFrac).toEqual([0, 1]);
+    expect(result.prof.totalTime).toBe(trajectory.totalTimeS);
+    expect(result.finalTrajectory).toBe(trajectory);
+    expect(geometry.wpIdx).toEqual([0, 1, 2]);
+  });
   it("keeps interactive edits independent from full physics planning", () => {
     const project = createDemoProject();
     const interactive = derived();
@@ -96,7 +132,7 @@ describe("path preview worker final optimization", () => {
 
   });
 
-  it("optimizes an automatic heading-law change without a spurious dense failure", () => {
+  it("preserves legacy corridor projection of an automatic heading-law change without a spurious dense failure", () => {
     const project = createDemoProject();
     project.robot = {
       drive: "swerve",
@@ -166,7 +202,7 @@ describe("path preview worker final optimization", () => {
       perSegment: 56,
       deadline: "common",
       deadlineMs: 5_000,
-    });
+    }, undefined, optimizeCorridorFinal);
 
     expect(result.error).toBeUndefined();
     expect(result.finalFallbackReason).toBeUndefined();
@@ -190,7 +226,7 @@ describe("path preview worker final optimization", () => {
       perSegment: 56,
       deadline: "common",
       deadlineMs: 5_000,
-    });
+    }, undefined, optimizeCorridorFinal);
     expect(translationPriority.error).toBeUndefined();
     expect(translationPriority.finalFallbackReason).toBeUndefined();
     expect(translationPriority.value.finalOptimization).toMatchObject({
@@ -262,7 +298,7 @@ describe("path preview worker final optimization", () => {
     expect(slowed.totalTimeS).toBeGreaterThan(trajectory.totalTimeS);
   });
 
-  it("accepts terminal heading settling without a spurious final fallback", () => {
+  it("preserves legacy terminal heading settling without a spurious final fallback", () => {
     const project = createDemoProject();
     project.robot = {
       drive: "swerve",
@@ -322,7 +358,7 @@ describe("path preview worker final optimization", () => {
       perSegment: 56,
       deadline: "common",
       deadlineMs: 1,
-    });
+    }, undefined, optimizeCorridorFinal);
 
     expect(result.error).toBeUndefined();
     expect(result.finalFallbackReason).toBeUndefined();
@@ -338,7 +374,7 @@ describe("path preview worker final optimization", () => {
       perSegment: 56,
       deadline: "common",
       deadlineMs: 1,
-    });
+    }, undefined, optimizeCorridorFinal);
     expect(nonzero.error).toBeUndefined();
     expect(nonzero.finalFallbackReason).toBeUndefined();
 
@@ -354,7 +390,7 @@ describe("path preview worker final optimization", () => {
       perSegment: 56,
       deadline: "common",
       deadlineMs: 1,
-    });
+    }, undefined, optimizeCorridorFinal);
     expect(withWait.error).toBeUndefined();
     const catchupBeforeWait = withWait.value.prof.turns.find((turn: any) => turn.catchup);
     const terminalWait = withWait.value.prof.holds.find((hold: any) => hold.idx === withWait.value.sample.pts.length - 1);
@@ -406,7 +442,7 @@ describe("path preview worker final optimization", () => {
     expect(result.value.finalTrajectory.planner).toBe("profiledSpline");
   });
 
-  it("streams validated candidates with the run identity and uses the user's corridor", () => {
+  it("streams validated candidates with the run identity and no seed-deviation option", () => {
     const messages: any[] = [];
     const path = { id: "authored", optimization: { corridorM: 0.4, accepted: { obsolete: true } } };
     const result = processPathPreviewJob({
@@ -416,7 +452,8 @@ describe("path preview worker final optimization", () => {
     }, derived, (input: any, options: any) => {
       expect(input.path).toEqual({ id: "authored" });
       expect(input.field).toEqual({ id: "field" });
-      expect(options).toMatchObject({ corridorM: 0.4, budgetTier: "stress", budgetMs: 15_000 });
+      expect(options).toMatchObject({ budgetTier: "stress", budgetMs: 15_000 });
+      expect(options).not.toHaveProperty('corridorM');
       options.onProgress(finalTrajectory("equivalent"));
       options.onProgress(finalTrajectory());
       return finalTrajectory();

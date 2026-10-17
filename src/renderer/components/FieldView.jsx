@@ -1,12 +1,15 @@
 import * as React from "react";
 import { FieldScene } from "../assets/field-scene";
+import { displayedPoseAtTime, hoverWorldPoint, hoverVisits } from "../lib/pathHover";
 import fieldImage from "../assets/field.png";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
 import { wheelZoomFactor } from "../lib/zoom";
 import { UI } from "./ui";
+import { isWholeIssue, plainProblem } from './planProblems';
+import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
 
-  const { useRef, useState, useEffect, useMemo, useCallback } = React;
+  const { useRef, useState, useEffect, useMemo, useCallback, useId } = React;
   const h = React.createElement;
 
   // ---- field calibration (image px) ----
@@ -31,6 +34,68 @@ import { UI } from "./ui";
     return indexes;
   }
 
+  // Labels render in the root SVG, while the HTML rail stays in CSS pixels.
+  // xMidYMid meet can letterbox on either axis; width-only scaling is insufficient.
+  function toolRailLabelObstacle(rail, viewport, view) {
+    if (!rail || !(viewport.width > 0) || !(viewport.height > 0) || !(view.w > 0) || !(view.h > 0)) return null;
+    const scale = Math.min(viewport.width / view.w, viewport.height / view.h);
+    const offsetX = (viewport.width - view.w * scale) / 2, offsetY = (viewport.height - view.h * scale) / 2;
+    const margin = 6;
+    return { x: view.x + (rail.x - margin - offsetX) / scale, y: view.y + (rail.y - margin - offsetY) / scale,
+      w: (rail.w + margin * 2) / scale, h: (rail.h + margin * 2) / scale };
+  }
+
+  // A gesture owns only the draft/revisions it produced. Store emissions are
+  // synchronous, so ignore our own writes and retire before another move.
+  function createFieldGestureOwner(store, pathId, retire) {
+    let revision = store?.getRevision(), canceled = store?.getCancelRevision();
+    let snapshot = store?.getSnapshot(), started = false, writing = false, disposed = false;
+    const current = () => !disposed && (!store || writing || (store.getRevision() === revision
+      && store.getCancelRevision() === canceled && store.getSnapshot() === snapshot
+      && (!started || snapshot?.id === pathId)));
+    const stop = () => { if (disposed) return; disposed = true; unsubscribe?.(); retire(); };
+    const unsubscribe = store?.subscribe(() => { if (!current()) stop(); });
+    return {
+      current,
+      write(callback, begin = false) {
+        if (!current() || (begin && store?.getSnapshot())) { stop(); return false; }
+        if (begin) started = true;
+        const before = revision, beforeCancel = canceled;
+        writing = true;
+        try { callback(); }
+        finally { writing = false; revision = store?.getRevision(); canceled = store?.getCancelRevision(); snapshot = store?.getSnapshot(); }
+        // Each field action begins or updates once. Nested resolution/restart
+        // must not let this owner adopt another gesture's same-path draft.
+        if (!current() || (store && (revision > before + 1 || canceled !== beforeCancel))) { stop(); return false; }
+        return true;
+      },
+      dispose() { disposed = true; unsubscribe?.(); },
+    };
+  }
+
+  function fieldRangeEndpoint(range, side, fraction, length) {
+    const inverted = range.f0 > range.f1, which = inverted ? 1 - side : side;
+    const other = side ? Math.min(range.f0, range.f1) : Math.max(range.f0, range.f1);
+    let f = side ? Math.max(other, Math.min(1, fraction)) : Math.min(other, Math.max(0, fraction));
+    // App rounds distance positions to centimetres. Keep the authored result
+    // on its side even when an older opposing distance has finer precision.
+    if (range.anchor === 'dist' && length > 0) {
+      const rounded = +(f * length).toFixed(2), boundary = other * length;
+      if (!side && rounded > boundary + 1e-9) f = Math.floor(boundary * 100 + 1e-9) / 100 / length;
+      if (side && rounded < boundary - 1e-9) f = Math.ceil(boundary * 100 - 1e-9) / 100 / length;
+    }
+    return { which, f };
+  }
+
+  function fieldGestureValue(path, gesture) {
+    const role = gesture.role, index = gesture.idx;
+    const record = role === 'ct' ? path?.waypoints[index >> 1]
+      : role === 'wp' || role === 'head' || role === 'look' ? path?.waypoints[index]
+      : role === 'rt' || role === 'rth' ? path?.targets[index]
+      : role === 'em' ? path?.markers[index] : path?.ranges?.[index];
+    return JSON.stringify(record);
+  }
+
   const localFootprint = (robot) => robot.footprint && robot.footprint.kind === 'polygon' && Array.isArray(robot.footprint.verticesM)
     ? robot.footprint.verticesM
     : [{ x: -robot.l / 2, y: -robot.w / 2 }, { x: robot.l / 2, y: -robot.w / 2 }, { x: robot.l / 2, y: robot.w / 2 }, { x: -robot.l / 2, y: robot.w / 2 }];
@@ -51,12 +116,26 @@ import { UI } from "./ui";
     return geometry;
   }
 
+  function HoverGhost({ store, context, derived, doc, robot, W2P, P }) {
+    const hover = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+    if (!context.eligible || hover?.context !== context || hover.source !== 'timeline') return null;
+    const pose = displayedPoseAtTime(hover.t, derived, doc);
+    if (!pose) return null;
+    const point = W2P(pose);
+    return h('g', { className: 'field-hover-ghost', transform: `translate(${point.x} ${point.y}) rotate(${-pose.heading * 180 / Math.PI})`,
+      'aria-hidden': true, style: { pointerEvents: 'none' } },
+      h('polygon', { points: footprintPoints(robot, 1), fill: 'none', stroke: 'rgba(255,255,255,.65)', strokeWidth: P(2), strokeDasharray: `${P(5)} ${P(4)}`, strokeLinejoin: 'round' }),
+      h('line', { x1: 0, y1: 0, x2: forwardExtent(robot) + P(3), y2: 0, stroke: 'rgba(255,255,255,.65)', strokeWidth: P(2) }));
+  }
+
   function FieldView(props) {
-    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, robot, drive, accent, metric, playTime, actions, routine, routinePose } = props;
+    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, robot, drive, accent, metric, playTime, actions, routine, routinePose, problems, hoverStore, hoverContext } = props;
     const interactionReady = props.interactionReady !== false;
     const showHandles = props.showHandles !== false;
     const svgRef = useRef(null);
-    const [cw, setCw] = useState(1200);
+    const captionId = useId();
+    const [canvasLayout, setCanvasLayout] = useState({ width: 1200, height: 0, clientWidth: 1200, rail: null });
+    const cw = canvasLayout.clientWidth;
     const [preview, setPreview] = useState(null);
     const [snap, setSnap] = useState(null);
     const [visitFocus, setVisitFocus] = useState(null);
@@ -65,6 +144,9 @@ import { UI } from "./ui";
     actionsRef.current = actions;
     const drag = useRef(null);
     const pointerDrag = PointerDrag.useController();
+    const contextRef = useRef(null);
+    const selectionKey = sel.kind + ':' + sel.idx;
+    contextRef.current = { pathId: doc.id, selectionKey, tool, routine: Boolean(routine) };
     const lastInspectPress = useRef({ key: null, at: 0 });
     const flip = alliance === 'red';
     const isTank = drive === 'tank';
@@ -86,10 +168,23 @@ import { UI } from "./ui";
 
     useEffect(() => {
       const svg = svgRef.current; if (!svg) return;
-      const ro = new ResizeObserver(() => setCw(svg.clientWidth || 1200));
-      ro.observe(svg); setCw(svg.clientWidth || 1200);
+      const field = svg.closest('.fieldcol'), rail = field?.querySelector('.toolrail');
+      const measure = () => {
+        const box = svg.getBoundingClientRect(), railBox = rail?.getBoundingClientRect();
+        const next = { width: box.width, height: box.height, clientWidth: svg.clientWidth || 1200,
+          rail: railBox && railBox.width > 0 && railBox.height > 0
+            ? { x: railBox.left - box.left, y: railBox.top - box.top, w: railBox.width, h: railBox.height } : null };
+        setCanvasLayout(previous => previous.width === next.width && previous.height === next.height && previous.clientWidth === next.clientWidth
+          && previous.rail?.x === next.rail?.x && previous.rail?.y === next.rail?.y
+          && previous.rail?.w === next.rail?.w && previous.rail?.h === next.rail?.h ? previous : next);
+      };
+      const ro = new ResizeObserver(measure);
+      ro.observe(svg); if (field) ro.observe(field); if (rail) ro.observe(rail);
+      measure();
       return () => ro.disconnect();
-    }, []);
+    }, [Boolean(routine)]);
+    const toolRailObstacle = useMemo(() => toolRailLabelObstacle(canvasLayout.rail, canvasLayout, view),
+      [canvasLayout, view.x, view.y, view.w, view.h]);
 
     const upp = view.w / Math.max(1, cw);
     const P = (px) => px * upp;
@@ -103,15 +198,20 @@ import { UI } from "./ui";
 
     useEffect(() => updateVisitFocus(null), [doc.id, updateVisitFocus]);
     useEffect(() => {
-      if (!editStore || typeof editStore.getCancelRevision !== 'function') return undefined;
-      let revision = editStore.getCancelRevision();
-      return editStore.subscribe(() => {
-        const next = editStore.getCancelRevision();
-        if (next === revision) return;
-        revision = next;
-        pointerDrag.cancel({ flush: false });
+      const d = drag.current;
+      if (!d) return;
+      if (d.pathId !== doc.id || d.selectionKey !== selectionKey || d.tool !== tool || d.routine !== Boolean(routine)) pointerDrag.cancel({ flush: false });
+      else d.selectionEstablished = true;
+    }, [doc.id, selectionKey, tool, Boolean(routine), pointerDrag]);
+    useEffect(() => {
+      // Push can own an unmoved press without a draft to finish. Retire on
+      // opening, even if its dialog closes before the next pointer movement.
+      const observer = new MutationObserver(() => {
+        if (drag.current && document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) pointerDrag.cancel({ flush: false });
       });
-    }, [editStore, pointerDrag]);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'role'] });
+      return () => observer.disconnect();
+    }, [pointerDrag]);
 
     const visitsAt = useCallback((world) => {
       const candidates = PM.nearestVisits(world.x, world.y, pts, { tolerance: visitTolerance });
@@ -124,6 +224,24 @@ import { UI } from "./ui";
         return { ...candidate, seg };
       });
     }, [pts, visitTolerance, derived.wpFrac]);
+
+    const hoverProducer = useRef(null);
+    React.useLayoutEffect(() => {
+      hoverProducer.current = (x, y) => {
+        if (routine || !interactionReady || drag.current) return null;
+        const world = hoverWorldPoint(svgRef.current, x, y, clientToWorld);
+        return world && hoverVisits(visitsAt(world), world, visitTolerance, visitFocusRef.current);
+      };
+      // Old screen coordinates cannot be interpreted through a newly committed pan/zoom/scale.
+      hoverStore?.clear('field', hoverContext);
+      return () => { hoverProducer.current = null; hoverStore?.clear('field', hoverContext); };
+    }, [hoverStore, hoverContext, visitsAt, visitTolerance, clientToWorld, routine, interactionReady, view.x, view.y, view.w, view.h, cw, alliance]);
+    const onHoverMove = event => {
+      if (!hoverStore) return;
+      if (event.buttons) { hoverStore.clear(undefined, hoverContext); return; }
+      const { clientX, clientY } = event;
+      hoverStore.queueField(hoverContext, () => hoverProducer.current?.(clientX, clientY) || null);
+    };
 
     const resolveVisit = useCallback((world, options) => {
       const opts = options || {}, candidates = visitsAt(world);
@@ -210,7 +328,7 @@ import { UI } from "./ui";
       const onVisitKey = (event) => {
         if (event.defaultPrevented || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
         const target = event.target;
-        if (target && (target.closest?.('input, textarea, select, button, summary, a[href], [role="menu"], [role="listbox"], .editor-library') || target.isContentEditable)) return;
+        if (target && (target.closest?.('input, textarea, select, button, summary, [data-role="issue"], a[href], [role="menu"], [role="listbox"], .editor-library') || target.isContentEditable)) return;
         if (event.key === 'Escape' && visitFocusRef.current) { updateVisitFocus(null); return; }
         const direction = event.key === ']' || event.code === 'BracketRight' ? 1
           : (event.key === '[' || event.code === 'BracketLeft' ? -1 : 0);
@@ -228,10 +346,10 @@ import { UI } from "./ui";
       return () => window.removeEventListener('keydown', onVisitKey, true);
     }, [updateVisitFocus]);
 
-    const startRangeDrag = (world, initialVisit) => {
+    const startRangeDrag = (e, world, initialVisit) => {
       const visit = initialVisit || resolveVisit(world);
       const f0 = visit ? visit.f : PM.nearestFraction(world.x, world.y, pts);
-      drag.current = { role: 'newrange', f0, f1: f0, lastF: f0, moved: false };
+      startPointer(e, { role: 'newrange', f0, f1: f0, lastF: f0, moved: false });
       setPreview({ f0, f1: f0 });
     };
 
@@ -265,18 +383,21 @@ import { UI } from "./ui";
     const onDown = (e) => {
       if (e.button !== 0 && e.button !== 1) return;
       if (!interactionReady) return;
+      if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
       e.preventDefault();
-      const t = e.target;
+      pointerDrag.cancel();
+      const t = e.target.closest?.('[data-role]') || e.target;
       const role = t.getAttribute && t.getAttribute('data-role');
-      pointerDrag.start(e, {
-        move: applyMove,
-        coalesce: true,
-        end: onUp,
-        cancel: onInterrupted,
-      });
+      if (role === 'issue') {
+        // A badge owns every primary press, including its children, Shift and placement tools.
+        if (e.button === 0) {
+          if (problems?.onSelect(Number(t.getAttribute('data-idx')))) t.focus({ preventScroll: true });
+        } else startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: true });
+        return;
+      }
       if (routine) {
         if (role === 'rpath') { const id = t.getAttribute('data-idx'); if (actions.selectNode) actions.selectNode(id); drag.current = null; return; }
-        drag.current = { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: e.button === 1 };
+        startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: e.button === 1 });
         return;
       }
       const world = clientToWorld(e.clientX, e.clientY);
@@ -295,24 +416,24 @@ import { UI } from "./ui";
         && performance.now() - pendingInspect.at <= 550;
       if (!inspectItem) lastInspectPress.current = { key: null, at: 0 };
       if (e.button === 0 && tool === 'waypoint' && !e.altKey && (role === 'bg' || role === 'seg' || role === 'ins')) {
-        drag.current = { role: 'bg', insertWaypoint: false, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: false };
+        startPointer(e, { role: 'bg', insertWaypoint: false, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: false });
         return;
       }
       if (role === 'head') {
         const idx = parseInt(t.getAttribute('data-idx'), 10);
         actions.select('wp', idx);
-        drag.current = { role: 'head', idx, inspectItem: { kind: 'wp', selectedIndex: idx, pressKey: 'wp:' + idx }, moved: false, historyStarted: false };
+        startPointer(e, { role: 'head', idx, selectionKey: 'wp:' + idx, inspectItem: { kind: 'wp', selectedIndex: idx, pressKey: 'wp:' + idx }, moved: false, historyStarted: false });
         return;
       }
       if (role === 'seg') {
         const idx = parseInt(t.getAttribute('data-idx'), 10);
         const visit = resolveVisit(world, { cycle: tool === 'select' && !e.altKey && !candidateInspectDouble });
-        if (tool === 'range' && pts.length > 1) { startRangeDrag(world, visit); return; }
-        if (e.altKey || tool === 'rotation' || tool === 'marker') drag.current = { role: 'bg', onPath: true, segment: visit ? visit.seg : idx, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: false };
+        if (tool === 'range' && pts.length > 1) { startRangeDrag(e, world, visit); return; }
+        if (e.altKey || tool === 'rotation' || tool === 'marker') startPointer(e, { role: 'bg', onPath: true, segment: visit ? visit.seg : idx, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: false });
         else {
           const selectedIndex = visit ? visit.seg : idx;
           actions.select('seg', selectedIndex);
-          drag.current = { role: 'inspect', inspectItem: { kind: 'seg', selectedIndex, pressKey: 'seg:' + selectedIndex }, start: { cx: e.clientX, cy: e.clientY }, moved: false };
+          startPointer(e, { role: 'inspect', selectionKey: 'seg:' + selectedIndex, inspectItem: { kind: 'seg', selectedIndex, pressKey: 'seg:' + selectedIndex }, start: { cx: e.clientX, cy: e.clientY }, moved: false });
         }
         return;
       }
@@ -330,29 +451,60 @@ import { UI } from "./ui";
         else if (role === 'em' && doc.markers[idx]) lastF = PM.featureFraction(doc.markers[idx], derived.sample);
         else if ((role === 'rs' || role === 're') && doc.ranges && doc.ranges[idx]) {
           const range = (derived.effRanges && derived.effRanges[idx]) || doc.ranges[idx];
-          lastF = role === 'rs' ? range.f0 : range.f1;
+          lastF = role === 'rs' ? Math.min(range.f0, range.f1) : Math.max(range.f0, range.f1);
         }
         let dragInspectItem = inspectItem;
         if (inspectItem && role === 'wp') dragInspectItem = { kind: 'wp', selectedIndex: idx, pressKey: 'wp:' + idx };
-        drag.current = { role, idx, lastF, world, cycleWaypoint, inspectItem: dragInspectItem, moved: false, historyStarted: false };
+        const next = { role, idx, lastF, world, cycleWaypoint, inspectItem: dragInspectItem, moved: false, historyStarted: false };
+        if ((role === 'rs' || role === 're') && doc.ranges?.[idx]) next.range = { ...((derived.effRanges && derived.effRanges[idx]) || doc.ranges[idx]) };
         if (role === 'ct') actions.select('wp', idx >> 1);
         else if (role === 'rs' || role === 're') actions.select('cr', idx);
         else if (role === 'rth') actions.select('rt', idx);
         else if (role === 'look') actions.select('seg', idx);
         else if (role === 'cr') actions.select('cr', idx);
         else if (role === 'wp' || role === 'rt' || role === 'em') actions.select(role, idx);
+        const kind = role === 'ct' ? 'wp' : role === 'rs' || role === 're' || role === 'cr' ? 'cr' : role === 'rth' ? 'rt' : role === 'look' ? 'seg' : role;
+        next.selectionKey = kind + ':' + (role === 'ct' ? idx >> 1 : idx);
+        startPointer(e, next);
         return;
       }
       if (tool === 'range' && pts.length > 1) {
-        startRangeDrag(world);
+        startRangeDrag(e, world);
         return;
       }
       const visit = role === 'ins' ? resolveVisit(world, { cycle: tool === 'select' }) : null;
-      drag.current = { role: 'bg', onPath: role === 'ins', segment: visit && visit.seg, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: e.button === 1 };
+      startPointer(e, { role: 'bg', onPath: role === 'ins', segment: visit && visit.seg, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: e.button === 1 });
+    };
+
+    const startPointer = (event, next) => {
+      pointerDrag.start(event, { move: applyMove, coalesce: true, end: onUp, cancel: onInterrupted });
+      const context = contextRef.current;
+      drag.current = { ...context, pressSelection: context.selectionKey, ...next };
+      drag.current.owner = createFieldGestureOwner(editStore, doc.id, () => pointerDrag.cancel({ flush: false }));
+    };
+    const ownsContext = (d) => {
+      const context = contextRef.current;
+      return d.pathId === context.pathId && d.tool === context.tool && d.routine === context.routine
+        && (d.selectionKey === context.selectionKey || (!d.selectionEstablished && d.pressSelection === context.selectionKey));
+    };
+    const ensureEdit = (d) => {
+      if (d.historyStarted) return d.owner.current();
+      if (!actionsRef.current.beginEdit) return false;
+      d.historyStarted = true;
+      const started = d.owner.write(() => actionsRef.current.beginEdit(), true);
+      if (started) d.baseline = fieldGestureValue(editStore?.getSnapshot() || doc, d);
+      return started;
+    };
+    const resolveEdit = (d) => {
+      if (!d.historyStarted) return;
+      const unchanged = editStore && fieldGestureValue(editStore.getSnapshot(), d) === d.baseline;
+      if (unchanged && actionsRef.current.cancelEdit) actionsRef.current.cancelEdit();
+      else actionsRef.current.finishEdit?.();
     };
 
     const applyMove = (e) => {
       const d = drag.current; if (!d) return;
+      if (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) { pointerDrag.cancel({ flush: false }); return; }
       const world = clientToWorld(e.clientX, e.clientY, d.role !== 'ct');
       if (d.role === 'inspect') {
         const dx = e.clientX - d.start.cx, dy = e.clientY - d.start.cy;
@@ -369,7 +521,7 @@ import { UI } from "./ui";
       if (d.role === 'head') {
         const w = doc.waypoints[d.idx];
         if (w) {
-          if (!d.historyStarted && actions.beginEdit) { actions.beginEdit(); d.historyStarted = true; }
+          if (!ensureEdit(d)) return;
           let deg = Math.atan2(world.y - w.y, world.x - w.x) * 180 / Math.PI;
           let label = null;
           if (e.shiftKey) deg = Math.round(deg / 15) * 15;
@@ -384,28 +536,36 @@ import { UI } from "./ui";
             if (best) { deg = best.deg; label = best.label; } else deg = Math.round(deg);
           }
           setSnap(label ? { idx: d.idx, label } : null);
-          actions.setWaypointHeading(d.idx, deg - (d.idx === 0 && derived.rev ? 180 : 0));
+          d.owner.write(() => actionsRef.current.setWaypointHeading(d.idx, deg - (d.idx === 0 && derived.rev ? 180 : 0)));
         }
         d.moved = true; return;
       }
       d.moved = true;
-      if (!d.historyStarted && actions.beginEdit) { actions.beginEdit(); d.historyStarted = true; }
+      if (!ensureEdit(d)) return;
       const p = d.role === 'ct' ? world : clampWorld(world);
-      if (d.role === 'wp') actions.moveWaypoint(d.idx, p);
-      else if (d.role === 'ct') actions.moveHandle(d.idx >> 1, d.idx & 1, p);
-      else if (d.role === 'rt') { const visit = projectVisit(world, d.lastF); if (visit) d.lastF = visit.f; actions.moveTargetTo(d.idx, world, visit && visit.f); }
-      else if (d.role === 'rth') actions.rotateTargetTo(d.idx, world, e.shiftKey);
-      else if (d.role === 'look') actions.moveSegmentLookAt(d.idx, p);
-      else if (d.role === 'em') { const visit = projectVisit(world, d.lastF); if (visit) d.lastF = visit.f; actions.moveMarkerTo(d.idx, world, visit && visit.f); }
-      else if (d.role === 'rs') { const visit = projectVisit(world, d.lastF); const f = visit ? visit.f : PM.nearestFraction(world.x, world.y, pts); d.lastF = f; actions.moveRangeHandle(d.idx, 0, f); }
-      else if (d.role === 're') { const visit = projectVisit(world, d.lastF); const f = visit ? visit.f : PM.nearestFraction(world.x, world.y, pts); d.lastF = f; actions.moveRangeHandle(d.idx, 1, f); }
+      d.owner.write(() => {
+        const actions = actionsRef.current;
+        if (d.role === 'wp') actions.moveWaypoint(d.idx, p);
+        else if (d.role === 'ct') actions.moveHandle(d.idx >> 1, d.idx & 1, p);
+        else if (d.role === 'rt') { const visit = projectVisit(world, d.lastF); if (visit) d.lastF = visit.f; actions.moveTargetTo(d.idx, world, visit && visit.f); }
+        else if (d.role === 'rth') actions.rotateTargetTo(d.idx, world, e.shiftKey);
+        else if (d.role === 'look') actions.moveSegmentLookAt(d.idx, p);
+        else if (d.role === 'em') { const visit = projectVisit(world, d.lastF); if (visit) d.lastF = visit.f; actions.moveMarkerTo(d.idx, world, visit && visit.f); }
+        else if (d.role === 'rs' || d.role === 're') {
+          const visit = projectVisit(world, d.lastF), raw = visit ? visit.f : PM.nearestFraction(world.x, world.y, pts);
+          const endpoint = fieldRangeEndpoint(d.range, d.role === 're' ? 1 : 0, raw, derived.sample.length);
+          d.lastF = endpoint.f; actions.moveRangeHandle(d.idx, endpoint.which, endpoint.f);
+        }
+      });
     };
 
     const onUp = (e) => {
-      const d = drag.current; drag.current = null;
+      const d = drag.current;
+      if (d && (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]'))) { onInterrupted(); return; }
+      drag.current = null; d?.owner.dispose();
       setSnap(null);
       if (!d) return;
-      if (d.historyStarted && actions.finishEdit) actions.finishEdit();
+      resolveEdit(d);
       if (d.role === 'newrange') {
         setPreview(null);
         const f0 = d.f0, f1 = d.f1;
@@ -457,9 +617,11 @@ import { UI } from "./ui";
     // Preserve the last visible edit if the browser interrupts pointer capture.
     const onInterrupted = () => {
       const d = drag.current;
+      const owned = d?.owner.current() && d.pathId === contextRef.current.pathId;
       drag.current = null; setSnap(null);
+      d?.owner.dispose();
       if (d && d.role === 'newrange') setPreview(null);
-      if (d && d.historyStarted && actionsRef.current.finishEdit) actionsRef.current.finishEdit();
+      if (owned) resolveEdit(d);
     };
     const onWheel = (e) => {
       e.preventDefault();
@@ -501,8 +663,43 @@ import { UI } from "./ui";
       openHeadingMenu(target, bounds.left + bounds.width / 2, bounds.bottom);
     };
 
-    const staticLayers = useMemo(() => {
-      const els = [];
+    const fieldIssues = useMemo(() => problems && !problems.live ? problems.issues : (derived.checks || []).map(check => ({
+      ...check, severity: check.level, f0: check.f, f1: check.f,
+    })), [problems?.issues, problems?.live, derived.checks]);
+    const selectedProblem = !problems?.live && fieldIssues[problems?.selected] && fieldIssues[problems.selected].severity !== 'note' ? problems.selected : null;
+    const problemOverflow = selectedProblem != null && !problemBadgeIndexes(fieldIssues, null).includes(selectedProblem) ? selectedProblem : null;
+    const problemBounds = { x: view.x, y: view.y, w: view.w, h: view.h };
+    const problemFootprints = useMemo(() => [doc.waypoints[0], doc.waypoints.at(-1)].filter(Boolean).map(wp => {
+        const c = W2P(wp), radius = Math.max(0, ...localFootprint(robot).map(point => Math.hypot(point.x * SX, point.y * SY))) + P(12);
+        return { x: c.x - radius, y: c.y - radius, w: radius * 2, h: radius * 2 };
+      }), [doc.waypoints, robot.l, robot.w, robot.footprint, view.w, cw]);
+    const baseProblemBadges = useMemo(() => {
+      if (routine || pts.length < 2 || doc.waypoints.length < 2) return [];
+      return placeProblemBadges(fieldIssues, problemBadgeIndexes(fieldIssues, null), f => W2P(PM.pointAtFraction(f, pts)), problemBounds, upp, problemFootprints);
+    }, [fieldIssues, pts, doc.waypoints, problemFootprints, routine, view.x, view.y, view.w, view.h, cw]);
+    const interactiveProblems = Boolean(problems && !problems.live && interactionReady);
+    const problemKey = (event, index) => {
+      if (!['Enter', ' ', 'Escape', 'Delete', 'Backspace'].includes(event.key)) return;
+      event.preventDefault(); event.stopPropagation();
+      if (event.isComposing || event.nativeEvent?.isComposing || event.repeat || !interactiveProblems
+        || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+      if (event.key === 'Escape') problems.onClear();
+      else if (event.key === 'Enter' || event.key === ' ') problems.onSelect(index);
+    };
+    const problemUnderlays = useMemo(() => fieldIssues.map((issue, index) => {
+      if (routine || issue.severity === 'note' || isWholeIssue(issue) || pts.length < 2) return null;
+      const selected = !problems?.live && problems?.selected === index, point = issue.f1 - issue.f0 < 1e-6;
+      const col = issue.severity === 'warning' ? '#d9a441' : '#d2655f';
+      const alpha = (selected ? .42 : .24) * (problems?.stale ? .5 : 1);
+      const position = point ? W2P(PM.pointAtFraction(issue.f0, pts)) : null;
+      return h(point ? 'circle' : 'path', { key: index, className: 'field-problem-span',
+        ...(point ? { cx: position.x, cy: position.y, r: P(selected ? 7.5 : 5.5), fill: col, fillOpacity: alpha } : {
+          d: FieldScene.fractionPathData(pts, derived.sample.length || 1, issue.f0, issue.f1, W2P, 1), fill: 'none', stroke: col,
+          strokeWidth: P(selected ? 15 : 11), strokeOpacity: alpha, strokeLinecap: 'round' }),
+        style: { pointerEvents: 'none' }, 'data-issue-index': index });
+    }), [fieldIssues, problems?.selected, problems?.stale, problems?.live, pts, derived.sample.length, routine, view.w, cw]);
+    const staticScene = useMemo(() => {
+      const els = [], labels = [];
       const M = derived.metrics;
       const headingMode = derived.headingMode;
       const segmentMode = (segment) => isTank ? 'tangent' : ((doc.waypoints[segment] && doc.waypoints[segment].segmentHeadingMode) || headingMode);
@@ -596,7 +793,7 @@ import { UI } from "./ui";
         }
         // Range labels share the canvas with handles, waypoints, targets, and warnings.
         // Treat those as occupied rectangles, then pick the clearest nearby label slot.
-        const labelObstacles = [];
+        const labelObstacles = toolRailObstacle ? [toolRailObstacle] : [];
         const reserveLabelSpace = (x, y, w, h) => labelObstacles.push({ x: x - w / 2, y: y - h / 2, w, h });
         const reserveSegmentSpace = (a, b, pad) => labelObstacles.push({
           x: Math.min(a.x, b.x) - pad, y: Math.min(a.y, b.y) - pad,
@@ -642,10 +839,7 @@ import { UI } from "./ui";
           reserveRotatedSpace(c.x + Math.cos(rad) * arrowOffset, c.y + Math.sin(rad) * arrowOffset,
             robot.l * SX + P(29), robot.w * SY + P(20), deg);
         });
-        (derived.checks || []).filter((check) => check.level !== 'note').forEach((check) => {
-          const c = W2P(PM.pointAtFraction(check.f, pts));
-          reserveLabelSpace(c.x, c.y - P(28), P(28), P(28));
-        });
+        baseProblemBadges.forEach(badge => labelObstacles.push(badge.box));
         const labeledRangeIndexes = rangeLabelIndexes(ranges.length, sel.kind === 'cr' ? sel.idx : -1);
         ranges.forEach((range, index) => {
           if (!labeledRangeIndexes.has(index)) return;
@@ -710,7 +904,7 @@ import { UI } from "./ui";
           const col = isSel ? accent : '#caa23a';
           const rangeHit = FieldScene.pathData(pts, rangeSpans[ri], W2P, 1);
           if (rangeHit) els.push(h('path', { key: 'rhit' + ri, d: rangeHit, fill: 'none', stroke: 'transparent', strokeWidth: P(11), strokeLinecap: 'round', 'data-role': 'cr', 'data-idx': ri, style: { cursor: 'pointer' } }));
-          [['f0', 'rs'], ['f1', 're']].forEach(([fk, role]) => {
+          (rg.f0 <= rg.f1 ? [['f0', 'rs'], ['f1', 're']] : [['f1', 'rs'], ['f0', 're']]).forEach(([fk, role]) => {
             const pf = PM.pointAtFraction(rg[fk], pts); const c = W2P(pf);
             els.push(h('g', { key: role + ri, transform: `translate(${c.x} ${c.y})`, style: { cursor: 'ew-resize' } },
               h('circle', { r: P(7), fill: '#14161a', stroke: col, strokeWidth: P(2), 'data-role': role, 'data-idx': ri }),
@@ -723,13 +917,14 @@ import { UI } from "./ui";
             const text = summary.text;
             const tw = P(Math.max(78, text.length * 7.4 + 20)), th = P(24);
             const label = placeRangeLabel(fraction, mc, tw, th);
+            labels.push(label.box);
             const leaderDx = label.x - mc.x, leaderDy = label.y - mc.y;
             const leaderLength = Math.hypot(leaderDx, leaderDy) || 1;
             const leaderEndX = label.x - leaderDx / leaderLength * (th / 2 + P(2));
             const leaderEndY = label.y - leaderDy / leaderLength * (th / 2 + P(2));
             els.push(h('g', { key: 'rl' + ri, style: { cursor: 'pointer' }, role: 'button', tabIndex: 0, 'aria-label': 'Open zone, ' + summary.ariaLabel, onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.select('cr', ri); } } },
               h('line', { x1: mc.x, y1: mc.y, x2: leaderEndX, y2: leaderEndY, stroke: col, strokeOpacity: 0.72, strokeWidth: P(1.2), strokeLinecap: 'round', 'data-role': 'cr', 'data-idx': ri }),
-              h('rect', { x: label.x - tw / 2, y: label.y - th / 2, width: tw, height: th, rx: P(6), fill: 'oklch(0.17 0.012 260 / 0.96)', stroke: isSel ? accent : 'oklch(0.73 0.13 86 / 0.72)', strokeWidth: P(1), 'data-role': 'cr', 'data-idx': ri }),
+              h('rect', { x: label.x - tw / 2, y: label.y - th / 2, width: tw, height: th, rx: P(6), fill: 'oklch(0.17 0.003 286 / 0.96)', stroke: isSel ? accent : 'oklch(0.73 0.13 86 / 0.72)', strokeWidth: P(1), 'data-role': 'cr', 'data-idx': ri }),
               h('text', { x: label.x, y: label.y + P(4.2), fill: isSel ? accent : 'oklch(0.84 0.12 88)', fontSize: P(12), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, letterSpacing: P(0.1), textAnchor: 'middle', 'data-role': 'cr', 'data-idx': ri }, text)));
           }
         });
@@ -875,8 +1070,8 @@ import { UI } from "./ui";
         const s = P(6.5);
         if (w.stop) group.push(h('rect', { key: 'stopo', x: c.x - s - P(3), y: c.y - s - P(3), width: (s + P(3)) * 2, height: (s + P(3)) * 2, rx: P(1.5), fill: 'none', stroke: '#d2655f', strokeWidth: P(1.4) }));
         if (w.turnInPlace) group.push(h('g', { key: 'turn', transform: `translate(${c.x + P(13)} ${c.y - P(13)})`, style: { pointerEvents: 'none' } },
-          h('path', { d: `M ${-P(4)} ${P(2)} A ${P(6)} ${P(6)} 0 1 1 ${P(4)} ${P(2)}`, fill: 'none', stroke: '#8eafff', strokeWidth: P(1.5), strokeLinecap: 'round' }),
-          h('path', { d: `M ${P(3)} ${-P(1)} L ${P(6)} ${P(2)} L ${P(2)} ${P(3)} Z`, fill: '#8eafff' })));
+          h('path', { d: `M ${-P(4)} ${P(2)} A ${P(6)} ${P(6)} 0 1 1 ${P(4)} ${P(2)}`, fill: 'none', stroke: '#aeb6c2', strokeWidth: P(1.5), strokeLinecap: 'round' }),
+          h('path', { d: `M ${P(3)} ${-P(1)} L ${P(6)} ${P(2)} L ${P(2)} ${P(3)} Z`, fill: '#aeb6c2' })));
         group.push(h('rect', { key: 'node', x: c.x - s, y: c.y - s, width: s * 2, height: s * 2, rx: P(1.5), fill: '#14161a', stroke: col, strokeWidth: P(2), 'data-role': 'wp', 'data-idx': i, style: { cursor: 'grab' } }));
         els.push(h('g', { key: 'w' + i }, group));
       });
@@ -896,20 +1091,40 @@ import { UI } from "./ui";
         }
       }
 
-      // Only actual errors and measured constraint violations get field badges.
-      const fieldIssues = (derived.checks || []).filter((check) => check.level !== 'note');
-      if (fieldIssues.length) {
-        fieldIssues.forEach((check, i) => {
-          const pf = PM.pointAtFraction(check.f, pts); const c = W2P(pf);
-          const col = check.level === 'error' ? '#d2655f' : '#d9a441';
-          els.push(h('g', { key: 'wn' + i, transform: `translate(${c.x} ${c.y - P(28)})`, style: { pointerEvents: 'none' } },
-            h('path', { d: `M 0 ${-P(8)} L ${P(8)} ${P(6)} L ${-P(8)} ${P(6)} Z`, fill: 'rgba(14,16,20,0.92)', stroke: col, strokeWidth: P(1.4), strokeLinejoin: 'round' }),
-            h('rect', { x: -P(0.8), y: -P(3.5), width: P(1.6), height: P(5.5), rx: P(0.8), fill: col }),
-            h('circle', { cx: 0, cy: P(4), r: P(1), fill: col })));
-        });
-      }
-      return els;
-    }, [doc, derived, sel, showGrid, accent, metric, robot, drive, tool, view.w, cw]);
+      return { els, labels };
+    }, [doc, derived, sel.kind, sel.idx, showGrid, accent, metric, robot, drive, tool, view.w, cw, baseProblemBadges, toolRailObstacle]);
+    const staticLayers = staticScene.els;
+    // An overflow selection is placed against existing labels; it never rebuilds path geometry.
+    const problemBadges = useMemo(() => problemOverflow == null ? baseProblemBadges : [
+      ...baseProblemBadges.slice(0, 11),
+      ...placeProblemBadges(fieldIssues, [problemOverflow], f => W2P(PM.pointAtFraction(f, pts)), problemBounds, upp,
+        [...problemFootprints, ...baseProblemBadges.map(b => b.box), ...staticScene.labels]),
+    ], [baseProblemBadges, staticScene, problemOverflow, fieldIssues, pts, problemFootprints, view.x, view.y, view.w, view.h, cw]);
+    const selectedBadge = problemBadges.find(badge => badge.index === selectedProblem);
+    const selectedCaption = useMemo(() => selectedBadge ? problemCaption(selectedBadge.issue, doc.waypoints.length, selectedBadge, problemBounds, upp,
+      [...problemBadges.map(badge => badge.box), ...staticScene.labels]) : null,
+      [selectedBadge, doc.waypoints.length, problemBadges, staticScene, view.x, view.y, view.w, view.h, cw]);
+    const problemBadgeEls = problemBadges.map(badge => {
+      const { issue, index, x, y } = badge, selected = !problems?.live && problems?.selected === index;
+      const plain = plainProblem(issue, doc.waypoints.length), col = issue.severity === 'warning' ? '#d9a441' : '#d2655f';
+      const caption = selected ? selectedCaption : null;
+      return h('g', { key: index, className: 'field-issue-badge' + (selected ? ' selected' : ''), 'data-level': issue.severity,
+        'data-role': interactiveProblems ? 'issue' : undefined, 'data-idx': index, role: interactiveProblems ? 'button' : undefined,
+        tabIndex: interactiveProblems ? 0 : undefined, 'aria-pressed': interactiveProblems ? selected : undefined,
+        'aria-label': 'Problem: ' + plain.text + (plain.where ? ', ' + plain.where : ''),
+        onKeyDown: event => problemKey(event, index),
+        onClick: event => { event.stopPropagation(); if (event.detail === 0 && interactiveProblems) problems.onSelect(index); },
+        opacity: problems?.stale ? .5 : 1, style: { cursor: interactiveProblems ? 'pointer' : undefined, pointerEvents: interactiveProblems ? undefined : 'none' } },
+        h('g', { transform: `translate(${x} ${y})` },
+          h('circle', { className: 'field-issue-hit', r: P(12), fill: 'transparent', stroke: selected ? 'rgb(255 255 255/.85)' : 'transparent', strokeWidth: P(1.5) }),
+          h('path', { d: `M 0 ${-P(8)} L ${P(8)} ${P(6)} L ${-P(8)} ${P(6)} Z`, fill: 'rgba(14,16,20,.92)', stroke: col, strokeWidth: P(1.4), strokeLinejoin: 'round' }),
+          h('rect', { x: -P(.8), y: -P(3.5), width: P(1.6), height: P(5.5), rx: P(.8), fill: col }),
+          h('circle', { cy: P(4), r: P(1), fill: col })),
+        caption && h('g', { className: 'field-problem-caption' },
+          h('rect', { x: caption.x, y: caption.y, width: caption.width, height: P(20), rx: P(10), fill: issue.severity === 'warning' ? '#29251b' : '#2b1c1c', stroke: 'rgb(255 255 255/.85)', strokeWidth: P(1.5) }),
+          h('clipPath', { id: captionId }, h('rect', { x: caption.x + P(6), y: caption.y, width: Math.max(0, caption.width - P(12)), height: P(20) })),
+          h('text', { x: caption.x + P(8), y: caption.y + P(13.8), fill: '#e9edf5', fontSize: P(11.5), fontFamily: 'Space Grotesk, sans-serif', clipPath: `url(#${captionId})` }, plain.text)));
+    });
 
     const visitFocusEl = useMemo(() => {
       if (!visitFocus || visitFocus.candidates.length < 2 || pts.length < 2) return null;
@@ -923,20 +1138,21 @@ import { UI } from "./ui";
         const point = W2P(PM.pointAtFraction(f, pts));
         path += (index ? ' L ' : 'M ') + point.x.toFixed(1) + ' ' + point.y.toFixed(1);
       }
-      const center = W2P(candidate), labelX = Math.max(X0 + P(48), Math.min(X1 - P(48), center.x + P(13)));
-      const labelY = Math.max(Y0 + P(18), center.y - P(19));
+      const center = W2P(candidate), text = 'Pass ' + (visitFocus.index + 1) + ' of ' + visitFocus.candidates.length;
+      const label = placeFieldLabel(center, P(fieldTextWidth(text, '10.5px "JetBrains Mono", monospace') + 6), P(16), problemBounds, upp,
+        [...problemBadges.map(badge => badge.box), ...(selectedCaption ? [selectedCaption] : [])], false);
+      const labelX = label.x + P(3), labelY = label.y + P(12);
       return h('g', { className: 'visit-focus', style: { pointerEvents: 'none' } },
         h('path', { d: path, fill: 'none', stroke: '#05060a', strokeWidth: P(8), strokeOpacity: 0.72, strokeLinecap: 'round' }),
         h('path', { d: path, fill: 'none', stroke: accent, strokeWidth: P(4.2), strokeOpacity: 0.96, strokeLinecap: 'round' }),
         h('line', { x1: center.x, y1: center.y - P(8), x2: center.x, y2: center.y + P(8), stroke: accent, strokeWidth: P(1.5) }),
         h('text', { x: labelX, y: labelY, fill: '#e9edf5', stroke: '#0b0c0f', strokeWidth: P(5), paintOrder: 'stroke', fontSize: P(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 },
           'Pass ' + (visitFocus.index + 1) + ' of ' + visitFocus.candidates.length));
-    }, [visitFocus, pts, derived.sample.length, accent, view.w, cw, W2P]);
+    }, [visitFocus, pts, derived.sample.length, accent, view.x, view.y, view.w, view.h, cw, W2P, problemBadges, selectedCaption]);
 
     // ---------- ROBOT (dynamic) ----------
     const robotEl = useMemo(() => {
-      const pose = pts.length > 1 ? PM.poseAtTime(playTime, pts, derived.prof, derived.anchors, derived.mode, derived.rev)
-        : (doc.waypoints[0] ? { x: doc.waypoints[0].x, y: doc.waypoints[0].y, heading: ((doc.waypoints[0].theta || 0) + (derived.rev ? 180 : 0)) * Math.PI / 180, speed: 0 } : null);
+      const pose = displayedPoseAtTime(playTime, derived, doc);
       if (!pose) return null;
       const c = W2P(pose);
       const degHead = pose.heading * 180 / Math.PI;
@@ -1048,7 +1264,10 @@ import { UI } from "./ui";
 
     return h('svg', {
       ref: svgRef, className: 'fieldsvg', tabIndex: routine ? undefined : 0, 'aria-label': 'Path field', onKeyDown: onFieldKeyDown, viewBox: vb, preserveAspectRatio: 'xMidYMid meet',
-      onPointerDown: onDown,
+      onPointerDown: onDown, onPointerMove: onHoverMove,
+      onPointerLeave: () => hoverStore?.clear('field', hoverContext),
+      onPointerCancel: () => hoverStore?.clear('field', hoverContext),
+      onLostPointerCapture: () => hoverStore?.clear('field', hoverContext),
       onWheel: onWheel, onDoubleClick: onDbl,
       style: { cursor, userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' },
       onContextMenu: onCtx, onDragStart: (e) => e.preventDefault(), draggable: false,
@@ -1066,15 +1285,18 @@ import { UI } from "./ui";
         transform: `translate(${X0} ${Y1}) scale(${SX} ${-SY})`,
         style: { pointerEvents: 'none' },
       }),
+      routine ? null : problemUnderlays,
       routine ? routineLayers : staticLayers,
       routine ? null : visitFocusEl,
       routine ? null : previewEl,
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
       routine ? routineRobot : robotEl,
+      !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
       routine ? null : snapEl,
+      routine ? null : problemBadgeEls,
     );
   }
 
 export const FIELD_DIMS = { FIELD_W, FIELD_H, IMG_W, IMG_H };
-export { FieldView, rangeLabelIndexes };
+export { FieldView, rangeLabelIndexes, toolRailLabelObstacle, createFieldGestureOwner, fieldRangeEndpoint };

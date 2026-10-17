@@ -28,21 +28,28 @@ jobs:
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - run: xvfb-run -a npm run test:smoke:built
       - name: Verify update quit lifecycle
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-update-quit.mjs
+        env:
+          BORDEAUX_UPDATE_QUIT_OUTPUT: .ui-artifacts/update-quit
       - name: Verify LabVIEW project UI
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-labview-project-ui.mjs
         env:
           BORDEAUX_LABVIEW_UI_OUTPUT: .ui-artifacts/labview
       - name: Verify project folder UI
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-project-folder-ui.mjs
         env:
           BORDEAUX_PROJECT_UI_OUTPUT: .ui-artifacts/project
           ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
       - name: Verify library and routine UI
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-library-ui.mjs
         env:
           BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library
       - name: Verify planning recovery and Zone editing
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: |
           xvfb-run -a node scripts/verify-planning-recovery-ui.mjs
           xvfb-run -a node scripts/verify-range-limits-ui.mjs
@@ -61,6 +68,11 @@ jobs:
         run: xvfb-run -a node scripts/verify-command-branches-ui.mjs
         env:
           BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
+      - name: Verify routine workspace
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
+        run: xvfb-run -a node scripts/verify-routine-workspace-ui.mjs
+        env:
+          BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       - name: Verify optimizer UI
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-optimizer-ui.mjs
@@ -91,4 +103,7 @@ jobs:
             .ui-artifacts/**/*.png
             .ui-artifacts/**/result*.json
             .ui-artifacts/**/failure-dom.txt
+            .ui-artifacts/update-quit/identity.json
+            .ui-artifacts/update-quit/stdout.log
+            .ui-artifacts/update-quit/stderr.log
           if-no-files-found: warn

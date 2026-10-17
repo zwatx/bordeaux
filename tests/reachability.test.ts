@@ -209,3 +209,126 @@ describe("fixed-path reachability", () => {
     expect(solveReachabilityProfile(request)).toEqual(solveReachabilityProfile(request));
   });
 });
+
+describe("soft fixed-path reachability", () => {
+  it("matches the strict solve exactly when the limits are feasible", () => {
+    for (const request of [
+      input(),
+      input({
+        positions: [0, 1, 2, 3, 4],
+        velocityLimits: [10, 10, 0, 10, 10],
+        accelerationLimits: [1, 1, 1, 1],
+        decelerationLimits: [1, 1, 1, 1],
+        freeSpeeds: [1e9, 1e9, 1e9, 1e9],
+      }),
+      input({ accelerationLimits: [2, 2], decelerationLimits: [10, 10], freeSpeeds: [2, 2], startVelocity: 1 }),
+    ]) {
+      const strict = solveReachabilityProfile(request);
+      const soft = solveReachabilityProfile(request, { soft: true });
+      expect(soft.status).toBe("optimal");
+      expect(soft.velocities).toEqual(strict.velocities);
+      expect(soft.violations).toEqual([]);
+    }
+  });
+
+  it("brakes as hard as allowed and reports the overload instead of failing", () => {
+    const request = input({
+      positions: [0, 1],
+      velocityLimits: [10, 10],
+      accelerationLimits: [1],
+      decelerationLimits: [1],
+      freeSpeeds: [10],
+      startVelocity: 2,
+    });
+
+    expect(solveReachabilityProfile(request).velocities).toEqual([]);
+    const result = solveReachabilityProfile(request, { soft: true });
+    expect(result.status).toBe("infeasible");
+    expect(result.velocities).toEqual([2, 0]);
+    expect(result.violations).toEqual([{
+      kind: "deceleration",
+      startInterval: 0,
+      endInterval: 0,
+      worstInterval: 0,
+      measured: 2,
+      limit: 1,
+      constraint: "linear-deceleration",
+    }]);
+  });
+
+  it("clamps an authored boundary above its local cap", () => {
+    const result = solveReachabilityProfile(input({ velocityLimits: [1, 10, 10], startVelocity: 2 }), { soft: true });
+
+    expect(result.velocities[0]).toBe(1);
+    expect(result.violations?.[0]).toMatchObject({ kind: "start-velocity", startInterval: 0, measured: 2, limit: 1 });
+  });
+
+  it("reports an unreachable goal as an acceleration overload ending at the goal", () => {
+    const result = solveReachabilityProfile(input({
+      positions: [0, 1],
+      velocityLimits: [10, 10],
+      accelerationLimits: [1],
+      decelerationLimits: [10],
+      freeSpeeds: [1e9],
+      goalVelocity: 2,
+    }), { soft: true });
+
+    expect(result.velocities).toEqual([0, 2]);
+    expect(result.violations).toMatchObject([{ kind: "acceleration", endInterval: 0, measured: 2, limit: 1 }]);
+  });
+
+  it("keeps acceleration overloads out of braking and cruising intervals", () => {
+    const root3 = Math.sqrt(3);
+    const result = solveReachabilityProfile({
+      positions: [0, 1, 2, 3],
+      velocityLimits: [2, root3, root3, 2],
+      accelerationLimits: [0.4, 0.4, 0.4],
+      decelerationLimits: [1, 1, 1],
+      freeSpeeds: [10, root3, 10],
+      startVelocity: 2,
+      goalVelocity: 2,
+    }, { soft: true });
+    expect(result.velocities).toEqual([2, root3, root3, 2]);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations![0]).toMatchObject({ kind: "acceleration", startInterval: 2, endInterval: 2, worstInterval: 2 });
+    expect(result.violations![0].measured).toBeCloseTo(0.5, 12);
+    expect(result.violations![0].measured).toBeGreaterThan(result.violations![0].limit);
+  });
+
+  it("extends a saturated maneuver while retaining its worst local overload", () => {
+    const result = solveReachabilityProfile(input({
+      positions: [0, 1, 2, 3], velocityLimits: [10, 10, 10, 10],
+      accelerationLimits: [1, 1, 1], decelerationLimits: [1, 1, 1], freeSpeeds: [1e9, 1e9, 1e9],
+      goalVelocity: 3,
+    }), { soft: true });
+    expect(result.velocities).toEqual([0, Math.sqrt(5), Math.sqrt(7), 3]);
+    expect(result.violations).toMatchObject([{
+      kind: "acceleration", startInterval: 0, endInterval: 2, worstInterval: 0,
+      measured: 2.5, limit: 1, constraint: "linear-acceleration",
+    }]);
+  });
+
+  it("separates adjacent overloads with different binding constraints", () => {
+    const result = solveReachabilityProfile(input({
+      velocityLimits: [2, 1, 2],
+      scalarAccelerationConstraints: [
+        [{ u: 1, x: 0, minimum: -10, maximum: 0.3, label: "first-force" }],
+        [{ u: 1, x: 0, minimum: -10, maximum: 0.2, label: "second-force" }],
+      ],
+      goalVelocity: 2,
+    }), { soft: true });
+    expect(result.violations).toMatchObject([
+      { kind: "acceleration", startInterval: 0, endInterval: 0, measured: 0.5, limit: 0.3, constraint: "first-force" },
+      { kind: "acceleration", startInterval: 1, endInterval: 1, measured: 1.5, limit: 0.2, constraint: "second-force" },
+    ]);
+  });
+
+  it("rejects squared-speed overflow only in soft mode", () => {
+    const request = input({ velocityLimits: [1e200, 1e200, 1e200], accelerationLimits: [1e308, 1e308], decelerationLimits: [1e308, 1e308] });
+    const result = solveReachabilityProfile(request, { soft: true });
+    expect(result.status).toBe("invalid-input");
+    expect(result.velocities).toEqual([]);
+    expect(solveReachabilityProfile(request).status).toBe("optimal");
+  });
+
+});

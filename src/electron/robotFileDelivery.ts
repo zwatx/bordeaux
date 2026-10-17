@@ -100,8 +100,8 @@ export class RobotFileDelivery {
     const done = Promise.resolve().then(async (): Promise<RobotFileResult> => {
       await pending.validate();
       controller.signal.throwIfAborted();
-      await this.transport.upload(pending.preview.connection, pending.files, controller.signal);
-      return { state: "transferred", files: structuredClone(pending.preview.files), directory: pending.preview.connection.endpoint.directory };
+      const uploaded = await this.transport.upload(pending.preview.connection, pending.files, controller.signal);
+      return { state: "transferred", files: structuredClone(pending.preview.files), directory: pending.preview.connection.endpoint.directory, directoryCreated: uploaded.directoryCreated };
     });
     this.active = { id, controller, done };
     try { return await done; } finally { this.active = null; }

@@ -84,7 +84,7 @@ describe('final trajectory projection performance', () => {
 });
 
 describe('routine performance', () => {
-  it('matches a linear reference at zero-duration, tolerance, and out-of-range boundaries', () => {
+  it('matches half-open timed ownership and final terminal occurrence through zero-duration boundaries', () => {
     const steps = [
       { t0: 0, t1: 0 }, { t0: 0, t1: 1 }, { t0: 1, t1: 1 },
       { t0: 1, t1: 1 }, { t0: 1, t1: 2 }, { t0: 2, t1: 2 },
@@ -92,8 +92,8 @@ describe('routine performance', () => {
     const run = { steps, segs: [] };
     const times = [-1, 0, 1e-6, 0.5, 1, 1 + 1e-6, 1 + 1.01e-6, 2, 2 + 1e-6, 3, NaN, Infinity];
     for (const time of times) {
-      const poseIndex = steps.findIndex((step) => time >= step.t0 && time <= step.t1 + 1e-6);
-      const highlightIndex = steps.findIndex((step) => time >= step.t0 && time < step.t1 + 1e-6);
+      const poseIndex = steps.findIndex((step) => time >= step.t0 && time < step.t1);
+      const highlightIndex = steps.findIndex((step) => time >= step.t0 && time < step.t1);
       expect(AUTO.poseAt(run, time).x).toBe(poseIndex < 0 ? steps.length - 1 : poseIndex);
       expect(AUTO.stepAt(run, time)).toBe(highlightIndex < 0 ? steps.length - 1 : highlightIndex);
     }

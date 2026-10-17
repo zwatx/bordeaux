@@ -1,9 +1,8 @@
 import { PathLinks } from "../lib/pathLinks";
 import { SharedWaypointPosition } from "./SharedWaypointPosition";
-import { LabviewProjectPanel } from "./LabviewProjectSources";
 import * as React from "react";
 import { PM } from "../lib/pathMath";
-import { UnitPrefs } from "../lib/unitPreferences";
+import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { FIELD_DIMS } from "./FieldView";
 import { UI } from "./ui";
 import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../shared/robotCommands";
@@ -25,8 +24,8 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
 
   function ConstraintsBody({ c, robot, setC, moreLimits, setMoreLimits }) {
     const rotation = moreLimits ? h('div', { className: 'grid2 compact-fields' },
-      h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, precision: 0, onChange: (v) => setC({ maxAngVel: v }) }),
-      h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, precision: 0, onChange: (v) => setC({ maxAngAccel: v }) })) : null;
+      h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngVel: v }) }),
+      h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngAccel: v }) })) : null;
     return h(React.Fragment, null,
       h('div', { className: 'cgroup-h' }, 'Translation'),
       h('div', { className: 'grid2' },
@@ -53,7 +52,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
     return h('section', { className: 'range-limits', 'aria-label': 'Zone limits' },
       active.map(([key, label, unit]) => h('div', { key, className: 'range-limit' },
         h(Num, { label, value: values[key], unit, min: 0.01, max: Math.max(limitFor(key), values[key]),
-          step: key.startsWith('maxAng') ? 1 : 0.01, precision: key.startsWith('maxAng') ? 0 : 2,
+          step: key.startsWith('maxAng') ? 1 : 0.01, precision: 2, format: key.startsWith('maxAng') ? formatAngularLimit : undefined,
           onChange: (value) => change(key, value) }),
         h('button', { type: 'button', className: 'iconbtn', 'aria-label': 'Remove ' + label.toLowerCase() + ' limit',
           title: 'Remove ' + label.toLowerCase() + ' limit', onClick: () => change(key, undefined) }, h(Icon, { name: 'x', size: 14 })))),
@@ -205,7 +204,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         className: 'textinput cmd-param-input',
         type: 'text',
         inputMode: 'numeric',
-        pattern: '[+-]?[0-9]+',
+        pattern: '[+\\-]?[0-9]+',
         value: draft,
         'data-project-draft': true,
         autoComplete: 'off',
@@ -414,6 +413,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
           start ? 'Stopped at entry' : 'Stopped at exit'));
     };
     const initialFacing = () => {
+      if (!n) return h('div', { className: 'hint' }, 'Place a waypoint to set initial facing.');
       const followsLaw = firstHeadingMode === 'tangent' || firstHeadingMode === 'lookAt';
       const plannedFacing = derived.metrics?.head?.[0];
       const tangent = derived.sample?.pts?.[0]?.heading;
@@ -450,7 +450,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         : marker ? () => actions.delMarker(sel.idx) : waypoint && n > 2 ? () => actions.delWp(sel.idx) : null;
       const removeLabel = range ? 'Delete zone' : target ? 'Delete rotation target' : marker ? 'Delete command' : 'Delete waypoint';
       body = h(React.Fragment, null,
-        h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit the saved values or remove a feature below to try again. Select other features in the path outline.'),
+        h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit the saved values or remove a feature below to try again. Select other features on the field or timeline.'),
         waypoint && h('div', { className: 'grid2' },
           h(Num, { label: 'X', value: waypoint.x, unit: 'm', onChange: (x) => actions.setWp(sel.idx, { x }) }),
           h(Num, { label: 'Y', value: waypoint.y, unit: 'm', onChange: (y) => actions.setWp(sel.idx, { y }) })),
@@ -464,8 +464,8 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
     else if (!sel.kind) {
       icon = 'route'; title = doc.name || 'Path';
       // Path-level actions live in the header; waypoint placement belongs to the tool rail.
-      headerAction = h('button', { className: 'ctxinsp-act', type: 'button', disabled: !actions.canReversePath, 'aria-label': 'Swap start/end',
-        title: actions.canReversePath ? 'Swap start/end' : 'Waiting for the current path preview', onClick: () => actions.reversePath() }, h(Icon, { name: 'shuffle', size: 14 }));
+      headerAction = h('button', { className: 'ctxinsp-act', type: 'button', disabled: n < 2 || !actions.canReversePath, 'aria-label': 'Swap start/end',
+        title: n < 2 ? 'Place two waypoints to swap start and end' : actions.canReversePath ? 'Swap start/end' : 'Waiting for the current path preview', onClick: () => actions.reversePath() }, h(Icon, { name: 'shuffle', size: 14 }));
       body = h(React.Fragment, null,
         h('div', { className: 'cgroup-h' }, 'Facing'),
         isTank
@@ -582,6 +582,9 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
 
         // Every feature inspector ends with the same full-width destructive action.
         !isAnchor && h('button', { className: 'qbtn wide', type: 'button', style: { marginTop: '14px' }, onClick: () => actions.duplicateWp(i) }, h(Icon, { name: 'copy', size: 14 }), 'Duplicate waypoint'),
+        actions.moveWpOrder && n > 2 && h('div', { className: 'qrow', style: { marginTop: '8px' } },
+          h('button', { className: 'qbtn', type: 'button', disabled: i === 0, onClick: () => actions.moveWpOrder(i, -1) }, 'Move earlier'),
+          h('button', { className: 'qbtn', type: 'button', disabled: i === n - 1, onClick: () => actions.moveWpOrder(i, 1) }, 'Move later')),
         n > 2 && h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delWp(i) }, h(Icon, { name: 'trash', size: 15 }), 'Delete waypoint'));
     }
 
@@ -697,7 +700,6 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       const operation = robotProject && robotProject.operation;
       icon = 'flag2'; title = m.name || 'Command';
       body = h(React.Fragment, null,
-        h(LabviewProjectPanel, { robotProject }),
         h('label', { className: 'fieldlabel first', htmlFor: 'event-marker-name' }, 'Name'),
         h(DraftText, { id: 'event-marker-name', className: 'textinput', value: m.name, owner: doc.id + ':' + (m.id || sel.idx), autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setMarker(sel.idx, { name }) }),
 
@@ -721,9 +723,9 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
               });
             },
           }),
-          catalog && commands.length === 0 && h('div', { className: 'seg-hint', role: 'status' }, 'No command VIs found. Check the linked project or sync commands.'),
+          catalog && commands.length === 0 && h('div', { className: 'seg-hint', role: 'status' }, 'No command VIs found. Check the linked project or refresh commands.'),
           unresolved && h('div', { className: 'cmd-project-error', role: 'status' }, 'This command is not in the linked project. Its saved ID and arguments are unchanged.'),
-          selectedCommand && !selectedCommand.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Sync commands to load this command’s inputs before exporting.'),
+          selectedCommand && !selectedCommand.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Refresh commands to load this command’s inputs before exporting.'),
           selectedCommand && h('div', {
             className: 'cmd-command-summary',
             title: selectedCommand.source ? selectedCommand.source.file + ':' + selectedCommand.source.line : undefined,

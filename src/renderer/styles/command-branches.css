@@ -1,8 +1,8 @@
 .command-branches{min-width:0;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
 .command-branches>.fieldlabel:first-child{margin-top:0;color:var(--txt);font-size:12.5px;font-weight:600}
 .command-branches .fieldlabel{overflow-wrap:anywhere}
-/* One route per group; 16px between routes, 6px from each label to its control. */
-.command-branch-route{min-width:0;margin-top:16px;padding:10px 0 2px 12px;border-left:2px solid var(--line-2)}
+/* One route per group, separated by a hairline and spacing; no side rule. */
+.command-branch-route{min-width:0;margin-top:14px;padding:12px 0 2px;border-top:1px solid var(--line)}
 .command-branch-route .fieldlabel{margin:8px 0 6px}
 .command-branch-route .grid2{align-items:start;margin:8px 0 0}
 .command-branch-route .grid2 .fieldlabel{margin-top:0}

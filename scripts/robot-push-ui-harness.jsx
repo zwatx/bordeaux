@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/renderer/styles/app.css';
 import '../src/renderer/styles/robot-push.css';
-import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/RobotPushDialog';
+import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/LegacyRobotPushDialog';
 
 // This harness mounts the real controller and dialog. Only the desktop API is
 // substituted; its deferred responses model IPC/network scheduling precisely.

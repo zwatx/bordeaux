@@ -60,7 +60,11 @@ describe("main-process agent access periods", () => {
 
     expect(service.publishEditorSnapshot(editorSnapshot(2, second.generation))).toBe("published");
     expect(await service.request({ method: "inspect_session" })).toMatchObject({ revision: 2 });
+    // Invalid data from a retired access period cannot retire current evidence.
+    expect(service.publishEditorSnapshot({ ...editorSnapshot(3, first.generation), activePathId: "missing" })).toBe("ignored");
+    expect(await service.request({ method: "inspect_session" })).toMatchObject({ revision: 2 });
     expect(service.publishEditorSnapshot({ ...editorSnapshot(3, second.generation), activePathId: "missing" })).toBe("invalid");
+    await expect(service.request({ method: "inspect_session" })).rejects.toThrow(/finish loading/);
     expect(service.publishEditorSnapshot(null)).toBe("invalid");
   });
 

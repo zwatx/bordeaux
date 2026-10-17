@@ -115,8 +115,12 @@ app.whenReady().then(async () => {
       assert.ok(await evaluate(() => document.querySelectorAll('.app-update-notes ul li').length >= 7));
       assert.equal(await evaluate(() => document.querySelector('.app-update-notes code').textContent), '/home/lvuser/natinst/bin/Paths');
       assert.ok(await evaluate(() => {
-        const rgb = getComputedStyle(document.querySelector('.app-update-action')).backgroundColor.match(/\d+/g).slice(0, 3).map(Number);
-        return Math.max(...rgb) - Math.min(...rgb) < 16;
+        // Computed colors keep their authored space (e.g. oklch(…)), so paint the actual value and read back sRGB.
+        const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+        context.fillStyle = getComputedStyle(document.querySelector('.app-update-action')).backgroundColor;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+        return alpha === 255 && Math.max(r, g, b) - Math.min(r, g, b) < 16;
       }), 'Primary action should use a neutral surface');
       assert.ok(await evaluate(() => document.querySelector('.app-update-notes').clientHeight > 340), 'Notes must have useful reading space');
       await capture(`${platform}-${width}-up-to-date`);

@@ -1,4 +1,5 @@
 import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./types";
+import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_H, FIELD_W } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE } from "./field/rebuilt2026";
@@ -182,6 +183,44 @@ function validateCommandArgumentValue(issues: ValidationIssue[], value: unknown,
   issues.push(issue(path, "Command arguments must contain only JSON-compatible values"));
 }
 
+function validateRoutineCondition(issues: ValidationIssue[], value: unknown, path: string, allowOutput: boolean) {
+  if (!isRecord(value)) { issues.push(issue(path, "Routine condition must be an object")); return; }
+  if (value.source === "condition") {
+    if (typeof value.conditionId !== "string") issues.push(issue(`${path}.conditionId`, "Condition ID must be a string"));
+    return;
+  }
+  if (!allowOutput || value.source !== "output") { issues.push(issue(`${path}.source`, "Condition source is invalid")); return; }
+  if (typeof value.nodeId !== "string" || typeof value.output !== "string") issues.push(issue(path, "Output stop selectors must be strings"));
+  const schema = value.schema;
+  if (schema !== undefined) {
+    const valid = isRecord(schema) && typeof schema.kind === "string" && ["boolean", "enum", "integer", "number", "integerString", "decimalString"].includes(schema.kind)
+      && typeof schema.valueType === "string" && Boolean(schema.valueType.trim())
+      && (schema.kind !== "enum" || (Array.isArray(schema.enumValues) && schema.enumValues.length > 0 && schema.enumValues.length <= 255
+        && schema.enumValues.every(item => typeof item === "string" && item.length > 0) && new Set(schema.enumValues).size === schema.enumValues.length));
+    if (!valid) issues.push(issue(`${path}.schema`, "Output stop schema is invalid"));
+    else if (value.value !== undefined) {
+      const error = robotSchemaValueError(value.value, schema as unknown as RobotValueSchema, "Stop value");
+      if (error) issues.push(issue(`${path}.value`, error));
+    }
+  }
+  if (value.value !== undefined && !["boolean", "string", "number"].includes(typeof value.value)) issues.push(issue(`${path}.value`, "Stop value must be a scalar"));
+  if (typeof value.value === "number" && !Number.isFinite(value.value)) issues.push(issue(`${path}.value`, "Stop value must be finite"));
+  const allowed = isRecord(schema) && ["boolean", "enum"].includes(schema.kind as string) ? ["eq"] : ["eq", "neq", "lt", "lte", "gt", "gte"];
+  if (typeof value.operator !== "string" || !allowed.includes(value.operator)) issues.push(issue(`${path}.operator`, "Output comparison is invalid"));
+}
+
+function validateRoutineEnds(issues: ValidationIssue[], node: RecordValue, base: string) {
+  if (node.ends === undefined) return;
+  const command = node.type === "function" && node.cat === "command";
+  const wait = node.type === "builtin" && node.builtinId === "bordeaux.wait";
+  if (!command && !wait) { issues.push(issue(`${base}.ends`, "Only commands and waits can have ending conditions")); return; }
+  if (!isRecord(node.ends)) { issues.push(issue(`${base}.ends`, "Ending conditions must be an object")); return; }
+  const ends = node.ends;
+  if (ends.endWhen !== undefined) validateRoutineCondition(issues, ends.endWhen, `${base}.ends.endWhen`, false);
+  if (ends.timeoutS !== undefined && (!command || !finite(ends.timeoutS) || ends.timeoutS < 0.02 || ends.timeoutS > 15)) issues.push(issue(`${base}.ends.timeoutS`, "Command timeout must be from 0.02 to 15 seconds"));
+  if (ends.onTimeout !== undefined && (!command || ends.timeoutS === undefined || (typeof ends.onTimeout !== "string" || !["continue", "endRoutine"].includes(ends.onTimeout)))) issues.push(issue(`${base}.ends.onTimeout`, "Timeout policy requires a command timeout and must be Continue or End routine"));
+}
+
 function validateRoutineNodes(
   issues: ValidationIssue[],
   value: unknown,
@@ -218,6 +257,18 @@ function validateRoutineNodes(
     if (node.outputBranch !== undefined && (node.type !== "function" || node.cat !== "command")) {
       issues.push(issue(`${base}.outputBranch`, "Only a command can branch on an output"));
     }
+    validateRoutineEnds(issues, node, base);
+    if (node.type === "repeat") {
+      if (!Number.isInteger(node.times) || (node.times as number) < 1 || (node.times as number) > 50) issues.push(issue(`${base}.times`, "Repeat count must be an integer from 1 to 50"));
+      if (node.until !== undefined) validateRoutineCondition(issues, node.until, `${base}.until`, true);
+      validateRoutineNodes(issues, node.nodes, `${base}.nodes`, pathIds, nodeIds, state, depth + 1);
+      continue;
+    }
+    if (node.type === "end") {
+      if (typeof node.scope !== "string" || !["routine", "repeat"].includes(node.scope)) issues.push(issue(`${base}.scope`, "End scope must be routine or repeat"));
+      continue;
+    }
+
 
     if (node.type === "path") {
       if (typeof node.ref !== "string" || !pathIds.has(node.ref)) issues.push(issue(`${base}.ref`, "Routine path reference must match a path ID"));
@@ -260,7 +311,7 @@ function validateRoutineNodes(
       if (!isRecord(branch)) { issues.push(issue(branchPath, "Command output branch must be an object")); continue; }
       if (typeof branch.output !== "string" || !branch.output.trim() || branch.output.length > 256) issues.push(issue(`${branchPath}.output`, "A command output name of at most 256 characters is required"));
       const schema = branch.schema;
-      const schemaValid = isRecord(schema) && ["boolean", "enum", "integer", "number", "integerString", "decimalString"].includes(String(schema.kind))
+      const schemaValid = isRecord(schema) && typeof schema.kind === "string" && ["boolean", "enum", "integer", "number", "integerString", "decimalString"].includes(schema.kind)
         && typeof schema.valueType === "string" && Boolean(schema.valueType.trim())
         && (schema.kind !== "enum" || (Array.isArray(schema.enumValues) && schema.enumValues.length > 0 && schema.enumValues.length <= 255
           && schema.enumValues.every((item) => typeof item === "string" && item.length > 0)
@@ -284,13 +335,13 @@ function validateRoutineNodes(
           otherwiseCount += 1;
           if (routeIndex !== routes.length - 1 || route.value !== undefined) issues.push(issue(routePath, "Otherwise must be the final route and have no comparison value"));
         } else {
-          const allowed = isRecord(schema) && ["boolean", "enum"].includes(String(schema.kind)) ? ["eq"] : ["eq", "neq", "lt", "lte", "gt", "gte"];
-          if (!allowed.includes(String(route.operator))) issues.push(issue(`${routePath}.operator`, "Output route comparison is invalid for this output type"));
+          const allowed = isRecord(schema) && ["boolean", "enum"].includes(schema.kind as string) ? ["eq"] : ["eq", "neq", "lt", "lte", "gt", "gte"];
+          if (typeof route.operator !== "string" || !allowed.includes(route.operator)) issues.push(issue(`${routePath}.operator`, "Output route comparison is invalid for this output type"));
           if (schemaValid) {
             const error = robotSchemaValueError(route.value, schema as unknown as RobotValueSchema, "Comparison value");
             if (error) issues.push(issue(`${routePath}.value`, error));
           }
-          if (isRecord(schema) && ["boolean", "enum"].includes(String(schema.kind)) && values.has(route.value)) issues.push(issue(`${routePath}.value`, "Output routes must not repeat the same outcome"));
+          if (isRecord(schema) && ["boolean", "enum"].includes(schema.kind as string) && values.has(route.value)) issues.push(issue(`${routePath}.value`, "Output routes must not repeat the same outcome"));
           values.add(route.value);
         }
         validateRoutineNodes(issues, route.nodes, `${routePath}.nodes`, pathIds, nodeIds, state, depth + 1);
@@ -302,11 +353,11 @@ function validateRoutineNodes(
   }
 }
 
-function validateProjectInner(project: unknown): ValidationResult {
+function validateProjectInner(project: unknown, allowIncompletePaths = false): ValidationResult {
   const issues: ValidationIssue[] = [];
   if (!isRecord(project)) return { ok: false, issues: [issue("$", "Project must be a JSON object")] };
 
-  if (project.schemaVersion !== "1.0") issues.push(issue("$.schemaVersion", "Schema version must be 1.0"));
+  if (project.schemaVersion !== "1.0" && project.schemaVersion !== "1.1" && project.schemaVersion !== "1.2") issues.push(issue("$.schemaVersion", "Schema version must be 1.0, 1.1 or 1.2"));
   if (!isRecord(project.field)) issues.push(issue("$.field", "Field reference is required"));
   else {
     if (project.field.id !== ACTIVE_FIELD_REFERENCE.id) issues.push(issue("$.field.id", "Field ID is not supported"));
@@ -394,13 +445,24 @@ function validateProjectInner(project: unknown): ValidationResult {
       if (path.folderId !== undefined && (typeof path.folderId !== "string" || !folderIds.has(path.folderId))) issues.push(issue(`${base}.folderId`, "Path folder does not exist"));
       if (path.driveBackward !== undefined && typeof path.driveBackward !== "boolean") issues.push(issue(`${base}.driveBackward`, "Drive backward must be true or false"));
       if (path.exportable !== undefined && typeof path.exportable !== "boolean") issues.push(issue(`${base}.exportable`, "Exportable must be true or false"));
+      if (path.routeRequiredPointIndices !== undefined) issues.push(issue(`${base}.routeRequiredPointIndices`, "Solver point mapping is not authored source"));
       if (path.optimization !== undefined) {
         const options = path.optimization;
-        if (!isRecord(options) || !finite(options.corridorM) || options.corridorM < 0.03 || options.corridorM > 1.5) {
-          issues.push(issue(`${base}.optimization`, "Optimization corridor must be between 0.03 and 1.5 meters"));
-        } else if (options.accepted !== undefined) {
-          const error = acceptedTrajectoryShapeError(options.accepted);
-          if (error) issues.push(issue(`${base}.optimization.accepted`, error));
+        if (!isRecord(options)) issues.push(issue(`${base}.optimization`, "Optimization must be an object"));
+        else {
+          if ((options.corridorM !== undefined || (isRecord(options.accepted) && options.accepted.version === 1) || options.legacyAccepted !== undefined)
+            && (!finite(options.corridorM) || options.corridorM < 0.03 || options.corridorM > 1.5)) {
+            issues.push(issue(`${base}.optimization`, "Optimization corridor must be between 0.03 and 1.5 meters"));
+          }
+          if (options.accepted !== undefined) {
+            const error = acceptedTrajectoryShapeError(options.accepted);
+            if (error) issues.push(issue(`${base}.optimization.accepted`, error));
+          }
+          if (options.legacyAccepted !== undefined) {
+            const error = !isRecord(options.legacyAccepted) || options.legacyAccepted.version !== 1
+              ? "Archived selection must be a legacy version 1 trajectory" : acceptedTrajectoryShapeError(options.legacyAccepted);
+            if (error) issues.push(issue(`${base}.optimization.legacyAccepted`, error));
+          }
         }
       }
       if (path.headingMode !== undefined && !["manual", "tangent", "targets"].includes(String(path.headingMode))) issues.push(issue(`${base}.headingMode`, "Heading mode is invalid"));
@@ -414,7 +476,7 @@ function validateProjectInner(project: unknown): ValidationResult {
         issues.push(issue(`${base}.waypoints`, `Path cannot contain more than ${MAX_PATH_ITEMS} waypoints`));
       } else {
         const waypointCount = path.waypoints.length;
-        if (waypointCount < 2) issues.push(issue(`${base}.waypoints`, "Path must contain at least two waypoints"));
+        if (waypointCount < 2 && !allowIncompletePaths) issues.push(issue(`${base}.waypoints`, "Path must contain at least two waypoints"));
         path.waypoints.forEach((waypoint, wi) => {
           const wpBase = `${base}.waypoints[${wi}]`;
           if (!isRecord(waypoint)) {
@@ -620,6 +682,10 @@ function validateProjectInner(project: unknown): ValidationResult {
       if (project.editor.robotProjectBookmarkId !== undefined && (typeof project.editor.robotProjectBookmarkId !== "string" || !/^[a-f0-9]{20}$/.test(project.editor.robotProjectBookmarkId))) {
         issues.push(issue("$.editor.robotProjectBookmarkId", "Robot project bookmark is invalid"));
       }
+      if (project.editor.labviewProjectPath !== undefined && project.editor.labviewProjectPath !== null) {
+        try { normalizeLabviewProjectPath(project.editor.labviewProjectPath); }
+        catch { issues.push(issue("$.editor.labviewProjectPath", "LabVIEW link must be a local relative .lvproj path")); }
+      }
       if (project.editor.unitSystem !== undefined && project.editor.unitSystem !== "metric" && project.editor.unitSystem !== "imperial") {
         issues.push(issue("$.editor.unitSystem", "Display units must be metric or imperial"));
       }
@@ -720,6 +786,15 @@ function validateProjectInner(project: unknown): ValidationResult {
 export function validateProject(project: unknown): ValidationResult {
   try {
     return validateProjectInner(project);
+  } catch {
+    return { ok: false, issues: [issue("$", "Project contains an unreadable value")] };
+  }
+}
+
+/** Editable source can contain an unfinished path; planning and export remain strict. */
+export function validateProjectSource(project: unknown): ValidationResult {
+  try {
+    return validateProjectInner(project, true);
   } catch {
     return { ok: false, issues: [issue("$", "Project contains an unreadable value")] };
   }

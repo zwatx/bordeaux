@@ -7,7 +7,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-close:disabled{opacity:.35;cursor:not-allowed}
 .robot-push-intro{padding:14px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.55}
 .robot-push-section{display:grid;gap:12px;padding:14px 20px 20px}
-.robot-push-section>p,.robot-push-status>p{color:var(--txt-2);font-size:12.5px;line-height:1.55}
+.robot-push-section>p,.robot-push-status>p,.robot-push-outcome>p{color:var(--txt-2);font-size:12.5px;line-height:1.55}
 .robot-manager .robot-push-selection{color:var(--txt);font-size:15px;font-weight:600;overflow-wrap:anywhere}
 .robot-push-endpoint{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:10px}
 .robot-push-endpoint label{display:grid;gap:6px;color:var(--txt-2);font-size:12px;font-weight:500}
@@ -24,19 +24,19 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:4px}
 .robot-push-actions>button:first-child:nth-last-child(n+3):not(.primary){margin-right:auto}
 .robot-push-actions.split{justify-content:space-between}
-.robot-push-alert{margin:12px 20px 0;padding:9px 11px;border-left:2px solid var(--bad);border-radius:0 var(--r) var(--r) 0;background:var(--bad-soft);color:var(--txt);font-size:12.5px;line-height:1.5}
+.robot-push-alert{margin:12px 20px 0;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);font-size:12.5px;line-height:1.5}
 .robot-push-status{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;padding:14px 20px 20px}
 .robot-push-status p,.robot-push-status button{grid-column:2}
 .robot-push-status button{justify-self:start}
 .robot-push-status strong{font-size:13px;font-weight:600}
 .robot-push-spinner{width:16px;height:16px;border:2px solid var(--accent-soft);border-top-color:var(--accent);border-radius:50%;animation:robot-push-spin .8s linear infinite}
-.robot-push-outcome{margin:4px 20px 20px;padding:14px 16px;border:1px solid var(--line-2);border-left:2px solid var(--line-3);border-radius:var(--r);background:var(--bg-2)}
-.robot-push-outcome.active,.robot-push-outcome.pinned{border-left-color:var(--good);background:rgba(75,191,134,.08)}
-.robot-push-outcome.rejected,.robot-push-outcome.failed{border-left-color:var(--bad);background:var(--bad-soft)}
-.robot-manager .robot-push-outcome{padding:14px 16px}
+/* An outcome is the dialog's result in its own content column; the heading carries the tone, not a box. */
+.robot-push-outcome:is(.active,.pinned) h3{color:var(--good)}
+.robot-push-outcome:is(.rejected,.failed) h3{color:var(--bad-txt)}
 /* Reviewed files: the path name, then its exact file name and size. */
-.robot-retention-list{display:grid;gap:6px;margin:0;padding:0;list-style:none}
-.robot-retention-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2)}
+.robot-retention-list{display:grid;margin:0;padding:0;list-style:none}
+.robot-retention-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0}
+.robot-retention-list li+li{border-top:1px solid var(--line)}
 .robot-retention-list strong{display:block;color:var(--txt);font-size:13px;font-weight:550;overflow-wrap:anywhere}
 .robot-retention-list p{margin-top:2px;color:var(--txt-2);font:11.5px/1.45 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .robot-retention-actions{display:flex;flex:none;gap:6px}
@@ -55,6 +55,12 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-trigger:disabled{opacity:.45;cursor:not-allowed}
 @keyframes robot-push-spin{to{transform:rotate(360deg)}}
 /* Path push: one compact surface. Destination, files, then one footer with diagnostics left and the commit right. */
+/* Push all: a quiet text action beside Push; Push keeps the bordered surface and the shortcut. */
+.push-all{position:relative;flex:none;height:30px;padding:0 8px;border-radius:var(--r);color:var(--txt-2);font-size:12.5px;font-weight:550;white-space:nowrap}
+.push-all::before{content:'';position:absolute;inset:-6px 0}
+@media (hover:hover){.push-all:hover:not(:disabled,[aria-disabled]){background:var(--bg-3);color:var(--txt)}}
+.push-all:is(:disabled,[aria-disabled]){color:var(--txt-3);opacity:.7;cursor:not-allowed}
+.push-all:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .rfp{width:min(480px,calc(100vw - 32px))}
 .rfp h2{font-size:15px}
 .rfp-body{display:grid;gap:12px;padding:12px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.5}
@@ -79,7 +85,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-file-meta{max-width:min(240px,40vw);color:var(--txt-3);font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .rfp-note{color:var(--txt-3);font-size:12px}
 .rfp-key{display:block;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:12px/1.5 var(--mono);overflow-wrap:anywhere;user-select:all}
-.rfp-alert{margin:0;padding:8px 11px;border-left:2px solid var(--bad);border-radius:0 var(--r) var(--r) 0;background:var(--bad-soft);color:var(--txt)}
+.rfp-alert{margin:0;padding:8px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);overflow-wrap:anywhere}
 .rfp-view-working{display:flex;align-items:center;gap:10px;padding-top:16px}
 .rfp-view-done{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding-top:14px}
 .rfp-view-done p{margin-top:2px;overflow-wrap:anywhere}
@@ -88,8 +94,9 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px 18px}
 .rfp-footer .robot-connection-diagnostics{padding:0}
 .rfp-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-left:auto}
-.rfp .qbtn.primary .robot-push-spinner{width:12px;height:12px;border-color:rgb(255 255 255/.3);border-top-color:#fff}
+.rfp .qbtn.primary .robot-push-spinner{width:12px;height:12px;border-color:oklch(.17 .003 286/.25);border-top-color:var(--on-accent)}
 .rfp .qbtn.primary:disabled:has(.robot-push-spinner){opacity:.85;cursor:progress}
+.rfp .qbtn[aria-disabled="true"]{opacity:.7;cursor:progress}
 @media (max-width:700px){
   .robot-push-dialog{width:100%;max-height:calc(100vh - 20px)}
   dialog.robot-diagnostics{width:calc(100vw - 20px)}

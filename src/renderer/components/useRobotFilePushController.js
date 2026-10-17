@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../../shared/robotFileDelivery';
 import { focusIfAvailable } from '../lib/focusReturn';
+import { linkedPathIds } from '../lib/undoHistory';
 
 const message = (error) => (error?.message || String(error || 'File transfer failed'))
   .replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:RobotTransportError|Error):\s*/, '');
+// Mirrors main's MAX_BDX_BATCH so Include can refuse before discarding a valid review; main stays authoritative.
+export const MAX_PUSH_PATHS = 64;
+/** Paths connected to `pathIds` through endpoint or shared-point links, outside them, in project order. */
+export function linkedOutside(project, pathIds) {
+  const chosen = new Set(pathIds), linked = new Set(linkedPathIds(project, pathIds));
+  // Pushable is the toolbar's eligibility rule only; main still decides whether the files can be prepared.
+  return project.paths.filter((path) => linked.has(path.id) && !chosen.has(path.id))
+    .map((path) => ({ id: path.id, name: path.name, pushable: (path.waypoints?.length || 0) >= 2 }));
+}
 const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading'].includes(phase);
 
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
@@ -28,9 +38,10 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     update({ phase: 'preparing', preview: null, result: null, error: '' });
     try {
       const preview = await api.prepareRobotFiles(captured.project, captured.pathIds);
-      if (request !== generation.current) { await discard(preview); return; }
-      update({ preview, phase: 'review' });
-    } catch (error) { if (request === generation.current) update({ phase: 'failed', error: message(error) }); }
+      if (request !== generation.current || intent.current !== captured) { await discard(preview); return; }
+      // The linked note is a renderer-only annotation; it shares the preview's lifecycle and never reaches main.
+      update({ preview: { ...preview, linked: captured.linked }, phase: 'review' });
+    } catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); }
   };
   useEffect(() => {
     let live = true;
@@ -49,9 +60,11 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const previous = context.current;
     context.current = { projectKey, catalogKey, bookmarkKey };
     if (previous.projectKey === projectKey && previous.catalogKey === catalogKey && previous.bookmarkKey === bookmarkKey) return;
+    // Only a push captured from the previous project is stale; the connection itself, and its views, are not.
+    const captured = intent.current || state.current.preview || state.current.phase === 'preparing';
     intent.current = null;
     // An already confirmed upload owns its immutable files even after navigation.
-    if (state.current.phase === 'uploading' || state.current.phase === 'saving') return;
+    if (!captured || state.current.phase === 'uploading' || state.current.phase === 'saving') return;
     generation.current += 1;
     void discard(state.current.preview).catch(() => undefined);
     update({ preview: null, result: null, phase: 'idle', error: 'The project changed. Choose Push again to review the current paths.' });
@@ -69,13 +82,14 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     }
     if (!scope.pathIds?.length) { intent.current = null; update({ error: 'Select at least one path to push.', phase: 'failed', preview: null }); return; }
     const previous = state.current.preview;
-    intent.current = { project: structuredClone(source.current()), pathIds: [...scope.pathIds], projectKey };
+    const project = structuredClone(source.current()), pathIds = [...scope.pathIds];
+    const captured = intent.current = { project, pathIds, projectKey, linked: linkedOutside(project, pathIds) };
     const request = generation.current;
     const wasLoading = state.current.phase === 'loading';
     update({ preview: null, result: null, error: '', phase: wasLoading ? 'loading' : 'preparing' });
     try { await discard(previous); }
-    catch (error) { update({ phase: 'failed', error: message(error) }); return; }
-    if (request !== generation.current || !intent.current) return;
+    catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); return; }
+    if (request !== generation.current || intent.current !== captured) return;
     if (state.current.connection) await prepare();
     else if (!wasLoading) update({ phase: 'idle' });
   };
@@ -124,7 +138,11 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (state.current.phase !== 'review' || !state.current.preview) return;
     const operationId = state.current.preview.operationId;
     update({ phase: 'uploading', error: '' });
-    try { const result = await api.confirmRobotFiles(operationId); update({ result, phase: 'transferred' }); }
+    try {
+      const result = await api.confirmRobotFiles(operationId);
+      intent.current = null;
+      update({ result, preview: null, phase: 'transferred' });
+    }
     catch (error) { update({ phase: 'failed', error: message(error) }); }
   };
   const cancel = async () => {
@@ -144,6 +162,21 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       if (state.current.preview?.operationId !== preview.operationId) return;
       update({ error: message(error), ...(!uploading ? { phase: 'review' } : {}) });
     }
+  };
+  // Widens this review only: the same captured project with its linked, pushable paths added, then a new review.
+  const includeLinked = async (operationId) => {
+    const captured = intent.current, reviewed = state.current.preview;
+    if (state.current.phase !== 'review' || !captured || reviewed?.operationId !== operationId) return;
+    const add = new Set(captured.linked.filter((path) => path.pushable).map((path) => path.id));
+    if (!add.size) return;
+    const pathIds = captured.project.paths.map((path) => path.id).filter((id) => add.has(id) || captured.pathIds.includes(id));
+    if (pathIds.length > MAX_PUSH_PATHS) { update({ error: 'Push sends at most ' + MAX_PUSH_PATHS + ' paths at once. Including these would make ' + pathIds.length + '.' }); return; }
+    const next = intent.current = { project: captured.project, pathIds, projectKey: captured.projectKey, linked: linkedOutside(captured.project, pathIds) };
+    const request = ++generation.current;
+    update({ phase: 'preparing', preview: null, result: null, error: '' });
+    try { await discard(reviewed); }
+    catch (error) { if (request === generation.current && intent.current === next) update({ phase: 'failed', error: message(error) }); return; }
+    if (request === generation.current && intent.current === next) await prepare();
   };
   const chooseAnotherRobot = async () => {
     if (working(state.current.phase)) return;
@@ -169,6 +202,6 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     itemStatus: (kind, id) => kind === 'path' && working(view.phase) && intent.current?.projectKey === projectKey && intent.current.pathIds.includes(id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads selected path files over SFTP.', tone: 'muted' },
-    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, confirmPairing, confirmPush, cancel, chooseAnotherRobot, connectionHome,
+    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, connectionHome,
     retry: () => intent.current && requestPush({ kind: 'paths', pathIds: intent.current.pathIds }) };
 }

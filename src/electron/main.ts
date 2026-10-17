@@ -1,15 +1,20 @@
+import type { ProjectCopyDefaultsRequest } from "../shared/project/desktopProjects";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { robotCatalogSemanticSignature } from "../shared/agent/catalogSignature";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../shared/types";
-import { validateProject } from "../shared/validation";
+import { validateProject, validateProjectSource } from "../shared/validation";
+import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
 import { prepareBdxBindings } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
+import { withCachedLabviewCommands } from "./labviewNiInspection";
+import { statLabviewLocalPath } from "./labviewProjectDiscovery";
+import { labviewLinkMatches, relativeLabviewLink, rebaseProjectLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "./projectLabviewLink";
 import { inspectLabviewCommandsQueued, syncLabviewCommands } from "./labviewProjectSync";
 import { discoverRobotProject, type RobotProjectRuntime } from "./robotProjectRuntime";
 import {
@@ -19,12 +24,15 @@ import {
   summarizeRobotProjectBookmarks,
   writeRobotProjectBookmarks,
 } from "./robotProjectBookmarks";
-import { writeBufferAtomically, openProjectFolder, autosaveProjectFolder, projectWorkspacePath, writeProjectFolderBdx } from "./projectFiles";
+import { autosaveProjectFolder, writeBufferAtomically, openProjectFolder, projectWorkspacePath, writeProjectFolderBdx, type ProjectSourceOwner } from "./projectFiles";
 import { loadProjectFolderSelection, loadProjectSelection, type ProjectSelection } from "./projectOpening";
-import { requestProjectReload } from "./projectReload";
+import { createNamedProjectSelection, createProjectCopyFolder, parseNamedProjectRequest, suggestProjectCopy, StaleCopyDefaults, type ProjectCopyMark } from "./projectCreation";
+import { ensureProjectsHomeForRequest, projectsHomePath } from "./projectsHome";
+import { completeProjectActivation } from "./projectActivation";
 import { describeUpdateFailure, OFFICIAL_RELEASES_URL } from "./updateFailure";
 import { GitHubReleaseProvider } from "./githubReleaseProvider";
-import { readRecentProjectFiles, rememberRecentProject, writeRecentProjectFiles } from "./recentProjectFiles";
+import { listRecentProjects, recentProjectPathById, readRecentProjectFiles, rememberRecentProject, removeRecentProjectById, writeRecentProjectFiles } from "./recentProjectFiles";
+import { revealRecentProject } from "./projectRecentActions";
 import { AgentBridgeClient, AgentBridgeServer } from "./agentBridge";
 import { appUpdateChannel, AppUpdateController, UpdateQuitCoordinator, usesGitHubAppUpdates } from "./appUpdates";
 import {
@@ -42,6 +50,18 @@ import { RobotPairingController, readRobotPairing, writeRobotPairing } from "./r
 import { connectRobotSftp } from "./robotSsh2Session";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection } from "./robotFileDelivery";
 import type { RobotFileEndpoint } from "../shared/robotFileDelivery";
+import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../shared/project/writeErrors";
+import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, canonicalProjectDigest } from "./projectSourcePersistence";
+import { projectFolderIdentity, sameProjectFolder } from "./projectFolderIdentity";
+import { ProjectPersistence, ReloadStale, type SavedProjectCheckpoint } from "./projectPersistence";
+import { reloadProjectSource, revealProjectSource, ProjectActivationFolderChanged } from "./projectSourceActions";
+import { ProjectRecoveryStore } from "./projectRecoveryStore";
+import { ProjectRecoveryCatalog } from "./projectRecoveryCatalog";
+import { ProjectStartup } from "./projectStartup";
+import type { ProjectDepartureCoordinator } from "./projectDeparture";
+import { ProjectNativeDeparture } from "./projectNativeDeparture";
+import type { ProjectDepartureFallback, ProjectDurabilityContext } from "../shared/project/projectDurability";
+import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectSaveCheckpointRequest, ProjectReloadRequest, ProjectRecoveredFrom, ProjectResumeDescriptor, ProjectStartupRequest, ProjectStartupDetachResult, ProjectTransitionToken } from "../shared/project/projectPersistence";
 import {
   BordeauxRobotTransport,
   type RobotEndpoint,
@@ -62,13 +82,20 @@ process.stdout.on("error", ignoreClosedStandardStream);
 process.stderr.on("error", ignoreClosedStandardStream);
 
 let mainWindow: BrowserWindow | null = null;
+let replacingProjectWindow = false;
 let recentFiles: string[] = [];
+let recentStoreUnavailable = false;
 let currentProjectPath: string | null = null;
 let currentProjectFolder: string | null = null;
 // The opened legacy file stays current until its first workspace save.
 let currentLegacyFile: string | null = null;
-function projectLocation() { return { folderPath: currentProjectFolder, projectPath: currentProjectPath }; }
+function projectLocation() { return { folderPath: currentProjectFolder, projectPath: currentProjectPath, ...(currentLegacyFile ? { legacyFile: currentLegacyFile } : {}) }; }
 let projectTargetGeneration = 0;
+let projectWindowEpoch = randomUUID();
+let projectDocumentSession = randomUUID();
+let compatibilitySnapshotRevision = 0;
+let retiredProjectResume: ProjectResumeDescriptor | null = null;
+function projectContext() { return { windowEpoch: projectWindowEpoch, documentSessionId: projectDocumentSession, targetGeneration: projectTargetGeneration }; }
 let dirty = false;
 let appUpdates: AppUpdateController | null = null;
 let updateCheckTimer: NodeJS.Timeout | null = null;
@@ -80,10 +107,12 @@ let finalQuitInProgress = false;
 // process to exit, so an update handoff also guarantees exit shortly after it begins.
 const QUIT_CLEANUP_LIMIT_MS = 8_000;
 const UPDATE_EXIT_GRACE_MS = 15_000;
-let updateExitTimer: NodeJS.Timeout | null = null;
 const updateQuit = new UpdateQuitCoordinator();
 let bridgeEnabledAtShutdown = false;
 
+let currentRobotEditor: BordeauxProject["editor"];
+let linkedRobotContext: ProjectDurabilityContext | null = null;
+let suggestedRobotProject: { id: string; file: string; context: ProjectDurabilityContext } | null = null;
 let linkedRobotProjectPath: string | null = null;
 let linkedLabviewProjectFile: string | null = null;
 let labviewInspectionInProgress = false;
@@ -103,6 +132,9 @@ const proposalReceipts = new Map<string, { resolve: () => void; reject: (error: 
 
 function clearLinkedRobotProject(): void {
   robotConnectionGeneration += 1;
+  projectSources.revalidateExports();
+  linkedRobotContext = null;
+  suggestedRobotProject = null;
   linkedRobotProjectPath = null;
   linkedLabviewProjectFile = null;
   linkedRobotProjectBookmarkId = null;
@@ -145,6 +177,147 @@ app.setAppUserModelId("org.frc2468.bordeaux");
 const ownsDesktopInstance = mcpStdioMode || app.requestSingleInstanceLock();
 if (!ownsDesktopInstance) app.quit();
 
+const projectRecovery = new ProjectRecoveryStore(userDataPath("recovery"));
+const projectRecoveryCatalog = new ProjectRecoveryCatalog(userDataPath("recovery"), projectRecovery, filename => shell.showItemInFolder(filename));
+const projectSources: ProjectSourcePersistence = new ProjectSourcePersistence({ getContext: projectContext,
+  write: (folder, project, target, options) => {
+    options.assertCurrent();
+    const linked = sameProjectContext(linkedRobotContext, projectContext()) ? { file: linkedLabviewProjectFile, bookmark: linkedRobotProjectBookmarkId } : undefined;
+    return autosaveProjectFolder(folder, rebaseProjectLabviewLink(project, currentProjectFolder, folder, linked), target, options);
+  }, commit: (capture, savedProject, target) => {
+  projectSources.assertCurrent(capture);
+  const legacyFile = currentLegacyFile;
+  const linked = sameProjectContext(linkedRobotContext, projectContext());
+  if (currentProjectPath !== target) activateProjectTarget(target);
+  currentRobotEditor = savedProject.editor;
+  if (linked && labviewLinkMatches(savedProject.editor, currentProjectFolder, linkedLabviewProjectFile, linkedRobotProjectBookmarkId)) linkedRobotContext = projectContext();
+  else if (linked) clearLinkedRobotProject();
+  projectPersistence.sourceTargetCommitted(capture.operationId, projectContext());
+  if (legacyFile && path.dirname(path.resolve(legacyFile)) === path.dirname(target)) recentFiles = recentFiles.filter(file => path.resolve(file) !== path.resolve(legacyFile));
+  // Active state changes synchronously under the lease; the recents write has no later active-state continuation.
+  void rememberFile(path.dirname(target)).catch(error => console.warn("Could not remember the saved project:", error));
+  return { context: projectContext(), location: projectLocation() };
+} });
+const projectPersistence: ProjectPersistence = new ProjectPersistence({ source: projectSources, recovery: projectRecovery, getContext: projectContext, getLocation: projectLocation,
+  onUpdate: update => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+    try { mainWindow.webContents.send("project:checkpointUpdate", update); }
+    catch { console.warn("Could not deliver project checkpoint progress to the editor"); }
+  } });
+let attachedProjectDeparture: ProjectDepartureCoordinator | null = null;
+/** Attach receipt accounting to the actual native event adapter. */
+export function attachProjectDepartureCoordinator(coordinator: ProjectDepartureCoordinator): void {
+  attachedProjectDeparture = coordinator; projectPersistence.attachDepartureCoordinator(coordinator);
+}
+export const publishProjectDepartureCheckpoint = (update: import("../shared/project/projectDurability").ProjectCheckpointUpdate) => projectPersistence.handleDepartureUpdate(update);
+export const cancelProjectDepartureCheckpoint = (requestId: string) => projectPersistence.handleDepartureCancelled(requestId);
+export const captureProjectResumeDescriptor = () => ({ session: projectPersistence.getSession(), pendingWrites: projectSources.pendingWrites() });
+export const getRetiredProjectResumeDescriptor = () => retiredProjectResume && structuredClone(retiredProjectResume);
+export const getMainProjectTransitionId = () => projectPersistence.getTransitionId();
+export const isProjectLifecycleReady = () => projectPersistence.isLifecycleReady();
+const fallbackDialogs = new Map<string, { abort: AbortController; owner?: BrowserWindow }>();
+const fallbackDialogOwners = new Set<BrowserWindow>();
+function sendProjectEvent(channel: string, value: unknown): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  try { mainWindow.webContents.send(channel, value); } catch { /* Liveness fallback owns an undeliverable request. */ }
+}
+function dismissProjectFallback(id: string): void {
+  const pending = fallbackDialogs.get(id);
+  if (!pending) return;
+  fallbackDialogs.delete(id); pending.abort.abort();
+  if (pending.owner) {
+    // The owner carries no authored document and never becomes the trusted mainWindow.
+    if (!pending.owner.isDestroyed()) pending.owner.destroy();
+    fallbackDialogOwners.delete(pending.owner);
+  }
+}
+function showProjectFallback(fallback: ProjectDepartureFallback): void {
+  const abort = new AbortController();
+  let parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  let owner: BrowserWindow | undefined;
+  if (!parent) {
+    owner = new BrowserWindow({ show: false, width: 1, height: 1, skipTaskbar: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    fallbackDialogOwners.add(owner); parent = owner;
+  }
+  fallbackDialogs.set(fallback.fallbackId, { abort, owner });
+  const session = mainWindow ? projectPersistence.getSession() : retiredProjectResume?.session;
+  const recovery = session?.latestRecovery;
+  const detail = recovery ? `Last recovery copy: ${new Date(recovery.capturedAt).toLocaleTimeString()}. Later edits may be lost.` : "No recovery copy yet. Unsaved edits may be lost.";
+  const gone = fallback.cause === "renderer-gone";
+  const verb = fallback.request.reason === "close" ? "Close" : fallback.request.reason.startsWith("reload") ? "Reload" : fallback.request.reason === "update" ? "Install" : "Quit";
+  void dialog.showMessageBox(parent, { type: "warning", title: "Bordeaux", message: gone ? "The editor stopped" : "Bordeaux isn’t responding", detail,
+    buttons: [gone ? "Reopen editor" : "Wait", gone ? verb : `${verb} anyway`], defaultId: 0, cancelId: 0, noLink: true, signal: abort.signal,
+  }).then(result => {
+    if (fallbackDialogs.get(fallback.fallbackId)?.abort !== abort || abort.signal.aborted) return;
+    nativeDeparture.coordinator.decideFallback(fallback.fallbackId, result.response === 1 ? "anyway" : gone ? "reopen" : "wait");
+  }, error => {
+    if (abort.signal.aborted) return;
+    console.warn("Could not show project departure fallback:", error);
+    nativeDeparture.coordinator.decideFallback(fallback.fallbackId, "aborted");
+  }).finally(() => dismissProjectFallback(fallback.fallbackId));
+}
+const nativeDeparture = new ProjectNativeDeparture({
+  getContext: () => mainWindow ? projectContext() : null,
+  isRendererAlive: epoch => Boolean(mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed() && !mainWindow.webContents.isCrashed() && projectWindowEpoch === epoch),
+  isTrustedSender: (sender, context) => {
+    try { assertTrustedSender(sender as Electron.IpcMainInvokeEvent); return sameProjectContext(context, projectContext()); } catch { return false; }
+  },
+  getTransitionId: getMainProjectTransitionId,
+  onRequest: request => { if (projectPersistence.isLifecycleReady()) sendProjectEvent("project:departure", request); },
+  onCheckpoint: publishProjectDepartureCheckpoint,
+  onCancelled: requestId => { cancelProjectDepartureCheckpoint(requestId); sendProjectEvent("project:departureCancelled", requestId); },
+  onFallback: showProjectFallback, onDismissFallback: dismissProjectFallback,
+  close: epoch => {
+    if (mainWindow && projectWindowEpoch === epoch && !mainWindow.isDestroyed()) mainWindow.close();
+    else if (!mainWindow && process.platform !== "darwin") app.quit();
+  },
+  reload: (epoch, ignoreCache) => {
+    if (!mainWindow || mainWindow.isDestroyed() || projectWindowEpoch !== epoch) return;
+    retiredProjectResume = captureProjectResumeDescriptor();
+    if (ignoreCache) mainWindow.webContents.reloadIgnoringCache(); else mainWindow.webContents.reload();
+  },
+  quit: () => app.quit(),
+  install: () => { void appUpdates?.install(); },
+  forceExit: () => { console.warn("Bordeaux did not finish its approved update quit; exiting for the installer."); app.exit(0); },
+  exitGraceMs: UPDATE_EXIT_GRACE_MS,
+  onReopen: () => {
+    const previous = mainWindow;
+    if (previous) retiredProjectResume = captureProjectResumeDescriptor();
+    projectPersistence.contextChanged();
+    replacingProjectWindow = true;
+    try {
+      mainWindow = null;
+      if (previous && !previous.isDestroyed()) previous.destroy();
+      createWindow();
+    } finally { replacingProjectWindow = false; }
+  },
+});
+attachProjectDepartureCoordinator(nativeDeparture.coordinator);
+function appUpdateState() {
+  const state = appUpdates?.snapshot();
+  return state && { ...state, ...(nativeDeparture.installAttemptId ? { installAttemptId: nativeDeparture.installAttemptId } : {}) };
+}
+function replaceProjectSession(recoveredFrom?: ProjectRecoveredFrom) {
+  currentRobotEditor = undefined;
+  projectDocumentSession = randomUUID(); compatibilitySnapshotRevision = 0; projectPersistence.contextChanged(true, recoveredFrom);
+}
+async function knownRecentProjectPaths(): Promise<string[]> {
+  if (!recentStoreUnavailable) return [...recentFiles];
+  const previous = recentFiles, epoch = projectWindowEpoch;
+  let read: string[];
+  try { read = await readRecentProjectFiles(recentProjectsFile()); }
+  catch { throw new Error("Couldn’t check recent projects"); }
+  if (recentFiles === previous && projectWindowEpoch === epoch) { recentFiles = read; recentStoreUnavailable = false; }
+  return [...recentFiles];
+}
+const projectStartup = new ProjectStartup({ getSession: () => projectPersistence.getSession(), isTransitionCurrent: token => projectPersistence.isTransitionCurrent(token),
+  readRecents: knownRecentProjectPaths, getResume: getRetiredProjectResumeDescriptor, listRecoveries: () => projectRecoveryCatalog.list(), assertReadable: assertProjectSourceReadable,
+  activate: async (selected, assertCurrent, committed) => {
+    const physicalSource = await assertProjectSourceReadable(selected, assertCurrent); assertCurrent();
+    const selection = await loadProjectSelection(physicalSource, { assertCurrent, requireSource: true }); assertCurrent();
+    return activateProjectSelection(selection, { rememberInBackground: true, assertCurrent, committed });
+  } });
+
 function stopBackgroundServices(): Promise<void> {
   diagnosticBundleCapability.clear();
   rejectProposalReceipts("Bordeaux is shutting down.");
@@ -182,23 +355,18 @@ function createAppUpdateController(): AppUpdateController {
     // because Electron closes every window before the macOS handoff, bring the editor back.
     if (state.phase === "installing") updateQuit.installing();
     if (state.phase === "error" && state.errorStage === "install") {
-      if (updateExitTimer) clearTimeout(updateExitTimer);
-      updateExitTimer = null;
+      nativeDeparture.installationFailed();
       updateQuit.installFailed();
       if (!updateQuit.quitInProgress && (!mainWindow || mainWindow.isDestroyed())) createWindow();
     }
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("appUpdates:state", state);
+    sendProjectEvent("appUpdates:state", { ...state, ...(nativeDeparture.installAttemptId ? { installAttemptId: nativeDeparture.installAttemptId } : {}) });
   });
 }
 
 // Emitted by Electron on macOS and by electron-updater on Windows and Linux once the
 // installer handoff has started.
 nativeAutoUpdater.on("before-quit-for-update", () => {
-  if (!updateQuit.handoff() || updateExitTimer) return;
-  updateExitTimer = setTimeout(() => {
-    console.warn("Bordeaux did not finish quitting for the update; exiting so the installer can continue.");
-    app.exit(0);
-  }, UPDATE_EXIT_GRACE_MS);
+  if (updateQuit.handoff()) nativeDeparture.updateHandoff();
 });
 
 function activateProjectTarget(filePath: string | null): void {
@@ -208,22 +376,13 @@ function activateProjectTarget(filePath: string | null): void {
   projectTargetGeneration += 1;
 }
 
-// Once a legacy file's edits live in its folder workspace, Recent lists the folder instead.
-async function commitWorkspaceTarget(target: string): Promise<void> {
-  const legacyFile = currentLegacyFile;
-  if (currentProjectPath !== target) activateProjectTarget(target);
-  if (legacyFile && path.dirname(path.resolve(legacyFile)) === path.dirname(target)) {
-    recentFiles = recentFiles.filter((file) => path.resolve(file) !== path.resolve(legacyFile));
-  }
-  await rememberFile(path.dirname(target));
-}
-
 async function rememberFile(filePath: string) {
   recentFiles = rememberRecentProject(recentFiles, filePath);
   app.addRecentDocument(filePath);
   buildMenu();
   try {
     await writeRecentProjectFiles(recentProjectsFile(), recentFiles);
+    recentStoreUnavailable = false;
   } catch (error) {
     console.warn("Could not save recent Bordeaux projects:", error);
   }
@@ -255,15 +414,26 @@ async function rememberLinkedRobotProject(projectPath: string, projectName: stri
   }
 }
 
-async function connectRobotProject(projectPath: string, runtime: RobotProjectRuntime, inspectedCatalog?: RobotCommandCatalog) {
+function assertRobotProjectContext(context: unknown): asserts context is ProjectDurabilityContext {
+  if (!sameProjectContext(context as ProjectDurabilityContext, projectContext())) throw new Error("The Bordeaux project changed. Link robot code again.");
+}
+function linkedProjectMatches(project: BordeauxProject, folder = currentProjectFolder): boolean {
+  return sameProjectContext(linkedRobotContext, projectContext())
+    && labviewLinkMatches(project.editor, folder, linkedLabviewProjectFile, linkedRobotProjectBookmarkId);
+}
+async function connectRobotProject(projectPath: string, runtime: RobotProjectRuntime, inspectedCatalog?: RobotCommandCatalog, cachedOnly = false, canonicalSelection = false) {
   const generation = ++robotConnectionGeneration;
-  const selectedPath = await fs.promises.realpath(projectPath);
-  const labviewProject = runtime === "labview" ? await resolveLabviewProject(selectedPath) : null;
+  projectSources.revalidateExports();
+  const context = projectContext();
+  const guard = () => { assertRobotProjectContext(context); if (generation !== robotConnectionGeneration) throw new Error("LabVIEW project connection was superseded by another project"); };
+  await statLabviewLocalPath(projectPath); guard();
+  const labviewProject = runtime === "labview" ? await resolveLabviewProject(projectPath, { canonical: canonicalSelection }) : null;
+  const selectedPath = projectPath; guard();
   const canonicalPath = labviewProject?.root ?? selectedPath;
   const exactSelection = labviewProject?.projectFile ?? selectedPath;
-  const diskCatalog = await discoverRobotProject(exactSelection, runtime);
+  const diskCatalog = await discoverRobotProject(exactSelection, runtime); guard();
   const discoveredCatalog = inspectedCatalog ?? (runtime === "labview"
-    ? await syncLabviewCommands(exactSelection, labviewDiscoveryCacheDirectory(), diskCatalog)
+    ? cachedOnly ? await withCachedLabviewCommands(exactSelection, diskCatalog, labviewDiscoveryCacheDirectory()) : await syncLabviewCommands(exactSelection, labviewDiscoveryCacheDirectory(), diskCatalog)
     : diskCatalog);
   const catalog: RobotCommandCatalog = {
     ...discoveredCatalog,
@@ -278,12 +448,16 @@ async function connectRobotProject(projectPath: string, runtime: RobotProjectRun
     runtime: "labview",
     wrapperAvailable: true,
   };
+  guard();
   const remembered = await rememberLinkedRobotProject(exactSelection, catalog.projectName, runtime);
-  if (generation !== robotConnectionGeneration) throw new Error("LabVIEW project connection was superseded by another project");
+  guard();
+  linkedRobotContext = context;
+  suggestedRobotProject = null;
   linkedRobotProjectPath = canonicalPath;
   linkedLabviewProjectFile = labviewProject?.projectFile ?? null;
   linkedRobotProjectBookmarkId = remembered.bookmarkId;
   linkedRobotCatalog = catalog;
+  projectSources.revalidateExports();
   agentSessions.refreshRobotCatalog();
   return {
     catalog,
@@ -294,13 +468,15 @@ async function connectRobotProject(projectPath: string, runtime: RobotProjectRun
   };
 }
 
-async function replaceRobotProject(projectPath: string, runtime: RobotProjectRuntime) {
-  const pending = connectRobotProject(projectPath, runtime);
+async function replaceRobotProject(projectPath: string, runtime: RobotProjectRuntime, cachedOnly = false) {
+  const context = projectContext();
+  // Explicit Link/Use/recent authors a new link; existing documents keep their spelling on restore/refresh.
+  const pending = connectRobotProject(projectPath, runtime, undefined, cachedOnly, true);
   const generation = robotConnectionGeneration;
   try {
     return await pending;
   } catch (error) {
-    if (generation === robotConnectionGeneration) clearLinkedRobotProject();
+    if (generation === robotConnectionGeneration && sameProjectContext(context, projectContext())) clearLinkedRobotProject();
     throw error;
   }
 }
@@ -318,11 +494,35 @@ async function robotExportTargetSnapshot(target: string): Promise<string> {
   }
 }
 
+/** Selected exports into a project participate in the same physical lease and ownership journal as Save. */
+async function writeSelectedProjectBdx(target: string, bytes: Uint8Array, before: string, assertCurrent: () => void): Promise<void> {
+  const parent = path.dirname(target), folder = path.dirname(parent);
+  let managed = false;
+  if (path.basename(parent).toLowerCase() === "paths") {
+    try {
+      await fs.promises.lstat(projectWorkspacePath(folder));
+      managed = path.basename(parent) === "Paths"
+        || await fs.promises.realpath(parent) === await fs.promises.realpath(path.join(folder, "Paths"));
+    }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  assertCurrent();
+  const identity = managed ? await projectFolderIdentity(folder, { assertCurrent }) : undefined;
+  const release = managed ? await projectSources.holdExport(folder, assertCurrent) : undefined;
+  try {
+    if (await robotExportTargetSnapshot(target) !== before) throw new Error("BDX destination changed during review; export again");
+    assertCurrent();
+    if (identity) {
+      await writeProjectFolderBdx(identity.folderPath, [{ fileName: path.basename(target), bytes }], { mode: "selected", folderIdentity: identity, assertCurrent });
+    } else await writeBufferAtomically(target, bytes, { assertCurrent });
+  } finally { release?.(); }
+}
+
 // Export and robot transfer reject BDX work that outlives its project target or LabVIEW link.
 function captureLinkedProject(project: BordeauxProject) {
   const generation = robotConnectionGeneration, projectGeneration = projectTargetGeneration;
   const projectFile = linkedLabviewProjectFile, bookmark = linkedRobotProjectBookmarkId;
-  if (projectFile && project.editor?.robotProjectBookmarkId !== bookmark) throw new Error("The linked LabVIEW project does not match this Bordeaux project");
+  if (projectFile && !linkedProjectMatches(project)) throw new Error("The linked LabVIEW project does not match this Bordeaux project");
   return {
     bindingOptions: (hasCommands: boolean) => ({ projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() }),
     isCurrent: () => generation === robotConnectionGeneration && projectGeneration === projectTargetGeneration
@@ -356,7 +556,9 @@ function diagnosticIssueCount(error: unknown): number {
 }
 
 function createWindow() {
+  projectWindowEpoch = randomUUID();
   activateProjectTarget(null);
+  replaceProjectSession();
   dirty = false;
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -379,6 +581,8 @@ function createWindow() {
   });
 
   const window = mainWindow;
+  let windowEpoch = projectWindowEpoch, initialNavigation = true;
+  nativeDeparture.documentEntered(projectContext());
   window.once("ready-to-show", () => {
     window.show();
     if (appUpdates?.available && !updateCheckTimer) {
@@ -391,19 +595,46 @@ function createWindow() {
     }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("did-start-loading", () => {
+  // A rejected direct reload must not rotate the still-live document epoch. Rotate only after navigation commits.
+  window.webContents.on("did-frame-navigate", (_event, _url, _code, _status, isMainFrame) => {
+    if (!isMainFrame || mainWindow !== window) return;
+    if (initialNavigation) { initialNavigation = false; return; }
+    retiredProjectResume = captureProjectResumeDescriptor();
+    projectWindowEpoch = randomUUID(); windowEpoch = projectWindowEpoch;
+    activateProjectTarget(null); replaceProjectSession(); dirty = false;
+    nativeDeparture.documentEntered(projectContext());
     rejectProposalReceipts("The Bordeaux editor reloaded before acknowledging the proposal.");
     agentSessions.resetAccess(agentBridge?.enabled === true);
+  });
+  window.on("close", event => {
+    if (mainWindow === window && !nativeDeparture.windowClose(windowEpoch)) event.preventDefault();
+  });
+  window.webContents.on("will-prevent-unload", event => {
+    if (mainWindow === window && nativeDeparture.preventUnload(windowEpoch)) event.preventDefault();
+  });
+  window.on("unresponsive", () => { if (mainWindow === window) nativeDeparture.coordinator.notifyUnresponsive(windowEpoch); });
+  window.webContents.on("render-process-gone", () => {
+    if (mainWindow !== window) return;
+    retiredProjectResume = captureProjectResumeDescriptor();
+    nativeDeparture.rendererGone(windowEpoch); // Keep the old context until its native fallback decision wins.
+    const transitionId = projectPersistence.getTransitionId();
+    if (transitionId) { const token = { id: transitionId, windowEpoch }; projectStartup.cancel(token); projectPersistence.endTransition(token); }
+    projectPersistence.setLifecycleReady(projectContext(), false);
+    projectPersistence.contextChanged(); // Revokes storage while the old fallback still owns this epoch.
   });
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window.on("closed", () => {
-    if (mainWindow === window) mainWindow = null;
+    if (mainWindow !== window) return;
+    const expected = nativeDeparture.isExpectedWindowClose(windowEpoch);
+    retiredProjectResume = captureProjectResumeDescriptor();
+    if (!expected) nativeDeparture.windowVanished(windowEpoch);
+    projectPersistence.contextChanged(); // Fence before removing the old context; preserve an approved quit chain.
+    mainWindow = null;
+    if (expected) nativeDeparture.windowClosed(windowEpoch);
     rejectProposalReceipts("The Bordeaux editor closed before acknowledging the proposal.");
     agentSessions.resetAccess(agentBridge?.enabled === true);
-    activateProjectTarget(null);
-    dirty = false;
   });
 
   void window.loadFile(path.join(__dirname, "../../dist-renderer/index.html"));
@@ -438,14 +669,44 @@ function createWindow() {
           const capture = await window.webContents.capturePage();
           await fs.promises.writeFile(process.env.BORDEAUX_SMOKE_CAPTURE_PATH, capture.toPNG());
         }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const closingUnsavedProject = dirty;
+        const waitForSmoke = async (check: () => boolean | Promise<boolean>, label: string) => {
+          const deadline = Date.now() + 10_000;
+          while (Date.now() < deadline) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
+          throw new Error(`Smoke lifecycle timed out: ${label}`);
+        };
+        const smokeKey = (keyCode: string, modifiers: Electron.KeyboardInputEvent["modifiers"] = []) => {
+          window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+          window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+        };
+        // The renderer smoke intentionally leaves an invalid numeric draft. Closing must now preserve it.
+        if (process.platform === "darwin") app.focus({ steal: true });
+        window.focus(); window.webContents.focus();
+        await waitForSmoke(() => window.webContents.executeJavaScript("document.hasFocus()"), "native focus");
+        smokeKey("Escape"); // Dismiss the update panel used by the final screenshot with actual native input.
+        await waitForSmoke(() => window.webContents.executeJavaScript("!document.querySelector('.app-update-dialog')?.open"), "update panel closed");
+        window.close();
+        await waitForSmoke(async () => !window.isDestroyed() && nativeDeparture.coordinator.snapshot().phase === "idle"
+          && await window.webContents.executeJavaScript("document.activeElement?.getAttribute('aria-invalid') === 'true'"), "invalid draft blocks close and retains focus");
+        result.invalidDraftBlockedClose = true;
+        smokeKey("Home"); smokeKey("End", ["shift"]);
+        await waitForSmoke(() => window.webContents.executeJavaScript("document.activeElement?.selectionStart === 0 && document.activeElement.selectionEnd === document.activeElement.value.length"), "native draft selection");
+        for (const keyCode of "8.25") {
+          window.webContents.sendInputEvent({ type: "keyDown", keyCode });
+          window.webContents.sendInputEvent({ type: "char", keyCode });
+          window.webContents.sendInputEvent({ type: "keyUp", keyCode });
+        }
+        await waitForSmoke(() => window.webContents.executeJavaScript("document.hasFocus() && document.activeElement?.value === '8.25'"), "exact valid uncommitted draft");
         const closed = new Promise<void>(resolve => window.once("closed", resolve));
         window.close();
-        await closed;
+        await Promise.race([closed, new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("Smoke close did not finish after valid draft")), 15_000))]);
         const filesWritten = fs.existsSync(projectWorkspacePath(smokeDirectory)) && fs.existsSync(path.join(smokeDirectory, "Smoke.bdx")) && fs.existsSync(path.join(smokeDirectory, "Paths")) && fs.existsSync(path.join(smokeDirectory, "Routines"));
         result.filesWritten = filesWritten;
-        result.closedWithoutSavePrompt = closingUnsavedProject && window.isDestroyed();
+        const closeState = nativeDeparture.coordinator.snapshot(), departure = closeState.permit;
+        const closedFolder = closeState.checkpoint?.location?.folderPath;
+        const closedSource = closedFolder ? await openProjectFolder(closedFolder, { recordOpened: false }) : null;
+        result.closedWithExactSourceReceipt = window.isDestroyed() && departure?.request.reason === "close" && departure.basis === "source"
+          && Boolean(closedSource?.project && closedSource.project.robot.driveModel?.gearRatio === 8.25
+            && canonicalProjectDigest(closedSource.project) === departure.receipt?.digest);
         clearInterval(inputTimer);
         console.log(`BORDEAUX_SMOKE_RESULT ${JSON.stringify(result)}`);
         await stopBackgroundServices();
@@ -476,21 +737,7 @@ function syncMcpAccess(): void {
 function reloadProjectWindow(ignoreCache: boolean): void {
   const update = appUpdates?.snapshot();
   if (update?.phase === "installing" && !update.installStalled) return;
-  const window = mainWindow;
-  if (!window || window.isDestroyed()) return;
-  void requestProjectReload({
-    isDirty: () => dirty,
-    ask: async () => {
-      const { response } = await dialog.showMessageBox(window, {
-        type: "warning", title: "Unsaved Bordeaux project", message: "Reload this project?",
-        detail: "Reloading discards unsaved edits. Choose Save project to return to the editor and save first, then choose Reload again.",
-        buttons: ["Cancel", "Save project", "Discard and reload"], defaultId: 0, cancelId: 0, noLink: true,
-      });
-      return response === 2 ? "discard" : response === 1 ? "save" : "cancel";
-    },
-    save: () => sendCommand("save-project"),
-    reload: () => { if (!window.isDestroyed()) { if (ignoreCache) window.webContents.reloadIgnoringCache(); else window.webContents.reload(); } },
-  }).catch((error) => console.warn("Could not reload Bordeaux:", error));
+  if (mainWindow && !mainWindow.isDestroyed()) nativeDeparture.request(ignoreCache ? "reload-ignoring-cache" : "reload");
 }
 
 function updateMenuItem(): Electron.MenuItemConstructorOptions {
@@ -514,13 +761,15 @@ function buildMenu() {
     {
       label: "File",
       submenu: [
+        // New names a project in its own folder; Projects lists recents. Neither shows the folder picker first.
         { label: "New project…", accelerator: "CmdOrCtrl+N", click: () => sendCommand("new-project") },
-        { label: "Open project folder…", accelerator: "CmdOrCtrl+O", click: () => sendCommand("open-project") },
+        { label: "Projects…", accelerator: "CmdOrCtrl+O", click: () => sendCommand("show-projects") },
+        { label: "Open project folder…", click: () => sendCommand("open-project") },
         { label: "Open recent", submenu: recentSubmenu },
         { type: "separator" },
         { label: "Save", accelerator: "CmdOrCtrl+S", click: () => sendCommand("save-project") },
         { label: "Open project file…", accelerator: "CmdOrCtrl+Shift+O", click: () => sendCommand("open-project-file") },
-        { label: "Save to another folder…", accelerator: "CmdOrCtrl+Shift+S", click: () => sendCommand("save-project-as") },
+        { label: "Save copy…", accelerator: "CmdOrCtrl+Shift+S", click: () => sendCommand("save-project-as") },
         { type: "separator" },
         { label: "Export selected path as BDX…", accelerator: "CmdOrCtrl+E", click: () => sendCommand("export-bdx") },
         { type: "separator" },
@@ -581,18 +830,59 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-async function activateProjectSelection(selection: ProjectSelection) {
+/** Own the initiating native window, document and transition through every asynchronous open/create step. */
+function captureProjectActivation(): () => void {
+  const window = mainWindow, context = projectContext(), transition = projectPersistence.getTransitionId();
+  return () => {
+    if (!window || mainWindow !== window || window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.isCrashed()
+      || !sameProjectContext(context, projectContext()) || projectPersistence.getTransitionId() !== transition) {
+      throw new Error("The project changed while opening. Choose it again.");
+    }
+  };
+}
+
+/** Classify a stale initiating window/context in process; custom Error fields never cross IPC. */
+function captureProjectSourceAction(): () => void {
+  const assertCurrent = captureProjectActivation();
+  return () => { try { assertCurrent(); } catch { throw new ReloadStale(); } };
+}
+
+async function activateProjectSelection(selection: ProjectSelection, options: { rememberInBackground?: boolean; assertCurrent(): void; committed?: () => void }) {
+  await projectSources.assertReadable(selection.folderPath, options.assertCurrent);
+  const recoveryIdentity = await projectFolderIdentity(selection.folderPath, { assertCurrent: options.assertCurrent });
+  if (recoveryIdentity.objectKey !== selection.sourceEvidence.identity.objectKey || !sameProjectFolder(recoveryIdentity, selection.sourceEvidence.identity)) throw new ProjectActivationFolderChanged("Project folder changed while opening. Open it again.");
+  options.assertCurrent(); options.committed?.();
+  retiredProjectResume = null;
   clearLinkedRobotProject();
   activateProjectTarget(selection.projectPath);
   currentProjectFolder = selection.folderPath;
   currentLegacyFile = selection.legacyFile;
+  replaceProjectSession();
+  currentRobotEditor = selection.project.editor;
+  projectPersistence.admitSource(projectContext(), selection.sourceEvidence, selection.legacyFile);
   dirty = false;
-  await rememberFile(selection.recentPath).catch((error) => console.warn("Could not remember the opened project:", error));
-  return { project: selection.project, location: projectLocation() };
+  const generation = projectTargetGeneration, location = projectLocation(), context = projectContext();
+  const remembered = rememberFile(selection.recentPath).catch(error => console.warn("Could not remember the opened project:", error));
+  return completeProjectActivation(selection.project, {
+    generation, location, session: projectPersistence.getSession(),
+    remembered: options.rememberInBackground ? Promise.resolve() : remembered,
+    currentGeneration: () => sameProjectContext(context, projectContext()) ? projectTargetGeneration : -1,
+  });
 }
 
-async function openProjectFile(filePath: string) {
-  return activateProjectSelection(await loadProjectSelection(filePath));
+async function openProjectFile(filePath: string, assertCurrent = captureProjectActivation()) {
+  assertCurrent();
+  const physicalSource = await assertProjectSourceReadable(filePath, assertCurrent);
+  const selection = await loadProjectSelection(physicalSource, { assertCurrent });
+  return activateProjectSelection(selection, { assertCurrent });
+}
+
+async function assertProjectSourceReadable(selected: string, assertCurrent?: () => void) {
+  const stat = await fs.promises.lstat(selected).catch(error => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; });
+  const parent = path.dirname(selected), managed = /\.(path|routine)$/i.test(selected) && ["Paths", "Routines"].includes(path.basename(parent));
+  const identity = await projectFolderIdentity(stat?.isDirectory() ? selected : managed ? path.dirname(parent) : parent, { assertCurrent });
+  await projectSources.assertReadable(identity.folderPath, assertCurrent); assertCurrent?.();
+  return stat?.isDirectory() ? identity.folderPath : managed ? path.join(identity.folderPath, path.basename(parent), path.basename(selected)) : path.join(identity.folderPath, path.basename(selected));
 }
 
 handle("project:open", async () => {
@@ -601,14 +891,52 @@ handle("project:open", async () => {
 });
 
 handle("project:openFile", async () => {
+  const assertCurrent = captureProjectActivation();
   const result = await dialog.showOpenDialog(mainWindow!, { title: "Open Bordeaux Project or Path", properties: ["openFile"], filters: [{ name: "Bordeaux Project", extensions: ["bordeaux", "path", "json"] }] });
   if (result.canceled || !result.filePaths[0]) return null;
-  return openProjectFile(result.filePaths[0]);
+  return openProjectFile(result.filePaths[0], assertCurrent);
 });
 
 handle("project:openRecent", async (_event, rawIndex) => {
   if (!Number.isInteger(rawIndex) || typeof rawIndex !== "number" || rawIndex < 0 || rawIndex >= recentFiles.length) throw new Error("Recent project is no longer available");
   return openProjectFile(recentFiles[rawIndex]);
+});
+
+handle("project:listRecent", async () => listRecentProjects(await knownRecentProjectPaths()));
+
+handle("project:removeRecent", async (_event, id) => {
+  const previous = recentFiles, next = removeRecentProjectById(previous, id);
+  if (next.length === previous.length) return { removed: false };
+  recentFiles = next;
+  buildMenu();
+  try { await writeRecentProjectFiles(recentProjectsFile(), next); }
+  catch (error) { if (recentFiles === next) { recentFiles = previous; buildMenu(); } throw error; }
+  return { removed: true };
+});
+
+// Show in Finder/Explorer: a recent by its stable id, or this window's own admitted project by its exact context.
+handle("project:revealRecent", (_event, target) => revealRecentProject(target, {
+  recents: knownRecentProjectPaths, assertWindowCurrent: captureProjectSourceAction(), reveal: filename => shell.showItemInFolder(filename),
+  current: context => sameProjectContext(context as ProjectDurabilityContext, projectContext()) ? projectLocation() : null,
+}));
+
+handle("project:openRecentById", async (_event, id) => {
+  const file = recentProjectPathById(recentFiles, id), assertCurrent = captureProjectActivation();
+  const physicalSource = await assertProjectSourceReadable(file, assertCurrent);
+  const selection = await loadProjectSelection(physicalSource, { assertCurrent });
+  assertCurrent();
+  if (recentProjectPathById(recentFiles, id) !== file) throw new Error("Recent project is no longer in the list");
+  return activateProjectSelection(selection, { assertCurrent });
+});
+
+handle("project:createNamed", async (_event, request) => {
+  const assertCurrent = captureProjectActivation();
+  await ensureProjectsHomeForRequest(request, projectsHome());
+  assertCurrent();
+  const selection = await createNamedProjectSelection(request);
+  // A completed folder remains available even if its initiating window has retired.
+  assertCurrent();
+  return activateProjectSelection(selection, { assertCurrent });
 });
 
 handle("project:restoreLast", async () => {
@@ -622,97 +950,280 @@ handle("project:restoreLast", async () => {
 });
 
 handle("project:new", () => {
+  retiredProjectResume = null;
   activateProjectTarget(null);
+  replaceProjectSession();
   dirty = false;
   clearLinkedRobotProject();
 });
 
 handle("project:location", () => projectLocation());
-handle("project:openFolder", () => chooseProjectFolder());
+handle("project:session", () => projectPersistence.getSession());
+handle("project:transitionBegin", (_event, context) => projectPersistence.beginTransition(context as ReturnType<typeof projectContext>));
+handle("project:transitionEnd", (_event, rawToken) => {
+  const token = rawToken as ProjectTransitionToken;
+  if (projectStartup.isCommitted(token)) return { ended: false, busy: true };
+  projectStartup.cancel(token);
+  return { ended: projectPersistence.endTransition(token) };
+});
+handle("project:lifecycleReady", (_event, context, ready) => {
+  const accepted = projectPersistence.setLifecycleReady(context as ReturnType<typeof projectContext>, ready as boolean);
+  const pending = nativeDeparture.coordinator.snapshot();
+  if (accepted && ready === true && pending.phase === "requesting" && pending.request && sameProjectContext(pending.request.context, projectContext())) sendProjectEvent("project:departure", pending.request);
+  return { accepted };
+});
+handle("project:editingResumed", (event, context, attemptId) => {
+  const state = appUpdates?.snapshot();
+  return { accepted: Boolean(state?.phase === "installing" && state.installStalled && typeof attemptId === "string"
+    && nativeDeparture.editingResumed(event, context as ProjectDurabilityContext, attemptId)) };
+});
+handle("project:startup", (_event, request) => {
+  if (dirty) throw new Error("The editor has changes. Use Projects to open another source.");
+  return projectStartup.probe(request as ProjectStartupRequest);
+});
+handle("project:startupAdopt", (_event, startupId, token) => {
+  if (typeof startupId !== "string") throw new Error("Project startup is invalid");
+  return projectStartup.adopt(startupId, token as ProjectTransitionToken);
+});
+handle("project:startupCancel", (_event, rawToken) => {
+  const token = rawToken as ProjectTransitionToken, result = projectStartup.cancel(token);
+  if (result.cancelled) projectPersistence.endTransition(token);
+  return result;
+});
+handle("project:startupDetach", (_event, request) => projectStartup.detach(request as ProjectStartupRequest, () => {
+  const captured = retiredProjectResume ?? captureProjectResumeDescriptor();
+  const previous = captured.session.location.folderPath || captured.session.latestSource || captured.session.latestRecovery || captured.session.recoveredFrom || captured.pendingWrites.length ? captured : null;
+  retiredProjectResume = null;
+  activateProjectTarget(null); replaceProjectSession(); dirty = false; clearLinkedRobotProject();
+  return { session: projectPersistence.getSession(), previous } satisfies ProjectStartupDetachResult;
+}));
+handle("project:checkpoint", (_event, request) => projectPersistence.checkpoint(request as ProjectCheckpointRequest));
+handle("project:checkpointReplay", (_event, rawContext, operationId) => {
+  if (typeof operationId !== "string") throw new Error("Project checkpoint operation is invalid");
+  return projectPersistence.replay(rawContext as ReturnType<typeof projectContext>, operationId);
+});
+handle("project:checkpointCancel", (_event, rawContext, operationId) => {
+  if (typeof operationId !== "string") throw new Error("Project checkpoint operation is invalid");
+  return { cancelled: projectPersistence.cancel(rawContext as ReturnType<typeof projectContext>, operationId) };
+});
+handle("project:departureResponse", (event, response) => {
+  if (!attachedProjectDeparture) throw new Error("Project departure integration is not attached");
+  return { accepted: attachedProjectDeparture.respond(event, response as import("../shared/project/projectDurability").ProjectDepartureResponse) };
+});
+handle("project:departureResume", (event, token) => {
+  if (!attachedProjectDeparture) throw new Error("Project departure integration is not attached");
+  return { accepted: attachedProjectDeparture.resume(event, token as import("../shared/project/projectDurability").ProjectDepartureResume) };
+});
+handle("project:listRecoveries", (_event, options) => {
+  if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options) || (options as { includeResolved?: unknown }).includeResolved !== undefined && typeof (options as { includeResolved?: unknown }).includeResolved !== "boolean")) throw new Error("Recovery listing options are invalid");
+  return projectRecoveryCatalog.list({ includeResolved: (options as { includeResolved?: boolean } | undefined)?.includeResolved });
+});
+handle("project:prepareRecoveryDiscard", async (_event, rawContext, id) => {
+  const context = projectContext();
+  if (!rawContext || !sameProjectContext(rawContext as ProjectDurabilityContext, context)) throw new Error("Project recovery context is no longer current");
+  const confirmation = await projectRecoveryCatalog.prepareDiscard(id, JSON.stringify(context));
+  if (!sameProjectContext(context, projectContext())) throw new Error("Project recovery context is no longer current");
+  return confirmation;
+});
+handle("project:discardRecovery", (_event, rawContext, token) => {
+  const context = projectContext();
+  if (!rawContext || !sameProjectContext(rawContext as ProjectDurabilityContext, context)) throw new Error("Project recovery context is no longer current");
+  return projectRecoveryCatalog.discard(token, JSON.stringify(context), () => sameProjectContext(context, projectContext()));
+});
+handle("project:revealRecovery", (_event, id) => projectRecoveryCatalog.reveal(id));
+handle("project:reloadSource", (_event, request) => reloadProjectSource(request as ProjectReloadRequest, {
+  persistence: projectPersistence, assertWindowCurrent: captureProjectSourceAction(),
+  assertReadable: assertProjectSourceReadable, activate: activateProjectSelection,
+}));
+handle("project:revealSource", (_event, context, file) => revealProjectSource(context as ProjectDurabilityContext, file as string, {
+  persistence: projectPersistence, assertWindowCurrent: captureProjectSourceAction(), reveal: filename => shell.showItemInFolder(filename),
+}));
+handle("project:restoreRecovery", async (_event, rawContext, rawId) => {
+  if (!rawContext || !sameProjectContext(rawContext as ReturnType<typeof projectContext>, projectContext()) || typeof rawId !== "string") throw new Error("Project recovery context is no longer current");
+  const restored = await projectPersistence.prepareRestore(rawContext as ReturnType<typeof projectContext>, rawId);
+  retiredProjectResume = null;
+  clearLinkedRobotProject(); activateProjectTarget(null); replaceProjectSession(restored.recoveredFrom); currentRobotEditor = restored.project.editor; dirty = true;
+  return { project: restored.project, location: projectLocation(), session: projectPersistence.getSession(), recoveredFrom: restored.recoveredFrom, dirty: true };
+});
+handle("project:readRecovery", async (_event, rawContext, rawId) => {
+  if (!rawContext || !sameProjectContext(rawContext as ReturnType<typeof projectContext>, projectContext()) || typeof rawId !== "string") throw new Error("Project recovery context is no longer current");
+  return projectPersistence.prepareRestore(rawContext as ReturnType<typeof projectContext>, rawId);
+});
+// New-project location: read-only defaults and a picker that only returns a folder, never opening or activating it.
+function projectsHome(): string { return projectsHomePath(app.getPath("documents")); }
+handle("project:creationDefaults", () => ({ parentDirectory: projectsHome() }));
+handle("project:chooseParent", async (_event, rawCurrent) => {
+  const current = typeof rawCurrent === "string" && path.isAbsolute(rawCurrent) && rawCurrent.length <= 4_096 && !rawCurrent.includes("\0") ? rawCurrent : projectsHome();
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    title: "Choose where to create the project", buttonLabel: "Choose",
+    defaultPath: fs.existsSync(current) ? current : app.getPath("documents"),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return { parentDirectory: result.filePaths[0] };
+});
+handle("project:openFolder", () => smokeDirectory ? openProjectFile(projectWorkspacePath(smokeDirectory)) : chooseProjectFolder());
 async function chooseProjectFolder() {
+  const assertCurrent = captureProjectActivation();
   const result = await dialog.showOpenDialog(mainWindow!, { title: "Choose project folder", properties: ["openDirectory", "createDirectory"] });
   if (result.canceled || !result.filePaths[0]) return null;
-  return activateProjectFolder(result.filePaths[0]);
+  return activateProjectFolder(result.filePaths[0], assertCurrent);
 }
 
-async function activateProjectFolder(folder: string) {
-  return activateProjectSelection(await loadProjectFolderSelection(folder));
+async function activateProjectFolder(folder: string, assertCurrent: () => void) {
+  assertCurrent();
+  await projectSources.assertReadable(folder, assertCurrent);
+  const identity = await projectFolderIdentity(folder, { assertCurrent });
+  const selection = await loadProjectFolderSelection(identity.folderPath, { assertCurrent });
+  return activateProjectSelection(selection, { assertCurrent });
 }
 
-handle("project:save", async (_event, project, rawSaveAs) => {
-  const validation = validateProject(project);
+async function exportSaved(persisted: SavedProjectCheckpoint, scope: ProjectBdxExportScope): Promise<ProjectCheckpointSaveResult> {
+  const source = persisted.canonicalProject, savedLocation = persisted.location;
+  const selected = source.paths.filter(candidate => candidate.exportable !== false && candidate.waypoints.length >= 2);
+  const projectFile = linkedLabviewProjectFile;
+  const hasCommands = selected.some(candidate => candidate.markers.some(marker => marker.invocation));
+  scope.assertCurrent();
+  if (hasCommands && projectFile && !linkedProjectMatches(source, savedLocation.folderPath)) throw new Error("The linked LabVIEW project does not match this project");
+  const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() };
+  scope.enterPhase("bindings");
+  const bindings = await prepareBdxBindings(options); scope.assertCurrent();
+  const files = [];
+  for (let start = 0; start < selected.length; start += MAX_BDX_BATCH) {
+    scope.enterPhase("build");
+    const built = await buildBdxBatchOffThread({ project: source, selections: selected.slice(start, start + MAX_BDX_BATCH).map(candidate => ({ kind: "path", id: candidate.id })), bindings }, scope.signal);
+    scope.assertCurrent(); files.push(...built.map(({ fileName, bytes }) => ({ fileName, bytes })));
+  }
+  scope.enterPhase("revalidate");
+  const currentBindings = await prepareBdxBindings(options); scope.assertCurrent();
+  if (currentBindings.definitionJson !== bindings.definitionJson) throw new ProjectBdxChangedError("Command definitions changed; save again to generate BDX files");
+  scope.enterPhase("write");
+  await writeProjectFolderBdx(scope.folderPath, files, { folderIdentity: scope.folderIdentity, expectedSourceDigest: scope.expectedSourceDigest,
+    assertCurrent: () => scope.assertCurrent(), onWriteStarted: () => scope.markWriteStarted() });
+  scope.assertCurrent(); return { saved: true, location: savedLocation, bdxCount: files.length };
+}
+function captureBinding() {
+  const generation = robotConnectionGeneration, projectFile = linkedLabviewProjectFile, bookmark = linkedRobotProjectBookmarkId;
+  return { key: JSON.stringify([generation, projectFile, bookmark]), isCurrent: () => generation === robotConnectionGeneration && projectFile === linkedLabviewProjectFile && bookmark === linkedRobotProjectBookmarkId };
+}
+
+async function projectCopyDefaults(raw: unknown) {
+  const request = raw as ProjectCopyDefaultsRequest;
+  const ctx = () => { if (!sameProjectContext(request?.context, projectContext())) throw new StaleCopyDefaults(); };
+  ctx();
+  const session = projectPersistence.getSession(), location = session.location, origin = session.recoveredFrom?.origin;
+  const kind = origin ? "recovered" : location.legacyFile ? "legacy" : location.folderPath ? "folder" : "untitled";
+  const hint = typeof request.nameHint === "string" && request.nameHint.length <= 1_024 ? request.nameHint : "";
+  const base = kind === "folder" ? path.basename(location.folderPath!) : hint;
+  const parent = origin ? origin.kind === "folder" ? path.dirname(origin.folderPath) : origin.kind === "legacy" ? origin.folderPath : null
+    : location.legacyFile ? path.dirname(location.legacyFile) : location.folderPath ? path.dirname(location.folderPath) : null;
+  return suggestProjectCopy({ kind, base, parent }, { ctx, home: projectsHome(), deadlineMs: 750 });
+}
+handle("project:copyDefaults", (_event, request) => projectCopyDefaults(request));
+
+function copyFailure(error: unknown, mark: ProjectCopyMark): unknown {
+  if (!(mark.creating || mark.created) || projectPersistence.ownsPendingDestination(mark.claimed)) return error;
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/Choose another name/.test(raw)) return error;
+  const fact = projectWriteFact((error as { code?: unknown })?.code) ?? projectWriteFactFromMessage(raw)
+    ?? raw.split(/(?<=\.)\s/)[0].replace(/\.$/, "");
+  console.warn("Save copy kept a folder it does not own:", raw);
+  return new Error(`${fact} · Choose another name`);
+}
+
+/** Named copy admission is distinct from the existing departure/native picker. */
+async function saveProjectCopy(request: ProjectSaveCheckpointRequest) {
+  const raw = request.copyTo;
+  if (request.saveAs === true || request.requestId !== undefined || !raw || typeof raw !== "object" || Array.isArray(raw)
+    || (Object.getPrototypeOf(raw) !== Object.prototype && Object.getPrototypeOf(raw) !== null)
+    || Reflect.ownKeys(raw).length !== 2 || !Object.hasOwn(raw, "name") || !Object.hasOwn(raw, "parentDirectory")) throw new Error("Project save request is invalid");
+  if (!projectPersistence.isTransitionCurrent(request.transition!)) throw new Error("The project changed");
+  const copyTo = parseNamedProjectRequest(raw);
+  const validation = validateProjectSource(request.project);
+  if (!validation.ok) throw new Error(validation.issues.map(item => `${item.path}: ${item.message}`).join("\n"));
+  const capture = projectPersistence.captureRequest(request);
+  const guard = () => {
+    projectSources.assertCurrent(capture);
+    if (!projectPersistence.isTransitionCurrent(request.transition!)) throw new ProjectSourceError("PROJECT_SOURCE_SUPERSEDED");
+  };
+  const mark: ProjectCopyMark = { creating: false, created: false };
+  try {
+    let required!: ProjectSourceOwner;
+    try {
+      await projectSources.admit(capture, async () => {
+        guard(); await ensureProjectsHomeForRequest(copyTo, projectsHome()); guard();
+        await projectPersistence.assertNotRecoveredOrigin(path.join(copyTo.parentDirectory, copyTo.name), guard); guard();
+        const made = await createProjectCopyFolder(copyTo, { assertCurrent: guard, mark,
+          allowExisting: folder => projectPersistence.pendingDestinationFor(folder, guard) }); guard();
+        if ("existing" in made) { mark.claimed = made.existing; required = made.existing; }
+        else required = await projectPersistence.claimCreatedDestination(capture, made.created, guard, mark);
+        guard();
+        await projectPersistence.assertDestination(required.identity.folderPath, guard); guard();
+      });
+      guard();
+    } catch (error) { throw copyFailure(error, mark); }
+    const folder = required.identity.folderPath;
+    return await projectPersistence.saveWithExport(request, { folderPath: folder, projectPath: projectWorkspacePath(folder),
+      createProject: true, requiredOwner: required }, capture, exportSaved, captureBinding);
+  } finally { projectSources.revoke(capture); }
+}
+
+async function saveProjectWithSourceCheckpoint(project: unknown, rawSaveAs: unknown, request?: ProjectSaveCheckpointRequest) {
+  const validation = validateProjectSource(project);
   if (!validation.ok) throw new Error(validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n"));
   const sourceGeneration = projectTargetGeneration;
-  const legacyFile = currentLegacyFile;
-  let target = rawSaveAs === true ? null : currentProjectPath;
-  let createProject = false;
-  if (!target) {
-    let folder = rawSaveAs === true ? null : currentProjectFolder;
-    if (smokeDirectory) target = projectWorkspacePath(smokeDirectory);
-    else {
-      if (!folder) {
-        const result = await dialog.showOpenDialog(mainWindow!, {
-          title: "Choose project folder", properties: ["openDirectory", "createDirectory"],
-          ...(currentProjectFolder ? { defaultPath: currentProjectFolder } : {}),
-        });
-        if (result.canceled || !result.filePaths[0]) return { canceled: true };
-        folder = result.filePaths[0];
-        if (sourceGeneration !== projectTargetGeneration) throw new Error("The project changed while choosing a folder. Save again.");
-        if (!currentProjectFolder || path.resolve(folder) !== path.resolve(currentProjectFolder)) {
-          const existing = await openProjectFolder(folder);
-          if (existing.project) throw new Error("That folder already contains a Bordeaux project. Open it or choose a different folder.");
-        }
-      }
-      target = projectWorkspacePath(folder);
-      createProject = target !== currentProjectPath;
-    }
-  }
-  const source = await autosaveProjectFolder(path.dirname(target), project, target, { createProject, legacyFile });
-  target = projectWorkspacePath(path.dirname(target));
-  if (sourceGeneration !== projectTargetGeneration) throw new Error("The project changed during saving. Its files were saved; open that folder to continue.");
-  await commitWorkspaceTarget(target);
-  const savedGeneration = projectTargetGeneration;
-  // Persist editable sources first, so a planner or command-binding failure can
-  // never prevent saving a work in progress. BDX files are written only after
-  // every exportable path builds; non-exportable paths lose their owned BDX.
-  let writingBdx = false;
+  const captureRequest: ProjectCheckpointRequest = request ?? { context: projectContext(), snapshotRevision: ++compatibilitySnapshotRevision, project: project as BordeauxProject };
+  const capture = projectPersistence.captureRequest(captureRequest);
   try {
-    const selected = source.paths.filter(candidate => candidate.exportable !== false && candidate.waypoints.length >= 2);
-    const projectFile = linkedLabviewProjectFile, bookmark = linkedRobotProjectBookmarkId;
-    const hasCommands = selected.some(candidate => candidate.markers.some(marker => marker.invocation));
-    if (hasCommands && projectFile && source.editor?.robotProjectBookmarkId !== bookmark) throw new Error("The linked LabVIEW project does not match this project");
-    const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() };
-    const bindings = await prepareBdxBindings(options);
-    const files = [];
-    for (let start = 0; start < selected.length; start += MAX_BDX_BATCH) {
-      const built = await buildBdxBatchOffThread({ project: source, selections: selected.slice(start, start + MAX_BDX_BATCH).map(candidate => ({ kind: "path", id: candidate.id })), bindings });
-      files.push(...built.map(({ fileName, bytes }) => ({ fileName, bytes })));
+    const legacyFile = currentLegacyFile;
+    let target = rawSaveAs === true ? null : currentProjectPath;
+    let createProject = false;
+    if (!target) {
+      let folder = rawSaveAs === true ? null : currentProjectFolder;
+      if (smokeDirectory) target = projectWorkspacePath(smokeDirectory);
+      else {
+        if (!folder) {
+          const result = await dialog.showOpenDialog(mainWindow!, {
+            title: "Choose project folder", properties: ["openDirectory", "createDirectory"],
+            ...(currentProjectFolder ? { defaultPath: currentProjectFolder } : {}),
+          });
+          if (result.canceled || !result.filePaths[0]) return { canceled: true };
+          folder = result.filePaths[0];
+          projectSources.assertCurrent(capture);
+          const selectedFolder = folder;
+          await projectSources.admit(capture, async () => {
+            const guard = () => projectSources.assertCurrent(capture);
+            await projectPersistence.assertDestination(selectedFolder, guard); guard();
+            if (sourceGeneration !== projectTargetGeneration) throw new Error("The project changed while choosing a folder. Save again.");
+            if (!currentProjectFolder || path.resolve(selectedFolder) !== path.resolve(currentProjectFolder)) {
+              await projectSources.assertReadable(selectedFolder, guard);
+              const existing = await openProjectFolder(selectedFolder, { recordOpened: false, assertCurrent: guard }); guard();
+              if (existing.project && !await projectPersistence.isPendingDestination(selectedFolder, guard)) throw new Error("That folder already contains a Bordeaux project. Open it or choose a different folder.");
+            }
+          });
+        }
+        target = projectWorkspacePath(folder);
+        createProject = target !== currentProjectPath;
+      }
     }
-    const currentBindings = await prepareBdxBindings(options);
-    if (savedGeneration !== projectTargetGeneration || projectFile !== linkedLabviewProjectFile || bookmark !== linkedRobotProjectBookmarkId || currentBindings.definitionJson !== bindings.definitionJson) throw new Error("Project or command definitions changed; save again to generate BDX files");
-    writingBdx = true;
-    await writeProjectFolderBdx(path.dirname(target), files);
-    return { saved: true, location: projectLocation(), bdxCount: files.length };
-  } catch (error) {
-    const outcome = writingBdx ? "Some BDX files may have been updated." : "No BDX files were changed.";
-    return { saved: true, location: projectLocation(), exportError: `Project saved; BDX saving did not complete. ${outcome} ${error instanceof Error ? error.message : String(error)}` };
-  }
+    projectSources.assertCurrent(capture);
+    return await projectPersistence.saveWithExport(captureRequest, { folderPath: path.dirname(target), projectPath: target, createProject, legacyFile }, capture, exportSaved, captureBinding);
+  } finally { projectSources.revoke(capture); }
+}
+handle("project:save", (_event, project, rawSaveAs) => saveProjectWithSourceCheckpoint(project, rawSaveAs));
+handle("project:saveWithCheckpoint", (_event, rawRequest) => {
+  const request = rawRequest as ProjectSaveCheckpointRequest;
+  return request?.copyTo !== undefined ? saveProjectCopy(request) : saveProjectWithSourceCheckpoint(request?.project, request?.saveAs === true, request);
 });
 
 handle("project:autosave", async (_event, project) => {
-  const folder = currentProjectFolder;
-  if (!folder) return { saved: false, location: projectLocation() };
-  const validation = validateProject(project);
+  const validation = validateProjectSource(project);
   if (!validation.ok) return { saved: false, error: "Finish the invalid field before saving.", location: projectLocation() };
   try {
-    const generation = projectTargetGeneration;
-    await autosaveProjectFolder(folder, project, currentProjectPath, { legacyFile: currentLegacyFile });
-    if (generation !== projectTargetGeneration) return { saved: false, location: projectLocation() };
-    const target = projectWorkspacePath(folder);
-    if (currentProjectPath !== target) await commitWorkspaceTarget(target);
-    return { saved: true, location: projectLocation() };
+    const result = await projectPersistence.checkpoint({ context: projectContext(), snapshotRevision: ++compatibilitySnapshotRevision, project: project as BordeauxProject });
+    return { saved: result.source === "saved", ...(result.source === "failed" || result.source === "timed-out" ? { error: result.sourceFact } : {}), location: result.location ?? projectLocation() };
   } catch (error) {
-    return { saved: false, error: error instanceof Error ? error.message : String(error), location: projectLocation() };
+    return { saved: false, error: describeProjectWriteError(error), location: projectLocation() };
   }
 });
 
@@ -744,8 +1255,7 @@ handle("project:exportBdx", async (_event, rawProject, rawPathId) => {
   const currentBindings = await prepareBdxBindings(bindingOptions);
   assertCurrent();
   if (currentBindings.definitionJson !== bindings.definitionJson) throw new Error("NI binding evidence changed during BDX export; review and export again");
-  if (await robotExportTargetSnapshot(target) !== before) throw new Error("BDX destination changed during review; export again");
-  await writeBufferAtomically(target, built.bytes);
+  await writeSelectedProjectBdx(target, built.bytes, before, assertCurrent);
   return { exported: true, relativePath: path.basename(target), sha256: built.sha256,
     pathCount: built.pathCount, eventCount: built.eventCount, sampleCount: built.sampleCount };
 });
@@ -755,10 +1265,8 @@ handle("diagnostics:preview", async (_event, rawProject) => {
   let fieldPin = diagnosticFieldPin(rawProject);
   let exportStatus: DiagnosticBundleInput["export"] = { state: "unavailable" };
   let routinePreflight: DiagnosticBundleInput["routinePreflight"] = { state: "unavailable", issueCount: 0 };
-  const linkedProjectMatches = Boolean(linkedRobotProjectBookmarkId
-    && rawProject && typeof rawProject === "object"
-    && (rawProject as BordeauxProject).editor?.robotProjectBookmarkId === linkedRobotProjectBookmarkId);
-  if (catalog && linkedProjectMatches) {
+  const matches = Boolean(rawProject && typeof rawProject === "object" && linkedProjectMatches(rawProject as BordeauxProject));
+  if (catalog && matches) {
     try {
       const project = rawProject as BordeauxProject;
       const selected = project.paths.find((item) => item.id === project.editor?.activePathId) ?? project.paths[0];
@@ -816,8 +1324,62 @@ handle("diagnostics:save", async (_event, previewId) => {
 });
 
 handle("project:validate", (_event, project) => validateProject(project));
+function rememberExplicitRobotLink(result: Awaited<ReturnType<typeof connectRobotProject>>, context: ProjectDurabilityContext) {
+  assertRobotProjectContext(context);
+  if (!sameProjectContext(linkedRobotContext, context)) throw new Error("The linked project changed");
+  const relative = currentProjectFolder && linkedLabviewProjectFile ? relativeLabviewLink(currentProjectFolder, linkedLabviewProjectFile) : null;
+  const editorLink = relative ? { labviewProjectPath: relative } : { robotProjectBookmarkId: result.bookmarkId };
+  const { labviewProjectPath: _path, robotProjectBookmarkId: _bookmark, ...editor } = currentRobotEditor ?? {};
+  currentRobotEditor = { ...editor, ...editorLink };
+  return { ...result, editorLink, ...(!relative && currentProjectFolder ? { warning: "Linked on this computer only; robot code on another drive cannot use a relative link." } : {}) };
+}
+
+// Renderer supplies context and opaque proposal ids, never a path or a source snapshot to restore.
+async function restoreProjectRobotCode(context: unknown) {
+  assertRobotProjectContext(context);
+  clearLinkedRobotProject();
+  let generation = robotConnectionGeneration;
+  const editor = currentRobotEditor, folder = currentProjectFolder;
+  // A project that never named robot code stays Not linked; nothing is scanned or proposed for it.
+  if (editor?.labviewProjectPath === undefined && !editor?.robotProjectBookmarkId) return { status: "unlinked", error: "" };
+  const guard = () => { assertRobotProjectContext(context); if (generation !== robotConnectionGeneration) throw new Error("The robot code selection changed"); };
+  // A target absent from this checkout is plain Missing. Its raw ENOENT would read as the Bordeaux folder being gone.
+  const loadError = (failure: unknown) => ["ENOENT", "ENOTDIR"].includes((failure as NodeJS.ErrnoException | null)?.code ?? "")
+    ? "" : readableRobotProjectError(failure).message;
+  let error = "", selection: string | null = null;
+  try { selection = await resolveProjectLabviewLink(folder, editor, robotProjectBookmarks, guard); }
+  catch (failure) { guard(); error = loadError(failure); }
+  guard();
+  if (selection) {
+    generation += 1; // connect reserves this exact generation synchronously.
+    try { return await connectRobotProject(selection, "labview", undefined, true); }
+    catch (failure) {
+      guard(); // A late failure cannot clear a newer document or connection.
+      clearLinkedRobotProject(); generation = robotConnectionGeneration;
+      error = loadError(failure);
+    }
+  }
+  guard();
+  let candidate: string | null = null;
+  // The proposal is advisory: any lookup failure only suppresses it.
+  try { candidate = await suggestProjectLabviewLink(folder, guard); }
+  catch { guard(); }
+  guard();
+  if (candidate === selection) candidate = null; // Do not offer the same file that just failed to load.
+  if (candidate) suggestedRobotProject = { id: randomUUID(), file: candidate, context: { ...context } };
+  return { status: "missing", error,
+    ...(suggestedRobotProject ? { suggestion: { id: suggestedRobotProject.id, name: path.basename(suggestedRobotProject.file) } } : {}) };
+}
+handle("robotProject:restore", (_event, context) => restoreProjectRobotCode(context));
+handle("robotProject:useSuggested", async (_event, context, id) => {
+  assertRobotProjectContext(context);
+  const suggestion = suggestedRobotProject;
+  if (!suggestion || suggestion.id !== id || !sameProjectContext(suggestion.context, context)) throw new Error("The suggested robot code changed. Link robot code again.");
+  return rememberExplicitRobotLink(await replaceRobotProject(suggestion.file, "labview", true), context);
+});
 handle("robotProject:listRecent", () => summarizeRobotProjectBookmarks(robotProjectBookmarks));
-handle("robotProject:link", async () => {
+handle("robotProject:link", async (_event, context) => {
+  assertRobotProjectContext(context);
   let selectedPath: string | undefined;
   if (smokeDirectory) {
     selectedPath = path.join(smokeDirectory, "robot-project", "SmokeRobot.lvproj");
@@ -833,7 +1395,9 @@ handle("robotProject:link", async () => {
   }
   try {
     const runtime: RobotProjectRuntime = "labview";
-    if ((await fs.promises.stat(selectedPath)).isDirectory()) {
+    assertRobotProjectContext(context);
+    if ((await statLabviewLocalPath(selectedPath)).isDirectory()) {
+      assertRobotProjectContext(context);
       const projects = (await fs.promises.readdir(selectedPath, { withFileTypes: true }))
         .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".lvproj"));
       if (projects.length > 1) {
@@ -848,22 +1412,25 @@ handle("robotProject:link", async () => {
         selectedPath = project.filePaths[0];
       }
     }
-    return await replaceRobotProject(selectedPath, runtime);
+    assertRobotProjectContext(context);
+    return rememberExplicitRobotLink(await replaceRobotProject(selectedPath, runtime, true), context);
   } catch (error) {
     throw readableRobotProjectError(error, "Selected robot project");
   }
 });
-handle("robotProject:openRecent", async (_event, rawId) => {
+handle("robotProject:openRecent", async (_event, rawId, context) => {
+  assertRobotProjectContext(context);
   if (typeof rawId !== "string" || rawId.length > 64) throw new Error("Recent robot project selection is invalid");
   const bookmark = robotProjectBookmarks.find((item) => item.id === rawId);
   if (!bookmark) throw new Error("Recent robot project is no longer available");
   try {
-    return await replaceRobotProject(bookmark.projectPath, bookmark.runtime);
+    return rememberExplicitRobotLink(await replaceRobotProject(bookmark.projectPath, bookmark.runtime, true), context);
   } catch (error) {
     throw readableRobotProjectError(error, bookmark.projectName);
   }
 });
-handle("robotProject:refresh", async () => {
+handle("robotProject:refresh", async (_event, context) => {
+  assertRobotProjectContext(context);
   if (!linkedRobotProjectPath) throw new Error("Link a robot project before refreshing commands");
   try {
     return await connectRobotProject(linkedLabviewProjectFile ?? linkedRobotProjectPath, "labview");
@@ -872,7 +1439,8 @@ handle("robotProject:refresh", async () => {
     throw readableRobotProjectError(error, bookmark?.projectName);
   }
 });
-handle("robotProject:inspectLabview", async () => {
+handle("robotProject:inspectLabview", async (_event, context) => {
+  assertRobotProjectContext(context);
   const selection = linkedLabviewProjectFile;
   if (!selection || linkedRobotCatalog?.runtime !== "labview") throw new Error("Link a LabVIEW project before inspecting commands");
   if (labviewInspectionInProgress) throw new Error("LabVIEW command inspection is already in progress");
@@ -880,17 +1448,20 @@ handle("robotProject:inspectLabview", async () => {
   labviewInspectionInProgress = true;
   try {
     const inspected = await inspectLabviewCommandsQueued(selection, labviewDiscoveryCacheDirectory());
+    assertRobotProjectContext(context);
     if (generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile) throw new Error("The linked project changed during command inspection");
     return await connectRobotProject(selection, "labview", inspected);
   } finally {
     labviewInspectionInProgress = false;
   }
 });
-handle("robotProject:buildCatalog", async () => {
+handle("robotProject:buildCatalog", async (_event, context) => {
+  assertRobotProjectContext(context);
   if (!linkedRobotProjectPath) throw new Error("Link a LabVIEW project before building its command catalog");
   const root = linkedRobotProjectPath;
   const generation = robotConnectionGeneration;
   await buildLabviewCatalog(linkedLabviewProjectFile ?? root);
+  assertRobotProjectContext(context);
   if (generation !== robotConnectionGeneration || root !== linkedRobotProjectPath) throw new Error("The linked project changed during catalog build");
   return connectRobotProject(linkedLabviewProjectFile ?? root, "labview");
 });
@@ -920,7 +1491,9 @@ handle("robotFiles:trust", (_event, fingerprint) => {
   return robotFileDelivery.trust(fingerprint);
 });
 handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
-  if (!Array.isArray(pathIds) || !pathIds.length || pathIds.length > MAX_BDX_BATCH || pathIds.some(id => typeof id !== "string") || new Set(pathIds).size !== pathIds.length) throw new Error("Select distinct paths to push");
+  if (!Array.isArray(pathIds)) throw new Error("Select distinct paths to push");
+  if (!pathIds.length || pathIds.length > MAX_BDX_BATCH) throw new Error(`Select between 1 and ${MAX_BDX_BATCH} paths to push`);
+  if (pathIds.some(id => typeof id !== "string") || new Set(pathIds).size !== pathIds.length) throw new Error("Select distinct paths to push");
   const project = rawProject as BordeauxProject;
   if (!project || !Array.isArray(project.paths)) throw new Error("A valid Bordeaux project is required");
   const pairing = robotFileDelivery.current();
@@ -961,17 +1534,24 @@ for (const channel of ["robot:inspectRetention", "robot:prepareRetention", "robo
 }
 handle("robot:cancelPush", () => ({ canceled: false }));
 handle("robot:cancelRetention", () => ({ canceled: false }));
-handle("appUpdates:state", () => appUpdates?.snapshot());
+handle("appUpdates:state", appUpdateState);
 handle("appUpdates:check", () => appUpdates?.check(true));
 handle("appUpdates:download", () => appUpdates?.download());
 handle("appUpdates:cancel", () => appUpdates?.cancelDownload());
-handle("appUpdates:install", () => appUpdates?.install());
+handle("appUpdates:install", () => {
+  const state = appUpdates?.snapshot();
+  return { accepted: Boolean(appUpdates?.available && (state?.phase === "downloaded" || (state?.phase === "error" && state.errorStage === "install")) && nativeDeparture.requestInstall()) };
+});
 handle("appUpdates:visible", (_event, visible) => {
   if (typeof visible !== "boolean") throw new Error("Update visibility must be a boolean");
   appUpdates?.setVisible(visible);
 });
 handle("appUpdates:releases", () => shell.openExternal(OFFICIAL_RELEASES_URL));
 handle("appUpdates:copyDetails", () => clipboard.writeText(appUpdates?.snapshot().errorDetails || ""));
+handle("project:copyDetails", (_event, text) => {
+  if (typeof text !== "string" || !text.trim() || text.length > 65_536) throw new Error("Project details must contain 1–65536 characters");
+  clipboard.writeText(text);
+});
 handle("agent:getActiveProposal", () => agentSessions.getActiveProposal());
 handle("agent:getMcpStatus", () => agentSessions.accessStatus());
 ipcMain.on("project:setDirty", (event, value) => { assertTrustedSender(event); dirty = value === true; appUpdates?.refresh(); });
@@ -1023,6 +1603,7 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
     recentFiles = await readRecentProjectFiles(recentProjectsFile());
   } catch (error) {
     recentFiles = [];
+    recentStoreUnavailable = true;
     console.warn("Could not load recent Bordeaux projects:", error);
   }
   try {
@@ -1042,7 +1623,7 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
   appUpdates.start();
   buildMenu();
   createWindow();
-  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on("activate", () => { if (!replacingProjectWindow && fallbackDialogOwners.size === 0 && BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 // Undo an abandoned update quit: restart what cleanup stopped and reopen the editor.
@@ -1063,17 +1644,21 @@ function resumeAfterFailedUpdateQuit(): void {
 }
 
 app.on("before-quit", (event) => {
-  const decision = updateQuit.beforeQuit();
+  const decision = updateQuit.inspectBeforeQuit();
   if (decision !== "proceed") {
+    updateQuit.beforeQuit(); // Consume a queued failed-install quit without beginning a new one.
     event.preventDefault();
     if (decision === "resume") resumeAfterFailedUpdateQuit();
     return;
   }
+  if (!nativeDeparture.beforeQuit()) { event.preventDefault(); return; }
+  updateQuit.beforeQuit();
   if (updateCheckTimer) clearTimeout(updateCheckTimer);
   updateCheckTimer = null;
 });
 app.on("will-quit", (event) => {
   if (updateQuit.abandoned) { event.preventDefault(); resumeAfterFailedUpdateQuit(); return; }
+  if (!nativeDeparture.willQuit()) { event.preventDefault(); return; }
   if (backgroundServicesReadyForExit) return;
   event.preventDefault();
   if (finalQuitInProgress) return;
@@ -1087,6 +1672,7 @@ app.on("will-quit", (event) => {
   }).finally(() => {
     clearTimeout(limit);
     if (updateQuit.abandoned) { resumeAfterFailedUpdateQuit(); return; }
+    if (!nativeDeparture.cleanupMayFinish()) { finalQuitInProgress = false; return; }
     backgroundServicesReadyForExit = true;
     // Electron resets its quitting flag after the canceled will-quit event.
     // A microtask can run before that reset, so resume on the next event-loop turn.
@@ -1094,4 +1680,8 @@ app.on("will-quit", (event) => {
   });
 });
 app.on("web-contents-created", (_event, contents) => contents.on("will-attach-webview", (event) => event.preventDefault()));
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => {
+  // Smoke closes the real window, then verifies the saved source receipt before owning process exit.
+  if (process.env.BORDEAUX_SMOKE_TEST === "1") return;
+  if (process.platform !== "darwin" && !replacingProjectWindow && !mainWindow && fallbackDialogOwners.size === 0) app.quit();
+});

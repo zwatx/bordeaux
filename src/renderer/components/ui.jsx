@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { committedDraftValue } from "../lib/numericDraft";
 import { PM } from "../lib/pathMath";
-import { UnitPrefs } from "../lib/unitPreferences";
+import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 
 // Bordeaux shared UI primitives.
   const { useState, useRef, useEffect, useId } = React;
@@ -71,10 +71,36 @@ import { UnitPrefs } from "../lib/unitPreferences";
   }
 
   const MAX_RENDERED_PICKER_ITEMS = 80;
+  const chosen = (result) => typeof result === 'string' ? { status: result } : result || {};
+  /**
+   * An opted-in choice's delayed return focus belongs to the chooser instance and result that scheduled it. `root`
+   * is pinned before the owner runs; focus follows only if that root is still this chooser's, the owner still
+   * reports the result current, and nothing has claimed focus since the owner returned, in this chooser or not.
+   */
+  const focusAfterChoice = ({ current }, rootRef, root, owners, target) => {
+    const at = document.activeElement, from = owners.some((owner) => owner?.contains(at)) ? at : null;
+    let claimed = false;
+    const claim = () => { claimed = true; };
+    document.addEventListener('focusin', claim, true);
+    requestAnimationFrame(() => {
+      document.removeEventListener('focusin', claim, true);
+      const active = document.activeElement;
+      const element = !claimed && root?.isConnected && rootRef.current === root && (!current || current()) && target();
+      if (element?.isConnected && root.contains(element) && (!active || active === document.body || active === from)
+        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) element.focus();
+    });
+  };
 
-  function Dropdown({ id, label, ariaLabel, value, items = [], onChange, disabled, placeholder, icon, searchThreshold = 7,
-    compact = false, className = '', allowCustom = false, customLabel = 'Enter exact value', customPlaceholder = 'Exact runtime value' }) {
-    const [open, setOpen] = useState(false);
+  /**
+   * `onChoose(value)` is an opt-in alternative to `onChange` for owners that may refuse: it returns
+   * 'applied', 'unchanged' or 'refused', or `{ status, current }` whose `current()` says the result still owns
+   * this chooser. Only 'refused' keeps the panel and leaves focus to the owner.
+   * `defaultOpen` opens the chooser at mount only. `activateFirstMatch` makes typing activate the first match while an
+   * empty query or an unlisted value activates nothing, so a bare or held Enter never picks.
+   */
+  function Dropdown({ id, label, ariaLabel, value, items = [], onChange, onChoose, disabled, placeholder, icon, searchThreshold = 7,
+    compact = false, className = '', allowCustom = false, customLabel = 'Enter exact value', customPlaceholder = 'Exact runtime value', defaultOpen, activateFirstMatch }) {
+    const [open, setOpen] = useState(() => Boolean(defaultOpen) && !disabled);
     const [query, setQuery] = useState('');
     const [activeIndex, setActiveIndex] = useState(0);
     const [customDraft, setCustomDraft] = useState('');
@@ -141,7 +167,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
 
     useEffect(() => {
       if (!open) { setQuery(''); setCustomDraft(''); typeahead.current = { text: '', time: 0 }; return; }
-      const selectedIndex = Math.max(0, visibleItems.findIndex((item) => item.value === value));
+      const found = visibleItems.findIndex((item) => item.value === value), selectedIndex = activateFirstMatch ? found : Math.max(0, found);
       setActiveIndex(selectedIndex);
       const frame = requestAnimationFrame(() => {
         if (showSearch) searchRef.current?.focus();
@@ -153,9 +179,16 @@ import { UnitPrefs } from "../lib/unitPreferences";
 
     const choose = (nextValue) => {
       if (disabled) return;
-      onChange(nextValue);
+      if (!onChoose) {
+        onChange(nextValue);
+        setOpen(false);
+        requestAnimationFrame(() => triggerRef.current?.focus());
+        return;
+      }
+      const root = rootRef.current, trigger = triggerRef.current, panel = panelRef.current, result = chosen(onChoose(nextValue));
+      if (result.status === 'refused') return;
       setOpen(false);
-      requestAnimationFrame(() => triggerRef.current?.focus());
+      focusAfterChoice(result, rootRef, root, [root, panel], () => trigger);
     };
     const focusOption = (nextIndex) => {
       if (!visibleItems.length) return;
@@ -185,7 +218,8 @@ import { UnitPrefs } from "../lib/unitPreferences";
         }
         return;
       }
-      if (event.key === 'Escape') {
+      if (activateFirstMatch && event.repeat && event.key === 'Enter') event.preventDefault();
+      else if (event.key === 'Escape') {
         event.stopPropagation(); event.preventDefault();
         setOpen(false); triggerRef.current?.focus();
       } else if (event.key === 'Tab') {
@@ -225,7 +259,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
           'data-lpignore': 'true', 'data-1p-ignore': true, 'aria-controls': listboxId,
           role: 'combobox', 'aria-expanded': true, 'aria-autocomplete': 'list',
           'aria-activedescendant': visibleItems[activeIndex] ? listboxId + '-option-' + activeIndex : undefined,
-          onChange: (event) => { setQuery(event.target.value); setActiveIndex(-1); } })),
+          onChange: (event) => { setQuery(event.target.value); setActiveIndex(activateFirstMatch && event.target.value.trim() ? 0 : -1); } })),
       h('div', { id: listboxId, className: 'cmd-picker-list', role: 'listbox', 'aria-labelledby': label ? labelId : undefined, 'aria-label': label ? undefined : pickerName },
         visibleItems.length === 0 ? h('div', { className: 'cmd-picker-empty', role: 'status' }, items.length ? 'No matches' : 'No choices available')
           : visibleItems.map((item, index) => h('button', { key: item.value,
@@ -265,10 +299,13 @@ import { UnitPrefs } from "../lib/unitPreferences";
   }
 
   // Inline choice browser keeps discovery and parameters in one stable inspector.
-  function ChoiceBrowser({ id, label, value, items = [], onChange, disabled, placeholder = 'Search', emptyText = 'No choices available', actionLabel = 'Change', resetKey }) {
+  // `onChoose` follows Dropdown's opt-in contract; a refusal keeps the list and its query. `note` describes the
+  // consequence of choosing, shown only while the choices are.
+  function ChoiceBrowser({ id, label, value, items = [], onChange, onChoose, note, disabled, placeholder = 'Search', emptyText = 'No choices available', actionLabel = 'Change', resetKey }) {
     const [editing, setEditing] = useState(false);
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
+    const rootRef = useRef(null);
     const searchRef = useRef(null);
     const changeRef = useRef(null);
     const optionRefs = useRef([]);
@@ -280,15 +317,22 @@ import { UnitPrefs } from "../lib/unitPreferences";
     useEffect(() => { setEditing(false); setQuery(''); setActive(-1); }, [resetKey]);
     useEffect(() => { if (editing) searchRef.current?.focus(); }, [editing]);
     const choose = (item) => {
-      onChange(item.value); setEditing(false); setQuery(''); setActive(-1);
-      requestAnimationFrame(() => (item.value ? changeRef.current : searchRef.current)?.focus());
+      if (!onChoose) {
+        onChange(item.value); setEditing(false); setQuery(''); setActive(-1);
+        requestAnimationFrame(() => (item.value ? changeRef.current : searchRef.current)?.focus());
+        return;
+      }
+      const root = rootRef.current, result = chosen(onChoose(item.value));
+      if (result.status === 'refused') return;
+      setEditing(false); setQuery(''); setActive(-1);
+      focusAfterChoice(result, rootRef, root, [root], () => item.value ? changeRef.current : searchRef.current);
     };
     const move = (index) => {
       if (!visible.length) return;
       const next = (index + visible.length) % visible.length;
       setActive(next); optionRefs.current[next]?.scrollIntoView({ block: 'nearest' });
     };
-    return h('section', { className: 'choice-browser', 'aria-label': label, onKeyDown: (event) => {
+    return h('section', { ref: rootRef, className: 'choice-browser', 'aria-label': label, onKeyDown: (event) => {
       if (event.key === 'Escape' && expanded) { event.preventDefault(); event.stopPropagation(); if (selected) { setEditing(false); requestAnimationFrame(() => changeRef.current?.focus()); } else { setQuery(''); setActive(-1); searchRef.current?.focus(); } }
       if (event.target.getAttribute('role') === 'option' && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault(); event.stopPropagation(); const index = optionRefs.current.indexOf(event.target); const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + visible.length) % visible.length; move(next); optionRefs.current[next]?.focus();
@@ -297,13 +341,14 @@ import { UnitPrefs } from "../lib/unitPreferences";
       h('div', { className: 'choice-browser-heading' }, h('span', { className: 'fieldlabel' }, label),
         selected && h('button', { type: 'button', className: 'choice-change', ref: changeRef, disabled,
           'aria-expanded': expanded, 'aria-controls': id + '-choices', onClick: () => setEditing(!editing) }, expanded ? 'Done' : actionLabel)),
+      expanded && note && h('p', { id: id + '-note', className: 'seg-hint' }, note),
       selected && !expanded && h('div', { className: 'choice-current' },
         h(Icon, { name: 'check', size: 15 }),
         h('div', null, h('strong', null, selected.label), selected.meta && h('small', null, selected.meta))),
       expanded && h('div', { id: id + '-choices', className: 'choice-browser-body' },
         h('div', { className: 'choice-search' }, h(Icon, { name: 'search', size: 15 }),
           h('input', { id, ref: searchRef, type: 'search', role: 'combobox', value: query, disabled,
-            placeholder, 'aria-label': 'Search ' + label.toLowerCase(), 'aria-expanded': true,
+            placeholder, 'aria-label': 'Search ' + label.toLowerCase(), 'aria-expanded': true, 'aria-describedby': note ? id + '-note' : undefined,
             'aria-controls': id + '-results', 'aria-autocomplete': 'list',
             'aria-activedescendant': active >= 0 && visible[active] ? id + '-result-' + active : undefined,
             onChange: (event) => { setQuery(event.target.value); setActive(-1); },
@@ -324,7 +369,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
   }
 
   // numeric field with drag-to-scrub
-  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, projectDraft = true }) {
+  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, format = (number) => number.toFixed(precision), projectDraft = true }) {
     const id = useId();
     const [edit, setEdit] = useState(null);
     const [scrub, setScrub] = useState(null);
@@ -385,8 +430,8 @@ import { UnitPrefs } from "../lib/unitPreferences";
         cancel: finish });
     };
     const displayValue = typeof value === 'number' ? UnitPrefs.fromCanonical(value, unit, imperialUnit) : value;
-    const disp = scrub != null ? UnitPrefs.fromCanonical(scrub, unit, imperialUnit).toFixed(precision)
-      : edit != null ? edit : (typeof displayValue === 'number' ? displayValue.toFixed(precision) : displayValue);
+    const disp = scrub != null ? format(UnitPrefs.fromCanonical(scrub, unit, imperialUnit))
+      : edit != null ? edit : (typeof displayValue === 'number' ? format(displayValue) : displayValue);
     return h('div', { className: 'numrow' },
       label != null && h('label', { className: 'numlbl', htmlFor: id, onPointerDown: start() }, label),
       h('div', { className: 'numbox' },
@@ -401,7 +446,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
             // Enter during a scrub, like Tab, leaves the value to its release or Escape.
             if (e.key === 'Enter') {
               e.preventDefault();
-              if (!scrubbing.current && (cancelEdit.current || edit == null || commitEdit(e.target.value))) { cancelEdit.current = true; e.target.blur(); }
+              if (!scrubbing.current && (cancelEdit.current || edit == null || commitEdit(e.target.value))) { cancelEdit.current = true; setEdit(null); e.target.blur(); }
             }
             if (e.key === 'Escape') {
               e.preventDefault(); e.stopPropagation(); cancelEdit.current = true; setError(''); setEdit(null);
@@ -466,8 +511,8 @@ import { UnitPrefs } from "../lib/unitPreferences";
       { key: 'maxVel', base: velocityBase, order: 0, text: (v) => 'v \u2264 ' + UnitPrefs.format(v, 'm/s', 1), aria: (v) => 'maximum velocity ' + UnitPrefs.format(v, 'm/s', 1) },
       { key: 'maxAccel', base: c.maxAccel, order: 1, text: (v) => 'a \u2264 ' + UnitPrefs.format(v, 'm/s²', 1), aria: (v) => 'maximum acceleration ' + UnitPrefs.format(v, 'm/s²', 1) },
       { key: 'maxDecel', base: c.maxDecel != null ? c.maxDecel : c.maxAccel, order: 2, text: (v) => 'a \u2264 ' + UnitPrefs.format(v, 'm/s²', 1), aria: (v) => 'maximum acceleration ' + UnitPrefs.format(v, 'm/s²', 1) },
-      { key: 'maxAngVel', base: c.maxAngVel, order: 3, text: (v) => '\u03c9 \u2264 ' + v.toFixed(0) + '\u00b0/s', aria: (v) => 'maximum angular velocity ' + v.toFixed(0) + ' degrees per second' },
-      { key: 'maxAngAccel', base: c.maxAngAccel, order: 4, text: (v) => '\u03b1 \u2264 ' + v.toFixed(0) + '\u00b0/s\u00b2', aria: (v) => 'maximum angular acceleration ' + v.toFixed(0) + ' degrees per second squared' },
+      { key: 'maxAngVel', base: c.maxAngVel, order: 3, text: (v) => '\u03c9 \u2264 ' + formatAngularLimit(v) + '\u00b0/s', aria: (v) => 'maximum angular velocity ' + formatAngularLimit(v) + ' degrees per second' },
+      { key: 'maxAngAccel', base: c.maxAngAccel, order: 4, text: (v) => '\u03b1 \u2264 ' + formatAngularLimit(v) + '\u00b0/s\u00b2', aria: (v) => 'maximum angular acceleration ' + formatAngularLimit(v) + ' degrees per second squared' },
     ].filter((candidate) => {
       const value = range && range[candidate.key], baseline = candidate.base;
       return Number.isFinite(value) && value > 0 && Number.isFinite(baseline) && baseline > 0 && value < baseline - Math.max(1e-6, Math.abs(baseline) * 1e-6);

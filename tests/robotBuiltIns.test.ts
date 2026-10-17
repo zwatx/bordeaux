@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
 import { generatedCatalogHash, parseGeneratedRobotCatalog } from "../src/electron/robotGeneratedCatalog";
 import { createDemoProject } from "../src/shared/project/defaults";
 import { validateProject } from "../src/shared/validation";
@@ -8,6 +6,12 @@ import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
 import type { RobotBuiltInDescriptor, RobotCommandCatalog, RoutineBuiltInNode } from "../src/shared/types";
 // @ts-expect-error Routine authoring remains a legacy JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+// @ts-expect-error The routine run sheet is a JavaScript component.
+import { addMenuSteps } from "../src/renderer/components/RoutinePanel";
+// @ts-expect-error The routine inspector is a JavaScript component.
+import { StepInspector } from "../src/renderer/components/RoutineInspector";
 
 const wait: RobotBuiltInDescriptor = {
   id: "bordeaux.wait",
@@ -148,14 +152,20 @@ describe("Bordeaux-owned routine built-ins", () => {
     expect(run.steps[0]).toMatchObject({ dur: 0.25, t0: 0, t1: 0.25 });
   });
 
-  it("offers Wait in the routine chooser and gives it a bounded inspector control", () => {
-    const panel = fs.readFileSync(path.join(process.cwd(), "src/renderer/components/RoutinePanel.jsx"), "utf8");
-    const inspector = fs.readFileSync(path.join(process.cwd(), "src/renderer/components/RoutineInspector.jsx"), "utf8");
-    expect(panel).toContain("A.AUTHORABLE_STEPS");
-    expect(panel).toContain("waitAvailable");
-    expect(inspector).toContain("node.type === 'builtin'");
-    expect(inspector).toContain("Wait duration in seconds");
-    expect(inspector).toContain("min: 0.02, max: 15");
+  it("offers Wait in Add only with the catalog built-in and gives it a bounded inspector control", () => {
+    const routine = { id: "r", name: "R", nodes: [] };
+    const wait = (catalog: RobotCommandCatalog | null) => addMenuSteps(routine, { list: { kind: "root" } }, catalog).find((item: { kind: string }) => item.kind === "wait");
+    expect(wait(generatedCatalog())).toMatchObject({ label: "Wait" });
+    expect(wait(generatedCatalog()).disabled).toBeFalsy();
+    // Without bordeaux.wait the kind stays discoverable but cannot be added.
+    expect(wait({ ...generatedCatalog(), builtIns: [] })).toMatchObject({ disabled: true, meta: "Needs bordeaux.wait in the catalog" });
+    expect(wait(null)).toMatchObject({ disabled: true });
+    const html = renderToStaticMarkup(createElement(StepInspector, {
+      node: { id: "wait-a", type: "builtin", builtinId: "bordeaux.wait", arguments: { durationS: 1 } }, routine, paths: [], acq: {}, run: { segs: [] },
+    }));
+    expect(html).toContain("Wait duration in seconds");
+    expect(html).toContain('min="0.02"');
+    expect(html).toContain('max="15"');
   });
 
   it("keeps generated conditions authoritative with the 1.2 built-in catalog", () => {

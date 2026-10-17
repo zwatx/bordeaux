@@ -174,6 +174,9 @@ function deployableRoutine(project: BordeauxProject, pathIds: Set<string>): Robo
     return source.map((node) => {
       nodeCount += 1;
       if (nodeCount > MAX_ROUTINE_NODE_COUNT) throw new Error(`Robot trajectory export exceeds ${MAX_ROUTINE_NODE_COUNT} routine nodes`);
+      if (node.type === "repeat" || node.type === "end" || ("ends" in node && node.ends !== undefined)) {
+        throw new Error(`Routine step ${node.id} uses local repeat/end/ending conditions; robot execution support is not available yet`);
+      }
       if ("outputBranch" in node && node.outputBranch !== undefined) {
         throw new Error(`Routine command ${node.id} branches on an output; robot execution support is not available yet`);
       }
@@ -222,6 +225,7 @@ function assertRoutineNodeCount(routine: RobotTrajectoryRoutine | null): void {
     if (count > MAX_ROUTINE_NODE_COUNT) {
       throw new Error(`Robot trajectory export exceeds ${MAX_ROUTINE_NODE_COUNT} routine nodes`);
     }
+    if (node.type === "repeat") pending.push(...node.nodes);
     if (node.type === "decision") pending.push(...node.then, ...node.else);
     if (node.type === "generatedTrajectory" && node.fallback.type === "branch") pending.push(...node.fallback.nodes);
   }
@@ -244,6 +248,8 @@ function withArgumentDefaults(project: BordeauxProject, catalog: RobotCommandCat
 function projectForStaticPlanning(project: BordeauxProject): BordeauxProject {
   const staticNodes = (nodes: RoutineNode[]): RoutineNode[] => nodes.flatMap((node) => {
     if (node.type === "generatedTrajectory") return node.fallback.type === "branch" ? staticNodes(node.fallback.nodes) : [];
+    if (node.type === "repeat") return staticNodes(node.nodes);
+    if (node.type === "end") return [];
     if (node.type === "decision") return [{ ...node, then: staticNodes(node.then), else: staticNodes(node.else) }];
     return [node];
   });

@@ -8,6 +8,8 @@ export interface AppUpdateProgress {
 export interface AppUpdateState {
   phase: "idle" | "checking" | "available" | "downloading" | "downloaded" | "installing" | "upToDate" | "error" | "unsupported";
   installStalled?: boolean;
+  /** Main-owned attempt identity; a stalled panel may release only its own approval. */
+  installAttemptId?: string;
   currentVersion: string;
   version: string | null;
   releaseNotes: string;

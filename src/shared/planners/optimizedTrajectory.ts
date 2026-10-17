@@ -8,7 +8,7 @@ import type {
 } from "../types";
 import { buildReachabilityInput, countLinearConstraintViolations, insertOptimizationBoundaries } from "./optimizationConstraints";
 import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_TRAJECTORY_SAMPLES } from "./limits";
-import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "./profiledSpline";
+import { profiledSplineOptimizationInputs, profiledSplineOptimizationSeed, profiledSplinePlanner } from "./profiledSpline";
 import { solveReachabilityProfile, type ReachabilityInput, type ReachabilityStatus } from "./reachability";
 import { validateOptimizedTrajectory, type TrajectoryValidationResult } from "./trajectoryValidation";
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
@@ -18,7 +18,7 @@ const R = (value: number, places = 4) => Number(value.toFixed(places));
 const MAX_REFINEMENT_PASSES = 2;
 
 /** Retain authored boundaries when constraint knots are inserted into a refined seed. */
-function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectorySample[]): number[] | undefined {
+export function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectorySample[]): number[] | undefined {
   if (!base.waypointSampleIndices) return undefined;
   const remapped = new Map<number, number>();
   const boundaries = new Set(base.waypointSampleIndices);
@@ -33,7 +33,8 @@ function remapWaypointIndices(base: PlannerResult, samples: readonly TrajectoryS
   return base.waypointSampleIndices.map((index) => remapped.get(index)!);
 }
 
-function remapTiming(samples: TrajectorySample[], velocities: number[], fullPrecision = false): TrajectorySample[] {
+/** Integrates a sample-aligned speed profile into timestamps and rates. */
+export function remapTiming(samples: TrajectorySample[], velocities: number[], fullPrecision = false): TrajectorySample[] {
   if (samples.length < 2) return samples;
 
   const times = new Array(samples.length).fill(0);
@@ -226,9 +227,8 @@ function remapProfileForValidation(
   );
 }
 
-export function buildDenseValidationSamples(
+function buildDenseValidationGeometry(
   input: PlannerInput,
-  timedSamples: TrajectorySample[],
   samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT,
   validationMultiplier?: number,
 ): TrajectorySample[] {
@@ -242,11 +242,20 @@ export function buildDenseValidationSamples(
   if (segmentCount > Math.floor((MAX_TRAJECTORY_SAMPLES - 1) / denseSamplesPerSegment)) {
     throw new Error(`Dense validation requires more than ${MAX_TRAJECTORY_SAMPLES} trajectory samples`);
   }
-  const denseGeometry = insertOptimizationBoundaries(
+  return insertOptimizationBoundaries(
     input,
     profiledSplineOptimizationSeed({ ...input, samplesPerSegment: denseSamplesPerSegment }).samples,
   );
-  return remapProfileForValidation(input, denseGeometry, timedSamples);
+}
+
+export function buildDenseValidationSamples(
+  input: PlannerInput,
+  timedSamples: TrajectorySample[],
+  samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT,
+  validationMultiplier?: number,
+): TrajectorySample[] {
+  return remapProfileForValidation(input,
+    buildDenseValidationGeometry(input, samplesPerSegment, validationMultiplier), timedSamples);
 }
 
 function timeAtFraction(samples: TrajectorySample[], fraction: number): number {
@@ -284,6 +293,7 @@ function locallyRetimeViolations(
   samplesPerSegment: number,
   initialValidationSamples: TrajectorySample[],
   initialValidation: TrajectoryValidationResult,
+  validationGeometry: TrajectorySample[],
 ): { samples: TrajectorySample[]; validation: TrajectoryValidationResult; iterations: number } | null {
   const velocityLimits = [...reachabilityInput.velocityLimits];
   let samples = initialSamples;
@@ -323,7 +333,7 @@ function locallyRetimeViolations(
     if (reachability.status !== "optimal") return null;
     iterations += reachability.iterations;
     samples = remapTiming(geometrySamples, reachability.velocities);
-    validationSamples = buildDenseValidationSamples(input, samples, samplesPerSegment);
+    validationSamples = remapProfileForValidation(input, validationGeometry, samples);
     validation = validateOptimizedTrajectory(input, validationSamples, {
       angularKinematics: "sample",
     });
@@ -366,8 +376,7 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
   id: "optimizedTrajectory",
   generate(input): PlannerResult {
     const started = performance.now();
-    const base = profiledSplinePlanner.generate(input);
-    const optimizationSeed = profiledSplineOptimizationSeed(input);
+    const { base, seed: optimizationSeed } = profiledSplineOptimizationInputs(input);
     const solveTimeMs = performance.now() - started;
 
     if (base.samples.length < 2) {
@@ -438,7 +447,10 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
 
         const samples = remapTiming(optimizationSamples, reachability.velocities);
         const segmentCount = Math.max(0, input.path.waypoints.length - 1);
-        const validationSamples = buildDenseValidationSamples(input, samples, samplesPerSegment);
+        // Retiming changes speeds, not geometry. Share this refinement's dense
+        // geometry while remapping and validating every newly solved profile.
+        const validationGeometry = buildDenseValidationGeometry(input, samplesPerSegment);
+        const validationSamples = remapProfileForValidation(input, validationGeometry, samples);
         const validation = validateOptimizedTrajectory(input, validationSamples, {
           angularKinematics: "sample",
         });
@@ -482,6 +494,7 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
           samplesPerSegment,
           validationSamples,
           validation,
+          validationGeometry,
         );
         if (locallyRetimed) {
           totalIterations += locallyRetimed.iterations;

@@ -375,6 +375,8 @@ export interface RobotCommandCatalog {
 
 export interface RobotProjectBookmarkSummary {
   id: string;
+  /** Display-only parent location. Selection still uses the main-owned bookmark id. */
+  locationHint?: string;
   projectName: string;
   folderName: string;
   lastLinkedAt: string;
@@ -428,16 +430,31 @@ export interface PathDoc {
   startVel: number;
   goalVel: number;
   exportable?: boolean;
+  /** Internal derived planning geometry only, never permitted on authored source. */
+  routeRequiredPointIndices?: number[];
   /** Authored corridor and explicit selection; project plannerId never selects an artifact. */
   optimization?: {
-    corridorM: number;
-    accepted?: {
-      version: 1;
-      inputKey: string;
-      samplesPerSegment: number;
-      result: PlannerResult;
-    };
+    corridorM?: number;
+    accepted?: AcceptedTrajectory;
+    /** Retained on explicit route Apply; active accepted always takes precedence. */
+    legacyAccepted?: AcceptedTrajectory & { version: 1 };
   };
+}
+
+/** Exact selected samples; v1 retains its original corridor contract. */
+export interface AcceptedTrajectory {
+  version: 1 | 2;
+  inputKey: string;
+  samplesPerSegment: number;
+  result: PlannerResult;
+}
+
+export interface RouteGeometry {
+  version: 1;
+  /** Geometry-owned curvature smoothing, independent of later seed editing modes. */
+  knots: Array<ControlPoint & { prevC: ControlPoint; nextC: ControlPoint; smooth?: boolean }>;
+  /** Ordered generated-knot index for each required source waypoint. */
+  requiredPointIndices: number[];
 }
 
 export interface PathFolder {
@@ -474,6 +491,30 @@ export interface RoutineCommandOutputBranch {
   routes: RoutineCommandOutputRoute[];
 }
 
+export interface RoutinePredicate { source: "condition"; conditionId: string }
+export interface RoutineOutputStop {
+  source: "output";
+  nodeId: string;
+  output: string;
+  schema?: RobotValueSchema;
+  operator: "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
+  value?: boolean | string | number;
+}
+export interface RoutineCommandEnds {
+  endWhen?: RoutinePredicate;
+  timeoutS?: number;
+  onTimeout?: "continue" | "endRoutine";
+}
+export interface RoutineWaitEnds { endWhen?: RoutinePredicate }
+export interface RoutineRepeatNode {
+  id: string;
+  type: "repeat";
+  times: number;
+  until?: RoutinePredicate | RoutineOutputStop;
+  nodes: RoutineNode[];
+}
+export interface RoutineEndNode { id: string; type: "end"; scope: "routine" | "repeat" }
+
 export interface RoutineFunctionNode {
   id: string;
   type: "function";
@@ -489,6 +530,7 @@ export interface RoutineFunctionNode {
   invocation?: CommandInvocation;
   /** Local authoring and preview only until the robot execution contract supports outputs. */
   outputBranch?: RoutineCommandOutputBranch;
+  ends?: RoutineCommandEnds;
 }
 
 export interface RoutinePathNode {
@@ -512,6 +554,7 @@ export interface RoutineBuiltInNode {
   type: "builtin";
   builtinId: "bordeaux.wait";
   arguments: { durationS: number };
+  ends?: RoutineWaitEnds;
 }
 
 export interface RoutineFallbackDecisionNode extends Omit<RoutineDecisionNode, "then" | "else"> {
@@ -531,7 +574,7 @@ export interface RoutineGeneratedTrajectoryNode {
     | { type: "branch"; nodes: RoutineFallbackNode[] };
 }
 
-export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode;
+export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode | RoutineRepeatNode | RoutineEndNode;
 
 export interface AutonomousRoutine {
   /** Stable project-local identity. */
@@ -571,6 +614,8 @@ export interface PathEndpointLink {
 export interface ProjectEditorState {
   activePathId?: string;
   robotProjectBookmarkId?: string;
+  /** Relative to this project folder. null means unresolved: explicitly relink, never use the legacy bookmark. */
+  labviewProjectPath?: string | null;
   unitSystem?: "metric" | "imperial";
 }
 
@@ -618,6 +663,7 @@ export type TrajectoryPlannerId = "profiledSpline" | "optimizedTrajectory";
 export interface PlannerInput {
   path: PathDoc;
   robot: RobotConfig;
+  field?: FieldReference;
   samplesPerSegment?: number;
   smoothingPasses?: number;
 }
@@ -681,6 +727,8 @@ export interface PlannerResult {
   stationaryActions?: PlannerStationaryAction[];
   /** Internal final-preview geometry; export schemas select trajectory fields explicitly. */
   optimizedPath?: PathDoc;
+  /** Versioned solver-owned geometry, separate from required source points. */
+  routeGeometry?: RouteGeometry;
 }
 
 export interface TrajectoryPlanner {
@@ -689,6 +737,8 @@ export interface TrajectoryPlanner {
 }
 
 export interface PlannerOptimizationDiagnostics {
+  /** Qualification of the actual authored Normal, never inferred from candidate feasibility. */
+  seedStatus?: "unknown" | "valid" | "invalid";
   plannerUsed: TrajectoryPlannerId;
   status?: "optimal" | "feasible" | "equivalent" | "invalid-input" | "infeasible" | "cancelled" | "internal-error";
   iterations?: number;
@@ -702,7 +752,7 @@ export interface PlannerOptimizationDiagnostics {
   constraintViolations: number;
   fallback: boolean;
   fallbackReason?: string;
-  optimizationClass?: "fixed-geometry" | "corridor";
+  optimizationClass?: "fixed-geometry" | "corridor" | "route";
   budgetTier?: "common" | "stress" | "hard";
   budgetMs?: number;
   evaluations?: number;

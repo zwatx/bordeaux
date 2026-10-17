@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "1.0",
+  "field": {
+    "id": "2026-rebuilt",
+    "revision": "2026-manual-tu19-welded-4",
+    "coordinateSchemaId": "bordeaux-field/1.0"
+  },
+  "name": "Untitled",
+  "robot": {
+    "drive": "swerve",
+    "w": 0.84,
+    "l": 0.84,
+    "heightM": 0.5,
+    "maxSpeed": 5
+  },
+  "paths": [
+    {
+      "id": "canonical-path-0",
+      "name": "NewPath",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 2.2,
+          "y": 4,
+          "segType": "bezier",
+          "prevC": {
+            "x": 1.4160000000000001,
+            "y": 4
+          },
+          "nextC": {
+            "x": 2.984,
+            "y": 4
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 5,
+          "y": 4,
+          "prevC": {
+            "x": 4.216,
+            "y": 4
+          },
+          "nextC": {
+            "x": 5.784,
+            "y": 4
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 4.2,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0
+      },
+      "headingMode": "targets",
+      "startVel": 0,
+      "goalVel": 0,
+      "exportable": true
+    }
+  ],
+  "pathLinks": [],
+  "routines": [
+    {
+      "id": "canonical-routine",
+      "name": "Canonical routine",
+      "nodes": [
+        {
+          "id": "decision",
+          "type": "decision",
+          "cond": "",
+          "thenLabel": "Yes",
+          "elseLabel": "No",
+          "then": [
+            {
+              "id": "drive",
+              "type": "path",
+              "ref": "canonical-path-0"
+            }
+          ],
+          "else": [
+            {
+              "id": "wait",
+              "type": "builtin",
+              "builtinId": "bordeaux.wait",
+              "arguments": {
+                "durationS": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "producer",
+          "type": "function",
+          "cat": "command",
+          "invocation": null,
+          "outputBranch": {
+            "output": "ok",
+            "schema": {
+              "kind": "boolean",
+              "valueType": "Boolean"
+            },
+            "ends": {
+              "opaque": "branch metadata"
+            },
+            "routes": [
+              {
+                "id": "yes",
+                "label": "Yes",
+                "operator": "eq",
+                "value": true,
+                "ends": {
+                  "opaque": "route metadata"
+                },
+                "nodes": []
+              },
+              {
+                "id": "no",
+                "label": "No",
+                "operator": "eq",
+                "value": false,
+                "nodes": []
+              }
+            ]
+          }
+        }
+      ],
+      "ends": {
+        "note": "retained routine metadata, not node endings"
+      },
+      "opaque": {
+        "type": "repeat",
+        "nodes": [
+          {
+            "type": "end",
+            "ends": {
+              "keep": "metadata"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "activeRoutineId": "canonical-routine",
+  "plannerId": "profiledSpline",
+  "editor": {
+    "activePathId": "canonical-path-0"
+  }
+}

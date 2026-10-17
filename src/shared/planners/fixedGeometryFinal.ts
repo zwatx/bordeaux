@@ -146,6 +146,8 @@ export function invariantFailure(input: PlannerInput, interactive: PlannerResult
 
 interface FinalValidation {
   failure?: string;
+  /** False for evaluator exceptions; true only for observed invalid output/constraints. */
+  concreteFailure?: boolean;
   constraintViolations: number;
   validatedPoints: number;
   activeConstraints: string[];
@@ -163,6 +165,7 @@ export function validateFinal(input: PlannerInput, result: PlannerResult): Final
     ));
   if (invalidSamples || errors.length > 0 || result.optimization?.fallback) {
     return {
+      concreteFailure: invalidSamples || errors.length > 0,
       failure: errors[0]?.message ?? result.optimization?.fallbackReason ?? "The trajectory has missing or non-finite samples.",
       constraintViolations: Math.max(1, errors.length, result.optimization?.constraintViolations ?? 0),
       validatedPoints: result.optimization?.validatedPoints ?? 0,
@@ -186,6 +189,7 @@ export function validateFinal(input: PlannerInput, result: PlannerResult): Final
     const validation = validateOptimizedTrajectory(physicalInput, samples, { angularKinematics: "sample" });
     return {
       failure: validation.violations[0]?.message,
+      concreteFailure: validation.violations.length > 0,
       constraintViolations: validation.violations.length,
       validatedPoints: validation.checkedPoints,
       activeConstraints: validation.activeConstraints,

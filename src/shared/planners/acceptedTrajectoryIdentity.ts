@@ -1,6 +1,8 @@
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { TRANSIENT_EDITOR_KEYS, normalizeProject } from "../project/normalize";
 import type { FieldReference, PathDoc, RobotConfig } from "../types";
+import { routeIntentKey } from "./routeIdentity";
+import { routeGeometryShapeError } from "./routeGeometry";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
 
 const PLANNER_VERSION = "corridor-selection/1";
@@ -8,7 +10,7 @@ const record = (value: unknown): value is Record<string, unknown> => Boolean(val
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 /** Stable across JSON object ordering; do not round trajectory-affecting numbers. */
-function stable(value: unknown): string {
+export function stable(value: unknown): string {
   return JSON.stringify(value, (_key, item) => record(item)
     ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]))
     : item);
@@ -19,7 +21,7 @@ export function authoredPath(path: PathDoc): PathDoc {
   return authored;
 }
 
-function physicalPath(path: PathDoc) {
+export function physicalPath(path: PathDoc) {
   const normalized = normalizeProject({ paths: [authoredPath(path)] }) as { paths: PathDoc[] };
   const { id: _id, name: _name, folderId: _folder, exportable: _exportable, ...physical } = normalized.paths[0];
   for (const key of TRANSIENT_EDITOR_KEYS) delete (physical as Record<string, unknown>)[key];
@@ -34,14 +36,15 @@ export function optimizationInputKey(path: PathDoc, robot: RobotConfig, field: F
 /** Changed inputs use normal planning; a corrupt artifact for current inputs still requires review. */
 export function isOptimizationOutdated(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): boolean {
   const key = path.optimization?.accepted?.inputKey;
-  return typeof key === "string" && key.length > 0 && key !== optimizationInputKey(path, robot, field);
+  return typeof key === "string" && key.length > 0 && key !== (path.optimization?.accepted?.version === 2 ? routeIntentKey(path, robot, field) : optimizationInputKey(path, robot, field));
 }
 
 /** Structural checks are also used at the project file boundary, before any planner work. */
 export function acceptedTrajectoryShapeError(value: unknown): string | null {
-  if (!record(value) || value.version !== 1 || typeof value.inputKey !== "string" || value.inputKey.length > 4_000_000
+  if (!record(value) || (value.version !== 1 && value.version !== 2) || typeof value.inputKey !== "string" || value.inputKey.length > 4_000_000
     || !Number.isInteger(value.samplesPerSegment) || Number(value.samplesPerSegment) < 1 || Number(value.samplesPerSegment) > 448) return "Accepted trajectory identity or version is invalid";
   const result = value.result;
+  if (value.version === 2 && (!record(result) || routeGeometryShapeError(result.routeGeometry))) return "Accepted route geometry is invalid";
   if (!record(result) || !["profiledSpline", "optimizedTrajectory"].includes(String(result.planner))
     || !finite(result.totalTimeS) || result.totalTimeS <= 0 || !finite(result.totalDistanceM) || result.totalDistanceM < 0
     || !Array.isArray(result.samples) || result.samples.length < 2 || result.samples.length > MAX_TRAJECTORY_SAMPLES

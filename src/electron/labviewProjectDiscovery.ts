@@ -31,16 +31,26 @@ export async function statLabviewLocalPath(file: string) {
   return fs.lstat(absolute);
 }
 
-export async function resolveLabviewProject(selection: string): Promise<{ root: string; projectFile: string }> {
-  const selected = path.resolve(selection);
-  const stat = await statLabviewLocalPath(selected);
-  if (stat.isFile() && path.extname(selected).toLowerCase() === ".lvproj") return { root: path.dirname(selected), projectFile: selected };
-  if (!stat.isDirectory()) throw new Error("Choose a LabVIEW .lvproj file or its folder");
-  const projects = (await fs.readdir(selected, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".lvproj")).map((entry) => entry.name).sort();
-  if (!projects.length) throw new Error("Choose a folder containing a LabVIEW .lvproj file");
-  if (projects.length > 1) throw new Error("This folder contains multiple LabVIEW projects. Choose the exact .lvproj file.");
-  return { root: selected, projectFile: path.join(selected, projects[0]) };
+export async function resolveLabviewProject(selection: string, { canonical = false } = {}): Promise<{ root: string; projectFile: string }> {
+  let selected = path.resolve(selection);
+  let stat = await statLabviewLocalPath(selected);
+  if (stat.isDirectory()) {
+    const projects = (await fs.readdir(selected, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".lvproj")).map((entry) => entry.name).sort();
+    if (!projects.length) throw new Error("Choose a folder containing a LabVIEW .lvproj file");
+    if (projects.length > 1) throw new Error("This folder contains multiple LabVIEW projects. Choose the exact .lvproj file.");
+    selected = path.join(selected, projects[0]);
+    stat = await statLabviewLocalPath(selected);
+  }
+  if (!stat.isFile() || path.extname(selected).toLowerCase() !== ".lvproj") throw new Error("Choose a LabVIEW .lvproj file or its folder");
+  // Existing document links retain their admitted spelling through restore, refresh and build.
+  if (!canonical) return { root: path.dirname(selected), projectFile: selected };
+  // Check the original spelling first: realpath must not hide a symlink/junction.
+  // Match project-folder admission's physical spelling without folding distinct case-sensitive files.
+  const projectFile = await fs.realpath(selected);
+  const actual = await statLabviewLocalPath(projectFile);
+  if (!actual.isFile() || stat.dev !== actual.dev || stat.ino !== actual.ino) throw new Error("LabVIEW project changed while resolving its location");
+  return { root: path.dirname(projectFile), projectFile };
 }
 
 /** NI serializes a relative URL against the document FILE, not its directory. */

@@ -35,7 +35,7 @@ async function snapshot(name) { await fs.writeFile(path.join(output, name + '.pn
 ipcMain.handle('branches:restore', () => ({ project: saved }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
-async function save() { const before = saves; await click('button[aria-label="Project menu"]'); await click('[role="menuitem"]', 'Save'); await wait(() => saves > before, 'save');
+async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save');
 }
 app.whenReady().then(async () => {
   try {
@@ -46,12 +46,16 @@ app.whenReady().then(async () => {
     saved = { ...corpus, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
+    // A zone's full limits live behind More: select it on the timeline, then open More (never toggling either off).
+    const openZone = async () => {
+      if (await evaluate(() => document.querySelector('.pt-zone-tag')?.getAttribute('aria-pressed') !== 'true')) await click('.pt-zone-tag');
+      if (await evaluate(() => document.querySelector('.pp-more')?.getAttribute('aria-expanded') !== 'true')) await click('.pp-more');
+    };
     const load = async () => {
       await win.loadFile(path.resolve('dist-renderer/index.html'));
       win.focus(); win.webContents.focus();
-      await wait(() => evaluate(() => !!document.querySelector('.sechead-toggle') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
-      if (!await evaluate(() => !!document.querySelector('button[aria-label^="Zone,"]'))) await click('.sechead-toggle', 'Zones1');
-      await click('button[aria-label^="Zone,"]', undefined, 2);
+      await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
+      await openZone();
       await wait(() => evaluate(() => !!document.querySelector('.range-limits')), 'region limits');
     };
     const activeLimits = () => Object.keys(saved.paths[0].ranges[0]).filter((key) => key.startsWith('max') && saved.paths[0].ranges[0][key] != null);
@@ -96,10 +100,10 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.range-limits input').value), '1.23');
     for (const system of ['metric', 'imperial']) {
       if (system === 'imperial') {
-        await click('.pageswitch button', 'Settings');
+        await click('.places .place', 'Settings');
         await click('[aria-label="Display units"] button', 'Imperial');
-        await click('.pageswitch button', 'Editor');
-        await click('button[aria-label^="Zone,"]', undefined, 2);
+        await click('.places .place', 'Paths');
+        await openZone();
       }
       const expected = system === 'metric' ? '1.23' : '4.04';
       assert.equal(await evaluate(() => document.querySelector('.range-limits input').value), expected);
@@ -108,7 +112,7 @@ app.whenReady().then(async () => {
         await snapshot(system + '-acceleration-' + width);
         await click('[aria-label="Hide inspector"]');
         await snapshot(system + '-closed-' + width);
-        await click('button[aria-label^="Zone,"]', undefined, 2);
+        await openZone();
       }
       await save(); assert.deepEqual(activeLimits(), ['maxAccel', 'maxDecel']);
       assert.equal(saved.paths[0].ranges[0].maxAccel, 1.23);
@@ -155,7 +159,95 @@ app.whenReady().then(async () => {
     await save();
     assert.equal(saved.paths[0].ranges[0].maxAccel, 6.5);
     assert.equal(saved.paths[0].ranges[0].maxDecel, 2.1, 'Opening legacy differing limits must preserve both until edited');
-    await click('button[aria-label="Delete zone"]');
+    // Sub-degree limits remain truthful in the field, inspector and dock. Native
+    // focus/Tab must preserve an existing value below the editor's typing bounds.
+    const beforeAngular = structuredClone(saved), angularChecks = [];
+    for (const system of ['metric', 'imperial']) for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      saved = structuredClone(beforeAngular); saved.editor.unitSystem = 'metric';
+      saved.paths[0].constraints.maxAngVel = 0.4;
+      saved.paths[0].ranges[0] = { anchor: 'param', f0: 0.15, f1: 0.85, maxAngVel: 0.01, maxAngAccel: 0.004 };
+      win.setContentSize(width, height); await load();
+      if (system === 'imperial') {
+        await click('.places .place', 'Settings'); await click('[aria-label="Display units"] button', 'Imperial');
+        await click('.places .place', 'Paths'); await openZone();
+      }
+      const angularInput = '.range-limits .range-limit:nth-child(2) input';
+      const inspect = () => evaluate(() => {
+        const rect = element => { if (!element) return null; const r = element.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+        return {
+          inputs: [...document.querySelectorAll('.range-limits input')].map(input => input.value),
+          caption: [...document.querySelectorAll('.fieldsvg [role="button"][aria-label^="Open zone,"]')]
+            .map(zone => ({ label: zone.getAttribute('aria-label'), text: zone.textContent, rect: rect(zone.querySelector('rect')) })),
+          rail: rect(document.querySelector('.fieldcol .toolrail')), viewport: rect(document.querySelector('.fieldsvg')),
+        };
+      });
+      const assertCaptionsClear = (inspection, state) => {
+        assert.ok(inspection.rail?.width > 0 && inspection.viewport?.width > 0, 'Measured HTML rail and SVG: ' + state);
+        assert.ok(inspection.caption.length > 0, 'Visible angular caption exists: ' + state);
+        for (const caption of inspection.caption) {
+          const box = caption.rect, rail = inspection.rail, viewport = inspection.viewport;
+          assert.ok(box?.width > 0 && box.height > 0, 'Measured caption rectangle: ' + state);
+          assert.ok(box.right <= rail.left || box.left >= rail.right || box.bottom <= rail.top || box.top >= rail.bottom,
+            'Angular caption avoids HTML toolrail: ' + state + ' ' + JSON.stringify({ box, rail }));
+          assert.ok(box.left >= viewport.left - 0.5 && box.right <= viewport.right + 0.5
+            && box.top >= viewport.top - 0.5 && box.bottom <= viewport.bottom + 0.5,
+            'Angular caption fits SVG viewport: ' + state + ' ' + JSON.stringify({ box, viewport }));
+        }
+      };
+      const before = await inspect(); assert.deepEqual(before.inputs, ['0.01', '0.004']);
+      assert.ok(before.caption.some(zone => zone.text === 'α ≤ 0.004°/s²' && zone.label === 'Open zone, maximum angular acceleration 0.004 degrees per second squared'));
+      assertCaptionsClear(before, 'small ' + width + ' ' + system);
+      await snapshot('angular-small-' + width + '-' + system);
+      const viewChecks = [];
+      if (width === 1100 && system === 'metric') {
+        for (const [selector, state] of [['[aria-label="Zoom in"]', 'zoom'], ['[aria-label="Flip field 180 degrees"]', 'zoom-flip'], ['.viewctl .field-focus', 'zoom-flip-focus']]) {
+          await click(selector); const inspection = await inspect(); assertCaptionsClear(inspection, state); viewChecks.push({ state, inspection });
+        }
+        await click('.viewctl .field-focus'); await click('[aria-label="Flip field 180 degrees"]'); await click('[aria-label="Fit field to view"]');
+        assertCaptionsClear(await inspect(), 'restored fit');
+      }
+      await click(angularInput); assert.equal(await evaluate(() => document.activeElement.value), '0.004');
+      await key('Tab'); await save(); assert.equal(saved.paths[0].ranges[0].maxAngAccel, 0.004);
+      await click(angularInput); await evaluate(() => document.activeElement.select());
+      await win.webContents.insertText('0.01'); await key('Enter'); await save();
+      assert.equal(saved.paths[0].ranges[0].maxAngAccel, 0.01);
+      await click(angularInput); await evaluate(() => document.activeElement.select());
+      await win.webContents.insertText('123'); await key('Enter'); await save();
+      assert.equal(saved.paths[0].ranges[0].maxAngAccel, 123);
+      assert.equal(await evaluate(selector => document.querySelector(selector).value, angularInput), '123');
+      await click('aside.pp [aria-label="Clear selection"]');
+      // Find by the actual visible label rather than assuming the dock's field order.
+      const turnId = await evaluate(() => [...document.querySelectorAll('aside.pp label.numlbl')].find(label => label.textContent === 'Turn speed')?.htmlFor);
+      assert.ok(turnId, 'Path dock exposes Turn speed');
+      await click(await evaluate(id => '#' + CSS.escape(id), turnId)); await key('Tab'); await save();
+      assert.equal(saved.paths[0].constraints.maxAngVel, 0.4);
+      assert.equal(await evaluate(id => document.getElementById(id).value, turnId), '0.4');
+      if (await evaluate(() => !document.querySelector('.ctxinsp'))) await click('.pp-more');
+      await click('.ctxinsp .morebtn');
+      const rotation = await evaluate(() => {
+        const label = [...document.querySelectorAll('.ctxinsp label.numlbl')].find(label => label.textContent === 'Max ω');
+        return label && document.getElementById(label.htmlFor)?.value;
+      });
+      assert.equal(rotation, '0.4');
+      await evaluate(() => {
+        const label = [...document.querySelectorAll('.ctxinsp label.numlbl')].find(label => label.textContent === 'Max ω');
+        document.getElementById(label.htmlFor).closest('.numrow').scrollIntoView({ block: 'center' });
+      });
+      await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const rotationVisibility = await evaluate(() => {
+        const label = [...document.querySelectorAll('.ctxinsp label.numlbl')].find(label => label.textContent === 'Max ω');
+        const row = label.closest('.numrow').getBoundingClientRect(), body = document.querySelector('.ctxinsp-body').getBoundingClientRect();
+        return { row: { top: row.top, bottom: row.bottom }, body: { top: body.top, bottom: body.bottom } };
+      });
+      assert.ok(rotationVisibility.row.top >= rotationVisibility.body.top - 0.5 && rotationVisibility.row.bottom <= rotationVisibility.body.bottom + 0.5,
+        'Rotation Max ω row is scrolled fully into view: ' + JSON.stringify(rotationVisibility));
+      const after = await inspect(); assertCaptionsClear(after, 'path ' + width + ' ' + system);
+      await snapshot('angular-path-' + width + '-' + system);
+      angularChecks.push({ system, width, height, before, after, turnSpeed: 0.4, rotation, rotationVisibility, viewChecks });
+    }
+    await fs.writeFile(path.join(output, 'angular-limits-results.json'), JSON.stringify({ passed: true, checks: angularChecks }, null, 2));
+    saved = beforeAngular; await load();
+    await click('.pp-delete', 'Delete zone');
     await click('button[aria-label="Zone"]');
     const drag = await evaluate(() => {
       const path = document.querySelector('path[data-role="seg"][data-idx="1"]');
@@ -173,10 +265,10 @@ app.whenReady().then(async () => {
     assert.equal(saved.paths[0].ranges.length, 1);
     assert.deepEqual(Object.keys(saved.paths[0].ranges[0]).filter((key) => key.startsWith('max')), []);
     await snapshot('new-dragged-region-1100');
-    await click('.pageswitch button', 'Settings');
+    await click('.places .place', 'Settings');
     await click('[aria-label="Display units"] button', 'Metric');
-    await click('.pageswitch button', 'Editor');
-    await click('button[aria-label^="Zone,"]', undefined, 2);
+    await click('.places .place', 'Paths');
+    await openZone();
     await click('#range-add-limit');
     await click('[role="option"]', 'Velocity');
     await click('.range-limits input');
@@ -199,7 +291,7 @@ app.whenReady().then(async () => {
     const loadFeatures = async () => {
       await win.loadFile(path.resolve('dist-renderer/index.html'));
       win.focus(); win.webContents.focus();
-      await wait(() => evaluate(() => !!document.querySelector('.sechead-toggle') && document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'feature path');
+      await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'feature path');
     };
     const press = async (point, modifiers = [], clickCount = 1) => {
       await focusWindow();
@@ -207,15 +299,15 @@ app.whenReady().then(async () => {
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount, modifiers, ...point });
       await delay(350);
     };
-    const outlineRow = (section, name) => evaluate((section) => {
-      const toggle = [...document.querySelectorAll('.sechead-toggle')].find((item) => item.querySelector('.sectitle')?.textContent === section);
-      if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
-    }, section).then(() => delay(100)).then(() => evaluate((name) => {
-      const row = [...document.querySelectorAll('.outline .featselect')].find((item) => item.querySelector('.featnm')?.textContent === name);
-      if (!row) throw Error('Missing outline row ' + name);
-      row.scrollIntoView({ block: 'nearest' });
-      const r = row.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-    }, name));
+    // Commands and zones are chosen on the timeline; their names are edited in the docked properties.
+    const timelineItem = (section, name) => wait(() => evaluate((section, name) => [...document.querySelectorAll(section === 'Commands' ? '.pt-chip' : '.pt-zone-tag')]
+      .some((el) => (section === 'Commands' ? el.title : el.textContent) === name), section, name), 'timeline item ' + name).then(() => evaluate((section, name) => {
+      const items = [...document.querySelectorAll(section === 'Commands' ? '.pt-chip' : '.pt-zone-tag')];
+      const item = items.find((el) => (section === 'Commands' ? el.title : el.textContent) === name);
+      if (!item) throw Error('Missing timeline item ' + name);
+      const r = item.getBoundingClientRect(); return { x: Math.round(r.x + Math.min(r.width / 2, 12)), y: Math.round(r.y + r.height / 2) };
+    }, section, name));
+    const timelineNames = () => evaluate(() => [...document.querySelectorAll('.pt-chip, .pt-zone-tag')].map((el) => el.classList.contains('pt-chip') ? el.title : el.textContent));
     // FieldView's Shift-delete reads data-role/data-idx from the exact event target, so only an
     // integer pointer position whose topmost element is this feature counts. Stroke-only hit paths
     // are sampled along their length; filled shapes from their center outward.
@@ -257,12 +349,12 @@ app.whenReady().then(async () => {
     };
     const savedNames = (kind) => saved.paths[0][kind].map((item) => item.name);
     for (const { kind, section, role, field, names } of [
-      { kind: 'markers', section: 'Commands', role: 'em', field: '#event-marker-name', names: ['intake', 'shoot'] },
-      { kind: 'ranges', section: 'Zones', role: 'cr', field: '#constraint-range-label', names: ['Zone A', 'Zone B'] },
+      { kind: 'markers', section: 'Commands', role: 'em', field: '#band-marker-name', names: ['intake', 'shoot'] },
+      { kind: 'ranges', section: 'Zones', role: 'cr', field: '#band-zone-name', names: ['Zone A', 'Zone B'] },
     ]) {
       await loadFeatures();
       // A drafted neighbor is committed, and the Shift-clicked feature is deleted.
-      await press(await outlineRow(section, names[0]), [], 2);
+      await press(await timelineItem(section, names[0]));
       await typeName(field, names[0] + ' renamed');
       await press(await fieldPoint(role, 1), ['shift']);
       await delay(400); await save();
@@ -272,17 +364,17 @@ app.whenReady().then(async () => {
       await loadFeatures();
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1]]);
       // Deleting the feature whose own name is drafted keeps it deleted.
-      await press(await outlineRow(section, names[1]), [], 2);
+      await press(await timelineItem(section, names[1]));
       await typeName(field, names[1] + ' renamed');
       await press(await fieldPoint(role, 1), ['shift']);
       await delay(400); await save();
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed'], kind + ': the drafted feature stays deleted');
-      assert.equal(await evaluate((names) => [...document.querySelectorAll('.outline .featnm')].some((item) => names.includes(item.textContent)), [names[1], names[1] + ' renamed']), false);
+      assert.equal((await timelineNames()).some((name) => [names[1], names[1] + ' renamed'].includes(name)), false);
       await undoOnce(); await save();
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1] + ' renamed'], kind + ': one Undo restores the feature with its committed name');
       await loadFeatures();
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1] + ' renamed'], kind + ': save and reload agree');
-      assert.equal(await evaluate((name) => [...document.querySelectorAll('.outline .featnm')].some((item) => item.textContent === name), names[1] + ' renamed'), true);
+      await wait(async () => (await timelineNames()).includes(names[1] + ' renamed'), 'restored ' + names[1] + ' renamed on the timeline');
     }
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
     assert.deepEqual(errors, []);

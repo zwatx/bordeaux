@@ -23,7 +23,7 @@ import type { RobotRelativePose } from "../shared/field/types";
 import { clone } from "../shared/project/defaults";
 import type { RobotCommandCatalog, RobotPlanningProfile } from "../shared/types";
 import { defaultRobotCommandArguments, robotInvocationErrors } from "../shared/robotCommands";
-import { validateProject } from "../shared/validation";
+import { validateProject, validateProjectSource } from "../shared/validation";
 import { robotCatalogSemanticSignature } from "../shared/agent/catalogSignature";
 
 const MAX_PROPOSALS = 24;
@@ -312,10 +312,17 @@ export class AgentSessionService {
   }
 
   publishSnapshot(value: AgentSessionSnapshot): void {
-    if (!value || typeof value.sessionId !== "string" || !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error("Agent session snapshot is invalid");
-    const validation = validateProject(value.project);
-    if (!validation.ok) throw new Error("Agent session project snapshot is invalid");
-    if (!value.project.paths.some((path) => path.id === value.activePathId)) throw new Error("Agent session active path does not exist");
+    try {
+      if (!value || typeof value.sessionId !== "string" || !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error("Agent session snapshot is invalid");
+      // Inspection follows editable source; selected-path planning/export enforce execution readiness.
+      const validation = validateProjectSource(value.project);
+      if (!validation.ok) throw new Error("Agent session project snapshot is invalid");
+      if (!value.project.paths.some((path) => path.id === value.activePathId)) throw new Error("Agent session active path does not exist");
+    } catch (error) {
+      // The previous document is no longer evidence of what the editor currently contains.
+      this.clearSnapshot();
+      throw error;
+    }
     const previous = this.snapshot;
     this.snapshot = value;
     if (!previous || previous.sessionId !== value.sessionId || previous.revision !== value.revision || previous.activePathId !== value.activePathId) {
@@ -626,6 +633,11 @@ export class AgentSessionService {
     const pathId = "pathId" in request.params && request.params.pathId
       ? request.params.pathId
       : requestContext?.activePathId ?? snapshot.activePathId;
+    if (request.method === "analyze_path" || request.method === "repair_path") {
+      const path = snapshot.project.paths.find((candidate) => candidate.id === pathId);
+      if (!path) throw new Error(`Path ${pathId} does not exist in the current project.`);
+      if (path.waypoints.length < 2) throw new Error("Add at least two waypoints before analyzing or repairing this path.");
+    }
     if (request.method === "analyze_path") {
       const analysis = await this.executePlanning<PathAnalysis>({
         kind: "analyze", snapshot, pathId,

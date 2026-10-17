@@ -7,6 +7,12 @@ import { createDemoProject } from "../src/shared/project/defaults";
 import type { RobotBuiltInDescriptor, RobotCommandCatalog, RobotTrajectoryGeneratorDescriptor, RoutineGeneratedTrajectoryNode } from "../src/shared/types";
 // @ts-expect-error Routine authoring remains a legacy JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+// @ts-expect-error The routine run sheet is a JavaScript component.
+import { RoutinePanel, addMenuSteps } from "../src/renderer/components/RoutinePanel";
+// @ts-expect-error The routine inspector is a JavaScript component.
+import { StepInspector } from "../src/renderer/components/RoutineInspector";
 
 type GeneratedFallbackNode = Extract<RoutineGeneratedTrajectoryNode["fallback"], { type: "branch" }>["nodes"][number];
 const generatedFallbackIsNonRecursive: RoutineGeneratedTrajectoryNode extends GeneratedFallbackNode ? never : true = true;
@@ -162,12 +168,18 @@ describe("generated trajectory capabilities", () => {
     const run = AUTO.buildRun({ nodes: [node] }, [], {}, {}, "profiledSpline", catalog());
     expect(run).toMatchObject({ total: 0, segs: [], steps: [{ kind: "dynamic", dur: 0, dynamic: true }] });
 
+    // The app previews with the linked catalog, the authoritative plans and only local pass choices.
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
-    const panel = fs.readFileSync(new URL("../src/renderer/components/RoutinePanel.jsx", import.meta.url), "utf8");
-    const inspector = fs.readFileSync(new URL("../src/renderer/components/RoutineInspector.jsx", import.meta.url), "utf8");
-    expect(app).toContain("AUTO.buildRun(routine, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans)");
-    expect(panel).toContain("A.nodeDeploymentState(node, catalog)");
-    expect(panel).toContain("A.nodeTitle(node, paths, catalog)");
-    expect(inspector).toContain("A.nodeDeploymentState(node, robotProject && robotProject.catalog)");
+    expect(app).toContain("AUTO.buildRun(routine, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans, { repeatPasses: routinePasses })");
+    // Add never offers a generated trajectory, even with a generator in the catalog.
+    expect(addMenuSteps({ nodes: [] }, { list: { kind: "root" } }, catalog()).map((item: { kind: string }) => item.kind)).not.toContain("generatedTrajectory");
+    // The run sheet names the generator and states that there is no desktop preview; the inspector edits nothing.
+    const routine = { id: "r", name: "R", nodes: [node] };
+    const panel = renderToStaticMarkup(createElement(RoutinePanel, { routine, run, paths: [], time: 0, running: false, acq: { outcomes: {} }, catalog: catalog() }));
+    expect(panel).toContain("Drive to pose, Runtime dynamic");
+    expect(panel).toContain("Unsupported saved definition · Bordeaux cannot generate or preview it");
+    const inspector = renderToStaticMarkup(createElement(StepInspector, { node, routine, paths: [], acq: {}, run, robotProject: { catalog: catalog() } }));
+    expect(inspector).toContain("no robot runner supports it yet");
+    expect(inspector).not.toContain("<input");
   });
 });

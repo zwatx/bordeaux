@@ -6,6 +6,7 @@ import type { HeadingAnchor } from "./headingAnchors";
 import type { HeadingTransitionWindow } from "../planners/headingTransitions";
 import { lerp, bez, bezD, angWrap, angLerp, D2R, R2D, sample, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "./geometry";
 import { headingAt, buildAnchors } from "./headingAnchors";
+import { waypointHeadingSemantics } from "./waypointHeading";
 import { waypointFracs, effectiveRanges, featureFraction, insertHeadingTargetSamples, remapWaypointRange } from "./pathRanges";
 import { metricColor, metricGradient, METRICS } from "./metricDisplay";
 import { headingTransitionWindows, headingTransitionGoals, smoothHeadingTransitions } from "../planners/headingTransitions";
@@ -342,12 +343,10 @@ function derivePath(doc: PathDoc, robot: RobotConfig | null, perSeg?: number, op
   const segmentModes = doc.waypoints.slice(0, -1).map((_, segment) => effectiveHeadingMode(segment));
   const manualEntries: HeadingAnchor[] = [], targetEntries: HeadingAnchor[] = [];
   doc.waypoints.forEach((w, k) => {
-    const isEnd = k === 0 || k === nWp - 1;
-    const incomingMode = segmentModes[k - 1];
-    const outgoingMode = segmentModes[k];
+    const heading = waypointHeadingSemantics(w, k, segmentModes);
     const entry = { f: wpFrac[k], rad: (w.theta || 0) * D2R };
-    if (isEnd || (w.thetaOn && (incomingMode === 'manual' || (w.turnInPlace && outgoingMode === 'manual')))) manualEntries.push(entry);
-    if (isEnd || (w.thetaOn && (incomingMode === 'targets' || (w.turnInPlace && outgoingMode === 'targets')))) targetEntries.push({ ...entry });
+    if (heading.manual) manualEntries.push(entry);
+    if (heading.targets) targetEntries.push({ ...entry });
   });
   (doc.targets || []).forEach((t) => targetEntries.push({ f: featureFraction(t, smp), rad: t.deg * D2R }));
   const manualAnchors = buildAnchors(manualEntries), targetAnchors = buildAnchors(targetEntries);
