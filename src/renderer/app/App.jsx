@@ -2678,6 +2678,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           showFailureSeen: (seen) => setShowFailure((failure) => failure === seen ? null : failure) } : {}),
         ...(reloadKept && typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { recoveredEdits: () => showProjects('list', undefined, reloadKept.recordId) } : {}) } });
     const api = window.bordeauxAPI;
+    // Main installs only after this window approves start-install, so the update panel always becomes visible while the
+    // pending sheet is up, and it waits for every other modal (AppUpdateDialog). Once main shows that exact attempt
+    // installing, the panel's own modal is the fence and owns the stalled Close (opened in the same commit that unmounts the
+    // pending sheet); finish-handoff keeps the pending sheet.
+    const departureUpdate = departure.view?.phase === 'approved' ? departure.view.request.update : null;
+    const updatePanelOwnsDeparture = projectTransition?.owner === 'departure' && departureUpdate?.continuation === 'start-install'
+      && appUpdates.state?.phase === 'installing' && appUpdates.state.installAttemptId === departureUpdate.attemptId;
     const projectsSheet = projectsDialog ? h(ProjectsDialog, { request: projectsDialog, onClose: closeProjects, pending: projectTransition, queuedDeparture: departure.queued,
       current: { name: projectFolderName(projectLocation) || project.name, folderPath: projectFolder, projectPath: projectLocation?.projectPath || null,
         ...(projectLocation?.legacyFile ? { legacyFile: projectLocation.legacyFile } : {}), recoveryRecordId: sessionRecordId, untitled: !projectFolder && !recoveredFrom },
@@ -2726,7 +2733,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           prepareDiscard: async (id) => { const session = await api.getProjectSession(); return { ...(await api.prepareProjectRecoveryDiscard(session.context, id)), context: session.context }; },
           discard: (token, context) => api.discardProjectRecovery(context, token),
         } : {}),
-      } }) : projectTransition && (projectTransition.owner !== 'departure' || departure.view?.phase !== 'choosing' && departure.view?.phase !== 'save-copy')
+      } }) : projectTransition && !updatePanelOwnsDeparture && (projectTransition.owner !== 'departure' || departure.view?.phase !== 'choosing' && departure.view?.phase !== 'save-copy')
         && h(ProjectPending, { phase: projectTransition.phase, queuedDeparture: departure.queued,
           // Once a departure is approved the window is only waiting to go; say that, not "Saving…".
           label: departure.view && (departure.view.phase === 'approving' || departure.view.phase === 'approved') ? departureCopy(departure.view.request.reason).leaving : projectTransition.label || '' });
@@ -2852,7 +2859,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }
 
     return h('div', { className: 'app' },
-      h(AppUpdateDialog, { state: appUpdates.state, ...appUpdates.actions, onEditingResumed: resumeEditingAfterInstall }),
+      h(AppUpdateDialog, { state: appUpdates.state, ownsDeparture: updatePanelOwnsDeparture, ...appUpdates.actions, onEditingResumed: resumeEditingAfterInstall }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),

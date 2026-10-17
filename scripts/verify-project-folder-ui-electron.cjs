@@ -317,12 +317,17 @@ app.whenReady().then(async () => {
     check('Projects opens a recent by stable id and the missing row offers Locate…');
     win.webContents.send('fixture:menu', 'new-project');
     await wait(() => evaluate(() => document.activeElement?.id === 'pj-new-name' && document.querySelector('.pj-location').title === '/fixture/Documents/Bordeaux'), 'New project ready');
-    win.webContents.insertText('Taken'); await key('Enter');
+    const nameSelected = () => evaluate(() => { const field = document.querySelector('#pj-new-name'); return document.hasFocus() && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length; });
+    await wait(nameSelected, 'new project name selected');
+    await win.webContents.insertText('Taken');
+    await wait(() => evaluate(() => document.activeElement?.value === 'Taken'), 'collision name typed'); await key('Enter');
     await wait(() => evaluate(() => document.querySelector('.pj-new-error')?.textContent === 'That project folder already exists'), 'collision error');
     assert.ok(await evaluate(() => document.activeElement.id === 'pj-new-name' && document.activeElement.selectionEnd === 'Taken'.length));
     assert.ok(await evaluate(() => document.querySelector('.project-chip').textContent.startsWith('Week 2 autos')), 'A failed create keeps the old project');
     await screenshot('new-collision');
-    win.webContents.insertText('Week 5'); await key('Enter');
+    await wait(nameSelected, 'failed project name selected for replacement');
+    await win.webContents.insertText('Week 5');
+    await wait(() => evaluate(() => document.activeElement?.value === 'Week 5'), 'replacement name typed'); await key('Enter');
     await wait(async () => !(await sheetOpen()), 'project created');
     assert.equal(lastCreate.parentDirectory, '/fixture/Documents/Bordeaux');
     assert.deepEqual(Object.keys(lastCreate.template).sort(), ['constraints', 'robot']);
@@ -333,16 +338,18 @@ app.whenReady().then(async () => {
       const toolbar = await evaluate(() => {
         const buttons = [...document.querySelectorAll('.toolbar .tb-actions > button, .toolbar > .keyboard-help-trigger')];
         return buttons.map((button) => {
-          const rect = button.getBoundingClientRect(), style = getComputedStyle(button);
-          return { label: button.textContent, left: rect.left, right: rect.right, height: rect.height, padding: parseFloat(style.paddingLeft), clipped: button.scrollWidth > button.clientWidth };
+          const rect = button.getBoundingClientRect();
+          return { label: button.textContent, left: rect.left, right: rect.right, height: rect.height, width: rect.width, clipped: button.scrollWidth > button.clientWidth, reachable: button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)) };
         });
       });
       for (const [index, button] of toolbar.entries()) {
         assert.ok(button.height >= 40 && button.left >= 0 && button.right <= width, JSON.stringify(button));
         assert.equal(button.clipped, false, JSON.stringify(button));
-        if (index) assert.ok(button.left >= toolbar[index - 1].right + 5, 'Toolbar controls must not overlap');
+        assert.ok(button.reachable, 'Toolbar control must be unobscured: ' + JSON.stringify(button));
+        // The compact toolbar intentionally removes inter-button gaps; their hit areas must still stay separate.
+        if (index) assert.ok(button.left >= toolbar[index - 1].right, 'Toolbar controls must not overlap: ' + JSON.stringify(toolbar));
       }
-      assert.ok(toolbar.find((button) => button.label === 'Optimize').padding >= 12);
+      assert.ok(toolbar.find((button) => button.label === 'Optimize').width >= 76, 'Optimize keeps its full labelled target at the compact width');
       // The full inspector opens from the docked properties' More.
       if (await evaluate(() => document.querySelector('.pp-more')?.getAttribute('aria-expanded') !== 'true')) await pointer('.pp-more');
       await screenshot('folder-ready-' + width);

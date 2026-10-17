@@ -45,7 +45,7 @@ export const updateBytes = (bytes) => Number.isFinite(bytes) && bytes >= 0 ? `${
 // same attempt idempotently, so a lost reply costs one more press, never a silent release.
 const RESUME_BOUND_MS = 10_000;
 
-export function AppUpdateDialog({ state, onClose, onEditingResumed, onCheck, onDownload, onCancel, onInstall, onOpenReleases, onCopyDetails }) {
+export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResumed, onCheck, onDownload, onCancel, onInstall, onOpenReleases, onCopyDetails }) {
   const dialog = React.useRef(null), returnFocus = React.useRef(null);
   const [copied, setCopied] = React.useState(false);
   // Closing a stalled install: { attempt, waiting } while main decides, or { attempt, fact } after a refusal.
@@ -54,6 +54,18 @@ export function AppUpdateDialog({ state, onClose, onEditingResumed, onCheck, onD
   // One modal at a time. A panel that becomes visible while another sheet is up (Projects, a departure) waits for it to
   // close and then appears; nothing is hidden or answered on its behalf. A panel already shown is never hidden here:
   // only main's state hides it (for a stalled install, after its accepted return to editing).
+  const present = React.useCallback(() => {
+    const node = dialog.current;
+    if (node.open) return true;
+    if ([...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].some((other) => other !== node)) return false;
+    returnFocus.current = document.activeElement; setCopied(false); setResuming(null); node.showModal();
+    return true;
+  }, []);
+  // When App hands this panel an approved install's departure, the pending sheet unmounts in the same commit; open
+  // before paint so no frame or queued key reaches the editor between the two modals. Other panels keep the wait below.
+  React.useLayoutEffect(() => {
+    if (ownsDeparture && state?.visible && dialog.current) present();
+  }, [ownsDeparture, state?.visible, present]);
   React.useEffect(() => {
     const node = dialog.current;
     if (!node) return undefined;
@@ -61,19 +73,13 @@ export function AppUpdateDialog({ state, onClose, onEditingResumed, onCheck, onD
       if (node.open) { node.close(); const back = returnFocus.current; (back?.isConnected && back !== document.body ? back : document.querySelector('.project-chip'))?.focus(); }
       return undefined;
     }
-    const present = () => {
-      if (node.open) return true;
-      if ([...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].some((other) => other !== node)) return false;
-      returnFocus.current = document.activeElement; setCopied(false); setResuming(null); node.showModal();
-      return true;
-    };
     if (present()) return undefined;
     // After the other sheet closes, wait a frame so its own focus return lands first; that element is where this panel returns.
     let frame = 0;
     const observer = new MutationObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { if (present()) observer.disconnect(); }); });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] });
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, [state?.visible]);
+  }, [state?.visible, present]);
   if (!state) return null;
   const { phase, version, currentVersion, progress, error } = state;
   const stalled = phase === 'installing' && state.installStalled;

@@ -73,6 +73,26 @@ updater.quitAndInstall = () => {
     await wait(async () => (await evaluate(() => window.bordeauxAPI.getAppUpdateState())).installStalled, 'actual controller stalled state');
     const state = await evaluate(() => window.bordeauxAPI.getAppUpdateState()); assert.ok(state.installAttemptId); result.installAttemptId = state.installAttemptId;
     const file = Menu.getApplicationMenu().items.find(item => item.label === 'File'); const save = file.submenu.items.find(item => item.label === 'Save'); assert.ok(save.enabled);
+    // The approved start-install sheet yields to the panel: exactly one modal, the panel, fencing the editor and holding focus.
+    const modals = () => evaluate(() => [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(node => node.className || node.tagName));
+    await wait(async () => JSON.stringify(await modals()) === '["app-update-dialog"]', 'stalled update panel as the only modal');
+    const owner = await evaluate(() => { const panel = document.querySelector('.app-update-dialog'); return { modal: panel.matches(':modal'), focus: panel.contains(document.activeElement), pending: Boolean(document.querySelector('.pj-pending')), title: panel.querySelector('#app-update-title')?.textContent }; });
+    assert.deepEqual(owner, { modal: true, focus: true, pending: false, title: 'Restart is taking longer than expected' }); result.stalledOwner = owner;
+    fs.writeFileSync(path.join(output, 'stalled-panel.png'), (await win.webContents.capturePage()).toPNG());
+    // Optional root visual evidence at the supported sizes; Close must stay unoccluded at each before the real pointer press.
+    if (process.env.BORDEAUX_UPDATE_QUIT_SIZES === '1') {
+      const original = win.getContentSize();
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await wait(async () => { const v = await evaluate(() => [innerWidth, innerHeight]); return v[0] === width && v[1] === height; }, `content ${width}x${height}`);
+        await evaluate(() => { const node = [...document.querySelectorAll('.app-update-dialog button')].find(el => el.textContent.trim() === 'Close'), r = node.getBoundingClientRect();
+          if (node.disabled || !node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))) throw Error('Close unreachable'); });
+        fs.writeFileSync(path.join(output, `stalled-panel-${width}x${height}.png`), (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(...original); result.checks.push('stalled-close-reachable-at-supported-sizes');
+    }
+    const handoff = await evaluate(() => window.__updateHandoff); result.updateHandoff = handoff;
+    assert.deepEqual(handoff, { pending: true, panel: true, gaps: [] }, 'The pending sheet must hand the editor fence to the update panel with no modal-free task boundary');
+    result.checks.push('single-update-modal-owns-stalled-close', 'pending-to-panel-handoff-without-unfenced-boundary');
     await pointer('.app-update-dialog button', 'Close');
     await wait(async () => !(await evaluate(() => window.bordeauxAPI.getAppUpdateState())).visible, 'acknowledged stalled panel release');
     assert.ok(result.events.some(item => item.kind === 'project:editingResumed:returned' && item.value.result.accepted === true && item.value.args[1] === state.installAttemptId));
@@ -104,7 +124,22 @@ app.on('browser-window-created', (_event, window) => {
     await wait(() => evaluate(async () => Boolean(window.bordeauxAPI && (await window.bordeauxAPI.getProjectSession()).lifecycleReady && document.querySelector('.pt-wp'))), 'actual project startup/readiness');
     const session = await evaluate(() => window.bordeauxAPI.getProjectSession()); assert.equal(session.location.folderPath, fixture.folder);
     await type(await inputSelector(), fixture.firstX); updater.emit('update-available', { version: '99.0.0' });
-    await evaluate(() => window.bordeauxAPI.downloadAppUpdate()); await evaluate(() => window.bordeauxAPI.installAppUpdate());
+    await evaluate(() => window.bordeauxAPI.downloadAppUpdate());
+    // Exact handoff boundary: mutation callbacks run before the next task or paint, so once the pending sheet has fenced
+    // the editor, every callback until the panel opens must still see a modal. An empty one is an unfenced frame or key.
+    await evaluate(() => {
+      const probe = window.__updateHandoff = { pending: false, panel: false, gaps: [] };
+      const check = () => {
+        const open = [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(node => node.className || node.tagName);
+        if (open.includes('pj-sheet pj-pending')) probe.pending = true;
+        if (open.includes('app-update-dialog')) probe.panel = true;
+        else if (probe.pending && !open.length) probe.gaps.push(performance.now());
+        if (probe.panel) observer.disconnect();
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] }); check();
+    });
+    await evaluate(() => window.bordeauxAPI.installAppUpdate());
   })().catch(fail));
 });
 require('../dist-electron/electron/main.js');

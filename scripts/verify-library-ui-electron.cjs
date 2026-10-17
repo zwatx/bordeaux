@@ -1145,7 +1145,10 @@ app.whenReady().then(async () => {
     const movePointerOffLibrary = async () => {
       const point = await evaluate(() => { const r = document.querySelector('.fieldcol').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
       win.webContents.sendInputEvent({ type: 'mouseMove', ...point }); await delay(100);
+      await wait(() => evaluate(() => !document.querySelector('.library-row:hover')), 'pointer leaves library before resting-row checks');
     };
+    // Chromium retains synthetic :hover on hidden windows; verify these resting surfaces in the visible app.
+    win.show(); win.focus(); win.webContents.focus();
     for (const [width, height] of [[1440, 900], [1280, 800], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await pointerClick('[data-library-item="library-path-0"]');
@@ -1213,12 +1216,17 @@ app.whenReady().then(async () => {
       await evaluate((label) => {
         const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
         if (!field || field.matches(':disabled')) throw new Error('Numeric field unavailable: ' + label);
-        field.focus(); field.select();
+        field.focus();
       }, label);
+      // Num first replaces its formatted value with an editing draft, then selects it on the next frame.
+      await wait(() => evaluate((label) => {
+        const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
+        return document.hasFocus() && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length;
+      }, label), 'focused and selected ' + label);
       await win.webContents.insertText(String(value));
       // insertText delivers input asynchronously; blurring before it lands would leave an uncommitted draft.
       await wait(() => evaluate((text) => document.activeElement?.value === text, String(value)), 'typed ' + label + ' value');
-      await evaluate(() => { const field = document.activeElement; field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); field.blur(); });
+      await key('Tab'); // One real blur commits the draft once; dispatching focusout and then blurring creates two edits.
       await delay(80); await saveCurrent();
     };
     const numericState = (label) => evaluate((label) => { const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input'); return field ? { value: Number(field.value), disabled: field.matches(':disabled') } : null; }, label);
@@ -1280,7 +1288,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Linkable point name');
     await win.webContents.insertText('Scoring position');
     await wait(() => evaluate(() => document.querySelector('[aria-label="Linkable point name"]').value === 'Scoring position'), 'typed point name');
-    await evaluate(() => { const input = document.querySelector('[aria-label="Linkable point name"]'); input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); input.blur(); });
+    await key('Tab');
     await delay(80);
     await saveCurrent();
     assert.equal(saved.paths[1].waypoints[0].positionName, 'Scoring position', 'Named point saved from actual typing');
@@ -1721,7 +1729,7 @@ app.whenReady().then(async () => {
         const textBox = range.getBoundingClientRect(), buttonBox = footer.getBoundingClientRect();
         return { row: row.clientHeight <= line(row) * 2 + 1,
           footer: getComputedStyle(footer).whiteSpace === 'nowrap' && textBox.height <= footer.clientHeight
-            && textBox.top >= buttonBox.top && textBox.bottom <= buttonBox.bottom && footer.textContent.trim() === 'Push path' && footer.title === row.textContent,
+            && textBox.top >= buttonBox.top && textBox.bottom <= buttonBox.bottom && footer.textContent.trim() === 'Push path' && footer.title === row.textContent + ' · Ctrl+Shift+P',
           title: title.textContent === title.title && title.scrollHeight <= title.clientHeight + 1 }; }), { row: true, footer: true, title: true }, 'Clamped library names keep the complete name in the inspector title');
       await fs.writeFile(path.join(output, `waypoint-badges-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await click('.place', 'Routines');

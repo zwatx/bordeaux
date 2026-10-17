@@ -38,7 +38,7 @@ function RowMenu({ menu, label, items, onClose }) {
     const top = y + box.height > window.innerHeight - 8 && !menu.point ? anchor.top - 4 - box.height : y;
     setPlace({ left: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(top, window.innerHeight - box.height - 8)) });
   }, [menu]);
-  useEffect(() => { if (place) ref.current.querySelector('button')?.focus(); }, [!place]);
+  useEffect(() => { if (place) ref.current.querySelector('button')?.focus({ preventScroll: true }); }, [!place]);
   useEffect(() => {
     const away = (event) => { if (!ref.current?.contains(event.target) && !menu.anchor.contains(event.target)) onClose(false); };
     const moved = (event) => { if (!ref.current?.contains(event.target)) onClose(false); };
