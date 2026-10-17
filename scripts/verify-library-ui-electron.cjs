@@ -960,7 +960,7 @@ app.whenReady().then(async () => {
       const layout = await hugeLayout();
       assert.equal(layout.name.text, hugeName, 'The selected name is not truncated at ' + width);
       // Push names its scope on one line; its title and the inspector retain the full path name.
-      assert.ok(layout.nameScroll.oneLine && layout.nameScroll.label === hugeName, 'The long push-target name stays on one line (Push says its scope) with its full text available: ' + JSON.stringify({ ...layout.nameScroll, label: layout.nameScroll.label.length }));
+      assert.ok(layout.nameScroll.oneLine && layout.nameScroll.label === hugeName + ' · Ctrl+Shift+P', 'The long push-target name stays on one line (Push says its scope) with its full text available: ' + JSON.stringify({ ...layout.nameScroll, label: layout.nameScroll.label.length }));
       assert.equal(layout.nameScroll.scope, 'Push path', 'The visible Push label stays the exact scope even with a 5000-character name');
       assert.ok(layout.clipped <= 1, 'Nothing is clipped at the minimum at ' + width + ': ' + JSON.stringify(layout));
       for (const control of ['push', 'name']) assert.deepEqual([layout[control].inside, layout[control].hit], [true, true], control + ' is visible and hit-testable at ' + width + ': ' + JSON.stringify(layout));
