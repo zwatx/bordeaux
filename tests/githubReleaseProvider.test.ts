@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubReleaseProvider } from "../src/electron/githubReleaseProvider";
 import type { ProviderRuntimeOptions } from "electron-updater/out/providers/Provider";
 
-const base = "https://api.github.com/repos/Zw96042/bordeaux/releases";
+const base = "https://api.github.com/repos/zwatx/bordeaux/releases";
 const checksum = Buffer.alloc(64, 7).toString("base64");
 const asset = (name: string, id: number) => ({ name, url: `${base}/assets/${id}` });
 const release = (version: string, name = "beta-mac.yml", extra = {}) => ({
@@ -21,15 +21,15 @@ function setup(releases = [release("1.0.0-beta.2")], raw = manifest(), platform:
 }
 afterEach(() => vi.unstubAllEnvs());
 describe("public GitHub API release provider", () => {
-  it("uses API JSON and octet streams, keeps checksums and both Mac ZIP architectures, excludes DMG", async () => {
+  it("accepts canonical zwatx asset URLs after the repository owner rename and preserves both checked Mac ZIPs", async () => {
     const { provider, request } = setup();
     const info = await provider.getLatestVersion();
     const files = provider.resolveFiles(info);
     expect(files.map(file => file.info.url)).toEqual(["Bordeaux-arm64.zip", "Bordeaux-x64.zip"]);
     expect(files.every(file => file.info.sha512 === checksum)).toBe(true);
     expect(files[0].url.href).toBe(`${base}/assets/2`);
-    expect(request.mock.calls[0][0]).toMatchObject({ hostname: "api.github.com", path: "/repos/Zw96042/bordeaux/releases?per_page=100&page=1", headers: { Accept: "application/vnd.github+json" } });
-    expect(request.mock.calls[1][0]).toMatchObject({ path: "/repos/Zw96042/bordeaux/releases/assets/1", headers: { Accept: "application/octet-stream" } });
+    expect(request.mock.calls[0][0]).toMatchObject({ hostname: "api.github.com", path: "/repos/zwatx/bordeaux/releases?per_page=100&page=1", headers: { Accept: "application/vnd.github+json" } });
+    expect(request.mock.calls[1][0]).toMatchObject({ path: "/repos/zwatx/bordeaux/releases/assets/1", headers: { Accept: "application/octet-stream" } });
     expect(provider.fileExtraDownloadHeaders.Accept).toBe("application/octet-stream");
     expect(provider.isUseMultipleRangeRequest).toBe(false);
   });
@@ -78,7 +78,15 @@ describe("public GitHub API release provider", () => {
     await expect(provider.getLatestVersion()).rejects.toThrow("does not match");
     expect(request).toHaveBeenCalledTimes(2);
   });
-  it.each(["https://evil.test/1", "https://api.github.com/repos/other/bordeaux/releases/assets/1"])("rejects off-repository manifest %s before requesting it", async url => {
+  it.each([
+    "https://evil.test/1",
+    "https://api.github.com/repos/other/bordeaux/releases/assets/1",
+    "https://api.github.com/repos/Zw96042/bordeaux/releases/assets/1",
+    "https://api.github.com/repos/zwatx/other/releases/assets/1",
+    "https://api.github.com/repos/zwatx/bordeaux/releases/assets/1?redirect=evil",
+    "https://api.github.com/repos/zwatx/bordeaux/releases/assets/1#fragment",
+    "https://user:password@api.github.com/repos/zwatx/bordeaux/releases/assets/1",
+  ])("rejects off-repository manifest %s before requesting it", async url => {
     const { provider, request } = setup([release("1.0.0-beta.2", undefined, { assets: [{ name: "beta-mac.yml", url }] })]);
     await expect(provider.getLatestVersion()).rejects.toThrow("Untrusted");
     expect(request).toHaveBeenCalledTimes(1);
