@@ -12,12 +12,14 @@ import path from "node:path";
 // Project row actions, portable LabVIEW links and precise Details measured 712,224 bytes;
 // the owner approved 696 KiB for this combined increment.
 // Every app chunk stays counted; worker/CSS ceilings are unchanged. Future growth needs review.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 696 * 1024;
+// The owner approved 708/204/141 KiB for waypoint-route optimization and the Routine redesign
+// on 2026-10-17: measured app 724,077 B, worker 208,519 B and CSS 143,705 B.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 708 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 200 * 1024;
-const CSS_BUDGET_BYTES = 140 * 1024;
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 204 * 1024;
+const CSS_BUDGET_BYTES = 141 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
