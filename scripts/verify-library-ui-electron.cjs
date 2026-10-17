@@ -1508,7 +1508,10 @@ app.whenReady().then(async () => {
     await win.loadFile(rendererHtml);
     await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent.includes('Restored path')), 'restored repair fixture');
     await pointerClick('.optimizer-toggle');
-    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Heading tracking could not satisfy the configured angular limits')), 'real final-planning failure');
+    await wait(() => evaluate(() => {
+      const failure = document.querySelector('.optimizer-failure')?.textContent || '';
+      return failure.includes('Turn rate') && failure.includes('0.01 °/s');
+    }), 'real final-planning angular-limit failure');
     assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Optimize');
     assert.equal(await evaluate(() => document.querySelector('.optimizer-recovery').textContent), 'Edit path');
     await pointerClick('.optimizer-recovery');
