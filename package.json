@@ -63,7 +63,7 @@
     "electronUpdaterCompatibility": ">=2.16",
     "publish": {
       "provider": "github",
-      "owner": "Zw96042",
+      "owner": "zwatx",
       "repo": "bordeaux",
       "channel": "beta",
       "releaseType": "prerelease"

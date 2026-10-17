@@ -2,7 +2,7 @@ import type { AppUpdater } from "electron-updater";
 import { Provider, getFileList, parseUpdateInfo, type ProviderRuntimeOptions } from "electron-updater/out/providers/Provider";
 import { valid, prerelease, rcompare } from "semver";
 
-const RELEASES_API = "https://api.github.com/repos/Zw96042/bordeaux/releases";
+const RELEASES_API = "https://api.github.com/repos/zwatx/bordeaux/releases";
 const JSON_HEADERS = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
 const ASSET_HEADERS = { Accept: "application/octet-stream", "X-GitHub-Api-Version": "2022-11-28" };
 type UpdateInfo = ReturnType<typeof parseUpdateInfo>;
@@ -13,7 +13,7 @@ type ReleaseUpdateInfo = UpdateInfo & { assets: Asset[] };
 function assetUrl(asset: Asset): URL {
   const url = new URL(asset.url);
   if (url.origin !== "https://api.github.com" || url.username || url.password || url.search || url.hash
-      || !/^\/repos\/Zw96042\/bordeaux\/releases\/assets\/\d+$/.test(url.pathname)) {
+      || !/^\/repos\/zwatx\/bordeaux\/releases\/assets\/\d+$/.test(url.pathname)) {
     throw new Error(`Untrusted update asset URL for ${asset.name}.`);
   }
   return url;

@@ -1,4 +1,4 @@
-export const OFFICIAL_RELEASES_URL = "https://github.com/Zw96042/bordeaux/releases";
+export const OFFICIAL_RELEASES_URL = "https://github.com/zwatx/bordeaux/releases";
 
 export function describeUpdateFailure(message: string): string {
   // Response bodies can contain entire proxy error pages. Use only the error
