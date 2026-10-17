@@ -357,7 +357,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
   const issues: ValidationIssue[] = [];
   if (!isRecord(project)) return { ok: false, issues: [issue("$", "Project must be a JSON object")] };
 
-  if (project.schemaVersion !== "1.0" && project.schemaVersion !== "1.1") issues.push(issue("$.schemaVersion", "Schema version must be 1.0 or 1.1"));
+  if (project.schemaVersion !== "1.0" && project.schemaVersion !== "1.1" && project.schemaVersion !== "1.2") issues.push(issue("$.schemaVersion", "Schema version must be 1.0, 1.1 or 1.2"));
   if (!isRecord(project.field)) issues.push(issue("$.field", "Field reference is required"));
   else {
     if (project.field.id !== ACTIVE_FIELD_REFERENCE.id) issues.push(issue("$.field.id", "Field ID is not supported"));
@@ -445,13 +445,24 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
       if (path.folderId !== undefined && (typeof path.folderId !== "string" || !folderIds.has(path.folderId))) issues.push(issue(`${base}.folderId`, "Path folder does not exist"));
       if (path.driveBackward !== undefined && typeof path.driveBackward !== "boolean") issues.push(issue(`${base}.driveBackward`, "Drive backward must be true or false"));
       if (path.exportable !== undefined && typeof path.exportable !== "boolean") issues.push(issue(`${base}.exportable`, "Exportable must be true or false"));
+      if (path.routeRequiredPointIndices !== undefined) issues.push(issue(`${base}.routeRequiredPointIndices`, "Solver point mapping is not authored source"));
       if (path.optimization !== undefined) {
         const options = path.optimization;
-        if (!isRecord(options) || !finite(options.corridorM) || options.corridorM < 0.03 || options.corridorM > 1.5) {
-          issues.push(issue(`${base}.optimization`, "Optimization corridor must be between 0.03 and 1.5 meters"));
-        } else if (options.accepted !== undefined) {
-          const error = acceptedTrajectoryShapeError(options.accepted);
-          if (error) issues.push(issue(`${base}.optimization.accepted`, error));
+        if (!isRecord(options)) issues.push(issue(`${base}.optimization`, "Optimization must be an object"));
+        else {
+          if ((options.corridorM !== undefined || (isRecord(options.accepted) && options.accepted.version === 1) || options.legacyAccepted !== undefined)
+            && (!finite(options.corridorM) || options.corridorM < 0.03 || options.corridorM > 1.5)) {
+            issues.push(issue(`${base}.optimization`, "Optimization corridor must be between 0.03 and 1.5 meters"));
+          }
+          if (options.accepted !== undefined) {
+            const error = acceptedTrajectoryShapeError(options.accepted);
+            if (error) issues.push(issue(`${base}.optimization.accepted`, error));
+          }
+          if (options.legacyAccepted !== undefined) {
+            const error = !isRecord(options.legacyAccepted) || options.legacyAccepted.version !== 1
+              ? "Archived selection must be a legacy version 1 trajectory" : acceptedTrajectoryShapeError(options.legacyAccepted);
+            if (error) issues.push(issue(`${base}.optimization.legacyAccepted`, error));
+          }
         }
       }
       if (path.headingMode !== undefined && !["manual", "tangent", "targets"].includes(String(path.headingMode))) issues.push(issue(`${base}.headingMode`, "Heading mode is invalid"));

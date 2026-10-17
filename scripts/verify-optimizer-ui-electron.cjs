@@ -225,14 +225,14 @@ async function assertCompactResult() {
       text: panel.innerText,
       settingsOpen: panel.querySelector('.optimizer-settings').open,
       detailsOpen: panel.querySelector('.optimizer-details')?.open,
-      freedomVisible: panel.querySelector('.optimizer-corridor input').checkVisibility(),
+      freedomPresent: Boolean(panel.querySelector('.optimizer-corridor input')),
       rows: [...panel.querySelectorAll('.optimizer-choice')].map((row) => row.getAttribute('aria-label')),
       width: panel.getBoundingClientRect().width,
     };
   });
-  assert.equal(state.settingsOpen, false, 'Search settings must start collapsed');
+  assert.equal(state.settingsOpen, false, 'Search options must start collapsed');
   assert.equal(state.detailsOpen, false, 'Solver diagnostics must start collapsed');
-  assert.equal(state.freedomVisible, false, 'Settings inputs must not crowd the result');
+  assert.equal(state.freedomPresent, false, 'Route optimization must not expose a seed-deviation setting');
   assert.ok(state.text.trim().split(/\s+/).length <= 45, `Result panel must stay concise: ${state.text}`);
   assert.ok(!state.text.includes('Limited by'), 'Detailed physics must be hidden by default');
   assert.deepEqual(state.rows, ['Preview normal trajectory', 'Preview optimized trajectory']);
@@ -469,6 +469,7 @@ app.whenReady().then(async () => {
     assert.equal(applied.geometry, candidate.geometry);
     project = await save();
     const accepted = project.paths[0].optimization.accepted;
+    assert.equal(accepted.version, 2, 'New Apply must select the waypoint-route contract');
     assert.ok(accepted?.result?.samples?.length > 0, 'Apply must persist the actual accepted artifact');
     assert.equal(Number(applied.time), accepted.result.totalTimeS, 'Displayed time must match the saved trajectory exactly');
     await stable(applied, 6500, 'Applied candidate');
@@ -622,25 +623,30 @@ app.whenReady().then(async () => {
     await switchPath(fixture.paths[0].name);
     await stable(applied, 250, 'Selected comparison restored on path switch');
     check('Normal comparison stays on the current path when switching between applied paths');
-    await openSettings();
-    await click('.optimizer-corridor input');
-    await evaluate(() => {
-      const input = document.querySelector('.optimizer-corridor input');
-      if (!input) throw new Error('Corridor input missing');
-      input.select();
+    await click('.pt-wp');
+    // The shared numeric control is named by its associated label, not an
+    // aria-label attribute. Resolve that real control before native input.
+    const waypointXSelector = await evaluate(() => {
+      const label = [...document.querySelectorAll('.pp label')].find(item => item.textContent === 'X');
+      if (!label?.control) throw new Error('Required waypoint X input missing');
+      return '.pp input[id=' + JSON.stringify(label.htmlFor) + ']';
     });
+    await click(waypointXSelector);
+    await evaluate(selector => document.querySelector(selector).select(), waypointXSelector);
+    const movedX = fixture.paths[0].waypoints[0].x + 0.1;
     await focusEditor();
-    await window.webContents.insertText('0.30');
+    await window.webContents.insertText(String(movedX));
+    await waitFor(() => evaluate(value => document.activeElement?.value === value, String(movedX)), 'the required waypoint draft');
     await focusEditor();
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-    await waitFor(() => evaluate(() => document.activeElement !== document.querySelector('.optimizer-corridor input')), 'corridor edit to commit and move focus');
+    await waitFor(() => evaluate(selector => document.activeElement !== document.querySelector(selector), waypointXSelector), 'waypoint edit to commit and move focus');
     await waitFor(async () => /Needs update/.test((await snapshot()).status || ''), 'explicit stale optimization status');
     project = await save();
-    assert.equal(project.paths[0].optimization.corridorM, 0.30, 'The corridor input must commit its edited value');
+    assert.equal(project.paths[0].waypoints[0].x, movedX, 'The required waypoint input must commit its edited value');
     project = await save();
     assert.ok(project.paths[0].optimization.accepted, 'Stale artifacts remain available for an explicit choice');
-    check('changing the corridor invalidates the selection with an explicit stale state');
+    check('changing a required waypoint invalidates the selection with an explicit stale state');
     await capture('optimizer-stale.png');
     await captureMinimum('optimizer-stale-1100x720.png');
     await click('.places .place', 'Routines');
@@ -650,7 +656,7 @@ app.whenReady().then(async () => {
     await click('.places .place', 'Paths');
     await click('.optimizer-panel button', 'Use normal');
     project = await save();
-    assert.equal(project.paths[0].optimization.accepted, undefined);
+    assert.equal(project.paths[0].optimization?.accepted, undefined);
     await ready();
     check('Use normal removes the accepted artifact');
     await click('.places .place', 'Routines');
@@ -690,7 +696,7 @@ app.whenReady().then(async () => {
     assert.ok(Number(slowerNormal.time) > Number(alternateNormal.time) * 1.5, 'Current normal timing must reflect the slower robot');
     assert.equal(slowerNormal.geometry, alternateNormal.geometry, 'Changing robot speed must preserve the authored geometry');
     project = await save();
-    assert.equal(project.paths[1].optimization.accepted, undefined);
+    assert.equal(project.paths[1].optimization?.accepted, undefined);
     check('physical robot edits invalidate applied timing and regenerate the current slower normal trajectory');
     assert.deepEqual(errors, [], 'Renderer console must remain free of unexpected errors');
     check('renderer console has no unexpected errors');

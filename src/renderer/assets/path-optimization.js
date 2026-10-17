@@ -1,5 +1,5 @@
 import { FinalPlanning } from './final-planning';
-import { optimizationInputKey } from '../../shared/planners/acceptedTrajectoryIdentity';
+import { routeInputKey } from '../../shared/planners/routeIdentity';
 
 /** Owns explicit search jobs. Results are candidates; only the editor can apply one. */
 function create({ getProject, planner = FinalPlanning.create() }) {
@@ -19,15 +19,15 @@ function create({ getProject, planner = FinalPlanning.create() }) {
   const matches = (id, key) => {
     const project = getProject();
     const path = project.paths.find((item) => item.id === id);
-    return path && optimizationInputKey(path, project.robot, project.field) === key;
+    return path && routeInputKey(path, project.robot, project.field) === key;
   };
 
   async function run(id, deadline, owner) {
     const project = getProject();
     const path = project.paths.find((item) => item.id === id);
     if (!path || disposed || operation !== owner) return;
-    const key = optimizationInputKey(path, project.robot, project.field);
-    const job = { id, key, request: null };
+    const key = routeInputKey(path, project.robot, project.field);
+    const job = { id, key, request: null, stale: false };
     active = job;
     put(id, { key, status: 'searching', startedAt: Date.now(), value: null, error: '' });
     if (operation !== owner || active !== job || disposed) return;
@@ -40,7 +40,7 @@ function create({ getProject, planner = FinalPlanning.create() }) {
     const result = await job.request.promise;
     if (active !== job || operation !== owner || disposed) return;
     active = null;
-    if (!matches(id, key)) {
+    if (job.stale || !matches(id, key)) {
       put(id, { ...snapshot.paths[id], status: 'stale', value: null });
       return;
     }
@@ -104,6 +104,9 @@ function create({ getProject, planner = FinalPlanning.create() }) {
     },
     sync() {
       if (active && !matches(active.id, active.key)) {
+        // Once its seed changes, this request cannot regain ownership by undoing
+        // back to the same inputs before an uncooperative worker settles.
+        active.stale = true;
         batchRevision += 1;
         active.request?.cancel();
       }

@@ -49,8 +49,8 @@ describe('feature-triggered source 1.1 and existing 1.0 identity', () => {
       expect(encodeProjectFile(project).project.schemaVersion).toBe('1.1'); expect(promoteRoutineProjectSchema(project).schemaVersion).toBe('1.1');
       decoded.project.routines[0].nodes = []; expect(encodeProjectFile(decoded.project).project.schemaVersion).toBe('1.1');
     }
-    const future = { ...draft(), schemaVersion: '1.2', paths: [{ get id() { throw new Error('Normalization reached future data'); } }] };
-    expect(() => decodeProjectValue(future)).toThrow(/Unsupported Bordeaux project schema version "1.2"/);
+    const future = { ...draft(), schemaVersion: '1.3', paths: [{ get id() { throw new Error('Normalization reached future data'); } }] };
+    expect(() => decodeProjectValue(future)).toThrow(/Unsupported Bordeaux project schema version "1.3"/);
     expect(() => decodeProjectValue({ ...draft(), schemaVersion: 1.1 })).toThrow(/Unsupported Bordeaux project schema version/);
     const ordinary = createDemoProject(); expect(promoteRoutineProjectSchema(ordinary)).toBe(ordinary);
   });

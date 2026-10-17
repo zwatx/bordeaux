@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { optimizationOutdated } from '../src/renderer/lib/finalPlanningResult';
 import { authoredPath } from '../src/shared/planners/acceptedTrajectoryIdentity';
 
 // Execute the actual App comparison wiring with controlled current planning outcomes.
@@ -15,18 +14,19 @@ function harness() {
     return cell.value;
   };
   const appliedPreview = { current: null };
-  const state = { projectKey: 1, doc: { id: 'path' }, optimizationKey: 'physical', robot: {}, project: { field: {} }, plannerId: 'profiledSpline',
+  const state = { projectKey: 1, doc: { id: 'path' }, optimizationKey: 'physical', searchKey: 'physical', robot: {}, project: { field: {} }, plannerId: 'profiledSpline',
     PERSEG: 56, optimizationOpen: true, appliedPreview, optimizationState: { paths: {} }, comparison: null,
     editing: { status: 'pending', pending: true }, result: { selected: null, normal: { status: 'pending', value: null }, baselineTime: null } };
   const useEditingPlanning = vi.fn(() => state.editing), useOptimizerComparison = vi.fn(() => state.result);
-  const execute = new Function('state', 'useMemo', 'useEditingPlanning', 'useOptimizerComparison', 'authoredPath', 'optimizationOutdated', `
-    const { projectKey, doc, optimizationKey, robot, project, plannerId, PERSEG, optimizationOpen, appliedPreview, optimizationState, comparison } = state;
+  const isOptimizationOutdated = (path) => Boolean(path.optimization?.accepted?.inputKey && path.optimization.accepted.inputKey !== 'physical');
+  const execute = new Function('state', 'useMemo', 'useEditingPlanning', 'useOptimizerComparison', 'authoredPath', 'isOptimizationOutdated', `
+    const { projectKey, doc, optimizationKey, searchKey, robot, project, plannerId, PERSEG, optimizationOpen, appliedPreview, optimizationState, comparison } = state;
     ${block}
     return { planningPath, normalPath, planningRobot, planningField, selectedSettled, justApplied, acceptedPreview, accepted,
       staleOptimization, normalReady, normalError, baselineTime, candidate, comparisonMode, comparedPreview };
   `);
   return { state, appliedPreview, useOptimizerComparison, render(patch) { Object.assign(state, patch); cursor = 0;
-    return execute(state, useMemo, useEditingPlanning, useOptimizerComparison, authoredPath, optimizationOutdated); } };
+    return execute(state, useMemo, useEditingPlanning, useOptimizerComparison, authoredPath, isOptimizationOutdated); } };
 }
 function applied(h) {
   const artifact = {}, value = { finalTrajectory: { totalTimeS: 2 }, sample: { pts: ['complete'] } };
@@ -77,5 +77,18 @@ describe('App qualified optimizer comparison ownership', () => {
     result.normal = { status: 'error', value: null, error: failure }; result.baselineTime = null;
     const failed = h.render({ comparison: { documentKey: 1, id: 'path', key: 'physical', mode: 'normal' } });
     expect(failed.comparedPreview).toBeNull(); expect(failed.baselineTime).toBeNull();
+  });
+  it('can preview a feasible route while its authored Normal trajectory is unavailable', () => {
+    const h = harness();
+    const value = { finalTrajectory: { totalTimeS: 2 }, sample: { pts: ['route'] } };
+    const failure = { message: 'The starting curve could not be timed.' };
+    const ready = h.render({
+      result: { selected: null, normal: { status: 'error', value: null, error: failure }, baselineTime: null },
+      optimizationState: { paths: { path: { key: 'physical', status: 'success', value } } },
+      comparison: { documentKey: 1, id: 'path', key: 'physical', mode: 'candidate' },
+    });
+    expect(ready.normalError).toBe(failure); expect(ready.baselineTime).toBeNull();
+    expect(ready.candidate).toBe(value); expect(ready.comparedPreview).toBe(value);
+    expect(ready.acceptedPreview).toBeNull();
   });
 });

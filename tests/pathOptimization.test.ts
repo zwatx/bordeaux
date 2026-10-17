@@ -110,6 +110,22 @@ describe('explicit path optimization ownership', () => {
     expect(session.getSnapshot().paths[project.paths[0].id].status).toBe('success');
   });
 
+  it.each(['seed', 'required waypoint'])('rejects an in-flight %s A→B→A reply even after Undo restores its key', async (change) => {
+    const h = setup({ cooperativeCancel: false });
+    const original = structuredClone(h.project), id = original.paths[0].id;
+    const pending = h.session.start(id);
+    const changed = structuredClone(original);
+    if (change === 'seed') changed.paths[0].waypoints[0].nextC.y += 0.5;
+    else changed.paths[0].waypoints[0].y += 0.5;
+    h.replace(changed);
+    expect(h.jobs[0].canceled).toBe(true);
+    h.replace(original);
+    h.jobs[0].resolve({ status: 'success', value: preview });
+    await pending;
+    expect(h.session.getSnapshot().paths[id]).toMatchObject({ status: 'stale', value: null });
+    h.session.dispose();
+  });
+
   it('keeps a deadline incumbent available to compare without changing selected data', async () => {
     const { session, project, jobs } = setup();
     const pending = session.start(project.paths[0].id);

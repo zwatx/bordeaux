@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FinalPlanning } from '../assets/final-planning';
-import { optimizationOutdated } from '../lib/finalPlanningResult';
+import { isOptimizationOutdated } from '../../shared/planners/acceptedTrajectoryIdentity';
 import { finalPlanningError } from '../lib/planningFeedback';
 
 // Final worker success must contain the complete renderer projection, not a duration/sample fallback.
@@ -36,7 +36,7 @@ export function useOptimizerComparison({ enabled, context, editing }) {
   const selected = editing.ready && editing.status === 'ok' && preview?.path === path && preview.robot === robot && preview.field === field
     && preview.acceptedIdentity === artifact && preview.plannerId === plannerId && preview.previewDensity === previewDensity
     && preview.projectionVersion === projectionVersion ? preview : null;
-  const currentAccepted = Boolean(artifact) && !optimizationOutdated(path, inputKey);
+  const currentAccepted = useMemo(() => Boolean(artifact) && !isOptimizationOutdated(path, robot, field), [path, robot, field, artifact]);
   const authoredFailure = !currentAccepted && !editing.pending && editing.status !== 'idle'
     && (!selected || selected.accepted || selected.trajectoryDensity !== previewDensity);
   const editingError = authoredFailure

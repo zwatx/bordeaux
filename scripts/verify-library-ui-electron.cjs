@@ -476,7 +476,7 @@ app.whenReady().then(async () => {
     check('native Shift and Command/Control pointer selection works directly on rows without a selection mode');
     await input('.library-search', 'Opening');
     assert.equal(await evaluate(() => document.querySelector('.library-selection > span').textContent), '2 selected · 1 hidden');
-    assert.equal(await evaluate(() => document.querySelector('.push-button').title), '2 paths');
+    assert.equal(await evaluate(() => document.querySelector('.push-button').title), '2 paths · Ctrl+Shift+P');
     assert.equal(await evaluate(() => document.querySelector('.push-button').textContent.trim()), 'Push 2 paths');
     await click('.push-button');
     await wait(() => prepared.length === 1, 'captured scope');
@@ -1158,7 +1158,7 @@ app.whenReady().then(async () => {
       assert.deepEqual([selectedNeighbor.current, selectedNeighbor.selected, selectedNeighbor.marked, selectedNeighbor.rgba[3]], [false, true, true, 0], 'Push selection uses a check mark without a second selection surface');
       await fs.writeFile(path.join(output, `simple-multiselect-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await pointerClick('[data-library-item="library-path-0"]', [process.platform === 'darwin' ? 'meta' : 'control']);
-      assert.equal(await evaluate(() => document.querySelector('.push-button').title), 'Collect second', 'Single-item push label follows selected ID even when editor stays on another path');
+      assert.equal(await evaluate(() => document.querySelector('.push-button').title), 'Collect second · Ctrl+Shift+P', 'Single-item push label follows selected ID even when editor stays on another path');
       await click('[aria-label="Actions for Opening move"]');
       await fs.writeFile(path.join(output, `simple-menu-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await key('Escape');
@@ -1484,7 +1484,8 @@ app.whenReady().then(async () => {
     // The optimizer's own baseline failed; the editor keeps the current geometry editable.
     assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldsvg').closest('[inert]'))), false, 'The field stays editable while the optimizer baseline fails');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.optimizer-panel').closest('[inert]'))), false, 'Error recovery must remain usable');
-    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Edit path');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Optimize');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-recovery').textContent), 'Edit path');
     await fs.writeFile(path.join(output, 'optimizer-interactive-failure.png'), (await win.webContents.capturePage()).toPNG());
     await keyboardUndo();
     await wait(() => evaluate(() => !document.querySelector('.optimizer-failure') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'Undo recovers planning');
@@ -1505,8 +1506,9 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent.includes('Restored path')), 'restored repair fixture');
     await pointerClick('.optimizer-toggle');
     await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Heading tracking could not satisfy the configured angular limits')), 'real final-planning failure');
-    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Edit path');
-    await pointerClick('.optimizer-main');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-main').textContent), 'Optimize');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-recovery').textContent), 'Edit path');
+    await pointerClick('.optimizer-recovery');
     await wait(() => evaluate(() => !!document.querySelector('.ctxinsp')), 'Edit path opens the full inspector');
     // No repair mode: the problem is shown on the timeline and the zone edits normally.
     await click('.pt-zone-tag');

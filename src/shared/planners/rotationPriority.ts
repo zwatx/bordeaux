@@ -38,7 +38,10 @@ export function effectiveRanges(path: PathDoc, samples: readonly TrajectorySampl
       start = (range.d0 ?? range.f0 * totalDistance) / Math.max(totalDistance, EPSILON);
       end = (range.d1 ?? range.f1 * totalDistance) / Math.max(totalDistance, EPSILON);
     } else if (range.anchor === "wp") {
-      waypointF ??= waypointFractions(path, samples, indices);
+      if (!waypointF) {
+        const generated = waypointFractions(path, samples, indices);
+        waypointF = path.routeRequiredPointIndices ? path.routeRequiredPointIndices.map((i) => generated[i]) : generated;
+      }
       const fractions = waypointF;
       const localFraction = (segmentValue: number | undefined, local: number | undefined, fallback: number) => {
         if (local == null) return fractions[clamp(Math.round(segmentValue ?? fallback), 0, fractions.length - 1)] ?? 0;

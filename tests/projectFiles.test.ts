@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { blankPath, createDemoProject } from "../src/shared/project/defaults";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
+import { applyAcceptedRouteTrajectory, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
 import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../src/shared/project/fileFormat";
 import type { BordeauxProject, CommandArgumentValue } from "../src/shared/types";
 import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, autosaveProjectFolder, openProjectFolder, projectFileName, projectWorkspacePath, readProject, writeBufferAtomically, writeProject } from "../src/electron/projectFiles";
@@ -57,6 +59,25 @@ async function identities(directory: string) {
 }
 
 describe("managed document persistence", () => {
+  it("writes selected routes as versioned standalone paths and reopens their exact selection", async () => {
+    const directory = await folder(), project = createDemoProject();
+    const source = project.paths[0];
+    source.waypoints = buildWaypoints([{ x: 6.5, y: 2 }, { x: 10, y: 2 }]);
+    source.headingMode = 'manual'; source.constraints.maxVel = .5;
+    const route = optimizeRouteFinal({ path: source, robot: project.robot }, { maximumEvaluations: 2 }).candidate;
+    expect(route).toBeDefined();
+    project.paths[0] = applyAcceptedRouteTrajectory(source, project.robot, route!);
+    await autosaveProjectFolder(directory, project, null);
+    const files = await fs.readdir(path.join(directory, 'Paths'));
+    const raw = await fs.readFile(path.join(directory, 'Paths', files[0]), 'utf8');
+    expect(JSON.parse(raw).version).toBe('2.1');
+    const standalone = decodeProjectFile(raw).project;
+    expect(standalone.schemaVersion).toBe('1.2');
+    expect(selectPathTrajectory(standalone.paths[0], standalone.robot).samples).toEqual(route!.samples);
+    const reopened = (await openProjectFolder(directory)).project!;
+    expect(reopened.schemaVersion).toBe('1.2');
+    expect(selectPathTrajectory(reopened.paths[0], reopened.robot).samples).toEqual(route!.samples);
+  });
   it("keeps unchanged documents in place when one path is renamed", async () => {
     const directory = await folder(), project = manyPaths(21);
     await autosaveProjectFolder(directory, project, null);

@@ -430,16 +430,31 @@ export interface PathDoc {
   startVel: number;
   goalVel: number;
   exportable?: boolean;
+  /** Internal derived planning geometry only, never permitted on authored source. */
+  routeRequiredPointIndices?: number[];
   /** Authored corridor and explicit selection; project plannerId never selects an artifact. */
   optimization?: {
-    corridorM: number;
-    accepted?: {
-      version: 1;
-      inputKey: string;
-      samplesPerSegment: number;
-      result: PlannerResult;
-    };
+    corridorM?: number;
+    accepted?: AcceptedTrajectory;
+    /** Retained on explicit route Apply; active accepted always takes precedence. */
+    legacyAccepted?: AcceptedTrajectory & { version: 1 };
   };
+}
+
+/** Exact selected samples; v1 retains its original corridor contract. */
+export interface AcceptedTrajectory {
+  version: 1 | 2;
+  inputKey: string;
+  samplesPerSegment: number;
+  result: PlannerResult;
+}
+
+export interface RouteGeometry {
+  version: 1;
+  /** Geometry-owned curvature smoothing, independent of later seed editing modes. */
+  knots: Array<ControlPoint & { prevC: ControlPoint; nextC: ControlPoint; smooth?: boolean }>;
+  /** Ordered generated-knot index for each required source waypoint. */
+  requiredPointIndices: number[];
 }
 
 export interface PathFolder {
@@ -648,6 +663,7 @@ export type TrajectoryPlannerId = "profiledSpline" | "optimizedTrajectory";
 export interface PlannerInput {
   path: PathDoc;
   robot: RobotConfig;
+  field?: FieldReference;
   samplesPerSegment?: number;
   smoothingPasses?: number;
 }
@@ -711,6 +727,8 @@ export interface PlannerResult {
   stationaryActions?: PlannerStationaryAction[];
   /** Internal final-preview geometry; export schemas select trajectory fields explicitly. */
   optimizedPath?: PathDoc;
+  /** Versioned solver-owned geometry, separate from required source points. */
+  routeGeometry?: RouteGeometry;
 }
 
 export interface TrajectoryPlanner {
@@ -719,6 +737,8 @@ export interface TrajectoryPlanner {
 }
 
 export interface PlannerOptimizationDiagnostics {
+  /** Qualification of the actual authored Normal, never inferred from candidate feasibility. */
+  seedStatus?: "unknown" | "valid" | "invalid";
   plannerUsed: TrajectoryPlannerId;
   status?: "optimal" | "feasible" | "equivalent" | "invalid-input" | "infeasible" | "cancelled" | "internal-error";
   iterations?: number;
@@ -732,7 +752,7 @@ export interface PlannerOptimizationDiagnostics {
   constraintViolations: number;
   fallback: boolean;
   fallbackReason?: string;
-  optimizationClass?: "fixed-geometry" | "corridor";
+  optimizationClass?: "fixed-geometry" | "corridor" | "route";
   budgetTier?: "common" | "stress" | "hard";
   budgetMs?: number;
   evaluations?: number;

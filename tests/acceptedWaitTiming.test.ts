@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildBdxExport } from "../src/shared/export/bdx";
 import { buildRobotBinary } from "../src/shared/export/robotBinary";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
-import { createAcceptedTrajectory, getAcceptedTrajectory, optimizationInputKey, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
+import { createAcceptedRouteTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
 import { getPlanner } from "../src/shared/planners";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
@@ -25,11 +25,9 @@ describe("exact waypoint wait timing", () => {
     expect(result.optimization?.fallback).toBe(false);
     expect(result.optimization?.gainS).toBeGreaterThan(0.02);
     // Match the renderer's Apply action, which persists the worker's exact output.
-    path.optimization = { corridorM: 0.15, accepted: {
-      version: 1, inputKey: optimizationInputKey(path, project.robot), samplesPerSegment: 56, result,
-    } };
-    expect(getAcceptedTrajectory(path, project.robot)).toBe(result);
-    expect(createAcceptedTrajectory(path, project.robot, result).result).toEqual(result);
+    path.optimization = { accepted: createAcceptedRouteTrajectory(path, project.robot, result, project.field, 56) };
+    expect(getAcceptedTrajectory(path, project.robot)).toEqual(result);
+    expect(createAcceptedRouteTrajectory(path, project.robot, result).result).toEqual(result);
     const reopened = decodeProjectFile(encodeProjectFile(project).contents).project;
     expect(selectPathTrajectory(reopened.paths[0], reopened.robot).samples).toEqual(result.samples);
     expect(buildBdxExport(reopened).paths[0].samples).toEqual(result.samples);

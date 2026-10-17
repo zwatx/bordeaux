@@ -1,5 +1,5 @@
-import { optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
-import { durationResult, finalPlanningOutcome, optimizationOutdated } from "./finalPlanningResult";
+import { isOptimizationOutdated, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { durationResult, finalPlanningOutcome } from "./finalPlanningResult";
 
 // Agent-only strategy notes never change a trajectory. Everything else in the
 // robot is compared, so a missed exclusion only costs a key recomputation.
@@ -51,7 +51,7 @@ export function createLibraryDurations(planner) {
     if (previous && previous.inputKey === inputKey && previous.accepted === accepted && previous.plannerId === input.plannerId) {
       return Object.assign(previous, next);
     }
-    return { ...next, outdated: optimizationOutdated(path, inputKey), result: { status: 'pending' } };
+    return { ...next, outdated: isOptimizationOutdated(path, input.robot, input.field), result: { status: 'pending' } };
   };
   return {
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },

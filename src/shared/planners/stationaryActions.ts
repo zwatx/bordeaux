@@ -8,7 +8,7 @@ import { orderedWaypointSampleIndices } from "./waypointSamples";
 const EPSILON = 1e-9;
 const DEG = Math.PI / 180;
 
-function directedDelta(start: number, end: number, direction = "shortest"): number {
+export function directedDelta(start: number, end: number, direction = "shortest"): number {
   let delta = wrapRadians(end - start);
   if (Math.abs(delta) < EPSILON) return 0;
   if (direction === "clockwise" && delta > 0) delta -= Math.PI * 2;
@@ -16,18 +16,19 @@ function directedDelta(start: number, end: number, direction = "shortest"): numb
   return delta;
 }
 
-function activeAngularLimits(path: PathDoc, fraction: number, waypointIndex: number, totalDistance: number): { velocity: number; acceleration: number; jerk: number } {
+export function activeAngularLimits(path: PathDoc, fraction: number, waypointIndex: number, totalDistance: number): { velocity: number; acceleration: number; jerk: number } {
   let velocity = path.constraints.maxAngVel * DEG;
   let acceleration = Math.min(path.constraints.maxAngAccel, path.constraints.maxAngDecel ?? path.constraints.maxAngAccel) * DEG;
   const jerk = (path.constraints.maxAngJerk ?? 0) * DEG;
+  const requiredIndex = path.routeRequiredPointIndices?.indexOf(waypointIndex) ?? waypointIndex;
   (path.ranges ?? []).forEach((range: ConstraintRange) => {
     let active: boolean;
     if (range.anchor === "wp") {
       const start = (range.w0 ?? 0) + (range.t0 ?? 0);
-      const end = (range.w1 ?? path.waypoints.length - 1) + (range.t1 ?? 0);
+      const end = (range.w1 ?? (path.routeRequiredPointIndices?.length ?? path.waypoints.length) - 1) + (range.t1 ?? 0);
       const lo = Math.min(start, end);
       const hi = Math.max(start, end);
-      active = waypointIndex >= lo - EPSILON && waypointIndex <= hi + EPSILON;
+      active = requiredIndex >= lo - EPSILON && requiredIndex <= hi + EPSILON;
     } else {
       const first = range.anchor === "dist" ? (range.d0 ?? range.f0 * totalDistance) / Math.max(totalDistance, EPSILON) : range.f0;
       const last = range.anchor === "dist" ? (range.d1 ?? range.f1 * totalDistance) / Math.max(totalDistance, EPSILON) : range.f1;
@@ -46,12 +47,13 @@ function activeLinearLimits(path: PathDoc, fraction: number, waypointIndex: numb
   let velocity = path.constraints.maxVel;
   let acceleration = path.constraints.maxAccel;
   let deceleration = path.constraints.maxDecel ?? path.constraints.maxAccel;
+  const requiredIndex = path.routeRequiredPointIndices?.indexOf(waypointIndex) ?? waypointIndex;
   (path.ranges ?? []).forEach((range: ConstraintRange) => {
     let active: boolean;
     if (range.anchor === "wp") {
       const start = (range.w0 ?? 0) + (range.t0 ?? 0);
-      const end = (range.w1 ?? path.waypoints.length - 1) + (range.t1 ?? 0);
-      active = waypointIndex >= Math.min(start, end) - EPSILON && waypointIndex <= Math.max(start, end) + EPSILON;
+      const end = (range.w1 ?? (path.routeRequiredPointIndices?.length ?? path.waypoints.length) - 1) + (range.t1 ?? 0);
+      active = requiredIndex >= Math.min(start, end) - EPSILON && requiredIndex <= Math.max(start, end) + EPSILON;
     } else {
       const first = range.anchor === "dist" ? (range.d0 ?? range.f0 * totalDistance) / Math.max(totalDistance, EPSILON) : range.f0;
       const last = range.anchor === "dist" ? (range.d1 ?? range.f1 * totalDistance) / Math.max(totalDistance, EPSILON) : range.f1;

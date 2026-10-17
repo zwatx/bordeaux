@@ -12,9 +12,7 @@ import { editingGeometry, editingPoseAtTime } from '../src/renderer/assets/editi
 // @ts-expect-error Renderer JS API.
 import { PM } from '../src/renderer/lib/pathMath';
 import { finalPlanningError } from '../src/renderer/lib/planningFeedback';
-// @ts-expect-error Renderer JS API.
-import { optimizationOutdated } from '../src/renderer/lib/finalPlanningResult';
-import { authoredPath, optimizationInputKey } from '../src/shared/planners/acceptedTrajectoryIdentity';
+import { authoredPath, isOptimizationOutdated, optimizationInputKey } from '../src/shared/planners/acceptedTrajectoryIdentity';
 import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
 import { optimizeFixedGeometryFinal } from '../src/shared/planners/fixedGeometryFinal';
 import { createAcceptedTrajectory } from '../src/shared/planners/acceptedTrajectory';
@@ -47,7 +45,7 @@ function harness(initial = input(), planning = FinalPlanning) {
   let cursor = 0, scheduled = 0;
   const slot = (init: () => any) => slots[cursor++] ||= init();
   const same = (a: any[], b: any[]) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
-  const context: any = { PathPreview, FinalPlanning: planning, editingGeometry, editingPoseAtTime, finalPlanningError, optimizationOutdated,
+  const context: any = { PathPreview, FinalPlanning: planning, editingGeometry, editingPoseAtTime, finalPlanningError, isOptimizationOutdated,
     useMemo: (fn: () => any, deps: any[]) => { const cell = slot(() => ({})); if (!same(cell.deps, deps)) { cell.value = fn(); cell.deps = deps; } return cell.value; },
     useRef: (value: any) => slot(() => ({ current: value })),
     useState: (initial: any) => { const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial })); return [cell.value, (next: any) => { const value = typeof next === 'function' ? next(cell.value) : next; if (!Object.is(value, cell.value)) scheduled++; cell.value = value; }]; },

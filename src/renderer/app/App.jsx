@@ -9,8 +9,10 @@ import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
-import { authoredPath, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
-import { durationResult, optimizationOutdated } from "../lib/finalPlanningResult";
+import { authoredPath, isOptimizationOutdated, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { routeInputKey } from "../../shared/planners/routeIdentity";
+import { stageAcceptedRouteTrajectory } from "../../shared/planners/acceptedRouteStaging";
+import { durationResult } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
 import { ContextInspector, commandArguments } from "../components/ContextInspector";
@@ -950,6 +952,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     useEffect(() => { optimizer.sync(); }, [optimizer, project]);
     useEffect(() => () => optimizer.cancel(), [optimizer]);
     const optimizationKey = useMemo(() => optimizationInputKey(doc, robot, project.field), [doc, robot, project.field]);
+    const searchKey = useMemo(() => routeInputKey(doc, robot, project.field), [doc, robot, project.field]);
     const planningPath = useMemo(() => ({ ...doc }), [projectKey, doc.id, optimizationKey, doc.optimization?.accepted]);
     const normalPath = useMemo(() => authoredPath(doc), [projectKey, doc.id, optimizationKey]);
     const planningRobot = useMemo(() => robot, [projectKey, optimizationKey]);
@@ -959,7 +962,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const { selected, normal, baselineTime } = useOptimizerComparison({ enabled: optimizationOpen, editing,
       context: { documentKey: projectKey, pathId: doc.id, inputKey: optimizationKey, path: planningPath,
         normalPath, robot: planningRobot, field: planningField, plannerId, previewDensity: PERSEG, projectionVersion: 1 } });
-    const outdatedOptimization = optimizationOutdated(doc, optimizationKey);
+    const outdatedOptimization = useMemo(() => isOptimizationOutdated(doc, robot, project.field), [doc, robot, project.field]);
     const selectedSettled = !editing.pending && editing.status !== 'idle';
     const applied = appliedPreview.current;
     const appliedMatches = applied?.documentKey === projectKey && applied.pathId === doc.id && applied.key === optimizationKey
@@ -971,7 +974,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const accepted = acceptedPreview?.finalTrajectory || null;
     const staleOptimization = Boolean(doc.optimization?.accepted && (outdatedOptimization || (selectedSettled && !selected?.accepted)));
     const optimizationEntry = optimizationState.paths[doc.id];
-    const candidate = optimizationEntry?.key === optimizationKey ? optimizationEntry.value : null;
+    const candidate = optimizationEntry?.key === searchKey ? optimizationEntry.value : null;
     const normalReady = normal.status === 'ready';
     const normalError = editing.comparisonError || normal.error;
     const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === optimizationKey ? comparison.mode : 'selected';
@@ -1954,34 +1957,30 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setComparison(null);
       void optimizer.start(doc.id, deadline);
     };
-    const setCorridor = (value) => {
-      if (!Number.isFinite(value)) return;
-      const corridorM = Math.max(0.03, Math.min(1.5, value));
-      if (Math.abs(corridorM - (doc.optimization?.corridorM ?? 0.15)) < 1e-9) return;
-      beginHistory();
-      playbackStore.reset();
-      writeDoc({ ...doc, optimization: { ...doc.optimization, corridorM } });
-    };
     const applyOptimization = () => {
       if (!candidate?.finalTrajectory || editStore.getSnapshot()) return;
       const current = projectRef.current;
       const currentPath = current.paths.find((path) => path.id === doc.id);
-      if (!currentPath || optimizationInputKey(currentPath, current.robot, current.field) !== optimizationKey) return;
+      if (!currentPath || routeInputKey(currentPath, current.robot, current.field) !== searchKey) return;
       try {
-        const result = { version: 1, inputKey: optimizationKey, samplesPerSegment: PERSEG, result: clone(candidate.finalTrajectory) };
+        // Search publishes independently qualified output. Keep numerical validation
+        // in workers; selected planning and export revalidate this exact artifact.
+        const nextPath = stageAcceptedRouteTrajectory(currentPath, current.robot, candidate.finalTrajectory, current.field, PERSEG);
+        const result = nextPath.optimization.accepted;
         appliedPreview.current = { artifact: result, documentKey: projectKey, pathId: doc.id, key: optimizationKey,
           plannerId, previewDensity: PERSEG, projectionVersion: 1, value: candidate };
         beginHistory();
         playbackStore.reset();
         setComparison(null);
-        writeDoc({ ...currentPath, optimization: { corridorM: currentPath.optimization?.corridorM ?? 0.15, accepted: result } });
+        writeDoc(nextPath);
       } catch (error) { setExportError(error.message || 'The candidate could not be applied.'); }
     };
     const useNormalTrajectory = () => {
       beginHistory();
       playbackStore.reset();
       setComparison(null);
-      writeDoc({ ...doc, optimization: { corridorM: doc.optimization?.corridorM ?? 0.15 } });
+      const { accepted: _accepted, ...retained } = doc.optimization || {};
+      writeDoc({ ...doc, optimization: Object.keys(retained).length ? retained : undefined });
     };
 
     // ---- desktop project workflow ----
@@ -2872,7 +2871,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),
             h(RoutineWorkspace, {
-              routine,
+              routine, run,
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
@@ -2895,7 +2894,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
               h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
               h(Panels.ToolRail, { tool, setTool }),
-              h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, optimizationCorridor: optimizationOpen && normalReady ? { points: normal.value?.sample.pts, widthM: doc.optimization?.corridorM ?? 0.15 } : null, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
+              h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
               (tool !== 'select' || unfinishedPath) && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: toolHint(tool, doc.waypoints?.length || 0) } }),
@@ -2940,10 +2939,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             h('aside', { className: 'rail rail-r' + (inspectorOpen || optimizationOpen ? '' : ' collapsed'), 'aria-label': optimizationOpen ? 'Path optimization' : 'Path inspector' },
               optimizationOpen ? h(OptimizationPanel, {
                 path: doc, paths: project.paths, state: optimizationState, candidate, accepted, stale: staleOptimization,
-                baselineTime, pending: !normalReady && !normalError, error: normalError, mode: comparisonMode, unitSystem,
+                baselineTime, pending: normal.status === 'pending', error: normalError, mode: comparisonMode, unitSystem,
+                searchStatus: candidate?.routeSearch?.status, searchReason: candidate?.routeSearch?.reason,
                 recovery: normal.errorKind === 'timeout' ? { label: 'Try again', onClick: normal.retry }
                   : { label: 'Edit path', onClick: openInspector },
-                onCorridor: setCorridor, onStart: startOptimization,
+                onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
                 onCompare: compareTrajectory, onApply: applyOptimization, onNormal: useNormalTrajectory,
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
