@@ -28,6 +28,7 @@ function indexedLimits(path: PathDoc, samples: readonly TrajectorySample[], wayp
 
 function turnBoundaries(path: PathDoc, samples: readonly TrajectorySample[], waypointSampleIndices?: readonly number[]): Set<number> {
   const boundaries = new Set<number>();
+  if (!path.waypoints.some((waypoint) => waypoint.turnInPlace)) return boundaries;
   const arrivals = waypointSampleIndices?.length === path.waypoints.length
     ? waypointSampleIndices
     : orderedWaypointSampleIndices(path.waypoints, samples);

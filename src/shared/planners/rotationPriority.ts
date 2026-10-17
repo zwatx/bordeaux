@@ -28,7 +28,9 @@ function waypointFractions(path: PathDoc, samples: readonly TrajectorySample[], 
 }
 
 export function effectiveRanges(path: PathDoc, samples: readonly TrajectorySample[], totalDistance: number, indices?: readonly number[]): EffectiveRange[] {
-  const waypointF = waypointFractions(path, samples, indices);
+  // Fraction and distance ranges do not depend on waypoint arrivals. Dense
+  // optimizer validation resolves them repeatedly, often with no ranges at all.
+  let waypointF: number[] | undefined;
   return (path.ranges ?? []).map((range) => {
     let start = range.f0;
     let end = range.f1;
@@ -36,13 +38,15 @@ export function effectiveRanges(path: PathDoc, samples: readonly TrajectorySampl
       start = (range.d0 ?? range.f0 * totalDistance) / Math.max(totalDistance, EPSILON);
       end = (range.d1 ?? range.f1 * totalDistance) / Math.max(totalDistance, EPSILON);
     } else if (range.anchor === "wp") {
+      waypointF ??= waypointFractions(path, samples, indices);
+      const fractions = waypointF;
       const localFraction = (segmentValue: number | undefined, local: number | undefined, fallback: number) => {
-        if (local == null) return waypointF[clamp(Math.round(segmentValue ?? fallback), 0, waypointF.length - 1)] ?? 0;
-        const segment = clamp(Math.round(segmentValue ?? 0), 0, Math.max(0, waypointF.length - 2));
-        return (waypointF[segment] ?? 0) + ((waypointF[segment + 1] ?? 1) - (waypointF[segment] ?? 0)) * clamp(local, 0, 1);
+        if (local == null) return fractions[clamp(Math.round(segmentValue ?? fallback), 0, fractions.length - 1)] ?? 0;
+        const segment = clamp(Math.round(segmentValue ?? 0), 0, Math.max(0, fractions.length - 2));
+        return (fractions[segment] ?? 0) + ((fractions[segment + 1] ?? 1) - (fractions[segment] ?? 0)) * clamp(local, 0, 1);
       };
       start = localFraction(range.w0, range.t0, 0);
-      end = localFraction(range.w1, range.t1, waypointF.length - 1);
+      end = localFraction(range.w1, range.t1, fractions.length - 1);
     }
     return { ...range, start: clamp(Math.min(start, end), 0, 1), end: clamp(Math.max(start, end), 0, 1) };
   });

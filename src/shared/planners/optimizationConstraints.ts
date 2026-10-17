@@ -287,18 +287,17 @@ export function buildReachabilityInput(
   // explicitly authored stationary turn: its discontinuous before/after
   // headings are connected by stationary samples later, so they must not leak
   // into the moving reachability solve on either adjacent interval.
-  const preliminaryState = buildCanonicalPathState(input.path, samples);
+  const state = buildCanonicalPathState(input.path, samples);
   const stationaryTurnBoundary = (index: number) => (
     isStationaryHeadingTransition(
       input.path,
-      preliminaryState.points[index],
-      preliminaryState.points[index + 1]?.headingRad,
+      state.points[index],
+      state.points[index + 1]?.headingRad,
     )
   );
   const trackedHeadingIntervals = samples.slice(1).map((_sample, index) => (
     stationaryTurnBoundary(index) || stationaryTurnBoundary(index + 1)
   ));
-  const state = buildCanonicalPathState(input.path, samples);
   const drivetrain = buildDrivetrainProjection(
     state,
     input.robot,
