@@ -1680,4 +1680,8 @@ app.on("will-quit", (event) => {
   });
 });
 app.on("web-contents-created", (_event, contents) => contents.on("will-attach-webview", (event) => event.preventDefault()));
-app.on("window-all-closed", () => { if (process.platform !== "darwin" && !replacingProjectWindow && !mainWindow && fallbackDialogOwners.size === 0) app.quit(); });
+app.on("window-all-closed", () => {
+  // Smoke closes the real window, then verifies the saved source receipt before owning process exit.
+  if (process.env.BORDEAUX_SMOKE_TEST === "1") return;
+  if (process.platform !== "darwin" && !replacingProjectWindow && !mainWindow && fallbackDialogOwners.size === 0) app.quit();
+});

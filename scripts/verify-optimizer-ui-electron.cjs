@@ -592,16 +592,44 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.optimizer-main')?.textContent), 'Applied');
     check('reopening an accepted result preserves it without starting a search');
     await openSettings();
+    const batchJobCount = (await workerState()).jobs.length;
     await click('.optimizer-panel button', 'Optimize all');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-batch')?.textContent.includes('2 of 2 paths searched')), 'Optimize all to finish both paths', 22_000);
-    const allStatuses = await evaluate(() => [...document.querySelectorAll('.optimizer-batch button')].map((item) => item.textContent));
-    assert.equal(allStatuses.length, 2);
-    const failedStatus = allStatuses.find((status) => !status.includes('Ready'));
-    if (failedStatus) {
-      await click('.optimizer-batch button', failedStatus);
+    const batchRows = await evaluate(() => [...document.querySelectorAll('.optimizer-batch button')].map((item) => ({
+      name: item.querySelector(':scope > span')?.textContent,
+      status: item.querySelector(':scope > small')?.textContent,
+    })));
+    assert.equal(batchRows.length, 2);
+    assert.deepEqual(batchRows.map(row => row.name), fixture.paths.map(item => item.name), 'Both expected paths must appear in the completed batch');
+    // Searched means controller success; route failures override that label.
+    // Read status separately so neither a path name nor a substring can pass it.
+    const failedIndex = batchRows.findIndex(row => row.status !== 'Searched');
+    if (failedIndex !== -1) {
+      await click('.library-pick[data-library-item=' + JSON.stringify(fixture.paths[failedIndex].id) + ']');
       await delay(200);
       const error = await evaluate(() => document.querySelector('.optimizer-error')?.textContent || document.querySelector('.optimizer-outcome[role="status"]')?.textContent);
-      assert.fail(`${failedStatus}: ${error}`);
+      assert.fail(`${batchRows[failedIndex].name}: ${batchRows[failedIndex].status}: ${error}`);
+    }
+    // A completed worker alone is not proof of a usable route. Inspect the two
+    // actual batch responses without issuing any additional planning requests.
+    const batchRoutes = await evaluate((count) => {
+      const observer = window.__optimizerWorkers;
+      return observer.jobs.slice(count).filter(job => job.optimize).map(job => {
+        const value = observer.valueFor(job.sequence), result = value?.finalTrajectory;
+        return { pathId: job.pathId, status: job.status, routeStatus: value?.routeSearch?.status,
+          fallback: result?.optimization?.fallback, termination: result?.optimization?.termination,
+          time: result?.totalTimeS, samples: result?.samples?.length,
+          errors: result?.diagnostics?.filter(issue => issue.severity === 'error') || [] };
+      });
+    }, batchJobCount);
+    assert.deepEqual(batchRoutes.map(route => route.pathId), fixture.paths.map(item => item.id), 'Optimize all must complete one search for each expected path');
+    for (const route of batchRoutes) {
+      assert.equal(route.status, 'ready', `${route.pathId}: batch worker must complete successfully`);
+      assert.equal(route.routeStatus, 'feasible', `${route.pathId}: batch search must return a feasible route`);
+      assert.equal(route.fallback, false, `${route.pathId}: fallback output is not a route`);
+      assert.ok(!['unsupported', 'invalid-baseline'].includes(route.termination), `${route.pathId}: route must support this task`);
+      assert.ok(Number.isFinite(route.time) && route.time > 0 && route.samples > 0, `${route.pathId}: route must contain timed samples`);
+      assert.deepEqual(route.errors, [], `${route.pathId}: route must have no error diagnostics`);
     }
     await stable(applied, 600, 'Optimize all');
     project = await save();

@@ -46,6 +46,13 @@ const previewHelp = () => evaluate(() => {
     sentences: help.textContent.trim().split(/(?<=[.!?])\s+/), flow: [flow.x, flow.y, flow.width, flow.height].join(),
     fits: rect.left >= 8 && rect.right <= innerWidth - 8 && rect.top >= anchor.bottom && rect.bottom <= innerHeight - 8 && rect.width <= 300 };
 });
+// The planning banner sits below the flow until trajectories arrive; measure layout only once it and the fonts settle.
+async function planned() {
+  await wait(() => evaluate(() => !document.querySelector('.routine-status.planning')
+    && ![...document.querySelectorAll('.rt-step-meta')].some(el => el.textContent.includes('Preparing preview'))), 'routine planning settled');
+  assert.equal(await evaluate(() => document.querySelector('.routine-status')?.textContent ?? null), null, 'Fixture routine plans without a blocking status');
+  await evaluate(() => document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+}
 async function source() {
   await wait(() => Boolean(published?.routines), 'published routine source');
   return structuredClone(published.routines);
@@ -101,6 +108,7 @@ app.whenReady().then(async () => {
       win.setContentSize(width, height); saved.editor.unitSystem = units;
       await load();
       const baseline = await source();
+      await planned();
       const helpClosed = await previewHelp();
       assert.ok(!helpClosed.open && helpClosed.expanded === 'false', 'Preview help starts closed');
       await click('.routine-workspace-about');

@@ -89,17 +89,20 @@ try {
   child.stdout.on("data", (chunk) => { output += chunk; process.stdout.write(chunk); });
   child.stderr.on("data", (chunk) => { output += chunk; process.stderr.write(chunk); });
 
-  const timeout = setTimeout(() => child.kill("SIGTERM"), 30000);
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 30000);
   let code;
   try {
     code = await new Promise((resolve, reject) => {
       child.once("error", reject);
-      child.once("exit", resolve);
+      // Result output can still be buffered when exit fires; close waits for both output streams.
+      child.once("close", resolve);
     });
   } finally {
     clearTimeout(timeout);
   }
 
+  assert.equal(timedOut, false, "Electron smoke exceeded its 30-second deadline");
   assert.equal(code, 0, `Electron smoke process exited with code ${code}`);
   const resultLine = output.split(/\r?\n/).find((line) => line.startsWith("BORDEAUX_SMOKE_RESULT "));
   assert.ok(resultLine, "Electron smoke process did not return results");
