@@ -61,6 +61,11 @@ jobs:
         run: xvfb-run -a node scripts/verify-command-branches-ui.mjs
         env:
           BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
+      - name: Verify routine workspace
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
+        run: xvfb-run -a node scripts/verify-routine-workspace-ui.mjs
+        env:
+          BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       - name: Verify optimizer UI
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
         run: xvfb-run -a node scripts/verify-optimizer-ui.mjs

@@ -7,8 +7,10 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { commandArguments } from "./ContextInspector";
 import { UI } from "./ui";
 
-// Routine run sheet: one flat list of rows in run order. Nesting reads from indentation, route rows and a closing
-// row per block; there are no cards and no side rules. Selecting a row only changes the right inspector.
+// Routine run sheet: one flat list of rows in run order. Each block (branch or repeat) draws a scope rail from its
+// owner down to a closing row that states what authored control flow does next: which routes continue, whether a
+// pass loops back. Those facts come from AUTO.flowSummary, never from the chosen preview route. Selecting a row only
+// changes the right inspector.
 const { useState, useRef, useEffect, useLayoutEffect } = React;
 const h = React.createElement;
 const { Icon } = UI;
@@ -21,6 +23,8 @@ const EXTRA_GLYPHS = {
   repeat: 'M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4',
   exit: 'M10 7V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-2 M15 12H3 M6 9l-3 3 3 3',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  join: 'M7 3v4a5 5 0 0 0 5 5 M17 3v4a5 5 0 0 1-5 5v9 M8.5 17.5L12 21l3.5-3.5',
+  loop: 'M19 21v-7a6 6 0 0 0-6-6H5 M9 4L5 8l4 4',
 };
 export function Glyph({ name, size = 15 }) {
   if (!EXTRA_GLYPHS[name]) return h(Icon, { name, size });
@@ -80,6 +84,55 @@ function routeRule(node, list) {
   return rule.toLowerCase() === name || rule.toLowerCase() === '= ' + name ? '' : rule;
 }
 
+/**
+ * What a list reaches when it completes normally: the next step after its owner, the end of the enclosing repeat's
+ * pass, or the end of the routine. `many` picks the plural verb ("Both routes continue").
+ */
+function continuePhrase(after, paths, catalog, many) {
+  const verb = (plural, singular) => (many ? plural : singular);
+  if (after?.kind === 'step') return [verb('continue', 'continues') + ' to ', { name: stepTitle(after.node, paths, catalog) }];
+  if (after?.kind === 'pass') return [verb('finish', 'finishes') + ' the pass'];
+  return [verb('finish', 'finishes') + ' the routine'];
+}
+const plainText = (parts) => parts.map((part) => (typeof part === 'string' ? part : '“' + part.name + '”')).join('');
+/** Terminal outcomes of a list that cannot complete normally, as a verb phrase. */
+function terminalPhrase(flow) {
+  return flow.endRoutine && flow.exitRepeat ? 'ends the routine or leaves the repeat' : flow.exitRepeat ? 'leaves the repeat' : 'ends the routine';
+}
+function nameList(names) {
+  const parts = [];
+  names.forEach((name, index) => {
+    if (index) parts.push(index === names.length - 1 ? ' and ' : ', ');
+    parts.push({ name });
+  });
+  return parts;
+}
+
+/** Closing row of a branch: only routes that complete normally reach the shared continuation. */
+export function branchClosing(lists, after, paths, catalog, cache) {
+  const flows = lists.map((list) => ({ list, flow: A.flowSummary(list.nodes, cache) }));
+  const going = flows.filter((item) => item.flow.normal);
+  if (!going.length) {
+    const flow = { endRoutine: flows.some((item) => item.flow.endRoutine), exitRepeat: flows.some((item) => item.flow.exitRepeat) };
+    return { glyph: flow.exitRepeat && !flow.endRoutine ? 'exit' : 'stop', terminal: true, parts: ['No route continues; every route ' + terminalPhrase(flow)] };
+  }
+  const all = going.length === lists.length;
+  const who = all ? [lists.length === 2 ? 'Both routes ' : 'All ' + lists.length + ' routes '] : ['Only ', ...nameList(going.map((item) => item.list.label)), ' '];
+  return { glyph: 'join', parts: [...who, ...continuePhrase(after, paths, catalog, all || going.length > 1)] };
+}
+
+/** Closing row of a repeat: a pass loops back only when its body can complete normally. */
+export function repeatClosing(node, routine, catalog, cache, previewPasses) {
+  const body = A.flowSummary(node.nodes, cache);
+  if (!body.normal) return { glyph: body.exitRepeat && !body.endRoutine ? 'exit' : 'stop', terminal: true, parts: ['Never loops back; the first pass always ' + terminalPhrase(body)] };
+  if (node.times === 1) return { glyph: 'join', parts: ['Runs once, then continues'] };
+  const passes = (node.until ? 'up to ' : '') + plural(node.times, 'pass');
+  const conditionMissing = node.until?.source === 'condition' && !A.authoritativeConditions(catalog).some(item => item.value === node.until.conditionId);
+  const stopName = conditionMissing ? 'the saved condition (unavailable)' : node.until && describeStop(node.until, routine, catalog);
+  const previewing = node.until && previewPasses !== undefined ? ' · previewing ' + previewPasses : '';
+  return { glyph: 'loop', parts: ['Back to the top', ...(node.until ? [' until ', { name: stopName }] : []), ' · ' + passes + previewing] };
+}
+
 function glyphFor(node) {
   if (node.type === 'path' || node.type === 'generatedTrajectory') return 'route';
   if (node.type === 'builtin') return 'pause';
@@ -129,11 +182,13 @@ export function addMenuSteps(routine, where, catalog) {
   const kinds = new Set(A.AUTHORABLE_STEPS.map((step) => step.id));
   const offered = new Set(A.authorableSteps(catalog).map((step) => step.id));
   const items = [];
-  if (kinds.has('command')) items.push({ key: 'command', kind: 'command', label: 'Command', icon: 'bolt', tone: 'cmd' });
+  // Without linked code, commands and conditions can still be placed; the row and inspector name what is missing.
+  if (kinds.has('command')) items.push({ key: 'command', kind: 'command', label: 'Command', icon: 'bolt', tone: 'cmd', meta: catalog ? undefined : 'Needs linked robot code' });
   if (kinds.has('wait')) items.push(offered.has('wait')
     ? { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait' }
-    : { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait', disabled: true, meta: 'Needs bordeaux.wait in the catalog' });
-  if (kinds.has('decision')) items.push({ key: 'decision', kind: 'decision', label: 'Branch on robot condition', icon: 'branch' });
+    : { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait', disabled: true, meta: catalog ? 'Needs bordeaux.wait in the catalog' : 'Needs linked robot code' });
+  if (kinds.has('decision')) items.push({ key: 'decision', kind: 'decision', label: 'Branch on robot condition', icon: 'branch',
+    meta: !catalog ? 'Needs linked robot code' : A.authoritativeConditions(catalog).length ? undefined : 'No registered conditions yet' });
   (catalog?.commands || []).forEach((command) => A.branchOutputs(command).forEach((output) => items.push({
     key: 'branch:' + command.id + ':' + output.name, kind: 'commandBranch', command, output, icon: 'branch',
     label: 'Branch on ' + command.label + ' · ' + (output.label || output.name),
@@ -220,9 +275,10 @@ function usePlacement(anchor, ref, width, align) {
   useLayoutEffect(() => {
     const place = () => {
       if (!anchor?.isConnected || !ref.current) return;
-      const r = anchor.getBoundingClientRect(), height = ref.current.offsetHeight;
+      const r = anchor.getBoundingClientRect(), list = ref.current.querySelector('.rt-add-list');
+      const height = ref.current.offsetHeight + (list ? Math.max(0, list.scrollHeight - list.clientHeight) : 0);
       const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
-      const down = below >= Math.min(height, 280) || below >= above;
+      const down = below >= height || below >= above;
       const left = Math.max(8, Math.min(align === 'end' ? r.right - width : r.left, window.innerWidth - width - 8));
       setPos({ left, top: down ? r.bottom + 4 : undefined, bottom: down ? undefined : window.innerHeight - r.top + 4, maxHeight: Math.max(160, down ? below : above) });
     };
@@ -241,7 +297,7 @@ function useOutside(ref, anchor, close) {
 }
 
 /** Searchable Add: project paths first (the common case), then the step kinds valid in this list. */
-function AddMenu({ anchor, paths, steps, onPick, onClose, label }) {
+function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest }) {
   const ref = useRef(null), input = useRef(null);
   const [query, setQuery] = useState('');
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -274,6 +330,8 @@ function AddMenu({ anchor, paths, steps, onPick, onClose, label }) {
     item.meta && h('span', { className: 'rt-ch-d' }, item.meta));
   return createPortal(h('div', { ref, className: 'rt-add-menu', role: 'dialog', 'aria-label': label, onKeyDown,
     style: pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: 'hidden' } },
+    // Where the pick lands, stated before choosing it.
+    dest && h('div', { className: 'rt-add-dest' }, dest),
     h('div', { className: 'rt-add-search' },
       h(Icon, { name: 'search', size: 14 }),
       h('input', { ref: input, value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Path name or step', 'aria-label': 'Find a path or step',
@@ -376,6 +434,14 @@ export function RoutinePanel(props) {
   const stepItems = (where) => addMenuSteps(routine, where, catalog);
   const openAdd = (where, anchor, label) => { setMenu(null); setAdd({ where, anchor, label }); };
   const closeAdd = (refocus) => { const anchor = add?.anchor; setAdd(null); if (refocus && anchor?.isConnected) anchor.focus(); };
+  const destination = (where) => {
+    if (where.afterId) { const at = A.locate(routine, where.afterId); return at ? 'After “' + stepTitle(at.node, paths, catalog) + '”' : ''; }
+    const ref = where.list;
+    if (ref.kind === 'root') return routine.nodes.length ? 'At the end of the routine' : 'First step of the routine';
+    const owner = A.locate(routine, ref.nodeId)?.node; if (!owner) return '';
+    if (ref.kind === 'repeat') return 'At the end of “' + stepTitle(owner, paths, catalog) + '”';
+    return 'At the end of route “' + (A.childLists(owner).find((list) => refKey(list.ref) === refKey(ref))?.label || '') + '”';
+  };
   const nodeFor = (item) => {
     if (item.kind === 'path') return A.newNode('path', null, item.ref);
     if (item.kind === 'command') return A.newNode('function', 'command');
@@ -467,12 +533,18 @@ export function RoutinePanel(props) {
   };
 
   // ---- rows ----
-  function describe(node, seg, offPreview) {
+  // Authored flow outcomes, cached per render by child list. They never depend on the chosen preview route.
+  const flowCache = new WeakMap();
+  function describe(node, seg, offPreview, exitTo) {
     const issue = issueByNode.get(node.id);
     const deployment = A.nodeDeploymentState(node, catalog);
-    if (deployment.legacy) return { meta: 'Legacy step · replace or remove before export', problem: 'bad' };
+    // Legacy generation may carry a saved reference path; preserve that existing preview without claiming live generation.
+    if (deployment.legacy) return { meta: 'Legacy ' + deployment.label.toLowerCase() + ' step · '
+      + (node.cat === 'generate' && node.preview ? 'preview plays its saved reference path' : 'ignored by the preview'), problem: 'warn' };
     if (issue?.severity === 'error') return { meta: issue.message, problem: 'bad', dur: durationOf(node, seg) };
     if (issue?.code === 'unreachable') return { meta: issue.message, problem: 'muted', dur: durationOf(node, seg) };
+    // A saved runtime-generation definition: no desktop generation, no supported delivery.
+    if (node.type === 'generatedTrajectory') return { meta: 'Unsupported saved definition · Bordeaux cannot generate or preview it', problem: 'warn' };
     const jump = jumpByNode.get(node.id);
     const warning = jump ? { meta: continuityText(jump), problem: 'warn' } : issue ? { meta: issue.message, problem: 'warn' } : null;
     if (node.type === 'path') {
@@ -487,18 +559,17 @@ export function RoutinePanel(props) {
     if (warning) return { ...warning, dur: durationOf(node, seg) };
     if (node.type === 'builtin') return { meta: endsPhrase(node, routine, catalog), dur: durationOf(node) };
     if (node.type === 'decision') return { meta: 'Checked once when reached' };
-    if (node.type === 'repeat') return { meta: node.until ? 'Stop when ' + describeStop(node.until, routine, catalog) + ', checked after each pass' : 'Same steps each pass', dur: durationOf(node) };
+    if (node.type === 'repeat') return { meta: node.until ? 'Until ' + describeStop(node.until, routine, catalog) + ' · checked after each pass' : 'Same steps every pass', dur: durationOf(node) };
     if (node.type === 'end') {
-      if (node.scope === 'routine') return { meta: 'Stop the robot and end the routine' };
-      return { meta: 'Leave the repeat and continue after it' };
+      if (node.scope === 'routine') return { meta: 'Ends the routine here; later steps never run' };
+      return { meta: exitTo ? plainText(['Leaves the repeat and ', ...continuePhrase(exitTo, paths, catalog, false)]) : 'Leaves the repeat' };
     }
-    if (node.type === 'generatedTrajectory') return { meta: 'Generated on the robot · no desktop preview' };
     if (node.type === 'function' && node.cat === 'command') {
       const command = catalog?.commands?.find((item) => item.id === node.invocation?.commandId);
       const output = node.outputBranch && A.branchOutputs(command).find((item) => item.name === node.outputBranch.output);
       return { meta: (node.outputBranch ? 'Then branch on ' + (output?.label || node.outputBranch.output) + ' · ' : '') + endsPhrase(node, routine, catalog), dur: durationOf(node) };
     }
-    return { meta: 'Unsupported step · remove before export', problem: 'bad' };
+    return { meta: 'Unsupported step · ignored by the preview', problem: 'warn' };
   }
   function durationOf(node, seg) {
     if (node.type === 'path') return seg ? fmt(seg.t1 - seg.t0) : '';
@@ -508,13 +579,14 @@ export function RoutinePanel(props) {
     return '';
   }
 
-  function stepRow(node, depth, offPreview, numbered, readOnly) {
+  function stepRow(node, ctx, numbered, open) {
+    const { depth, offPreview, readOnly } = ctx;
     const sel = selId === node.id || range.includes(node.id);
     const active = activeId === node.id;
     const seg = segByNode.get(node.id);
     const kids = A.childLists(node);
     const isCollapsed = kids.length > 0 && collapsed.has(node.id);
-    const info = describe(node, seg, offPreview);
+    const info = describe(node, seg, offPreview, ctx.exitTo);
     const kind = node.type === 'path' ? 'path' : node.type === 'decision' ? 'decision' : node.type === 'builtin' ? 'wait' : node.type === 'function' && node.cat === 'command' ? 'cmd' : 'control';
     const mark = dnd.drag?.target?.mark;
     const markHere = mark?.rowId === node.id;
@@ -540,10 +612,12 @@ export function RoutinePanel(props) {
           isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
       h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
       h('span', { className: 'rt-step-tools' }, !readOnly && h('button', { className: 'rt-tool rt-more', type: 'button', tabIndex: -1, 'aria-haspopup': 'menu', 'aria-expanded': menu?.id === node.id, title: 'Step actions (⇧F10)',
-        'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
+        'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))),
+      // An open block's rail starts under its owner's icon.
+      open && h('span', { className: 'rt-rail-start', 'aria-hidden': true }));
   }
 
-  function addRow(ref, depth, label, ariaLabel) {
+  function addRow(ref, depth, ariaLabel) {
     const where = { list: ref };
     const open = add && add.where.list && refKey(add.where.list) === refKey(ref);
     const mark = dnd.drag?.target?.mark;
@@ -551,46 +625,58 @@ export function RoutinePanel(props) {
     return h('div', { key: 'add:' + refKey(ref), className: 'rt-addwrap' + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
       h('button', { className: 'rt-add' + (open ? ' on' : ''), type: 'button', 'data-nav': 'add:' + refKey(ref), tabIndex: stop('add:' + refKey(ref)), 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(open), 'aria-label': ariaLabel,
         onClick: (e) => (open ? closeAdd(false) : openAdd(where, e.currentTarget, ariaLabel)), onKeyDown: navKeys },
-        h(Icon, { name: 'plus', size: 14 }), label));
+        h(Icon, { name: 'plus', size: 14 }), 'Add step'));
   }
 
-  function renderList(nodes, ref, depth, offPreview, routeLabel, readOnly) {
-    const out = nodes.map((node) => renderNode(node, depth, offPreview, ref.kind === 'root', readOnly));
-    if (!readOnly) out.push(addRow(ref, depth, routeLabel ? 'Add to ' + routeLabel : 'Add step',
-      routeLabel ? 'Add a step to the ' + routeLabel + ' route' : ref.kind === 'repeat' ? 'Add a step to this repeat' : 'Add a step at the end'));
+  /** A closing row: an elbow from the block's rail, a glyph for what happens next, and the authored fact in words. */
+  function closingRow(depth, closing) {
+    return h('div', { key: 'close', className: 'rt-close' + (closing.terminal ? ' terminal' : ''), style: { '--depth': depth } },
+      h('span', { className: 'rt-elbow', 'aria-hidden': true }),
+      h('span', { className: 'rt-close-ic', 'aria-hidden': true }, h(Glyph, { name: closing.glyph, size: 13 })),
+      h('span', { className: 'rt-close-t' }, closing.parts.map((part, index) => (typeof part === 'string' ? part : h('span', { key: index, className: 'rt-close-name' }, part.name)))));
+  }
+
+  // ctx: { depth, offPreview, readOnly, after, exitTo }. `after` is what this list reaches when it completes;
+  // `exitTo` is what the nearest enclosing repeat reaches when an Exit leaves it.
+  function renderList(nodes, ref, ctx, addLabel) {
+    const out = nodes.map((node, index) => renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }, ref.kind === 'root'));
+    if (!ctx.readOnly) out.push(addRow(ref, ctx.depth, addLabel));
     return out;
   }
 
-  function renderNode(node, depth, offPreview, numbered, readOnly) {
-    const row = stepRow(node, depth, offPreview, numbered, readOnly);
+  function renderNode(node, ctx, numbered) {
+    const { depth, offPreview, readOnly } = ctx;
     const kids = A.childLists(node);
-    if (!kids.length || collapsed.has(node.id)) return h('div', { key: node.id, className: 'rt-step-wrap' }, row);
+    const open = kids.length > 0 && !collapsed.has(node.id);
+    const row = stepRow(node, ctx, numbered, open);
+    if (!open) return h('div', { key: node.id, className: 'rt-step-wrap' }, row);
     const body = [];
     if (node.type === 'repeat') {
-      body.push(...renderList(kids[0].nodes, kids[0].ref, depth + 1, offPreview, null, readOnly));
-      const passes = passOf(node.id);
-      const previewing = offPreview || passes === undefined ? '' : ' · previewing ' + plural(passes, 'pass');
-      body.push(h('div', { key: 'close', className: 'rt-close', style: { '--depth': depth + 1 }, 'aria-hidden': true },
-        'Back to the top, ' + (node.until ? 'up to ' : '') + plural(node.times, 'pass') + previewing));
+      body.push(...renderList(kids[0].nodes, kids[0].ref, { depth: depth + 1, offPreview, readOnly, after: { kind: 'pass' }, exitTo: ctx.after }, 'Add step to this repeat'));
+      body.push(closingRow(depth + 1, repeatClosing(node, routine, catalog, flowCache, offPreview ? undefined : passOf(node.id))));
     } else {
       const chosen = isBranch(node) ? A.selectedBranch(node, outcomes) : null;
       kids.forEach((list) => {
         const fixed = readOnly || list.readOnly;
         const routeId = routeIdOf(list.ref), live = list.ref.kind === 'fallback' ? false : chosen && chosen.id === routeId, count = A.branchCount(list.nodes);
+        const flow = A.flowSummary(list.nodes, flowCache);
+        const outcome = flow.normal ? (count ? '' : 'continues') : flow.endRoutine && flow.exitRepeat ? 'ends routine or leaves repeat' : flow.exitRepeat ? 'leaves repeat' : 'ends routine';
         const mark = dnd.drag?.target?.mark, markHere = mark?.list === refKey(list.ref) && mark.edge === 'start';
         body.push(h('div', { key: refKey(list.ref), className: 'rt-branch' + (live ? ' live' : '') + (offPreview ? ' off' : ''), role: 'group', 'aria-label': 'Route ' + list.label },
           h('div', { className: 'rt-route' + (markHere ? ' drop-after' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
+            h('span', { className: 'rt-tick', 'aria-hidden': true }),
             list.ref.kind === 'fallback'
-              ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-brname' }, 'Fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
+              ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-radio static', 'aria-hidden': true }), h('span', { className: 'rt-brname' }, 'Saved fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
               : h('button', { className: 'rt-brlbl', type: 'button', 'data-nav': 'route:' + refKey(list.ref), tabIndex: stop('route:' + refKey(list.ref)), role: 'radio', 'aria-checked': Boolean(live), 'aria-label': 'Preview route ' + list.label,
                   title: 'Preview this route', onClick: () => acq.setOutcome(node.id, routeId), onKeyDown: navKeys },
                   h('span', { className: 'rt-radio', 'aria-hidden': true }),
                   h('span', { className: 'rt-brname' }, list.label),
                   h('span', { className: 'rt-brkey' }, routeRule(node, list)),
-                  h('span', { className: 'rt-brcount' }, (live ? 'Previewing · ' : '') + (count ? plural(count, 'step') : 'Empty, continues')))),
-          renderList(list.nodes, list.ref, depth + 2, offPreview || !live, list.label, fixed)));
+                  h('span', { className: 'rt-brcount' }, [live && 'Previewing', count ? plural(count, 'step') : 'Empty', outcome].filter(Boolean).join(' · '))),
+            (list.nodes.length > 0 || !fixed) && h('span', { className: 'rt-rail-start', 'aria-hidden': true })),
+          renderList(list.nodes, list.ref, { depth: depth + 2, offPreview: offPreview || !live, readOnly: fixed, after: ctx.after, exitTo: ctx.exitTo }, 'Add step to the ' + list.label + ' route')));
       });
-      body.push(h('div', { key: 'close', className: 'rt-close', style: { '--depth': depth + 1 }, 'aria-hidden': true }, node.type === 'generatedTrajectory' ? 'Fallback ends' : 'Routes rejoin here'));
+      body.push(closingRow(depth + 1, node.type === 'generatedTrajectory' ? { glyph: 'join', parts: ['End of the saved fallback'] } : branchClosing(kids, ctx.after, paths, catalog, flowCache)));
     }
     return h('div', { key: node.id, className: 'rt-step-wrap' }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
   }
@@ -606,11 +692,15 @@ export function RoutinePanel(props) {
       routine.nodes.length === 0
         ? h('div', { className: 'rt-empty' },
             h('div', { className: 'rt-empty-t' }, 'Build the run order'),
-            h('p', null, 'Steps run top to bottom.'),
+            h('p', null, paths.length
+              ? 'Steps run top to bottom. Add paths in driving order, then branch, repeat or end early where the plan needs it.'
+              : 'This project has no paths yet. Create one in Paths, then add it here.'),
             h('button', { className: 'qbtn rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
-              onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'))
-        : h('div', { className: 'rt-list', role: 'list', 'aria-label': 'Routine run order' }, renderList(routine.nodes, { kind: 'root' }, 0, false, null, false))),
+              onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'),
+            !catalog && h('p', { className: 'rt-empty-note' }, 'Commands and robot conditions come from linked robot code.'))
+        : h('div', { className: 'rt-list', role: 'list', 'aria-label': 'Routine run order' },
+            renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
-    add && h(AddMenu, { anchor: add.anchor, paths, steps: stepItems(add.where), label: add.label, onPick: pick, onClose: closeAdd }),
+    add && h(AddMenu, { anchor: add.anchor, paths, steps: stepItems(add.where), label: add.label, dest: destination(add.where), onPick: pick, onClose: closeAdd }),
     menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }));
 }

@@ -177,9 +177,9 @@ describe("generated trajectory capabilities", () => {
     const routine = { id: "r", name: "R", nodes: [node] };
     const panel = renderToStaticMarkup(createElement(RoutinePanel, { routine, run, paths: [], time: 0, running: false, acq: { outcomes: {} }, catalog: catalog() }));
     expect(panel).toContain("Drive to pose, Runtime dynamic");
-    expect(panel).toContain("Generated on the robot · no desktop preview");
+    expect(panel).toContain("Unsupported saved definition · Bordeaux cannot generate or preview it");
     const inspector = renderToStaticMarkup(createElement(StepInspector, { node, routine, paths: [], acq: {}, run, robotProject: { catalog: catalog() } }));
-    expect(inspector).toContain("Generated and validated on the robot");
+    expect(inspector).toContain("no robot runner supports it yet");
     expect(inspector).not.toContain("<input");
   });
 });

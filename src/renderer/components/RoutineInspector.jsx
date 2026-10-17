@@ -22,7 +22,6 @@ const OPERATORS = [['eq', 'Equals'], ['neq', 'Does not equal'], ['lt', 'Less tha
 function FieldLabel(t, right) { return h('div', { className: 'fieldlabel' }, h('span', null, t), right || null); }
 const Hint = (text) => h('p', { className: 'seg-hint' }, text);
 const Section = (title, ...children) => h('section', { className: 'rt-insp-sec', 'aria-label': title }, h('h3', { className: 'cgroup-h' }, title), ...children);
-const PREVIEW_ONLY = 'Preview only. No robot runtime runs this yet.';
 
 function conditionItems(catalog, value) {
   return A.conditionPickerItems(A.authoritativeConditions(catalog), value, 'Choose a condition');
@@ -144,7 +143,8 @@ export function StepInspector(props) {
   const seg = (run?.segs || []).find((s) => s.nodeId === node.id);
   const remove = (label) => h('button', { className: 'delbtn', type: 'button', ...deletionInput(() => acq.del(node.id)) }, h(Icon, { name: 'trash', size: 15 }), label);
   const deployment = A.nodeDeploymentState(node, catalog);
-  let glyph = 'info', title = 'Step', tone = null, body = null, support = false, tag = null;
+  // The local-only boundary and preview assumptions are stated once, in the workspace header, not per step.
+  let glyph = 'info', title = 'Step', tone = null, body = null, tag = null;
   // Steps inside a generated trajectory's fallback are retained as authored and cannot be edited or removed here.
   if (A.locate(routine, node.id)?.readOnly) {
     return h('div', { className: 'ctxinsp inspector-refresh routine-insp' },
@@ -153,7 +153,7 @@ export function StepInspector(props) {
         h('span', { className: 'ctxinsp-t', title: stepTitle(node, paths, catalog) }, stepTitle(node, paths, catalog)),
         h('span', { className: 'ctxinsp-tag' }, 'Read-only'),
         h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
-      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Part of a generated trajectory’s fallback. It is kept as saved and cannot be changed here.')));
+      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Part of a saved runtime-generation fallback. It is kept as saved and cannot be changed here.')));
   }
 
   if (node.type === 'path') {
@@ -170,7 +170,7 @@ export function StepInspector(props) {
       remove('Remove from routine'));
 
   } else if (node.type === 'builtin' && node.builtinId === 'bordeaux.wait') {
-    glyph = 'pause'; title = 'Wait'; tone = 'wait'; support = Boolean(node.ends);
+    glyph = 'pause'; title = 'Wait'; tone = 'wait';
     body = h(React.Fragment, null,
       h(CommandParameterEditor, { key: node.id, id: 'routine-wait-' + safeControlId(node.id), label: 'Wait duration in seconds',
         schema: { kind: 'number' }, parameter: SECONDS, value: node.arguments && node.arguments.durationS,
@@ -179,20 +179,21 @@ export function StepInspector(props) {
       remove('Delete wait'));
 
   } else if (node.type === 'decision') {
-    glyph = 'branch'; title = 'Branch'; support = true;
+    glyph = 'branch'; title = 'Branch';
     const out = acq.outcomes?.[node.id] || 'then';
     body = h(React.Fragment, null,
       h(ConditionPicker, { id: 'routine-condition', label: 'Robot condition', value: node.cond, catalog, onChange: (cond) => set({ cond }) }),
       Hint('Checked once when the routine reaches it.'),
-      h('div', { className: 'grid2 rt-route-names' },
+      h('div', { className: 'rt-route-names' },
         h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
         h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
       FieldLabel('Preview route'),
+      Hint('Chooses which route the local preview follows. It does not change the routine.'),
       h(Seg, { ariaLabel: 'Preview route', value: out, options: [{ v: 'then', label: node.thenLabel || 'True' }, { v: 'else', label: node.elseLabel || 'False' }], onChange: (v) => acq.setOutcome(node.id, v) }),
       remove('Delete branch'));
 
   } else if (node.type === 'repeat') {
-    glyph = 'repeat'; title = 'Repeat'; support = true;
+    glyph = 'repeat'; title = 'Repeat';
     const passes = Math.min(node.times, acq.passes?.[node.id] ?? 1);
     body = h(React.Fragment, null,
       h(CommandParameterEditor, { key: node.id + ':times', id: 'routine-repeat-times-' + safeControlId(node.id), label: node.until ? 'Most passes' : 'Passes',
@@ -213,25 +214,25 @@ export function StepInspector(props) {
       remove('Delete repeat'));
 
   } else if (node.type === 'end') {
-    support = true;
     if (node.scope === 'repeat') {
       glyph = 'exit'; title = 'Exit repeat';
       const repeat = A.locate(routine, A.locate(routine, node.id)?.repeatIds.at(-1))?.node;
-      body = h(React.Fragment, null, repeat && Hint('Continues after “' + stepTitle(repeat, paths, catalog) + '”.'), remove('Delete exit'));
+      body = h(React.Fragment, null, repeat && Hint('Leaves “' + stepTitle(repeat, paths, catalog) + '”. Later steps in this pass never run.'), remove('Delete exit'));
     } else {
       glyph = 'stop'; title = 'End routine';
-      body = h(React.Fragment, null, Hint('Stops the robot and ends the routine. Later steps never run.'), remove('Delete end'));
+      body = h(React.Fragment, null, Hint('Ends the routine here. Later steps never run.'), remove('Delete end'));
     }
 
   } else if (node.type === 'generatedTrajectory') {
-    glyph = 'route'; title = deployment.label || 'Generated trajectory';
+    // A saved definition only: it cannot be added, generated on the desktop, or delivered to a robot runner today.
+    glyph = 'route'; title = deployment.label || 'Generated trajectory'; tone = 'bad'; tag = 'Not supported';
     body = h(React.Fragment, null,
-      Hint('Generated and validated on the robot. Bordeaux shows no desktop geometry, duration or clearance for it.'),
-      Hint('Fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'validated static branch (read-only)' : 'safe stop')),
+      Hint('A saved definition for a path generated while the routine runs. Bordeaux cannot generate or preview it, and no robot runner supports it yet.'),
+      Hint('Saved fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'static steps, kept as saved and not checked (read-only)' : 'safe stop')),
       remove('Remove generated trajectory'));
 
   } else if (node.type === 'function' && node.cat === 'command') {
-    glyph = 'bolt'; title = 'Command'; tone = 'cmd'; support = Boolean(node.ends || node.outputBranch);
+    glyph = 'bolt'; title = 'Command'; tone = 'cmd';
     const commands = catalog ? catalog.commands || [] : [];
     const invocationId = node.invocation && node.invocation.commandId || '';
     const selected = commands.find((command) => command.id === invocationId);
@@ -277,7 +278,9 @@ export function StepInspector(props) {
     // Retained legacy or unknown data: shown and removable, never reinterpreted as new control flow.
     title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step'; tone = 'bad'; tag = 'Legacy — cannot deploy';
     body = h(React.Fragment, null,
-      Hint('This saved step has no export contract. Its data is kept until you replace or remove it.'),
+      Hint('Saved by an earlier Bordeaux format. ' + (node.cat === 'generate' && node.preview
+        ? 'The preview plays the path saved with it; nothing is generated. It has no robot contract.'
+        : 'The preview ignores it and it has no robot contract.') + ' Its data is kept as saved until you remove it.'),
       remove('Remove unsupported step'));
   }
 
@@ -290,8 +293,7 @@ export function StepInspector(props) {
     // Keyed by step so an unfinished draft never moves to another step.
     h('div', { className: 'ctxinsp-body', key: node.id },
       h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id) }),
-      body,
-      support && h('p', { className: 'rt-insp-support' }, PREVIEW_ONLY)));
+      body));
 }
 
 /** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, untimed commands as markers. */
@@ -310,12 +312,13 @@ export function RoutineTransport(props) {
   const totalLabel = duration.maxS !== null && duration.usesLimits ? '≤ ' + fmt(run.total) : fmt(run.total);
   const summary = [
     duration.usesLimits && 'Using time limits',
-    duration.unknownCount > 0 && plural(duration.unknownCount, 'command') + ' untimed',
+    // Untimed steps add no preview time; that is not a claim that they take none.
+    duration.unknownCount > 0 && plural(duration.unknownCount, 'untimed step') + ' not counted',
     jumps > 0 && plural(jumps, 'pose jump'),
     run.truncated && 'Preview stops at 2,000 steps',
     !timedPlayable && occurrences.length > 0 && !run.blocked && 'Untimed preview',
   ].filter(Boolean).join(' · ');
-  const color = (step) => step.kind === 'path' || step.kind === 'gen' ? 'var(--accent)' : step.kind === 'wait' ? 'var(--warn)' : step.kind === 'event' ? '#4fbf78' : 'var(--txt-3)';
+  const color = (step) => step.kind === 'path' || step.kind === 'gen' ? 'var(--accent)' : step.kind === 'wait' ? 'var(--warn)' : step.kind === 'event' ? 'var(--cmd)' : 'var(--txt-3)';
   const at = (t) => `calc(10px + (100% - 20px) * ${run.total ? t / run.total : 0})`;
   const width = (d) => `calc((100% - 20px) * ${run.total ? d / run.total : 0})`;
   const marks = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'decision' || step.kind === 'end' || step.kind === 'event' || (step.kind === 'repeat' && step.pass > 1)));
@@ -346,7 +349,7 @@ export function RoutineTransport(props) {
       h('div', { className: 'rt-tp-ctl' },
         h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
         h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
-      h('span', { className: 'rt-timeline-title' }, 'Preview'),
+      h('span', { className: 'rt-timeline-title' }, 'Preview time'),
       h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
       h('span', { className: 'rt-timeline-summary', title: summary || undefined }, summary),
       pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),

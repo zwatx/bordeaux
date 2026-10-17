@@ -392,7 +392,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
         const dp = derivePathNode(it.node, pathsById, robot, plannerId, plannedValues, derivedPaths, derivePath);
         if (!dp || !Array.isArray(dp.pts) || dp.pts.length < 2 || !Number.isFinite(dp.total) || dp.total < 0) { invalid(`Path ${it.node.ref || it.node.id} has no usable authoritative plan.`); break; }
         dur = dp.total; timing = 'exact'; pIdx++;
-        const idxLabel = String(pIdx).padStart(2, '0'), label = it.node.type === 'path' ? dp.doc.name : (it.node.funcRef || 'Generated');
+        const idxLabel = String(pIdx).padStart(2, '0'), label = it.node.type === 'path' ? dp.doc.name : ('Saved reference: ' + dp.doc.name);
         const startPose = dp.trajectory ? trajectoryPoseAt(dp.trajectory, 0) : PM.poseAtTime(0, dp.pts, dp.deriv.prof, dp.deriv.anchors, dp.deriv.mode, dp.deriv.rev);
         if (lastPose && startPose) {
           const distanceM = Math.hypot(lastPose.x - startPose.x, lastPose.y - startPose.y);
@@ -480,7 +480,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, isResultConsumer, newCommandEnds, branches, selectedBranch, branchOutputs, newOutputBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, selectedBranch, branchOutputs, newOutputBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 
@@ -689,6 +689,18 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, isRes
       outcomes.delete('normal'); for (const value of next) outcomes.add(value);
     }
     cache.set(nodes, outcomes); return outcomes;
+  }
+  /** Authored control-flow outcomes, independent of the chosen preview trace.
+   * A repeat consumes its own Exit; callers inspecting its body can still
+   * distinguish leaving the repeat from completing a pass and looping back.
+   */
+  function flowSummary(nodes, cache) {
+    const outcomes = flowOutcomes(nodes, 0, cache);
+    return {
+      normal: outcomes.has('normal'),
+      endRoutine: outcomes.has('endRoutine'),
+      exitRepeat: outcomes.has('exitRepeat'),
+    };
   }
   function fallsThrough(nodes, cache) { return flowOutcomes(nodes, 0, cache).has('normal'); }
   function analyze(routine, paths = [], catalog = null) {
