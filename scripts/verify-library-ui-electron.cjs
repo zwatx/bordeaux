@@ -1468,10 +1468,12 @@ app.whenReady().then(async () => {
     const beforeFailure = structuredClone(saved.paths[0]);
     await evaluate((pathId) => {
       const post = Worker.prototype.postMessage;
+      window.__injectedPlanningFailures = 0;
       window.__restoreWorkerPost = () => { Worker.prototype.postMessage = post; delete window.__restoreWorkerPost; };
       Worker.prototype.postMessage = function (message, ...args) {
-        if (message.quality === 'interactive' && message.path.id === pathId && message.path.waypoints[0].x === 2.25) {
-          setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: message.id, error: { message: 'Injected interactive planning failure' } } })), 0);
+        if (message.mode === 'editing' && message.quality === 'final' && message.path.id === pathId && message.path.waypoints[0].x === 2.25) {
+          window.__injectedPlanningFailures++;
+          setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: { id: message.id, error: { message: 'Injected final planning failure' } } })), 0);
           return;
         }
         return post.call(this, message, ...args);
@@ -1480,7 +1482,8 @@ app.whenReady().then(async () => {
     await click('.pt-wp');
     await editNumber('X', 2.25);
     await click('.optimizer-toggle');
-    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Injected interactive planning failure')), 'current error shown over retained preview');
+    await wait(() => evaluate(() => document.querySelector('.optimizer-failure')?.textContent.includes('Injected final planning failure')), 'current error shown over retained preview');
+    assert.ok(await evaluate(() => window.__injectedPlanningFailures > 0), 'The current final-planning request receives the injected failure');
     // The optimizer's own baseline failed; the editor keeps the current geometry editable.
     assert.equal(await evaluate(() => Boolean(document.querySelector('.fieldsvg').closest('[inert]'))), false, 'The field stays editable while the optimizer baseline fails');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.optimizer-panel').closest('[inert]'))), false, 'Error recovery must remain usable');
