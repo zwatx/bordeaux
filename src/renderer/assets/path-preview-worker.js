@@ -321,7 +321,7 @@ export function processPathPreviewJob(
             type: 'progress',
             quality: job.quality,
             value: { ...toPreview(trajectory), routeSearch: { status: 'feasible',
-              seedStatus: trajectory.optimization?.seedStatus || 'unknown' } },
+              seedStatus: trajectory.optimization?.seedStatus || 'unknown', seedIssue: trajectory.optimization?.seedIssue } },
             durationMs: performance.now() - startedAt,
           }),
           // Counters only: the incumbent and its projected preview are unchanged.
@@ -339,7 +339,7 @@ export function processPathPreviewJob(
       const finalTrajectory = search.candidate || (search.optimization ? search : null);
       const routeSearch = search.status ? {
         status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
-        seedStatus: search.seedStatus || 'unknown',
+        seedStatus: search.seedStatus || 'unknown', seedIssue: search.seedIssue,
       } : undefined;
       if (!finalTrajectory) return {
         id: job.id, quality: job.quality,

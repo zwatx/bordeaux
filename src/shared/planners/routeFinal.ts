@@ -20,6 +20,8 @@ export interface RouteSearchResult {
   candidate?: PlannerResult;
   baseline?: PlannerResult;
   seedStatus: "unknown" | "valid" | "invalid";
+  /** Why the drawn curve itself was rejected, when it concretely was. */
+  seedIssue?: string;
   status: "feasible" | "no-candidate" | "unsupported" | "cancelled";
   reason?: string;
   termination: NonNullable<PlannerOptimizationDiagnostics["termination"]>;
@@ -38,6 +40,7 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
   let longestCandidateMs = 0;
   let termination: RouteSearchResult["termination"] | undefined;
   let seedStatus: RouteSearchResult["seedStatus"] = "unknown";
+  let seedIssue: string | undefined;
   let best: PlannerResult | undefined;
   let baseline: PlannerResult | undefined;
   const reasons = new Map<string, number>();
@@ -66,7 +69,7 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     maxAccelerationMps2: Math.max(...result.samples.map((s) => Math.abs(s.accelerationMps2))),
     constraintViolations: 0, fallback: false, ...result.optimization,
     status: baseline && result.totalTimeS >= baseline.totalTimeS - Math.max(0.02, baseline.totalTimeS * 0.005) ? "equivalent" : "feasible",
-    optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus,
+    optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus, ...(seedIssue ? { seedIssue } : {}),
     ...(baseline ? { baselineTimeS: baseline.totalTimeS, gainS: baseline.totalTimeS - result.totalTimeS } : {}),
   } });
   const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < Math.max(0.02, baseline.totalTimeS * 0.005) ? baseline : best;
@@ -127,7 +130,10 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
         if (!best || normal.totalTimeS < best.totalTimeS) best = normal;
         validatedCandidates++;
       } else {
-        if (failure.concrete) seedStatus = "invalid";
+        if (failure.concrete) {
+          seedStatus = "invalid";
+          seedIssue = failure.message;
+        }
         reject(failure.message);
       }
     } catch (error) {
@@ -143,7 +149,7 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
   termination ??= "completed";
   const current = retained();
   return {
-    candidate: current && decorate(current), baseline: baseline && decorate(baseline), seedStatus,
+    candidate: current && decorate(current), baseline: baseline && decorate(baseline), seedStatus, ...(seedIssue ? { seedIssue } : {}),
     status: termination === "cancelled" ? "cancelled" : current ? "feasible" : "no-candidate",
     termination, statistics: statistics(),
     reason: current ? undefined : termination === "cancelled" ? "Route search was cancelled before finding a validated candidate."

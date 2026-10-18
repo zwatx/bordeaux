@@ -263,3 +263,40 @@ describe("waypoint-defined route search", () => {
     expect(result.reason).toMatch(/does not prove/);
   });
 });
+
+describe("drawn curve grazing the field wall", () => {
+  // Owner report 2026-10-17: the drawn curve clipped the top wall by ~7 mm, and
+  // the search offered a 4.45 s hairpin through waypoint 1 instead of 2.84 s.
+  const grazingRobot = { drive: "swerve", w: 0.84, l: 0.84, heightM: 0.5, maxSpeed: 5.346559406159112,
+    driveModel: { motorId: "rev-vortex", motorFreeRpm: 6784, motorMaxTorqueNm: 3.6, motorCount: 4, gearRatio: 6.75, wheelDiameterM: 0.1016,
+      massKg: 54, moiKgM2: 6.3504, wheelbaseM: 0.66, trackwidthM: 0.66, wheelFrictionCoefficient: 1.2 } } as any;
+  const grazingPath = { version: "2.0", id: "p", name: "New path", targets: [], markers: [], ranges: [], headingMode: "targets", startVel: 0, goalVel: 0, exportable: true,
+    constraints: { maxVel: 5.346559406159112, maxAccel: 11.76798, maxDecel: 11.76798, maxAngVel: 656.3992730002224, maxAngAccel: 2675.753917905203,
+      maxAngDecel: 2675.753917905203, maxJerk: 0, maxAngJerk: 0, maxCentripetalAccel: 11.76798 },
+    waypoints: [
+      { linked: true, thetaOn: true, theta: 0, stop: false, x: 5.0226004845070955, y: 7.600939592596264, segType: "bezier",
+        prevC: { x: 4.238600484507095, y: 7.600939592596264 }, nextC: { x: 5.806600484507095, y: 7.600939592596264 }, segmentHeadingMode: "tangent" },
+      { linked: true, thetaOn: true, theta: -87, stop: false, x: 9.41188469045642, y: 5.276725929738121, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
+        prevC: { x: 9.486418174813297, y: 8.103169505614527 }, nextC: { x: 9.360824995282305, y: 3.3404505944797855 } },
+      { linked: false, thetaOn: true, theta: -87, stop: true, x: 6.402403683889392, y: 5.2613553095049275, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
+        prevC: { x: 7.41623284562869, y: 5.249294787237334 }, nextC: { x: 5.317490086367311, y: 5.274261452960974 } },
+    ] } as any;
+
+
+  it("repairs the curve near its drawn shape instead of offering a slower hairpin", () => {
+    const normal = getPlanner("profiledSpline").generate({ path: grazingPath, robot: grazingRobot });
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    // Five evaluations: canonical, Normal qualification, authored, then the
+    // nearest repairs. A wall-clock Quick search reaches only a handful.
+    const result = (() => { try { return optimizeRouteFinal({ path: grazingPath, robot: grazingRobot }, { maximumEvaluations: 5 }); } finally { clock.mockRestore(); } })();
+    expect(result.seedStatus).toBe("invalid");
+    expect(result.seedIssue).toMatch(/footprint|clearance/);
+    const candidate = result.candidate!;
+    expect(candidate, JSON.stringify(result.statistics)).toBeDefined();
+    expect(candidate.totalTimeS).toBeLessThan(normal.totalTimeS);
+    expect(candidate.optimization!.seedIssue).toBe(result.seedIssue);
+    const interior = candidate.samples.slice(5, -5);
+    expect(Math.min(...interior.map((s) => Math.abs(s.velocityMps)))).toBeGreaterThan(1);
+    expect(routeCandidateFailure({ path: grazingPath, robot: grazingRobot }, candidate)).toBeUndefined();
+  }, 60_000);
+});
