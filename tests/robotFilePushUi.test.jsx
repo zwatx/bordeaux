@@ -1,62 +1,106 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-const hooks = vi.hoisted(() => ({ values: [], cursor: 0 }));
-// Hooks become plain calls, so PushControl can be called directly and its buttons' handlers invoked.
+const hooks = vi.hoisted(() => ({ values: [], cursor: 0, open: false }));
+// Hooks become plain calls, so PushControl and its menu can be called directly and their handlers invoked.
+// `hooks.open` is the menu's initial open state.
 vi.mock('react', async (original) => ({
   ...await original(),
   useRef(initial) { const index = hooks.cursor++; if (!(index in hooks.values)) hooks.values[index] = { current: initial }; return hooks.values[index]; },
+  useState(initial) { hooks.cursor++; return [typeof initial === 'boolean' ? hooks.open : initial, () => undefined]; },
   useEffect() { hooks.cursor++; },
 }));
 import * as React from 'react';
-import { PushControl } from '../src/renderer/components/PushControl';
+import { PushControl, robotStatus } from '../src/renderer/components/PushControl';
 import { RobotFilePushDialog } from '../src/renderer/components/RobotFilePushDialog';
 
 const path = (id, waypoints = 3) => ({ id, name: 'Path ' + id, waypoints: Array.from({ length: waypoints }, () => ({})) });
 const controller = (patch = {}) => ({ fileTransfer: true, busy: false, desktopAvailable: true, phase: 'idle', settings: null, requestPush: vi.fn(), openConnection: vi.fn(), ...patch });
+const endpoint = { host: '10.24.68.2', directory: '/home/lvuser/natinst/bin/Paths' };
+// Expands function components (the menu) so their rendered elements can be searched.
 const find = (node, test) => {
   if (!node || typeof node !== 'object') return null;
   if (Array.isArray(node)) { for (const child of node) { const hit = find(child, test); if (hit) return hit; } return null; }
   if (test(node)) return node;
+  if (typeof node.type === 'function') return find(node.type(node.props), test);
   return find(node.props?.children, test);
 };
-function control(props) {
-  hooks.cursor = 0;
+const named = (className) => (node) => node.props?.className === className;
+function control(props, { open = true } = {}) {
+  hooks.cursor = 0; hooks.open = open;
   const tree = PushControl({ place: 'paths', selection: { selected: ['A'] }, activeRoutine: null, ...props });
-  return { all: find(tree, (node) => node.props?.className === 'push-all'), push: find(tree, (node) => node.props?.className === 'push-button') };
+  return { tree, all: find(tree, named('push-all')), push: find(tree, named('push-button')), trigger: find(tree, named('push-menu-trigger')),
+    menu: find(tree, (node) => node.props?.role === 'menu'), connection: find(tree, named('push-menu-connection')),
+    live: find(tree, (node) => node.props?.role === 'status') };
 }
-beforeEach(() => { hooks.values = []; vi.stubGlobal('window', { bordeauxAPI: {} }); });
+const text = (node) => !node ? '' : typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(text).join('')
+  : typeof node.type === 'function' ? text(node.type(node.props)) : text(node.props?.children);
+beforeEach(() => { hooks.values = []; hooks.open = false; vi.stubGlobal('window', { bordeauxAPI: {} }); });
 
-describe('Push all', () => {
-  it('requests every authored path, including ones the library hides, while Push keeps its exact selection', () => {
-    const c = controller();
+describe('Push split button', () => {
+  it('keeps Push and Push all as separate actions: Push sends the exact selection, Push all every authored path', () => {
+    const c = controller({ settings: { endpoint } });
     const { all, push } = control({ paths: [path('A'), path('B'), path('C')], controller: c });
-    expect(all.props).toMatchObject({ 'aria-label': 'Push all 3 paths', disabled: false, children: 'Push all 3' });
-    expect(all.props.title).toMatch(/hidden by search or a collapsed folder/);
+    expect(all.props).toMatchObject({ role: 'menuitem', 'aria-label': 'Push all 3 paths', 'aria-disabled': undefined });
+    expect(text(all)).toContain('including ones hidden by search or a folder');
     all.props.onClick();
     expect(c.requestPush).toHaveBeenLastCalledWith({ kind: 'paths', pathIds: ['A', 'B', 'C'] });
     push.props.onClick();
     expect(c.requestPush).toHaveBeenLastCalledWith({ kind: 'paths', pathIds: ['A'] });
-    expect(push.props).toMatchObject({ 'aria-label': 'Push path', 'data-shortcut': expect.any(String) });
+    expect(c.requestPush).toHaveBeenCalledTimes(2);
+    expect(push.props).toMatchObject({ 'aria-label': 'Push path', 'data-shortcut': expect.any(String), 'aria-keyshortcuts': expect.stringMatching(/\+Shift\+P$/) });
   });
-  it('is unavailable, with the reason, for no paths or any path still being drawn', () => {
-    expect(control({ paths: [], selection: { selected: [] }, controller: controller() }).all.props).toMatchObject({ disabled: true, title: 'No paths to push', children: 'Push all 0' });
-    expect(control({ paths: [path('A'), path('B', 1)], controller: controller() }).all.props).toMatchObject({ disabled: true, title: '1 path needs at least two waypoints' });
-    expect(control({ paths: [path('A', 0), path('B', 1)], controller: controller() }).all.props).toMatchObject({ disabled: true, title: '2 paths need at least two waypoints' });
-    expect(control({ paths: [path('A')], controller: controller({ desktopAvailable: false }) }).all.props.disabled).toBe(true);
+  it('names Push all\'s reason, visibly, when it is unavailable, and keeps it focusable but inert', () => {
+    const reason = (paths, patch) => { const { all } = control({ paths, controller: controller(patch) }); return { inert: all.props['aria-disabled'], onClick: all.props.onClick, text: text(all) }; };
+    expect(reason([], {})).toEqual({ inert: true, onClick: undefined, text: 'Push all 0 pathsNo paths to push' });
+    expect(reason([path('A'), path('B', 1)], {}).text).toContain('1 path needs at least two waypoints');
+    expect(reason([path('A', 0), path('B', 1)], {}).text).toContain('2 paths need at least two waypoints');
+    expect(reason([path('A')], { desktopAvailable: false })).toMatchObject({ inert: true, onClick: undefined });
+    // While a push runs, Push all stays a focusable menu item that does nothing.
+    expect(reason([path('A'), path('B')], { busy: true, phase: 'preparing' })).toMatchObject({ inert: true, onClick: undefined });
   });
-  it('stays focusable but inert while a push runs', () => {
-    const c = controller({ busy: true, phase: 'preparing' });
-    const { all } = control({ paths: [path('A'), path('B')], controller: c });
-    expect(all.props).toMatchObject({ disabled: false, 'aria-disabled': true, onClick: undefined });
+  it('opens and closes as a menu button with the trigger as the focus origin', () => {
+    const closed = control({ paths: [path('A')], controller: controller() }, { open: false });
+    expect(closed.trigger.props).toMatchObject({ 'aria-haspopup': 'menu', 'aria-expanded': false, 'aria-controls': undefined });
+    expect(closed.menu).toBeNull();
+    const open = control({ paths: [path('A')], controller: controller() });
+    expect(open.trigger.props).toMatchObject({ 'aria-expanded': true, 'aria-controls': 'push-menu' });
+    expect(open.menu.props).toMatchObject({ id: 'push-menu', 'aria-label': 'Push options' });
+    const items = [open.all, open.connection];
+    expect(items.map((item) => [item.props.role, item.props.tabIndex])).toEqual([['menuitem', -1], ['menuitem', -1]]);
+  });
+  it('folds the robot state into the trigger: a dot tone, its name and tooltip, and a persistent live region', () => {
+    const state = (patch) => { const { trigger, live } = control({ paths: [path('A')], controller: controller(patch) }); return [trigger.props['data-tone'], trigger.props['aria-label'], live.props.children]; };
+    expect(state({})).toEqual(['unset', 'Push options · Robot not set up', 'Robot not set up']);
+    expect(state({ settings: { endpoint } })).toEqual([undefined, 'Push options · 10.24.68.2 · Paths', '10.24.68.2 · Paths']);
+    expect(state({ phase: 'uploading', busy: true })).toEqual(['busy', 'Push options · Uploading…', 'Uploading…']);
+    expect(state({ phase: 'saving', busy: true })[2]).toBe('Saving…');
+    expect(state({ phase: 'failed', error: 'Readback did not match' })).toEqual(['bad', 'Push options · Not sent · Readback did not match', 'Not sent · Readback did not match']);
+    const [tone, , pushed] = state({ phase: 'transferred', result: { files: [{}, {}], directory: endpoint.directory } });
+    expect([tone, pushed]).toEqual(['good', expect.stringMatching(/^Pushed 2 · \d\d:\d\d$/)]);
+  });
+  it('shows the destination and last result in the menu heading, and routes the connection item to setup', () => {
+    const unset = control({ paths: [path('A')], controller: controller() });
+    expect(text(unset.menu)).toMatch(/^Robot not set upPush opens setup first/);
+    expect(text(unset.connection)).toBe('Set up robot…');
+    const failed = controller({ settings: { endpoint }, phase: 'failed', error: 'Host unreachable' });
+    const { menu, connection } = control({ paths: [path('A')], controller: failed });
+    expect(text(menu)).toMatch(/^10\.24\.68\.2\/home\/lvuser\/natinst\/bin\/PathsNot sent · Host unreachable/);
+    expect(text(connection)).toBe('Robot connection…');
+    connection.props.onClick();
+    expect(failed.openConnection).toHaveBeenCalledTimes(1);
+    expect(failed.requestPush).not.toHaveBeenCalled();
+  });
+  it('keeps the menu usable when the primary half is disabled', () => {
+    const { push, trigger } = control({ paths: [path('A')], selection: { selected: [] }, controller: controller({ settings: { endpoint } }) });
+    expect(push.props.disabled).toBe(true);
+    expect(trigger.props.disabled).toBeUndefined();
   });
   it('appears only for path file transfer', () => {
-    expect(control({ paths: [path('A')], controller: controller({ fileTransfer: false, desktopAvailable: true }) }).all).toBeNull();
-    expect(control({ place: 'routines', paths: [path('A')], controller: controller() }).all).toBeNull();
+    expect(control({ paths: [path('A')], controller: controller({ fileTransfer: false, desktopAvailable: true }) }).trigger).toBeNull();
+    expect(control({ place: 'routines', paths: [path('A')], controller: controller() }).trigger).toBeNull();
   });
-  it('shows saving progress inside the destination button, which stays mounted for focus return', () => {
-    hooks.cursor = 0;
-    const html = renderToStaticMarkup(PushControl({ place: 'paths', paths: [path('A')], selection: { selected: ['A'] }, controller: controller({ phase: 'saving', busy: true }) }));
-    expect(html).toMatch(/<button[^>]*class="push-destination"[^>]*aria-label="Saving…"[^>]*><span class="push-status-full">Saving…<\/span><span class="push-status-compact" aria-hidden="true">Saving<\/span><\/button>/);
+  it('keeps a result\'s own time', () => {
+    expect(robotStatus({ phase: 'transferred', result: { files: [{}], directory: '/x' } }, new Date(2026, 9, 17, 9, 5))).toMatchObject({ tone: 'good', text: 'Pushed 1 · 09:05', title: 'Verified in /x' });
   });
 });
 

@@ -55,7 +55,7 @@ describe('push control scope', () => {
     place: 'paths', paths, selection: { selected }, controller: { busy: false, fileTransfer: true, settings: { endpoint: { host: '10.24.68.2', directory: '/home/lvuser/Paths' } }, ...controller },
   }));
 
-  it('names its exact scope and keeps the destination beside it', () => {
+  it('names its exact scope and folds the destination into the split button', () => {
     expect(render(['A'])).toMatch(/aria-keyshortcuts="(Meta|Control)\+Shift\+P" data-shortcut="[^"]+">Push path<\/button>/);
     expect(render(['A'])).toMatch(/title="Left start → score · (?:Ctrl\+Shift\+P|⇧⌘P)"/);
     expect(render(['A', 'B'])).toContain('>Push 2 paths</button>');
@@ -63,6 +63,9 @@ describe('push control scope', () => {
     expect(render(['A'])).toMatch(/class="push-button"[^>]* aria-label="Push path" aria-keyshortcuts="(Meta|Control)\+Shift\+P"/);
     expect(render(['A', 'B'])).toContain('aria-label="Push 2 paths"');
     expect(render(['A'])).toContain('>10.24.68.2 · Paths<');
+    // One split control: Push, then a menu button whose name carries the robot state; no separate status or Push all buttons.
+    expect(render(['A'])).toMatch(/<div class="push-split" role="group" aria-label="Push"><button type="button" class="push-button"[^]*<button type="button" class="push-menu-trigger" aria-haspopup="menu" aria-expanded="false" aria-label="Push options · 10.24.68.2 · Paths"/);
+    expect(render(['A'])).not.toMatch(/push-destination|class="push-all"/);
   });
 
   it('refuses unfinished paths and a busy controller, and shows each frozen outcome', () => {
