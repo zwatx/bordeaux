@@ -1,48 +1,47 @@
 /* The routine workspace: a run-order flow beside the library, with field preview and playback. */
 .routine-workspace{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;background:var(--bg);container:routine-workspace / inline-size}
-.routine-workspace-head{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-shrink:0;min-height:52px;padding:10px 24px;border-bottom:1px solid var(--line);background:var(--bg-1)}
+.routine-workspace-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;min-height:52px;padding:8px 16px 8px 24px;border-bottom:1px solid var(--line)}
 .routine-workspace-title{min-width:0}
 .routine-workspace-title>strong{display:block;font-size:14px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
-.routine-workspace-actions{display:flex;align-items:center;align-self:stretch;gap:20px;flex-shrink:0}
-.routine-workspace-views{display:flex;align-self:stretch;gap:20px;flex-shrink:0;margin-block:-10px}
+.routine-workspace-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.routine-workspace-views{min-height:32px}
+.routine-workspace-views .seg-i{padding-inline:10px;white-space:nowrap}
+/* Beside an open inspector the trigger keeps its icon; its name stays for assistive technology. */
+@container routine-workspace (max-width:640px){.routine-workspace-about-t{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}}
 /* The preview boundary is one small native popover under its trigger; it overlays the flow and never repeats per step. */
-.routine-workspace-about{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 8px;margin-right:-4px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:550}
+.routine-workspace-about{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:500}
 .routine-workspace-about[aria-expanded=true]{background:var(--bg-3);color:var(--txt)}
 @media (hover:hover){.routine-workspace-about:hover{color:var(--txt)}}
 .routine-preview-help{position:fixed;inset:auto;width:min(288px,calc(100vw - 16px));margin:0;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt-2);box-shadow:var(--elevation),var(--shadow);font-size:12px;line-height:1.5}
 .routine-preview-help p{margin:0;text-wrap:pretty}
-.routine-workspace-views button{padding:0 2px;border-bottom:2px solid transparent;color:var(--txt-3);font-size:12.5px;font-weight:550}
-.routine-workspace-views button[aria-pressed=true]{border-bottom-color:var(--accent);color:var(--txt)}
-.routine-workspace-views button:hover{color:var(--txt)}
 .routine-workspace-body{position:relative;display:flex;flex:1;min-width:0;min-height:0}
 .routine-workspace-flow,.routine-workspace-field{flex:1;min-width:0;min-height:0}
 .routine-workspace [hidden]{display:none!important}
 .routine-workspace .viewctl{bottom:16px}
 .routine-workspace-transport{position:relative;flex-shrink:0}
-@media(max-width:1180px){.routine-workspace-head{gap:12px;padding-inline:18px}.routine-workspace-actions{gap:12px}}
+@media(max-width:1180px){.routine-workspace-head{gap:12px;padding-left:18px}}
 
 /* ============ flow ============ */
-/* A run sheet with scope rails. Rows sit on the page surface; each open block draws a 1px rail from its owner's icon
-   down to a closing row that says what happens next. The current row takes the neutral surface the library uses.
-   Geometry: a level indents 22px (4px past six levels); a row's icon centre sits --icon-x into the row, so the rail
-   for level k runs at --icon-x + 22px·k in list coordinates. */
+/* A timed run sheet. One line per step: name, its spans on the routine's time axis (--tw wide, 104px from the row's
+   right edge in every row, so the playhead is one line), and duration. Repeats and branches are bounded groups that
+   indent on the left only; a branch's routes are lanes whose left edge is bright for the previewed route. */
 .stage-auto,.rt-add-menu{--cmd:oklch(.86 .1 300)}
-.rt-panel{--icon-x:59px;--rail:var(--line-3);position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
+.rt-panel{--tw:96px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
+@container routine-workspace (max-width:640px){.rt-panel{--tw:56px}}
 .rt-panel.dragging,.rt-panel.dragging *{cursor:grabbing!important;user-select:none}
-.rt-scroll{flex:1;overflow:auto;padding:14px 24px 48px;scrollbar-width:thin}
-.rt-list{display:flex;flex-direction:column;width:100%;max-width:900px;min-width:360px;margin:0 auto}
+.rt-scroll{flex:1;overflow:auto;padding:20px 24px 56px;scrollbar-width:thin}
+.rt-list{position:relative;display:flex;flex-direction:column;width:100%;max-width:760px;min-width:360px;margin:0 auto}
+.rt-list.playing::after{content:'';position:absolute;z-index:3;top:0;bottom:0;right:calc(104px + var(--tw) * (1 - var(--p)));width:1px;background:var(--txt);opacity:.7;pointer-events:none}
 @media(max-width:1180px){.rt-scroll{padding:12px 14px 40px}}
 
-.rt-step-wrap,.rt-block,.rt-branch{display:contents}
-.rt-step,.rt-route,.rt-close,.rt-addwrap{--indent:calc(min(var(--depth,0), 6) * 22px + max(var(--depth,0) - 6, 0) * 4px);--rails:var(--depth,0);position:relative;margin-left:var(--indent)}
-/* Rails of every enclosing level, drawn by each row so they stay continuous across the flat list. */
-.rt-step::before,.rt-route::before,.rt-close::before,.rt-addwrap::before{content:'';position:absolute;top:0;bottom:0;left:calc(var(--icon-x) - 15px - var(--indent));width:calc(min(var(--rails), 6) * 22px);
-  background:repeating-linear-gradient(90deg,transparent 0 15px,var(--rail) 15px 16px,transparent 16px 22px);pointer-events:none}
-.rt-rail-start{position:absolute;left:var(--icon-x);bottom:0;width:1px;height:calc(50% - 11px);background:var(--rail);pointer-events:none}
-.rt-route>.rt-rail-start{height:calc(50% - 7px)}
+.rt-step-wrap{display:contents}
+.rt-group{display:flex;flex-direction:column;margin:4px 0;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1)}
+.rt-block{display:flex;flex-direction:column;padding:0 0 4px 20px}
+.rt-branch{display:flex;flex-direction:column;margin:2px 0 4px;border-left:2px solid var(--line-3)}
+.rt-branch.live{border-left-color:var(--txt-2)}
 
-.rt-step{display:grid;grid-template-columns:14px 20px 22px minmax(0,1fr) auto 28px;align-items:center;column-gap:6px;
-  min-height:42px;padding:4px 4px 4px 2px;border-radius:var(--r)}
+.rt-step{position:relative;display:grid;grid-template-columns:14px 20px 22px minmax(0,1fr) var(--tw) 60px 28px;align-items:center;column-gap:6px;
+  min-height:34px;padding:3px 4px 3px 2px;border-radius:var(--r)}
 .rt-step.sel{background:var(--bg-3)}
 .rt-step.active:not(.sel){background:var(--bg-2)}
 .rt-step.dragging{opacity:.4}
@@ -61,14 +60,22 @@
 .rt-step:is(:hover,:focus-within) .rt-collapse .rt-collapse-kind,.rt-collapse.on .rt-collapse-kind{display:none}
 .rt-step:is(:hover,:focus-within) .rt-collapse .rt-collapse-chev,.rt-collapse.on .rt-collapse-chev{display:flex}
 /* The body is the row's one focusable control; the row draws its ring. */
-.rt-step-body{display:flex;flex-direction:column;gap:2px;min-width:0;padding:2px 0;color:inherit;text-align:left;background:none;outline:none}
+.rt-step-body{display:flex;flex-wrap:wrap;align-items:center;gap:2px 7px;min-width:0;padding:2px 0;color:inherit;text-align:left;background:none;outline:none}
 .rt-step-body:focus-visible{outline:none!important}
 .rt-step:has(> .rt-step-body:focus-visible),.rt-panel[data-input=keyboard] .rt-step:has(> .rt-step-body:focus){outline:2px solid var(--focus);outline-offset:-2px}
-.rt-step-title{color:var(--txt);font-size:13px;font-weight:550;line-height:17px;overflow-wrap:anywhere}
-.rt-step-meta{color:var(--txt-3);font-size:11.5px;line-height:15px;overflow-wrap:anywhere}
+.rt-step-title{min-width:0;color:var(--txt);font-size:13px;font-weight:550;line-height:17px;overflow-wrap:anywhere}
+.rt-step-flag{flex:none;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+/* Explanations are tooltips and screen-reader text; errors and a collapsed group's contents stay visible. */
+.rt-step-meta,.rt-close.quiet{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.rt-step-meta.bad,.rt-collapse.on~.rt-step-body .rt-step-meta{position:static;flex-basis:100%;width:auto;height:auto;clip-path:none;white-space:normal;color:var(--txt-3);font-size:11.5px;line-height:15px;overflow-wrap:anywhere}
 .rt-step-meta.bad{color:var(--bad-txt)}
-.rt-step-meta.warn{color:var(--warn-txt)}
-.rt-step-dur{padding-left:10px;color:var(--txt-2);font:11.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.rt-step-time{position:relative;height:6px}
+.rt-step-time:not(:empty){background:linear-gradient(var(--line-2),var(--line-2)) center/100% 1px no-repeat}
+.rt-step-time i{--c:var(--txt-2);position:absolute;top:0;bottom:0;min-width:2px;border-radius:2px;background:var(--c)}
+.rt-step-time .wait{--c:var(--warn)}
+.rt-step-time .event{--c:var(--cmd)}
+.rt-step-time .upper{background:repeating-linear-gradient(135deg,var(--c) 0 2px,transparent 2px 4px)}
+.rt-step-dur{color:var(--txt-2);font:11.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .rt-step-dur.unknown{color:var(--txt-3);font-family:var(--ui)}
 .rt-step-live{color:var(--txt);font-family:var(--ui);font-weight:550}
 .rt-step-tools{display:flex;justify-content:flex-end}
@@ -81,43 +88,42 @@
 .rt-step.drop-after::after,.rt-route.drop-after::after{bottom:-1px}
 .drop-invalid::after{display:none}
 
-/* Route rows branch off the owner's rail. The radio chooses the preview route only; the name says what the route
-   is, the rule how it matches, and the count what it contains and where it goes. */
-.rt-route{display:flex;align-items:center;min-height:32px;padding:1px 6px 1px calc(var(--icon-x) - 6px)}
-.rt-tick{position:absolute;left:calc(var(--icon-x) - 22px);top:50%;width:16px;height:1px;background:var(--rail);pointer-events:none}
-.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:28px;padding:5px 6px;margin-left:-6px;border-radius:var(--r-s);color:var(--txt-2);text-align:left}
+/* A lane header: the route's name, how it matches, and what it holds. Choosing it sets the preview route only. */
+.rt-route{position:relative;display:flex;align-items:center;min-height:30px;padding:0 4px}
+.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:28px;padding:5px 6px;border-radius:var(--r-s);text-align:left}
 .rt-brlbl.static{cursor:default}
-.rt-radio{flex:none;align-self:center;width:12px;height:12px;margin-right:3px;border:1.5px solid var(--txt-3);border-radius:50%;background:var(--bg)}
-.rt-radio.static{border-style:dashed}
-.rt-branch.live>.rt-route .rt-radio{border-color:var(--txt);background:radial-gradient(circle,var(--txt) 0 2.5px,var(--bg) 3px)}
-.rt-brname{min-width:0;color:var(--txt-2);font-size:12.5px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.rt-brname{min-width:0;color:var(--txt-2);font-size:12.5px;font-weight:550;line-height:1.4;overflow-wrap:anywhere}
 .rt-branch.live>.rt-route .rt-brname{color:var(--txt)}
 .rt-branch.off>.rt-route .rt-brname{color:var(--txt-3)}
-.rt-brkey{flex:none;color:var(--txt-3);font:11px var(--mono)}
-.rt-brcount{flex:none;margin-left:auto;padding-right:28px;color:var(--txt-3);font-size:11px;white-space:nowrap}
+.rt-brkey,.rt-brcount{flex:none;color:var(--txt-3);font-size:11.5px}
+.rt-brcount{margin-left:auto;padding-right:28px;white-space:nowrap}
 
-/* Closing rows: an elbow ends the block's rail; a glyph and one sentence say what authored flow does next. */
-.rt-close{display:flex;align-items:flex-start;gap:8px;min-height:30px;padding:6px 6px 8px calc(var(--icon-x) - 7px);--rails:calc(var(--depth,1) - 1);color:var(--txt-3);font-size:11.5px;line-height:16px}
-.rt-elbow{position:absolute;left:calc(var(--icon-x) - 22px);top:0;width:13px;height:14px;border-left:1px solid var(--rail);border-bottom:1px solid var(--rail);border-bottom-left-radius:6px;pointer-events:none}
-.rt-close-ic{display:flex;flex:none;align-items:center;justify-content:center;width:14px;height:16px;color:var(--txt-2)}
-.rt-close.terminal .rt-close-ic{color:var(--txt-3)}
+/* A group's footer: a repeat's loop-back, or an outcome the group's end does not already show. */
+.rt-close{display:flex;align-items:flex-start;gap:8px;padding:4px 6px 6px 12px;color:var(--txt-3);font-size:11.5px;line-height:16px}
+.rt-close-ic{display:flex;flex:none;align-items:center;height:16px;color:var(--txt-2)}
 .rt-close-t{min-width:0;overflow-wrap:anywhere}
 .rt-close-name{color:var(--txt-2);font-weight:550}
 
-.rt-addwrap{padding:1px 4px 3px calc(var(--icon-x) - 7px)}
-.rt-list>.rt-addwrap{padding-top:8px}
-.rt-add{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 8px;margin-left:-8px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:550}
-.rt-add.on,.rt-add[aria-expanded=true]{background:var(--bg-3);color:var(--txt)}
+/* One explicit Add at the end. Inside a populated group, insertion is a + on the gap line while the group is hovered
+   or focused; an empty list always shows its Add. */
+.rt-addwrap{position:relative;padding:0 4px 0 52px}
+.rt-list>.rt-addwrap{padding-top:10px}
+.rt-add{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 8px;margin-left:-8px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:500}
+.rt-block .rt-add{gap:6px;min-height:24px;font-size:11.5px}
+.rt-block .rt-addwrap:not(.empty) .rt-add{min-height:10px;height:10px;padding:0 4px;margin-left:-4px;font-size:0;opacity:0}
+.rt-block .rt-addwrap:not(.empty):is(:hover,:focus-within)::before{content:'';position:absolute;left:68px;right:34px;top:50%;height:1px;background:var(--line-3)}
+.rt-step-wrap:is(:hover,:focus-within)>.rt-block>.rt-addwrap .rt-add,.rt-step-wrap:is(:hover,:focus-within)>.rt-block>.rt-branch>.rt-addwrap .rt-add,.rt-block .rt-add:is(:focus,[aria-expanded=true]),.rt-panel.dragging .rt-add{opacity:1}
+.rt-addwrap .rt-add:is(.on,[aria-expanded=true]){background:var(--bg-3);color:var(--txt)}
 .rt-range-bar{display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:44px;padding:6px 24px;border-bottom:1px solid var(--line);background:var(--bg-1);font-size:12.5px}
 .rt-range-bar>span{margin-right:auto;color:var(--txt-2)}
 .rt-flow-note{position:absolute;left:50%;bottom:12px;z-index:6;max-width:calc(100% - 48px);transform:translateX(-50%);color:var(--txt);font-size:12px;pointer-events:none}
 .rt-flow-note:not(:empty){padding:7px 12px;border-radius:var(--r);background:var(--bg-3);box-shadow:var(--elevation)}
 
-.rt-empty{display:flex;flex-direction:column;align-items:center;max-width:440px;margin:56px auto 0;text-align:center}
+.rt-empty{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:400px;margin:min(16vh,128px) auto 0;text-align:center}
 .rt-empty-t{color:var(--txt);font-size:15px;font-weight:600}
-.rt-empty p{margin:6px 0 18px;color:var(--txt-3);font-size:12.5px;line-height:1.5}
-.rt-empty .rt-empty-add{min-width:200px;margin:0;color:var(--txt)}
-.rt-empty .rt-empty-note{margin:14px 0 0;font-size:12px}
+.rt-empty p{margin:0;color:var(--txt-3);font-size:12.5px;line-height:1.5;text-wrap:pretty}
+.rt-empty .rt-empty-add{min-height:34px;margin:12px 0 0;padding:0 18px}
+.rt-empty .rt-empty-note{font-size:12px}
 
 /* Add: a searchable popover anchored to its row; the first line names where the step lands. */
 .rt-add-menu{position:fixed;z-index:200;display:flex;flex-direction:column;width:360px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}
@@ -145,13 +151,11 @@
   .rt-grip:hover{color:var(--txt)}
   .rt-tool:hover,.rt-collapse:hover{background:var(--bg-4);color:var(--txt)}
   .rt-brlbl:not(.static):hover .rt-brname{color:var(--txt)}
-  .rt-brlbl:not(.static):hover .rt-radio{border-color:var(--txt-2)}
-  .rt-add:not(.on):hover{background:var(--bg-2);color:var(--txt)}
+  .rt-addwrap .rt-add:not(.on):hover{background:var(--bg-2);color:var(--txt)}
 }
 @media (pointer:coarse){
-  .rt-panel{--icon-x:89px}
-  .rt-step{grid-template-columns:44px 20px 22px minmax(0,1fr) auto 44px}
-  .rt-more,.rt-grip{opacity:1}
+  .rt-step{grid-template-columns:44px 20px 22px minmax(0,1fr) var(--tw) 60px 44px}
+  .rt-more,.rt-grip,.rt-block .rt-addwrap .rt-add{opacity:1}
 }
 
 /* ============ routine status and playback ============ */
@@ -166,12 +170,10 @@
 .rt-tp-ctl{display:flex;align-items:center;gap:2px}
 .rt-tp-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:26px;border-radius:var(--r-s);color:var(--txt-2)}
 .rt-tp-btn:disabled{opacity:.4;cursor:not-allowed}
-.rt-timeline-title{margin-left:10px;color:var(--txt-3);font-size:11.5px;font-weight:550}
 .rt-timeline-time,.rt-timeline-step{color:var(--txt);font:11.5px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-time{margin-left:10px}
 .rt-timeline-step{margin-left:auto}
 .rt-timeline-time small,.rt-timeline-step small{color:var(--txt-3);font:inherit}
-.rt-timeline-summary{margin-left:10px;color:var(--txt-3);font-size:11px}
 .rt-timeline-editor{position:relative;min-width:0;overflow:hidden}
 .rt-timeline-editor:has(.rt-tp-scrub:focus-visible){outline:2px solid var(--accent);outline-offset:-3px}
 .rt-timeline-track{position:absolute;left:10px;right:10px;top:21px;height:2px;border-radius:2px;background:var(--bg-4)}
@@ -187,8 +189,8 @@
 .rt-timeline-pass{position:absolute;top:30px;color:var(--txt-3);font:9.5px/1 var(--mono);transform:translateX(-50%);pointer-events:none}
 .rt-timeline-pass::before{content:'';position:absolute;left:50%;top:-16px;width:1px;height:12px;background:var(--txt-3)}
 .rt-timeline-pass-now{margin-left:10px;color:var(--txt-2);font-size:11px;white-space:nowrap}
-.rt-timeline-summary{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-timeline-time,.rt-timeline-step,.rt-timeline-title{flex:none;white-space:nowrap}
+.rt-timeline-summary{margin-left:10px;color:var(--txt-3);font-size:11px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-timeline-time,.rt-timeline-step{flex:none;white-space:nowrap}
 
 /* ============ routine inspector ============ */
 /* Notices on routine surfaces are plain text: no left rule, no tinted box. */
@@ -199,12 +201,12 @@
 .routine-insp .ctxinsp-ic.cmd{color:var(--cmd)}
 .routine-insp .ctxinsp-ic.wait{color:var(--warn)}
 .routine-insp .ctxinsp-ic.bad{color:var(--bad-txt)}
+.routine-insp .seg-i{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .rt-insp-sec{margin-top:22px}
 .rt-insp-sec>.cgroup-h{margin:0 0 8px;padding-top:14px;border-top:1px solid var(--line)}
 .rt-insp-sec>.seg-hint:first-of-type{margin-top:0}
 .rt-insp-toggle{margin-top:12px}
 .rt-insp-toggle .toggle{display:flex;width:100%;justify-content:flex-start;text-align:left}
-.rt-insp-toggle .toggle-lbl{text-align:left}
 .rt-insp-toggle .toggle:disabled{opacity:.45;cursor:not-allowed}
 .rt-insp-toggle+.dropdown,.rt-insp-toggle+.cmd-param{margin-top:8px}
 .rt-insp-problems{margin:0 0 14px}

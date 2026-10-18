@@ -16,7 +16,8 @@ const { Icon, Dropdown, ChoiceBrowser, DraftText, Seg, Toggle } = UI;
 const A = AUTO;
 const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
 const plural = (count, singular) => count + ' ' + singular + (count === 1 ? '' : /s$/.test(singular) ? 'es' : 's');
-const SECONDS = { min: 0.02, max: 15, unit: 's' };
+// Labels already say "in seconds", so no unit line repeats it under the field.
+const SECONDS = { min: 0.02, max: 15 };
 const OPERATORS = [['eq', 'Equals'], ['neq', 'Does not equal'], ['lt', 'Less than'], ['lte', 'At most'], ['gt', 'Greater than'], ['gte', 'At least']].map(([value, label]) => ({ value, label }));
 
 function FieldLabel(t, right) { return h('div', { className: 'fieldlabel' }, h('span', null, t), right || null); }
@@ -84,7 +85,7 @@ function RepeatStop({ node, catalog, set }) {
   const numeric = stop?.schema && !['boolean', 'enum'].includes(stop.schema.kind);
   const mode = stop ? stop.source : 'never';
   return Section('Stop early',
-    h(Seg, { ariaLabel: 'Stop early', value: mode, options: [{ v: 'never', label: 'Never' }, { v: 'condition', label: 'Condition' }, { v: 'output', label: 'Command result' }],
+    h(Seg, { ariaLabel: 'Stop early', value: mode, options: [{ v: 'never', label: 'Never' }, { v: 'condition', label: 'Condition' }, { v: 'output', label: 'Result', title: 'A command result' }],
       onChange: (next) => next === mode ? null : set({ until: next === 'never' ? undefined : next === 'condition' ? { source: 'condition', conditionId: '' }
         : { source: 'output', nodeId: producers[0]?.id || '', output: '', operator: 'eq' } }) }),
     stop?.source === 'condition' && h(ConditionPicker, { id: 'routine-repeat-condition', label: 'Stop when', value: stop.conditionId, catalog, onChange: (conditionId) => set({ until: { source: 'condition', conditionId } }) }),
@@ -180,16 +181,13 @@ export function StepInspector(props) {
 
   } else if (node.type === 'decision') {
     glyph = 'branch'; title = 'Branch';
-    const out = acq.outcomes?.[node.id] || 'then';
     body = h(React.Fragment, null,
       h(ConditionPicker, { id: 'routine-condition', label: 'Robot condition', value: node.cond, catalog, onChange: (cond) => set({ cond }) }),
       Hint('Checked once when the routine reaches it.'),
       h('div', { className: 'rt-route-names' },
         h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
         h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
-      FieldLabel('Preview route'),
-      Hint('Chooses which route the local preview follows. It does not change the routine.'),
-      h(Seg, { ariaLabel: 'Preview route', value: out, options: [{ v: 'then', label: node.thenLabel || 'True' }, { v: 'else', label: node.elseLabel || 'False' }], onChange: (v) => acq.setOutcome(node.id, v) }),
+      // The preview route is chosen on the route lanes in the flow, beside the steps it plays.
       remove('Delete branch'));
 
   } else if (node.type === 'repeat') {
@@ -349,7 +347,6 @@ export function RoutineTransport(props) {
       h('div', { className: 'rt-tp-ctl' },
         h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
         h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
-      h('span', { className: 'rt-timeline-title' }, 'Preview time'),
       h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
       h('span', { className: 'rt-timeline-summary', title: summary || undefined }, summary),
       pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
