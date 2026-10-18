@@ -32,6 +32,8 @@ export function RoutineWorkspace({ routine, flow, field, transport, status }) {
     };
   }, []);
 
+  // An empty routine has nothing to show on the field or to play, so it offers only the flow and its first step.
+  const empty = !routine.nodes.length, shown = empty ? 'flow' : view;
   return h('section', { className: 'routine-workspace', 'aria-label': 'Routine workspace' },
     h('header', { className: 'routine-workspace-head' },
       h('div', { className: 'routine-workspace-title' }, h('strong', null, routine.name)),
@@ -40,15 +42,15 @@ export function RoutineWorkspace({ routine, flow, field, transport, status }) {
           'aria-expanded': help, 'aria-controls': 'routine-preview-notes',
           // Tabbing on closes it, so it never covers the control that takes focus next.
           onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); } },
-          h(UI.Icon, { name: 'info', size: 14 }), 'Local preview'),
+          h(UI.Icon, { name: 'info', size: 14 }), h('span', { className: 'routine-workspace-about-t' }, 'Local preview')),
         h('div', { ref: popover, id: 'routine-preview-notes', className: 'routine-preview-help', popover: 'auto', role: 'note', 'aria-label': 'About the local preview' },
           h('p', null, PREVIEW_HELP)),
-        h('div', { className: 'routine-workspace-views', role: 'group', 'aria-label': 'Routine view' },
-          h('button', { type: 'button', 'aria-pressed': view === 'flow', onClick: () => setView('flow') }, 'Flow'),
-          h('button', { type: 'button', 'aria-pressed': view === 'field', onClick: () => setView('field') }, 'Field preview')))),
+        // Two views of one routine: the shared segmented control, not a second row of place tabs.
+        !empty && h('div', { className: 'seg routine-workspace-views', role: 'group', 'aria-label': 'Routine view', style: { '--seg-count': 2 } },
+          [['flow', 'Flow'], ['field', 'Field preview']].map(([id, label]) => h('button', { key: id, type: 'button', className: 'seg-i' + (view === id ? ' on' : ''), 'aria-pressed': view === id, onClick: () => setView(id) }, label))))),
     h('div', { className: 'routine-workspace-body' },
-      h('div', { className: 'routine-workspace-flow', hidden: view !== 'flow', 'aria-label': 'Routine flow' }, flow),
-      h('div', { className: 'fieldcol routine-workspace-field', hidden: view !== 'field', 'aria-label': 'Routine field preview' }, field)),
+      h('div', { className: 'routine-workspace-flow', hidden: shown !== 'flow', 'aria-label': 'Routine flow' }, flow),
+      h('div', { className: 'fieldcol routine-workspace-field', hidden: shown !== 'field', 'aria-label': 'Routine field preview' }, field)),
     status,
-    h('div', { className: 'routine-workspace-transport' }, transport));
+    !empty && h('div', { className: 'routine-workspace-transport' }, transport));
 }

@@ -95,7 +95,7 @@ describe('routine flow insertion and empty states', () => {
   it('explains an empty routine, a project without paths and missing robot code', () => {
     const empty = (paths_, catalog_) => text(renderToStaticMarkup(React.createElement(RoutinePanel, {
       routine: { id: 'r', name: 'R', nodes: [] }, run: AUTO.buildRun({ nodes: [] }, [], {}, {}), paths: paths_, time: 0, running: false, acq: { outcomes: {} }, catalog: catalog_ })));
-    expect(empty(paths, catalog)).toContain('Add paths in driving order');
+    expect(empty(paths, catalog)).toContain('Start with the path the robot drives first');
     expect(empty(paths, catalog)).not.toContain('linked robot code');
     expect(empty([], null)).toContain('This project has no paths yet.');
     expect(empty([], null)).toContain('Commands and robot conditions come from linked robot code.');
@@ -181,11 +181,22 @@ describe('preview boundary is stated once', () => {
     expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toMatch(/^Routine\b/);
   });
 
+  it('offers only the flow for an empty routine, and both views with playback once it has a step', () => {
+    const render = (nodes) => renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine: { id: 'r', name: 'R', nodes }, flow: null, field: null, transport: 'TRANSPORT', status: null }));
+    const empty = render([]), filled = render([path('p', 'a')]);
+    expect(empty).not.toContain('routine-workspace-views');
+    expect(empty).not.toContain('TRANSPORT');
+    expect(empty).toContain('Local preview');
+    expect(filled).toMatch(/class="seg routine-workspace-views"[\s\S]*aria-pressed="true"[^>]*>Flow<[\s\S]*>Field preview</);
+    expect(filled).toContain('TRANSPORT');
+  });
+
   it('counts untimed steps as not counted rather than as zero-time commands', () => {
     const routine = { nodes: [{ id: 'cmd', type: 'function', cat: 'command', invocation: { commandId: 'x', arguments: {} } }] };
     const run = AUTO.buildRun(routine, [], {}, {});
     const html = text(renderToStaticMarkup(React.createElement(RoutineTransport, { run, time: 0, playing: false, running: false, controls: {} })));
-    expect(html).toContain('Preview time');
+    // Time reads like the Paths transport: elapsed / total, without a redundant label.
+    expect(html).toContain('0.00 / 0.00 s');
     expect(html).toContain('1 untimed step not counted');
   });
 });

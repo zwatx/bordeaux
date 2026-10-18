@@ -7,10 +7,10 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { commandArguments } from "./ContextInspector";
 import { UI } from "./ui";
 
-// Routine run sheet: one flat list of rows in run order. Each block (branch or repeat) draws a scope rail from its
-// owner down to a closing row that states what authored control flow does next: which routes continue, whether a
-// pass loops back. Those facts come from AUTO.flowSummary, never from the chosen preview route. Selecting a row only
-// changes the right inspector.
+// Routine run sheet: one line per step in run order, each with its share of preview time on a shared axis. Repeats and
+// branches are bounded groups; a branch's routes are lanes. A closing row states what authored control flow does next
+// (shown when it is not obvious from the group ending); those facts come from AUTO.flowSummary, never from the chosen
+// preview route. Explanations live in tooltips and the inspector. Selecting a row only changes the right inspector.
 const { useState, useRef, useEffect, useLayoutEffect } = React;
 const h = React.createElement;
 const { Icon } = UI;
@@ -118,7 +118,8 @@ export function branchClosing(lists, after, paths, catalog, cache) {
   }
   const all = going.length === lists.length;
   const who = all ? [lists.length === 2 ? 'Both routes ' : 'All ' + lists.length + ' routes '] : ['Only ', ...nameList(going.map((item) => item.list.label)), ' '];
-  return { glyph: 'join', parts: [...who, ...continuePhrase(after, paths, catalog, all || going.length > 1)] };
+  // When every route continues, the group's end already shows convergence; the sentence stays for assistive technology.
+  return { glyph: 'join', quiet: all, parts: [...who, ...continuePhrase(after, paths, catalog, all || going.length > 1)] };
 }
 
 /** Closing row of a repeat: a pass loops back only when its body can complete normally. */
@@ -419,6 +420,10 @@ export function RoutinePanel(props) {
   const topIndex = new Map(routine.nodes.map((node, index) => [node.id, index + 1]));
   const segByNode = new Map(); run.segs.forEach((seg) => { if (!segByNode.has(seg.nodeId)) segByNode.set(seg.nodeId, seg); });
   const previewed = new Set(run.steps.map((step) => step.nodeId));
+  // Timed occurrences per step on the routine's time axis; a repeat's body shows one bar per previewed pass.
+  const spans = new Map();
+  run.steps.forEach((step) => { if (run.total > 0 && step.t1 > step.t0 && step.kind !== 'repeat') spans.set(step.nodeId, [...(spans.get(step.nodeId) || []), step]); });
+  const pct = (t) => (100 * t / run.total) + '%';
   // Local readiness (AUTO.analyze) and the chosen trace's reference jumps (run.issues) stay distinct facts.
   const jumpByNode = new Map();
   (run.issues || []).forEach((issue) => { if (issue.code === 'reference-discontinuity' && !jumpByNode.has(issue.nodeId)) jumpByNode.set(issue.nodeId, issue); });
@@ -579,7 +584,7 @@ export function RoutinePanel(props) {
     return '';
   }
 
-  function stepRow(node, ctx, numbered, open) {
+  function stepRow(node, ctx, numbered) {
     const { depth, offPreview, readOnly } = ctx;
     const sel = selId === node.id || range.includes(node.id);
     const active = activeId === node.id;
@@ -606,32 +611,33 @@ export function RoutinePanel(props) {
         : h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })),
       h('button', { className: 'rt-step-body', type: 'button', 'data-nav': 'row:' + node.id, tabIndex: stop('row:' + node.id), 'aria-pressed': sel, 'aria-keyshortcuts': readOnly ? undefined : 'Shift+F10 A Delete Alt+ArrowUp Alt+ArrowDown', 'aria-expanded': kids.length ? !isCollapsed : undefined,
         onClick: (event) => { if (event.shiftKey && selId && !readOnly) { extendTo(node.id); return; } setRange([]); onSelect(sel && selId === node.id ? null : node.id); },
-        onKeyDown: onBodyKeyDown(node) },
+        onKeyDown: onBodyKeyDown(node), title: isCollapsed ? undefined : info.meta },
         h('span', { className: 'rt-step-title' }, title),
+        // A warning is a mark beside the name; its sentence is the tooltip and stays in the accessible name.
+        info.problem === 'warn' && h('span', { className: 'rt-step-flag', 'aria-hidden': true }),
         h('span', { className: 'rt-step-meta' + (info.problem ? ' ' + info.problem : '') },
           isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
+      h('span', { className: 'rt-step-time', 'aria-hidden': true }, (spans.get(node.id) || []).map((step) => h('i', { key: step.occurrenceId || step.t0,
+        className: step.kind + (step.timing === 'upperBound' ? ' upper' : ''), style: { left: pct(step.t0), width: pct(step.t1 - step.t0) } }))),
       h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
       h('span', { className: 'rt-step-tools' }, !readOnly && h('button', { className: 'rt-tool rt-more', type: 'button', tabIndex: -1, 'aria-haspopup': 'menu', 'aria-expanded': menu?.id === node.id, title: 'Step actions (⇧F10)',
-        'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))),
-      // An open block's rail starts under its owner's icon.
-      open && h('span', { className: 'rt-rail-start', 'aria-hidden': true }));
+        'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
   }
 
-  function addRow(ref, depth, ariaLabel) {
+  function addRow(ref, depth, ariaLabel, empty) {
     const where = { list: ref };
     const open = add && add.where.list && refKey(add.where.list) === refKey(ref);
     const mark = dnd.drag?.target?.mark;
     const markHere = mark?.list === refKey(ref) && mark.edge === 'end';
-    return h('div', { key: 'add:' + refKey(ref), className: 'rt-addwrap' + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
+    return h('div', { key: 'add:' + refKey(ref), className: 'rt-addwrap' + (empty ? ' empty' : '') + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
       h('button', { className: 'rt-add' + (open ? ' on' : ''), type: 'button', 'data-nav': 'add:' + refKey(ref), tabIndex: stop('add:' + refKey(ref)), 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(open), 'aria-label': ariaLabel,
         onClick: (e) => (open ? closeAdd(false) : openAdd(where, e.currentTarget, ariaLabel)), onKeyDown: navKeys },
         h(Icon, { name: 'plus', size: 14 }), 'Add step'));
   }
 
-  /** A closing row: an elbow from the block's rail, a glyph for what happens next, and the authored fact in words. */
+  /** A group's closing row: a glyph for what happens next and the authored fact in words. */
   function closingRow(depth, closing) {
-    return h('div', { key: 'close', className: 'rt-close' + (closing.terminal ? ' terminal' : ''), style: { '--depth': depth } },
-      h('span', { className: 'rt-elbow', 'aria-hidden': true }),
+    return h('div', { key: 'close', className: 'rt-close' + (closing.terminal ? ' terminal' : '') + (closing.quiet ? ' quiet' : ''), style: { '--depth': depth } },
       h('span', { className: 'rt-close-ic', 'aria-hidden': true }, h(Glyph, { name: closing.glyph, size: 13 })),
       h('span', { className: 'rt-close-t' }, closing.parts.map((part, index) => (typeof part === 'string' ? part : h('span', { key: index, className: 'rt-close-name' }, part.name)))));
   }
@@ -640,7 +646,7 @@ export function RoutinePanel(props) {
   // `exitTo` is what the nearest enclosing repeat reaches when an Exit leaves it.
   function renderList(nodes, ref, ctx, addLabel) {
     const out = nodes.map((node, index) => renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }, ref.kind === 'root'));
-    if (!ctx.readOnly) out.push(addRow(ref, ctx.depth, addLabel));
+    if (!ctx.readOnly) out.push(addRow(ref, ctx.depth, addLabel, !nodes.length));
     return out;
   }
 
@@ -648,7 +654,7 @@ export function RoutinePanel(props) {
     const { depth, offPreview, readOnly } = ctx;
     const kids = A.childLists(node);
     const open = kids.length > 0 && !collapsed.has(node.id);
-    const row = stepRow(node, ctx, numbered, open);
+    const row = stepRow(node, ctx, numbered);
     if (!open) return h('div', { key: node.id, className: 'rt-step-wrap' }, row);
     const body = [];
     if (node.type === 'repeat') {
@@ -664,21 +670,18 @@ export function RoutinePanel(props) {
         const mark = dnd.drag?.target?.mark, markHere = mark?.list === refKey(list.ref) && mark.edge === 'start';
         body.push(h('div', { key: refKey(list.ref), className: 'rt-branch' + (live ? ' live' : '') + (offPreview ? ' off' : ''), role: 'group', 'aria-label': 'Route ' + list.label },
           h('div', { className: 'rt-route' + (markHere ? ' drop-after' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
-            h('span', { className: 'rt-tick', 'aria-hidden': true }),
             list.ref.kind === 'fallback'
-              ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-radio static', 'aria-hidden': true }), h('span', { className: 'rt-brname' }, 'Saved fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
+              ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-brname' }, 'Saved fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
               : h('button', { className: 'rt-brlbl', type: 'button', 'data-nav': 'route:' + refKey(list.ref), tabIndex: stop('route:' + refKey(list.ref)), role: 'radio', 'aria-checked': Boolean(live), 'aria-label': 'Preview route ' + list.label,
                   title: 'Preview this route', onClick: () => acq.setOutcome(node.id, routeId), onKeyDown: navKeys },
-                  h('span', { className: 'rt-radio', 'aria-hidden': true }),
                   h('span', { className: 'rt-brname' }, list.label),
                   h('span', { className: 'rt-brkey' }, routeRule(node, list)),
-                  h('span', { className: 'rt-brcount' }, [live && 'Previewing', count ? plural(count, 'step') : 'Empty', outcome].filter(Boolean).join(' · '))),
-            (list.nodes.length > 0 || !fixed) && h('span', { className: 'rt-rail-start', 'aria-hidden': true })),
+                  h('span', { className: 'rt-brcount' }, [live && 'Previewing', count ? plural(count, 'step') : 'Empty', outcome].filter(Boolean).join(' · ')))),
           renderList(list.nodes, list.ref, { depth: depth + 2, offPreview: offPreview || !live, readOnly: fixed, after: ctx.after, exitTo: ctx.exitTo }, 'Add step to the ' + list.label + ' route')));
       });
       body.push(closingRow(depth + 1, node.type === 'generatedTrajectory' ? { glyph: 'join', parts: ['End of the saved fallback'] } : branchClosing(kids, ctx.after, paths, catalog, flowCache)));
     }
-    return h('div', { key: node.id, className: 'rt-step-wrap' }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
+    return h('div', { key: node.id, className: 'rt-step-wrap rt-group ' + (node.type === 'repeat' ? 'repeat' : 'branch') }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
   }
 
   return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : ''), 'data-input': keyboard ? 'keyboard' : 'pointer',
@@ -691,14 +694,14 @@ export function RoutinePanel(props) {
     h('div', { className: 'rt-scroll', ref: scrollRef, onFocusCapture: (e) => { const key = e.target.dataset?.nav; if (key && key !== tabStop) setTabStop(key); } },
       routine.nodes.length === 0
         ? h('div', { className: 'rt-empty' },
-            h('div', { className: 'rt-empty-t' }, 'Build the run order'),
+            h('div', { className: 'rt-empty-t' }, 'No steps yet'),
             h('p', null, paths.length
-              ? 'Steps run top to bottom. Add paths in driving order, then branch, repeat or end early where the plan needs it.'
+              ? 'Steps run top to bottom. Start with the path the robot drives first, then add waits, commands, branches and repeats where the plan needs them.'
               : 'This project has no paths yet. Create one in Paths, then add it here.'),
-            h('button', { className: 'qbtn rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
+            h('button', { className: 'qbtn primary rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
               onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'),
             !catalog && h('p', { className: 'rt-empty-note' }, 'Commands and robot conditions come from linked robot code.'))
-        : h('div', { className: 'rt-list', role: 'list', 'aria-label': 'Routine run order' },
+        : h('div', { className: 'rt-list' + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
             renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
     add && h(AddMenu, { anchor: add.anchor, paths, steps: stepItems(add.where), label: add.label, dest: destination(add.where), onPick: pick, onClose: closeAdd }),
