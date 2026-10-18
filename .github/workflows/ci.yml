@@ -49,6 +49,7 @@ jobs:
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
   desktop:
+    name: desktop (${{ matrix.group }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
