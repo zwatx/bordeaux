@@ -146,8 +146,8 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       } },
       h('div', { className: 'project-menu-heading', role: 'presentation' }, h('strong', null, name),
         // The parent location tells same-named projects apart; it truncates from the start, and the marks keep a leading slash in place.
-        // Location lines are monospace and start-truncated; sentences about state are plain left-to-right text.
-        folderPath ? h('span', { title: folderPath }, '‎' + parentLocation(folderPath) + '‎')
+        // The location line is start-truncated with its full path as the title; sentences about state are plain left-to-right text.
+        folderPath ? h('span', { className: 'project-menu-location', title: folderPath }, '‎' + parentLocation(folderPath) + '‎')
           : recoveredFrom ? h('span', { className: 'project-menu-receipt' }, 'Recovered from ', h('bdi', null, recoveredFrom.origin?.kind === 'untitled' ? 'Untitled' : parentLocation(recoveredFrom.origin?.folderPath)),
             ' · ', h('time', { dateTime: recoveredFrom.capturedAt }, receiptClock(recoveredFrom.capturedAt)))
           : h('span', null, 'Not in a folder yet'),
@@ -176,13 +176,14 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       status !== 'recovered' && item(folderPath ? 'Save' : 'Save…', actions.save, shortcutLabel('S'), { 'data-action': 'save' }),
       status !== 'recovered' && item('Save copy…', actions.saveCopy, shortcutLabel('S', { shift: true })),
       h('hr'),
-      h('div', { className: 'project-menu-code', role: 'presentation' },
-        h('span', null, 'Robot code'),
-        h('span', { title: robotCode.error || undefined, 'aria-busy': Boolean(codeWork) || undefined }, codeWork
+      // The robot code's state is the Link/Change item's second line, so it reads as status rather than a dimmed row.
+      h('button', { type: 'button', role: 'menuitem', tabIndex: -1, className: 'project-menu-code', disabled: codeLoading, onClick: () => { close(true); actions.linkCode(); } },
+        h('span', null, linked ? 'Change robot code…' : 'Link robot code…'),
+        h('span', { className: 'project-menu-detail', title: robotCode.error || undefined, 'aria-busy': Boolean(codeWork) || undefined,
+          'data-problem': (!codeWork && (robotCode.status === 'missing' || robotCode.status === 'error')) || undefined }, codeWork
           || (linked ? [robotCode.name, Number.isFinite(robotCode.commands) && robotCode.commands + ' command' + (robotCode.commands === 1 ? '' : 's')].filter(Boolean).join(' · ') || 'Linked'
           : robotCode.status === 'missing' ? 'Missing' : robotCode.status === 'error' ? 'Couldn’t load' : 'Not linked'))),
       robotCode.suggestion && item('Use ' + robotCode.suggestion.name, actions.useCode, null, { disabled: !!robotCode.operation }),
-      item(linked ? 'Change robot code…' : 'Link robot code…', actions.linkCode, null, { disabled: codeLoading }),
       linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog[open]')) setSources(robotCode.catalog); }),
