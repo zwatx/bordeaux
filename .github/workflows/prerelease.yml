@@ -28,8 +28,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -56,19 +56,12 @@ jobs:
             exit 1
           fi
           if [ "$status" -ne 2 ]; then exit "$status"; fi
-      - run: npm test
-      - run: npm run typecheck
-      - run: npm run certify:field
-      - run: npm run build
-      - name: Configure Electron sandbox
-        run: |
-          node node_modules/electron/install.js
-          sudo chown root:root node_modules/electron/dist/chrome-sandbox
-          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-      - run: xvfb-run -a npm run test:smoke:built
+
+  ci:
+    uses: ./.github/workflows/ci.yml
 
   build:
-    needs: validate
+    needs: [validate, ci]
     strategy:
       fail-fast: false
       matrix:
@@ -84,8 +77,8 @@ jobs:
             artifact: bordeaux-beta-linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -154,7 +147,7 @@ jobs:
         run: |
           node scripts/verify-update-manifest.mjs linux release beta
           node scripts/verify-update-manifest.mjs linux-arm64 release beta
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
@@ -174,11 +167,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bordeaux-beta-*
           path: release-assets
