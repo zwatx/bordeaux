@@ -2843,7 +2843,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         movePath: (id, folderId) => movePathToFolder(pathIndex(id), folderId), linkPath: setPathLink },
     }, structure);
 
-    const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, escapeSelection, setWaypointPositionLink };
+    const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
       bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice, action: { label: 'Dismiss', onClick: () => setBdxNotice('') } },

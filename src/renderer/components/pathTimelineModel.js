@@ -109,3 +109,56 @@ export function featurePositionPatch(item, f, derived) {
   const fraction = clamp01(f);
   return item.anchor === 'dist' ? { f: fraction, d: +(fraction * (derived?.sample?.length || 0)).toFixed(3) } : { f: fraction };
 }
+
+/**
+ * Command chips (sorted by time, each with `t`) gathered into runs whose anchors sit within `gap` pixels
+ * of the previous one at the current zoom, a run spanning at most `span` pixels. A run of `min` or more
+ * becomes one stack; smaller runs stay individual chips, which the two chip rows can still name.
+ */
+export function groupCommandChips(placed, xOf, { gap = 14, span = 40, min = 3 } = {}) {
+  const runs = [];
+  placed.forEach((chip) => {
+    const run = runs[runs.length - 1], x = xOf(chip.t);
+    if (run && x - run.lastX < gap && x - run.firstX <= span) { run.members.push(chip); run.lastX = x; }
+    else runs.push({ members: [chip], firstX: x, lastX: x });
+  });
+  return runs.flatMap((run) => run.members.length >= min ? [run.members] : run.members.map((chip) => [chip]));
+}
+
+/** Closest a new waypoint may sit to an existing one, along the path (m). */
+export const MIN_WAYPOINT_GAP = 0.05;
+
+/**
+ * Where a waypoint added at time `t` goes: the path position the timed trajectory reaches at `t`, as the
+ * field's on-path visit (segment, segment parameter, point and heading) so the shared insertion splits
+ * that segment exactly. Refuses places where the split could not keep the path's shape.
+ */
+export function waypointInsertionAt(tl, derived, doc, t) {
+  const waypoints = doc?.waypoints || [];
+  const pts = derived?.sample?.pts || [];
+  if (waypoints.length < 2 || pts.length < 2) return { ok: false, code: 'unplanned' };
+  const total = pts[pts.length - 1].s || 0;
+  if (!(total > 0)) return { ok: false, code: 'unplanned' };
+  const f = clamp01(fAtT(tl, t));
+  const s = f * total;
+  // Waypoint distances along the path: the last sample of each segment ends at the next waypoint.
+  const wpS = [0];
+  for (let i = 1; i < pts.length; i++) if (pts[i].seg !== pts[i - 1].seg) wpS.push(pts[i - 1].s);
+  wpS.push(total);
+  if (wpS.length !== waypoints.length) return { ok: false, code: 'unplanned' };
+  const near = wpS.findIndex((at) => Math.abs(at - s) < MIN_WAYPOINT_GAP);
+  if (near >= 0) return { ok: false, code: near === 0 ? 'start' : near === waypoints.length - 1 ? 'end' : 'near', index: near };
+  let i = 1;
+  while (i < pts.length - 1 && pts[i].s < s) i++;
+  const a = pts[i - 1], b = pts[i];
+  const u = b.s - a.s > 1e-12 ? Math.max(0, Math.min(1, (s - a.s) / (b.s - a.s))) : 0;
+  // An edge across a joint starts the next segment at parameter 0.
+  const seg = b.seg, aT = a.seg === seg ? a.t : 0;
+  const segType = waypoints[seg]?.segType || 'bezier';
+  if (segType === 'arc' || segType === 'clothoid') return { ok: false, code: 'segtype', segType, segment: seg };
+  if (segType === 'bezier' && !(waypoints[seg].nextC && waypoints[seg + 1]?.prevC)) return { ok: false, code: 'handles', segment: seg };
+  const lerp = (p, q) => p + (q - p) * u;
+  const dh = Math.atan2(Math.sin((b.heading || 0) - (a.heading || 0)), Math.cos((b.heading || 0) - (a.heading || 0)));
+  const visit = { x: lerp(a.x, b.x), y: lerp(a.y, b.y), s, f, seg, t: lerp(aT, b.t), heading: (a.heading || 0) + dh * u };
+  return { ok: true, visit, segment: seg, index: seg + 1 };
+}
