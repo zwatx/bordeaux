@@ -2,24 +2,103 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  verify:
+  checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run verify:license
       - run: npm run typecheck
       - run: npm run certify:field
       - run: npm run build
-        id: build
       - run: npm audit --audit-level=high
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Each runner keeps vitest's single test-file slot; parallelism comes from sharding.
+      - run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  desktop:
+    name: desktop (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: library
+            checks: |
+              scripts/verify-update-quit.mjs
+              scripts/verify-labview-project-ui.mjs
+              scripts/verify-library-ui.mjs
+          - group: planning
+            checks: |
+              scripts/verify-planning-recovery-ui.mjs
+              scripts/verify-range-limits-ui.mjs
+              scripts/verify-optimizer-ui.mjs
+              scripts/verify-interface-ui.mjs
+              scripts/verify-interface-workflows.mjs
+          - group: workflows
+            checks: |
+              scripts/verify-command-branches-ui.mjs
+              scripts/verify-project-folder-ui.mjs
+              scripts/verify-routine-workspace-ui.mjs
+              scripts/verify-robot-push-ui.mjs
+              scripts/verify-robot-file-push-ui.mjs
+              scripts/verify-app-updates-ui.mjs
+    env:
+      ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
+      BORDEAUX_UPDATE_QUIT_OUTPUT: .ui-artifacts/update-quit
+      BORDEAUX_LABVIEW_UI_OUTPUT: .ui-artifacts/labview
+      BORDEAUX_PROJECT_UI_OUTPUT: .ui-artifacts/project
+      BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library
+      BORDEAUX_INTERFACE_UI_OUTPUT: .ui-artifacts/interface
+      BORDEAUX_INTERFACE_WORKFLOWS_OUTPUT: .ui-artifacts/interface-workflows
+      BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
+      BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
+      BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer
+      BORDEAUX_PUSH_UI_OUTPUT: .ui-artifacts/push
+      BORDEAUX_FILE_PUSH_UI_OUTPUT: .ui-artifacts/file-push
+      BORDEAUX_UPDATES_UI_OUTPUT: .ui-artifacts/updates
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        id: build
       - name: Configure Electron sandbox
         id: sandbox
         run: |
@@ -27,77 +106,28 @@ jobs:
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - run: xvfb-run -a npm run test:smoke:built
-      - name: Verify update quit lifecycle
+      - name: Verify ${{ matrix.group }} UI
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-update-quit.mjs
         env:
-          BORDEAUX_UPDATE_QUIT_OUTPUT: .ui-artifacts/update-quit
-      - name: Verify LabVIEW project UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-labview-project-ui.mjs
-        env:
-          BORDEAUX_LABVIEW_UI_OUTPUT: .ui-artifacts/labview
-      - name: Verify project folder UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-project-folder-ui.mjs
-        env:
-          BORDEAUX_PROJECT_UI_OUTPUT: .ui-artifacts/project
-          ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
-      - name: Verify library and routine UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-library-ui.mjs
-        env:
-          BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library
-      - name: Verify planning recovery and Zone editing
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
+          CHECKS: ${{ matrix.checks }}
         run: |
-          xvfb-run -a node scripts/verify-planning-recovery-ui.mjs
-          xvfb-run -a node scripts/verify-range-limits-ui.mjs
-      - name: Verify shared interface controls
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-interface-ui.mjs
-        env:
-          BORDEAUX_INTERFACE_UI_OUTPUT: .ui-artifacts/interface
-      - name: Verify interface workflows
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-interface-workflows.mjs
-        env:
-          BORDEAUX_INTERFACE_WORKFLOWS_OUTPUT: .ui-artifacts/interface-workflows
-      - name: Verify command output branches
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-command-branches-ui.mjs
-        env:
-          BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
-      - name: Verify routine workspace
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-routine-workspace-ui.mjs
-        env:
-          BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
-      - name: Verify optimizer UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-optimizer-ui.mjs
-        env:
-          BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer
-      - name: Verify mocked robot push UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-robot-push-ui.mjs
-        env:
-          BORDEAUX_PUSH_UI_OUTPUT: .ui-artifacts/push
-      - name: Verify direct SFTP path upload UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-robot-file-push-ui.mjs
-        env:
-          BORDEAUX_FILE_PUSH_UI_OUTPUT: .ui-artifacts/file-push
-      - name: Verify update panel UI
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.sandbox.outcome == 'success' }}
-        run: xvfb-run -a node scripts/verify-app-updates-ui.mjs
-        env:
-          BORDEAUX_UPDATES_UI_OUTPUT: .ui-artifacts/updates
+          # Run every check so one failure still leaves evidence from the rest.
+          failed=0
+          while read -r script; do
+            [ -n "$script" ] || continue
+            echo "::group::$script"
+            if ! xvfb-run -a node "$script"; then
+              echo "::error title=UI check failed::$script"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done <<< "$CHECKS"
+          exit "$failed"
       - name: Upload UI evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ui-verification
+          name: ui-verification-${{ matrix.group }}
           include-hidden-files: true
           path: |
             .ui-artifacts/**/*.png
