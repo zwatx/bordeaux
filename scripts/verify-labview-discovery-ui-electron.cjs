@@ -162,7 +162,7 @@ app.whenReady().then(async () => {
     check('real project links without NI; Sources search, empty results, Escape, Tab and modal focus return work');
     inspectionMode = 'pending'; await codeAction('Refresh commands'); await wait(() => Boolean(releaseInspection), 'pending Refresh inspection'); await menu();
     // A refresh keeps the linked rows in place, disabled.
-    assert.deepEqual(await evaluate(() => ['Change robot code…', 'Refresh commands'].map(label => [...document.querySelectorAll('#project-menu button')].find(el => el.textContent === label)?.disabled)), [true, true]);
+    assert.deepEqual(await evaluate(() => ['Change robot code…', 'Refresh commands'].map(label => [...document.querySelectorAll('#project-menu button')].find(el => (el.querySelector('span')?.textContent ?? el.textContent) === label)?.disabled)), [true, true]);
     assert.ok(await evaluate(() => document.querySelector('.project-menu-code').textContent.includes('Loading…')));
     await shot('inspection-pending'); releaseInspection(); releaseInspection = null; inspectionMode = 'normal';
     await wait(() => evaluate(() => [...document.querySelectorAll('#project-menu button')].some(el => el.textContent.includes('Refresh commands') && !el.disabled)), 'Refresh complete'); await key('Escape');
