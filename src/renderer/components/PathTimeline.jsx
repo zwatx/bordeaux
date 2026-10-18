@@ -3,7 +3,7 @@ import { PointerDrag } from '../hooks/usePointerDrag';
 import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
 import { UnitPrefs } from '../lib/unitPreferences';
-import { fAtT, featureFraction, featurePositionPatch, niceStep, tAtF, vAtT, zoneFractions } from './pathTimelineModel';
+import { fAtT, featureFraction, featurePositionPatch, groupCommandChips, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
 
@@ -12,7 +12,7 @@ import { UI } from './ui';
 // field shows the same draft; selecting shows the object's numbers in the docked panel.
 
 const h = React.createElement;
-const { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
+const { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
 const GUTTER = 78, RIGHT = 14, HEAD_ROW = 42, RULER = 20, WPROW = 28, LANE = 52, CHIP_H = 21;
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '–';
@@ -94,7 +94,7 @@ export function PathHoverReadout({ store, context, tl, metric }) {
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
-function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop }) {
+function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneGhost = true }) {
   const hover = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   if (!context.eligible || hover?.context !== context) return null;
   const times = hover.source === 'timeline' ? [hover.t] : hover.f.map(f => tAtF(tl, f));
@@ -102,7 +102,48 @@ function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop }) {
   return h('div', { className: 'pt-hover-overlay', 'aria-hidden': true },
     h('svg', { className: 'pt-svg', width: '100%', height: '100%' }, times.map((t, i) =>
       h('line', { key: i, x1: x(t), x2: x(t), y1: HEAD + RULER, y2: graphBottom, className: 'pt-hoverline', opacity: i === primary ? 1 : .55 }))),
-    hover.source === 'timeline' && h('span', { className: 'pt-lane-ghost', style: { left: x(hover.t), top: laneTop + (LANE - 6) / 2 } }, '+'));
+    hover.source === 'timeline' && laneGhost && h('span', { className: 'pt-lane-ghost', style: { left: x(hover.t), top: laneTop + (LANE - 6) / 2 } }, '+'));
+}
+
+/** Why a waypoint cannot be added at a time, in the panel's words. */
+export function insertionReason(check, doc) {
+  if (!check || check.ok) return '';
+  if (check.code === 'start') return 'The path starts here';
+  if (check.code === 'end') return 'The path ends here';
+  if (check.code === 'near') return 'Too close to ' + PathLinks.waypointName(null, doc, check.index);
+  if (check.code === 'segtype') return 'Splitting a' + (check.segType === 'arc' ? 'n arc' : ' clothoid') + ' can reshape it. Alt-click the path on the field to preview';
+  if (check.code === 'handles') return 'This segment has no handles to split';
+  return 'Waiting for the path to plan';
+}
+
+// The commands of one stack, chosen one at a time. Arrow keys, Home and End move, Enter or a click chooses
+// and returns focus to the stack, Escape or Tab closes, and a press elsewhere dismisses it.
+export function CommandStackMenu({ stack, at, selectedIndex, style, onChoose, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const menu = ref.current;
+    (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button'))?.focus();
+    const away = (event) => { if (!menu.contains(event.target) && !event.target.closest?.('[data-stack="' + stack.key + '"]')) onClose(false); };
+    const key = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); return; }
+      if (!menu.contains(event.target)) return;
+      if (event.key === 'Tab') { onClose(false); return; }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault(); event.stopPropagation();
+      const items = [...menu.querySelectorAll('button')], index = items.indexOf(document.activeElement);
+      items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    };
+    window.addEventListener('pointerdown', away, true); window.addEventListener('keydown', key, true);
+    return () => { window.removeEventListener('pointerdown', away, true); window.removeEventListener('keydown', key, true); };
+  }, [stack.key, onClose]);
+  return h('div', { ref, role: 'menu', 'aria-label': stack.members.length + ' commands' + at(stack.t), className: 'ctxmenu pt-stack-menu', style,
+    onPointerDown: (event) => event.stopPropagation() },
+    stack.members.map((chip) => h('button', { key: chip.marker.id || chip.index, type: 'button', role: 'menuitemradio', tabIndex: -1,
+      'aria-checked': selectedIndex === chip.index, 'data-selection': 'em:' + chip.index, className: 'ctxmenu-i pt-stack-item',
+      onClick: () => onChoose(chip.index) },
+      h('span', { className: 'pt-diamond', 'aria-hidden': true }),
+      h('span', { className: 'pt-stack-name' }, chip.label),
+      at(chip.t) && h('span', { className: 'ctxmenu-k pt-stack-time' }, fmt(chip.t) + ' s'))));
 }
 
 export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actions, playbackStore, catalog, metric = 'velocity', issues = [], issuesStale = false, selectedIssue = null, stale = false, header, hoverStore, hoverContext }) {
@@ -185,26 +226,57 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const vTicks = Array.from({ length: Math.min(30, Math.round((vTop - vLow) / vStep) + 1) }, (_, i) => Number((vLow + i * vStep).toFixed(4)));
 
   // Chips in two rows, in time order. A chip that would run into the next one in its row is shortened,
-  // down to its diamond; the full name stays in its accessible label, tooltip and the panel.
+  // down to its diamond; the full name stays in its accessible label, tooltip and the panel. Three or more
+  // commands that crowd one place at this zoom become one stack chip with a count, opened to choose one.
   const chips = useMemo(() => {
     const placed = markers.map((marker, index) => {
       const timed = derived?.markers?.find?.((item) => item.id === marker.id);
       const t = timed && Number.isFinite(timed.timeS) && !frozenT ? timed.timeS : tAtF(tl, featureFraction(marker, derived));
       return { marker, index, t, label: commandLabel(marker, catalog) };
     }).sort((a, b) => a.t - b.t);
+    const items = groupCommandChips(placed, x).map((members) => members.length === 1 ? members[0]
+      : { stack: true, members, t: members[0].t, key: members.map((chip) => chip.marker.id || chip.index).join('|'),
+        label: members.length + ' commands', minW: 38 + 7 * String(members.length).length });
     const last = [null, null];
     const end = (chip) => chip ? chip.left + chip.w : -Infinity;
-    placed.forEach((chip) => {
+    items.forEach((chip) => {
       chip.left = x(chip.t) - 9;
-      chip.w = Math.min(160, Math.ceil(textWidth(chip.label)) + 28);
+      chip.w = chip.stack ? Math.min(160, Math.ceil(textWidth(chip.label)) + chip.minW - 4) : Math.min(160, Math.ceil(textWidth(chip.label)) + 28);
       chip.row = end(last[0]) <= chip.left - 3 ? 0 : end(last[1]) <= chip.left - 3 ? 1 : end(last[0]) <= end(last[1]) ? 0 : 1;
       const previous = last[chip.row];
-      if (previous && end(previous) > chip.left - 3) previous.w = Math.max(22, chip.left - 3 - previous.left);
+      if (previous && end(previous) > chip.left - 3) previous.w = Math.max(previous.minW || 22, chip.left - 3 - previous.left);
       last[chip.row] = chip;
     });
-    placed.forEach((chip) => { chip.w = Math.max(22, Math.min(chip.w, W - 4 - chip.left)); });
-    return placed;
+    items.forEach((chip) => { chip.w = Math.max(chip.minW || 22, Math.min(chip.w, W - 4 - chip.left)); });
+    return items;
   }, [markers, derived, tl, T, W, catalog, frozenT]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [openStack, setOpenStack] = useState(null);
+  const stackRefs = useRef(new Map());
+  const shownStack = openStack && chips.find((chip) => chip.stack && chip.key === openStack);
+  // A stack whose members changed is gone; forget it so a later stack with the same members does not reopen.
+  useEffect(() => { if (openStack && !shownStack) setOpenStack(null); }, [openStack, shownStack]);
+  const closeStack = React.useCallback((refocus) => {
+    const key = openStack;
+    setOpenStack(null);
+    if (refocus) stackRefs.current.get(key)?.focus();
+  }, [openStack]);
+
+  // ---------- adding a waypoint where the robot is at a time ----------
+  const [pointsHover, setPointsHover] = useState(null);
+  const [pointsStatus, setPointsStatus] = useState(null);
+  useEffect(() => {
+    if (!pointsStatus) return undefined;
+    const timer = setTimeout(() => setPointsStatus(null), 4000);
+    return () => clearTimeout(timer);
+  }, [pointsStatus]);
+  // Held or older timing would place the point by stale times and distances: wait for the current plan.
+  const insertionAt = (t) => stale || tl.empty ? { ok: false, code: 'unplanned' } : waypointInsertionAt(tl, derived, doc, t);
+  const insertWaypointAt = (t) => {
+    const check = insertionAt(t);
+    if (!check.ok) { setPointsStatus({ t, text: 'Can’t add a point here. ' + insertionReason(check, doc) + '.' }); return; }
+    setPointsStatus(null);
+    actions.addWaypoint({ x: check.visit.x, y: check.visit.y }, check.segment, true, check.visit);
+  };
 
   // ---------- gestures: one undo step each, Escape restores the start ----------
   // Pressing commits a focused draft first, as the blur the press prevents would; an invalid draft keeps
@@ -299,7 +371,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     if (event.buttons) { hoverStore.clear(undefined, hoverContext); return; }
     const point = local(event);
     // Bare lane owns its move before graph routing; chip/control moves must not resurrect its plus.
-    const lane = event.target.classList?.contains('pt-lane');
+    const lane = event.target.classList?.contains('pt-lane') || event.target.classList?.contains('pt-points');
     const graph = !event.target.closest('button,[role="slider"]') && point.x >= GUTTER - 4 && point.x <= W - RIGHT + 4
       && point.y >= graphTop && point.y <= graphBottom;
     if (lane || graph) hoverStore.setTimeline(hoverContext, tAtX(point.x));
@@ -385,11 +457,35 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       onPointerDown: limitDrag }, limitLabel),
 
     h('div', { className: 'pt-gutter', style: { top: wpTop, height: WPROW } }, 'Points'),
+    // Like the command lane: the row's open space adds a waypoint where the robot is at that time, Enter adds
+    // one at the playhead. The point splits its segment exactly, so the path keeps its shape.
+    h('div', { className: 'pt-points', style: { left: GUTTER, width: plotW, top: wpTop, height: WPROW }, role: 'button', tabIndex: 0,
+      'aria-label': 'Add waypoint at the playhead', 'data-blocked': pointsHover && !pointsHover.check.ok ? '' : undefined,
+      onPointerMove: (event) => {
+        if (event.target !== event.currentTarget || event.buttons) { if (pointsHover) setPointsHover(null); return; }
+        const t = tAtX(local(event).x);
+        setPointsHover({ t, check: insertionAt(t) });
+      },
+      onPointerLeave: () => setPointsHover(null),
+      onPointerDown: (event) => { if (event.target === event.currentTarget) event.stopPropagation(); },
+      onClick: (event) => { if (event.target === event.currentTarget) insertWaypointAt(tAtX(local(event).x)); },
+      onBlur: () => setPointsStatus(null),
+      onKeyDown: (event) => {
+        if ((event.key !== 'Enter' && event.key !== ' ') || event.target !== event.currentTarget) return;
+        event.preventDefault(); event.stopPropagation();
+        if (!event.repeat) insertWaypointAt(clamp(playbackStore.getSnapshot().time, 0, T));
+      } }),
+    pointsHover && h('span', { className: 'pt-points-ghost', 'data-blocked': pointsHover.check.ok ? undefined : insertionReason(pointsHover.check, doc),
+      style: { left: x(pointsHover.t), top: wpTop + WPROW / 2 }, 'aria-hidden': true }, '+'),
+    pointsHover && !pointsHover.check.ok && h('span', { className: 'pt-readout pt-points-why', 'aria-hidden': true, 'data-flip': x(pointsHover.t) > W / 2 ? '' : undefined,
+      style: { left: x(pointsHover.t) + (x(pointsHover.t) > W / 2 ? -10 : 10), top: wpTop - 20 } }, insertionReason(pointsHover.check, doc)),
+    h('span', { className: 'pt-points-status', role: 'status', 'aria-live': 'polite', 'data-flip': pointsStatus && x(pointsStatus.t) > W / 2 ? '' : undefined,
+      style: pointsStatus ? { left: x(pointsStatus.t) + (x(pointsStatus.t) > W / 2 ? -10 : 10), top: wpTop - 20 } : undefined }, pointsStatus ? pointsStatus.text : ''),
     waypoints.slice(0, -1).map((_, k) => {
       const a = x(wpT(k)) + 11, b = x(wpT(k + 1)) - 11;
       if (b - a < 6) return null;
       const on = selSeg === k;
-      return h('button', { key: 'seg' + k, type: 'button', className: 'pt-seg' + (on ? ' selected' : ''), style: { left: a, width: b - a, top: wpTop + WPROW / 2 - 7 },
+      return h('button', { key: 'seg' + k, type: 'button', className: 'pt-seg' + (on ? ' selected' : ''), style: { left: a, width: b - a, top: wpTop + WPROW / 2 - 4 },
         'aria-label': PathLinks.waypointName(null, doc, k) + ' to ' + PathLinks.waypointName(null, doc, k + 1), 'aria-pressed': on, 'data-selection': 'seg:' + k,
         onPointerDown: (event) => event.stopPropagation(), onClick: () => select('seg', k) });
     }),
@@ -423,6 +519,24 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
         if (!event.repeat) actions.addMarkerAt(null, fAtT(tl, clamp(playbackStore.getSnapshot().time, 0, T)));
       } }),
     chips.map((chip) => {
+      if (chip.stack) {
+        const chosen = sel.kind === 'em' ? chip.members.find((member) => member.index === sel.idx) : null;
+        const open = shownStack === chip;
+        return h('button', { key: chip.key, ref: (node) => { if (node) stackRefs.current.set(chip.key, node); else stackRefs.current.delete(chip.key); },
+          type: 'button', className: 'pt-chip stack' + (chosen ? ' selected' : ''), 'data-stack': chip.key,
+          style: { left: chip.left, width: chip.w, top: laneTop + 1 + chip.row * (CHIP_H + 2), height: CHIP_H },
+          'aria-label': chip.label + at(chip.t) + (chosen ? ', ' + chosen.label + ' selected' : ''), 'aria-haspopup': 'menu', 'aria-expanded': open,
+          title: chip.members.map((member) => member.label).join('\n'),
+          onPointerDown: (event) => { if (event.button === 0) event.stopPropagation(); },
+          onClick: () => setOpenStack(open ? null : chip.key),
+          onKeyDown: (event) => {
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault(); event.stopPropagation(); setOpenStack(chip.key);
+          } },
+          h('span', { className: 'pt-stack-glyph', 'aria-hidden': true }),
+          h('span', { className: 'pt-stack-count', 'aria-hidden': true }, chip.members.length),
+          h('span', { className: 'pt-chip-name', 'aria-hidden': true }, chosen ? chosen.label : 'commands'));
+      }
       const on = sel.kind === 'em' && sel.idx === chip.index;
       return h('button', { key: chip.marker.id || chip.index, type: 'button', className: 'pt-chip' + (on ? ' selected' : ''),
         style: { left: chip.left, width: chip.w, top: laneTop + 1 + chip.row * (CHIP_H + 2), height: CHIP_H },
@@ -439,6 +553,10 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
         } },
         h('span', { className: 'pt-diamond', 'aria-hidden': true }), h('span', { className: 'pt-chip-name' }, chip.label));
     }),
-    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop }),
+    shownStack && h(CommandStackMenu, { stack: shownStack, at, selectedIndex: sel.kind === 'em' ? sel.idx : null, onClose: closeStack,
+      style: { left: clamp(shownStack.left, 4, Math.max(4, W - 244)), bottom: H - (laneTop + 1 + shownStack.row * (CHIP_H + 2)) + 4,
+        maxHeight: Math.max(60, Math.min(260, laneTop + 1 + shownStack.row * (CHIP_H + 2) - 12)) },
+      onChoose: (index) => { closeStack(true); select('em', index); } }),
+    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneGhost: !pointsHover }),
     h(Playhead, { store: playbackStore, x, top: HEAD + RULER, bottom: laneTop + LANE - 8 }));
 }
