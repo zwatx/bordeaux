@@ -112,6 +112,38 @@ export function projectEditingTiming(geometry, bestEffort, issues = []) {
     metrics: { ...geometry.metrics, v, head, vMax: v.reduce((max, value) => Math.max(max, Math.abs(value)), 0.1) } };
 }
 
+/**
+ * What a pointer edit shows for `path`. A result solved for this exact draft is the release value
+ * itself. Until the worker solves it, the live draft geometry is timed by the newest solved trace from
+ * the same planner, projected by path fraction, so the edited point never trails the pointer.
+ */
+export function liveEditingPreview(path, robot, solvedPath, solved) {
+  if (solvedPath === path) return solved;
+  const geometry = editingGeometry(path, 14, robot), checks = solved?.checks || [];
+  const trace = solved?.trajectorySamples?.length > 1 ? solved.trajectorySamples : solved?.finalTrajectory?.samples;
+  if (!(trace?.length > 1)) return { ...geometry, checks };
+  // Map each live point to the solved fraction within its waypoint segment, keeping stops on their waypoints.
+  const from = solved.wpFrac, to = geometry.wpFrac, length = geometry.sample.length || 1;
+  const pinned = from?.length === to.length && to.every((f, i) => !i || (f > to[i - 1] && from[i] > from[i - 1]));
+  let segment = 0, j = 0;
+  const t = [], v = [];
+  for (const point of geometry.sample.pts) {
+    let f = point.s / length;
+    if (pinned) {
+      while (segment < to.length - 2 && f > to[segment + 1]) segment++;
+      f = from[segment] + (from[segment + 1] - from[segment]) * Math.min(1, Math.max(0, (f - to[segment]) / (to[segment + 1] - to[segment])));
+    }
+    while (j < trace.length - 2 && trace[j + 1].f < f) j++;
+    const a = trace[j], b = trace[j + 1], u = Math.min(1, Math.max(0, (f - a.f) / Math.max(1e-9, b.f - a.f)));
+    t.push(a.t + (b.t - a.t) * u);
+    v.push(a.velocityMps + (b.velocityMps - a.velocityMps) * u);
+  }
+  const totalTime = Math.max(solved.prof?.totalTime || 0, trace[trace.length - 1].t);
+  return { ...geometry, checks, trajectorySamples: trace,
+    prof: { ...geometry.prof, t, v, totalTime },
+    metrics: { ...geometry.metrics, v, vMax: Math.max(0.1, ...v) } };
+}
+
 /** Exact shared trace, including stopped holds, rotations and jiggle excursions. */
 export function editingPoseAtTime(time, samples) {
   if (!samples?.length) return null;

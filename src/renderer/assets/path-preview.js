@@ -359,4 +359,17 @@ import { directPreviewWork, directWorkIsSafe } from "./direct-preview-work";
     };
   }
 
-export const PathPreview = Object.freeze({ create, samplesForQuality, directPreviewWork, directWorkIsSafe, directPreviewIsSafe });
+  /**
+   * Pointer-edit previews run the release editing solve: the whole path (including its selected
+   * optimization), robot, field and final density. Worker only, latest wins; the UI thread never times.
+   */
+  function createEditing(options) {
+    return create({
+      ...options,
+      directIsSafe: () => false,
+      workerPayload: (job) => ({ id: job.revision, mode: 'editing', path: job.path, robot: job.robot, field: job.field,
+        perSegment: samplesForQuality('final'), quality: job.quality }),
+    });
+  }
+
+export const PathPreview = Object.freeze({ create, createEditing, samplesForQuality, directPreviewWork, directWorkIsSafe, directPreviewIsSafe });
