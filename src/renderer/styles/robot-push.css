@@ -55,12 +55,54 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-trigger:disabled{opacity:.45;cursor:not-allowed}
 @keyframes robot-push-spin{to{transform:rotate(360deg)}}
 /* Path push: one compact surface. Destination, files, then one footer with diagnostics left and the commit right. */
-/* Push all: a quiet text action beside Push; Push keeps the bordered surface and the shortcut. */
-.push-all{position:relative;flex:none;height:30px;padding:0 8px;border-radius:var(--r);color:var(--txt-2);font-size:12.5px;font-weight:550;white-space:nowrap}
-.push-all::before{content:'';position:absolute;inset:-6px 0}
-@media (hover:hover){.push-all:hover:not(:disabled,[aria-disabled]){background:var(--bg-3);color:var(--txt)}}
-.push-all:is(:disabled,[aria-disabled]){color:var(--txt-3);opacity:.7;cursor:not-allowed}
-.push-all:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* Push: one split button in the toolbar. The primary half is the exact scope and its shortcut; the chevron half carries
+   the robot's state as a dot and opens the menu (destination, last result, Push all, connection). Toolbar rules for
+   .push-button live in app.css; these selectors are specific enough to win in either stylesheet order. */
+.push-split{position:relative;display:flex;flex:none;align-items:stretch}
+.push-control .push-split>.push-button{border-top-right-radius:0;border-bottom-right-radius:0}
+.push-menu-root{position:relative;display:flex}
+.push-control .push-menu-trigger{position:relative;display:flex;align-items:center;justify-content:center;gap:5px;width:34px;height:30px;margin-left:-1px;border:1px solid var(--line-3);border-radius:0 var(--r) var(--r) 0;background:var(--bg-3);color:var(--txt-2);transition:background-color .14s,border-color .14s,color .14s}
+/* The divider between the halves stays visible against either surface. */
+.push-control .push-menu-trigger::after{content:'';position:absolute;top:6px;bottom:6px;left:-1px;width:1px;background:var(--line-3)}
+.push-control .push-menu-trigger::before{content:'';position:absolute;inset:-6px 0}
+/* A disabled primary half (no selection, push running) recedes; the menu half stays usable beside it. */
+.push-control .push-button:disabled+.push-menu-root>.push-menu-trigger{border-color:var(--line-2);background:transparent}
+.push-control .push-button:disabled+.push-menu-root>.push-menu-trigger::after{background:var(--line-2)}
+.push-control .push-menu-trigger[aria-expanded="true"]{background:var(--bg-4);color:var(--txt)}
+.push-control .push-menu-trigger:focus-visible{z-index:1;outline:2px solid var(--focus);outline-offset:2px}
+.push-control .push-split>.push-button:focus-visible{z-index:1}
+.push-chevron{display:flex}
+/* Idle has no dot; its slot is kept so a state change never moves Push. Not set up is a hollow ring, not a color. */
+.push-menu-trigger>.push-dot{flex:none;width:6px;height:6px;border-radius:50%;background:transparent}
+.push-menu-trigger:not([data-tone])>.push-dot{display:none}
+.push-menu-trigger[data-tone="unset"]>.push-dot{box-shadow:inset 0 0 0 1.25px var(--txt-3)}
+.push-menu-trigger[data-tone="busy"]>.push-dot{background:var(--txt-2);animation:push-dot-pulse 1s ease-in-out infinite alternate}
+.push-menu-trigger[data-tone="good"]>.push-dot{background:var(--good)}
+.push-menu-trigger[data-tone="bad"]>.push-dot{background:var(--bad)}
+@keyframes push-dot-pulse{to{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.push-menu-trigger[data-tone="busy"]>.push-dot{animation:none}}
+@media (hover:hover){
+  .push-control .push-menu-trigger:hover{border-color:oklch(.4 .003 286);background:var(--bg-4);color:var(--txt)}
+  .push-control .push-button:disabled+.push-menu-root>.push-menu-trigger:hover{border-color:var(--line-3);background:var(--bg-3)}
+}
+/* The menu reuses the project menu's surface and rows, anchored to the right edge of the bar. */
+.push-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:250;width:280px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 88px);overflow-y:auto;padding:5px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow);text-align:left}
+.push-menu-heading{display:flex;flex-direction:column;gap:3px;margin-bottom:5px;padding:9px 10px 11px;border-bottom:1px solid var(--line);color:var(--txt);font-size:13px;overflow-wrap:anywhere}
+.push-menu-heading>strong{font-weight:600}
+.push-menu-where{overflow:hidden;color:var(--txt-3);font:11px/1.5 var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.push-menu-note{color:var(--txt-3);font-size:12px}
+.push-menu-heading>.push-menu-result{display:flex;align-items:baseline;gap:6px;margin-top:3px;color:var(--txt-2);font-size:12px;font-variant-numeric:tabular-nums}
+.push-menu-result::before{content:'';flex:none;width:6px;height:6px;border-radius:50%;background:var(--txt-3);transform:translateY(-1px)}
+.push-menu-result[data-tone="good"]::before{background:var(--good)}
+.push-menu-result[data-tone="bad"]{color:var(--bad-txt)}
+.push-menu-result[data-tone="bad"]::before{background:var(--bad)}
+.push-menu [role="menuitem"]{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;width:100%;min-height:32px;padding:6px 10px;border-radius:var(--r);color:var(--txt);font-size:12.5px;font-weight:500;text-align:left}
+.push-menu-detail{color:var(--txt-3);font-size:11.5px;line-height:1.4}
+.push-menu [role="menuitem"]:is(:hover,:focus-visible):not([aria-disabled]){background:var(--bg-3)}
+.push-menu [role="menuitem"]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.push-menu [role="menuitem"][aria-disabled]{cursor:default}
+.push-menu [role="menuitem"][aria-disabled]>.push-menu-label{color:var(--txt-3)}
+.push-menu hr{height:1px;margin:5px 0;border:0;background:var(--line)}
 .rfp{width:min(480px,calc(100vw - 32px))}
 .rfp h2{font-size:15px}
 .rfp-body{display:grid;gap:12px;padding:12px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.5}

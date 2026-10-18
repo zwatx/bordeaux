@@ -279,29 +279,21 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 /* A place's ring hugs its label, clear of the current-place rule at the bar's edge. */
 .place:focus-visible{outline:2px solid var(--focus);outline-offset:-7px;border-radius:12px}
 
-/* Push: a neutral bordered button whose label is its scope; the destination or last result sits to its left. */
+/* Push: a neutral bordered button whose label is its scope; robot status lives in its split menu. */
 .push-control{display:flex;align-items:center;gap:10px;min-width:0}
-.push-status{display:flex;min-width:0;color:var(--txt-3);font-size:12px;line-height:16px}
-.push-progress{padding:0 6px;white-space:nowrap}
-.push-destination{position:relative;display:flex;align-items:center;gap:6px;min-width:0;max-width:260px;min-height:28px;padding:0 6px;border-radius:var(--r-s);color:inherit;text-align:left}
-.push-destination>.push-status-full{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.push-status-compact{display:none}
-.push-destination[data-tone="bad"]{color:var(--bad-txt)}
 .push-dot{flex:none;width:6px;height:6px;border-radius:50%}
 [data-tone="good"]>.push-dot{background:var(--good)}
 [data-tone="bad"]>.push-dot{background:var(--bad)}
 .push-button{position:relative;display:flex;flex:none;align-items:center;gap:12px;height:30px;padding:0 8px 0 12px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--bg-3);color:var(--txt);font-size:12.5px;font-weight:600;white-space:nowrap;transition:background-color .14s,border-color .14s}
 .push-button[data-shortcut]::after{content:attr(data-shortcut);color:var(--txt-3);font:500 11px/1 var(--ui);letter-spacing:.02em}
 .push-button:disabled{border-color:var(--line-2);background:transparent;color:var(--txt-3);cursor:not-allowed}
-/* Push and its destination keep compact surfaces with 40px-tall hit areas inside the bar. */
-:is(.push-button,.push-destination)::before{content:'';position:absolute;inset:-6px 0}
+/* Push keeps a compact surface with a 40px-tall hit area inside the bar. */
+.push-button::before{content:'';position:absolute;inset:-6px 0}
 .push-local{padding:0 6px;color:var(--txt-3);font-size:12px;white-space:nowrap}
-:is(.push-destination,.push-button):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.push-button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media (hover:hover){
   .place:not([aria-current]):hover{color:var(--txt-2)}
   .iconbtn:hover:not(:disabled):not(.active),.tb-text:hover,.toolbar .keyboard-help-trigger:hover{background:var(--bg-3);color:var(--txt)}
-  .push-destination:hover{background:var(--bg-3);color:var(--txt)}
-  .push-destination[data-tone="bad"]:hover{color:var(--bad-txt)}
   .push-button:not(:disabled):hover{border-color:oklch(.4 .003 286);background:var(--bg-4)}
 }
 
@@ -312,13 +304,6 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
   .toolbar .optimizer-toggle{min-width:76px;padding-inline:6px}
   .toolbar .tb-push{flex:0 0 auto;margin-left:4px;padding-left:4px}
   .toolbar .push-control{gap:2px}
-  .toolbar .push-status{flex:0 0 64px;min-width:64px}
-  .toolbar .push-destination{width:64px;min-width:64px;max-width:64px}
-  .toolbar .push-destination[data-compact-status]{padding-inline:0}
-  .toolbar .push-destination[data-compact-status] .push-dot{display:none}
-  .toolbar .push-destination[data-compact-status] .push-status-full{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
-  .toolbar .push-status-compact{display:block;white-space:nowrap}
-  .toolbar .push-all{padding-inline:4px}
   .toolbar .push-button{padding-inline:8px}
   .toolbar .push-button[data-shortcut]::after{display:none}
 }

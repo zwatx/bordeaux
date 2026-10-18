@@ -2874,7 +2874,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       projectsSheet, departureSheet, departureHint,
       h(DiagnosticBundleDialog, { getProject: materializeProject, targetSelector: '.robot-connection-diagnostics', onOpen: pushController.close, renderKey: pushController.open + ':' + pushController.phase,
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
-        onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-destination')) || focusIfAvailable(document.querySelector('.push-button')) }),
+        onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
         ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState: appUpdates.state,
           onOpenUpdates: () => ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(appUpdates.state?.phase)
