@@ -18,7 +18,11 @@ function handles(source: PathDoc, points: ControlPoint[], indices: number[], fac
     let incoming = Math.atan2(p.y - before.y, p.x - before.x);
     let outgoing = Math.atan2(after.y - p.y, after.x - p.x);
     if (!original?.stop && index > 0 && index < points.length - 1) {
-      incoming = outgoing = Math.atan2(after.y - before.y, after.x - before.x);
+      // Bisect the unit leg directions. The raw chord (after - before) is
+      // dominated by the longer leg and can point away from the next leg,
+      // forcing a hairpin through an apex waypoint.
+      const ux = Math.cos(incoming) + Math.cos(outgoing), uy = Math.sin(incoming) + Math.sin(outgoing);
+      incoming = outgoing = Math.hypot(ux, uy) > 1e-6 ? Math.atan2(uy, ux) : Math.atan2(after.y - before.y, after.x - before.x);
     }
     incoming += rotation;
     outgoing += rotation;
@@ -130,6 +134,25 @@ export function* routeCandidates(input: PlannerInput, stop: () => boolean, exhau
   yield handles(source, points, indices, 1 / 3, 0, tankDrive);
   const authored = geometryFromPath(source);
   yield authored;
+  const aligned = !routeGeometryShapeError(authored) && authored.knots.every((k, i) => {
+    if (i === 0 || i === authored.knots.length - 1 || source.waypoints[i].stop) return true;
+    const ax = k.x - k.prevC.x, ay = k.y - k.prevC.y;
+    const bx = k.nextC.x - k.x, by = k.nextC.y - k.y;
+    const lengths = Math.hypot(ax, ay) * Math.hypot(bx, by);
+    return lengths > 1e-12 && Math.abs(ax * by - ay * bx) <= lengths * 1e-7 && ax * bx + ay * by > 0;
+  });
+  // Nearest repairs come before any reshaping, so even a Quick search reaches
+  // them: the drawn directions with shorter handles pull a curve that grazes a
+  // wall or obstacle back inside without changing the route.
+  if (aligned) {
+    for (const scale of [0.8, 0.6, 0.4]) {
+      if (stop()) return;
+      yield { ...authored, knots: authored.knots.map((knot) => {
+        const shrink = (control: ControlPoint) => ({ x: knot.x + (control.x - knot.x) * scale, y: knot.y + (control.y - knot.y) * scale });
+        return { ...knot, prevC: shrink(knot.prevC), nextC: shrink(knot.nextC) };
+      }) };
+    }
+  }
   const model = routeFieldModel(input.robot);
   for (const side of [0, 4, -4]) {
     if (stop()) return;
@@ -149,13 +172,6 @@ export function* routeCandidates(input: PlannerInput, stop: () => boolean, exhau
       }
     }
   }
-  const aligned = !routeGeometryShapeError(authored) && authored.knots.every((k, i) => {
-    if (i === 0 || i === authored.knots.length - 1 || source.waypoints[i].stop) return true;
-    const ax = k.x - k.prevC.x, ay = k.y - k.prevC.y;
-    const bx = k.nextC.x - k.x, by = k.nextC.y - k.y;
-    const lengths = Math.hypot(ax, ay) * Math.hypot(bx, by);
-    return lengths > 1e-12 && Math.abs(ax * by - ay * bx) <= lengths * 1e-7 && ax * bx + ay * by > 0;
-  });
   const laws = segmentHeadingLaws(source, tankDrive);
   if (aligned) {
     for (const angle of [-Math.PI / 6, Math.PI / 6]) {

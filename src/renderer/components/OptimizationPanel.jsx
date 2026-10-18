@@ -7,6 +7,10 @@ const terminationLabels = { completed: 'Finished', 'work-budget': 'Effort limit 
   cancelled: 'Canceled', unsupported: 'Unsupported path', 'invalid-baseline': 'Drawn curve couldn’t be timed' };
 const batchLabels = { success: 'Searched', searching: 'Searching', failure: 'Failed', timeout: 'Time limit', canceled: 'Canceled', stale: 'Outdated' };
 const routeLabels = { 'no-candidate': 'No route found', unsupported: 'Unsupported', cancelled: 'Canceled' };
+// Validator wording is precise but internal; say what the drawn curve does wrong.
+const seedIssueCopy = (issue) => !issue ? 'The drawn curve doesn’t meet the path’s requirements.'
+  : /footprint|clearance/i.test(issue) ? 'The drawn curve runs the robot into a wall or field obstacle.'
+  : issue;
 
 // The task is the required waypoints, set headings, stops, and field; the drawn curve only seeds the search.
 // `error` and `pending` describe Normal timing of the drawn curve, never the route search.
@@ -51,9 +55,11 @@ export function OptimizationPanel({ path, paths, state, candidate, accepted, acc
   const legacy = Boolean(accepted) && (acceptedVersion ?? path.optimization?.accepted?.version) === 1;
   const distance = (value) => `${(value * (unitSystem === 'imperial' ? 3.280839895 : 1)).toFixed(2)} ${unitSystem === 'imperial' ? 'ft' : 'm'}`;
   const idle = normalFailed ? 'Find a route' : 'Find a faster route';
+  // A repaired route is never labeled as a plain success: say how it compares to the drawn timing.
   const outcome = searchingCurrentPath || comparing ? idle
-    : madeFeasible ? 'Route found'
     : improved ? `${seconds(gain)} faster, ${(gain / baselineTime * 100).toFixed(1)}%`
+    : madeFeasible && normalReady ? (gain > -0.005 ? 'Clear route, same time' : `Clear route, ${seconds(-gain)} slower`)
+    : madeFeasible ? 'Route found'
     : stale ? 'Needs update'
     : unsupported ? 'Not supported for this path'
     : entry?.status === 'canceled' ? 'Search canceled'
@@ -80,9 +86,11 @@ export function OptimizationPanel({ path, paths, state, candidate, accepted, acc
           'aria-label': state.batch ? 'Cancel all optimization searches' : `Cancel optimization for ${backgroundPath.name}` },
         state.batch ? 'Cancel all' : 'Cancel search')),
       h('div', { className: 'optimizer-status', 'aria-busy': pending || searchingCurrentPath },
-        h('p', { className: 'optimizer-outcome' + (newCandidate && !searchingCurrentPath ? ' gain' : ''), role: 'status' }, outcome),
+        h('p', { className: 'optimizer-outcome' + (newCandidate && !searchingCurrentPath && (improved || !normalReady) ? ' gain' : ''), role: 'status' }, outcome),
         (pending || searchingCurrentPath) && h('progress', { className: 'optimizer-progress', 'aria-label': searchingCurrentPath ? 'Optimizing path' : 'Preparing path' })),
       reason && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' }, reason),
+      invalidSeed && !searchingCurrentPath && !stale && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' },
+        seedIssueCopy(search?.seedIssue), normalReady ? ' Normal timing is shown for comparison only.' : ''),
       normalFailed && h('div', { className: 'optimizer-failure', role: 'status' },
         h('p', null, 'Normal timing isn’t available for the drawn curve. ', error.message || String(error)),
         !searchingCurrentPath && !newCandidate && !unsupported && !noRoute && h('p', null, 'Optimize can still look for a route through your waypoints.'),
@@ -116,7 +124,7 @@ export function OptimizationPanel({ path, paths, state, candidate, accepted, acc
         details?.activeConstraints?.length > 0 && h('p', null, 'Limited by ', [...new Set(details.activeConstraints)].map((name) => name.replaceAll('-', ' ')).join(', ')),
         details?.fallbackReason && h('p', null, details.fallbackReason),
         entry?.error && h('p', { className: 'optimizer-error' }, entry.error),
-        details?.rejectionReasons?.length > 0 && h('ul', null, details.rejectionReasons.map((item) => h('li', { key: item.reason }, `${item.reason}: ${item.count}`)))),
+        details?.rejectionReasons?.length > 0 && h('ul', null, details.rejectionReasons.map((item) => h('li', { key: item.reason }, `${item.reason.replace(/\.$/, '')} (${item.count})`)))),
       state.batch && h('details', { className: 'optimizer-batch', open: true },
         h('summary', null, `${state.batch.completed} of ${state.batch.total} paths searched`),
         h('div', null, paths.map((item) => h('button', { key: item.id, type: 'button', onClick: () => onSelectPath(item.id) },

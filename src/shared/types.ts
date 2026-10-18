@@ -739,6 +739,8 @@ export interface TrajectoryPlanner {
 export interface PlannerOptimizationDiagnostics {
   /** Qualification of the actual authored Normal, never inferred from candidate feasibility. */
   seedStatus?: "unknown" | "valid" | "invalid";
+  /** Concrete reason the drawn curve failed route qualification. */
+  seedIssue?: string;
   plannerUsed: TrajectoryPlannerId;
   status?: "optimal" | "feasible" | "equivalent" | "invalid-input" | "infeasible" | "cancelled" | "internal-error";
   iterations?: number;

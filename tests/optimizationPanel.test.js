@@ -81,12 +81,28 @@ describe('waypoint-route outcomes', () => {
     expect(markup).not.toContain('faster,');
     expect(markup).not.toContain('%');
   });
-  it('offers a safe route even when its time exceeds a drawn curve known to be invalid', () => {
-    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid' } }, baselineTime: 2 });
-    expect(markup).toContain('Route found');
+  it('offers a clear route slower than an invalid drawn curve, and says it is slower and why', () => {
+    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid',
+      seedIssue: 'Robot footprint or portal clearance is invalid.' } }, baselineTime: 2 });
+    expect(markup).toContain('Clear route, 1.00 s slower');
+    expect(markup).not.toContain('Route found');
+    expect(markup).not.toContain('optimizer-outcome gain');
+    expect(markup).toContain('The drawn curve runs the robot into a wall or field obstacle.');
+    expect(markup).toContain('Normal timing is shown for comparison only.');
     expect(markup).toContain('Apply optimized');
     expect(markup).not.toContain('No faster route found');
-    expect(markup).not.toContain('faster,');
+  });
+  it('never calls a repaired route with a sub-threshold gain slower', () => {
+    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid' } }, baselineTime: 3.004 });
+    expect(markup).toContain('Clear route, same time');
+    expect(markup).not.toContain('slower');
+  });
+  it('reports a real gain when repairing an invalid drawn curve also makes it faster', () => {
+    const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid' } }, baselineTime: 4 });
+    expect(markup).toContain('1.00 s faster, 25.0%');
+    expect(markup).toContain('optimizer-outcome gain');
+    expect(markup).toContain('The drawn curve doesn’t meet the path’s requirements.');
+    expect(markup).toContain('Apply optimized');
   });
   it('does not promote a slower route just because seed qualification is unknown', () => {
     const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'unknown' } }, baselineTime: 2 });
