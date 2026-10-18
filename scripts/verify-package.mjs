@@ -149,7 +149,7 @@ for (const archive of archives) {
   const prerelease = packagedManifest.version.includes("-");
   for (const [field, value] of Object.entries({
     provider: "github",
-    owner: "Zw96042",
+    owner: "zwatx",
     repo: "bordeaux",
     channel: prerelease ? "beta" : "latest",
     releaseType: prerelease ? "prerelease" : "release",
