@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
+import { liveEditingPreview } from "../assets/editing-planning";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
 import { authoredPath, isOptimizationOutdated, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
@@ -147,26 +148,30 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
    * What the editor shows for the active path: a live draft preview while a pointer edit runs, the
    * finished draft until its committed derivation arrives, else the committed derivation. The field
    * and the band share one previewer; only the field requests, so a drag costs one preview job.
+   * A draft the worker has solved shows exactly its release value; until then the live draft geometry
+   * is timed by the newest solved trace, so the edited point follows the pointer.
    */
-  function useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, plannerId, request }) {
+  function useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request }) {
     const draft = useSyncExternalStore(editStore.subscribe, editStore.getSnapshot, editStore.getSnapshot);
     const editBase = useRef(null);
     const [preview, setPreview] = useState(() => previewer.getSnapshot());
     useEffect(() => previewer.subscribe(() => setPreview(previewer.getSnapshot())), [previewer]);
     useEffect(() => {
-      if (request && draft) previewer.request({ key: draft.id, path: draft, robot, plannerId, quality: 'interactive' });
-    }, [previewer, request, draft, robot, plannerId]);
+      if (request && draft) previewer.request({ key: draft.id, path: draft, robot, field, plannerId, quality: 'interactive' });
+    }, [previewer, request, draft, robot, field, plannerId]);
     if (draft && !editBase.current) editBase.current = doc;
     const finished = !draft && editStore.getLastResolution() === 'finish';
     const bridgeFinishedEdit = finished && editBase.current && (editBase.current === doc || derivedPath !== doc);
     if (!draft && (!finished || (derivedPath === doc && editBase.current !== doc))) editBase.current = null;
-    const draftPreview = draft && preview.path && preview.path.id === draft.id && preview.value && preview.value.planner === plannerId
-      ? { path: preview.path, value: preview.value }
-      : null;
-    const committedPreview = !draft && preview.path && preview.path.id === doc.id && preview.value && preview.value.planner === plannerId && bridgeFinishedEdit
-      ? { path: preview.path, value: preview.value }
-      : null;
-    const displayed = draftPreview || committedPreview || { path: derivedPath || doc, value: derived };
+    const solved = preview.value?.derived;
+    const target = draft || (bridgeFinishedEdit ? doc : null);
+    // Before this edit's first solve, the committed release timing seeds the live geometry.
+    const source = target && solved?.planner === plannerId && preview.path?.id === target.id ? { path: preview.path, value: solved }
+      : draft && derived?.planner === plannerId ? { path: derivedPath || doc, value: derived } : null;
+    const sourcePath = source?.path, sourceValue = source?.value;
+    const value = useMemo(() => target && sourceValue ? liveEditingPreview(target, robot, sourcePath, sourceValue) : null,
+      [target, robot, sourcePath, sourceValue]);
+    const displayed = value ? { path: target, value } : { path: derivedPath || doc, value: derived };
     return { draft, displayed, interactionReady: displayed.path === (draft || doc) };
   }
   function EditablePlaybackField({ store, fieldDoc, ...props }) {
@@ -174,9 +179,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     return h(FieldView, { ...props, doc: fieldDoc, playTime: playback.time });
   }
   /** One displayed result owns the field, timeline and transient problem selection. */
-  function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, plannerId, actions, sel, playbackStore,
+  function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, actions, sel, playbackStore,
     issues = [], timingPending = false, stale = false, flushDraft }) {
-    const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, plannerId, request: true });
+    const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request: true });
     // Authored values follow the live draft; timing follows what the field shows for it.
     const source = draft || doc;
     const value = displayed.value || derived;
@@ -386,7 +391,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const [view, setView] = useState(FIT);
     // The full inspector is the "More" drawer; everyday values sit in the band under the field.
     const [inspectorOpen, setInspectorOpen] = useState(false);
-    const editPreviewer = useMemo(() => PathPreview.create(), []);
+    const editPreviewer = useMemo(() => PathPreview.createEditing(), []);
     useEffect(() => editPreviewer.retain(), [editPreviewer]);
     const [workSize, setWorkSize] = useState(null);
     const [bandOverride, setBandOverride] = useState(null);
@@ -2895,7 +2900,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
-              robot, plannerId, actions: bandActions, sel, playbackStore, issues: planIssues, timingPending: !comparing && editing.pending,
+              robot, field: planningField, plannerId, actions: bandActions, sel, playbackStore, issues: planIssues, timingPending: !comparing && editing.pending,
               stale: !derivationCurrent, flushDraft: flushProjectDraft }, (scene) => h(React.Fragment, null,
             // Ready means the current path's timing has arrived; editing never waits for it.
             h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
@@ -2932,7 +2937,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               h('div', { className: 'field-view-footer', inert: derivationCurrent ? undefined : '' },
                 h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
                 h('div', { className: 'field-view-tools' },
-                  h(Panels.MetricControl, { metric, setMetric, derived }),
+                  h(Panels.MetricControl, { metric, setMetric, derived: scene.derived }),
                   h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, alliance, setAlliance, fieldFocus, toggleFieldFocus })))),
             h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
             h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
