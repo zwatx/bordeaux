@@ -1,0 +1,28 @@
+name: Install locked dependencies
+description: Cache download archives, never node_modules or signed package output
+inputs:
+  cache-scope:
+    description: Separate desktop and multi-architecture packaging downloads
+    default: desktop
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+        cache: npm
+    - name: Resolve locked Electron version
+      id: electron
+      shell: bash
+      # A beta-only application version bump must not invalidate this cache.
+      run: node -p "'version=' + require('./package-lock.json').packages['node_modules/electron'].version" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v5
+      with:
+        # Default @electron/get roots used by electron's installer and builder.
+        path: |
+          ~/.cache/electron
+          ~/Library/Caches/electron
+          ~/AppData/Local/electron/Cache
+        key: electron-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.cache-scope }}-${{ steps.electron.outputs.version }}
+    - run: npm ci
+      shell: bash

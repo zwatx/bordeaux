@@ -20,15 +20,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/install
       - run: npm run verify:license
       - run: npm run typecheck
-      - run: npm run certify:field
       - run: npm run build
+      - run: node scripts/certify-field.mjs
       - run: npm audit --audit-level=high
 
   unit:
@@ -40,11 +36,7 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/install
       # Each runner keeps vitest's single test-file slot; parallelism comes from sharding.
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
@@ -92,11 +84,7 @@ jobs:
       BORDEAUX_UPDATES_UI_OUTPUT: .ui-artifacts/updates
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/install
       - run: npm run build
         id: build
       - name: Configure Electron sandbox
