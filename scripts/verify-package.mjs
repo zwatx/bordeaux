@@ -16,6 +16,8 @@ const requiredEntries = [
   rendererEntry,
   "node_modules/@modelcontextprotocol/server/package.json",
   "node_modules/electron-updater/package.json",
+  "node_modules/js-yaml/index.js",
+  "node_modules/js-yaml/lib/loader.js",
   "node_modules/ssh2/package.json",
   "node_modules/zod/package.json",
 ];
@@ -78,6 +80,10 @@ for (const archive of archives) {
   const unusedMcpEsmEntry = entries.find((entry) => /^node_modules\/@modelcontextprotocol\/(?:core|server)\/.*\.mjs$/.test(entry));
   if (unusedMcpEsmEntry) {
     throw new Error(`${archive} contains an unused ESM MCP dependency variant: ${unusedMcpEsmEntry}`);
+  }
+  const unusedYamlBundle = entries.find((entry) => entry.startsWith("node_modules/js-yaml/dist/"));
+  if (unusedYamlBundle) {
+    throw new Error(`${archive} contains an unused YAML browser/ESM bundle: ${unusedYamlBundle}`);
   }
 
   const forbidden = entries.find((entry) =>

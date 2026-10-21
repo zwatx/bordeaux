@@ -30,6 +30,8 @@ This produces arm64 and x64 DMG/ZIP artifacts in `release/`. The local macOS pac
 
 Run `npm run package:win` on Windows to produce both an installable NSIS setup executable and a portable executable. Cross-building those targets from macOS requires Wine, so the repository's release workflows build Windows artifacts on a Windows runner instead.
 
+The packaged updater loads `js-yaml` through its CommonJS entry. Keep `index.js` and `lib/`, and omit the unused browser/ESM bundles in `dist/`; package verification checks this layout and retains the 8 MiB archive limit. Set `BORDEAUX_SMOKE_EXECUTABLE` to the packaged executable when checking the actual packaged runtime with `npm run test:smoke:built`.
+
 Do not advertise project file associations until main-process startup handles OS open-file events and command-line paths.
 
 ## Automatic update channels
