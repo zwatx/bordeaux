@@ -42,6 +42,7 @@ async function fixture() {
     robotProjectBookmarksFile: () => path.join(root, "bookmarks.json"), labviewDiscoveryCacheDirectory: () => path.join(root, "cache"),
     discoverRobotProject: vi.fn(discoverLabviewProject),
     withCachedLabviewCommands: vi.fn(async (_selection, catalog) => catalog),
+    withSessionLabviewCommands: vi.fn(async () => null),
     syncLabviewCommands: vi.fn(() => { throw new Error("Automatic restoration must not inspect NI"); }),
     handle: (channel: string, listener: (...args: any[]) => any) => handlers.set(channel, listener),
     autosaveProjectFolder,

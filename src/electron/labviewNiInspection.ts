@@ -23,12 +23,14 @@ interface Snapshot { projectFile: string; fingerprint: string; declarationHash: 
 const activeInspections = new WeakMap<RobotCommandDescriptor[], {
   projectFile: string; fingerprint: string; declarationHash: string | null; dependencies: Array<{ path: string; sha256: string }>;
 }>();
+const recentInspections = new Map<string, RobotCommandCatalog>();
 
 /** Match the legacy project-tree exclusions; filenames alone never confirm a command. */
 export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items"][number]): boolean {
   return item.status === "present" && !!item.file?.toLowerCase().endsWith(".vi")
     && !item.projectPath.split("/").some((part) => /^(?:Support Code|Framework)$/i.test(part))
     && !/Command Helper\.vi/i.test(item.name)
+    && !/_wrapper\.vi$/i.test(item.name)
     && !["prep command info for wait.vi", "wait for command.vi", "should abort operation.vi", "subsystems.vi"].includes(item.name.toLowerCase());
 }
 
@@ -166,7 +168,14 @@ export async function withActiveLabviewCommands(selection: string, catalog: Robo
   return active;
 }
 
-async function runAdapter(requestFile: string, responseFile: string): Promise<void> {
+/** Reuse a current session snapshot; a saved source/type change falls through to inspection. */
+export async function withSessionLabviewCommands(selection: string, catalog: RobotCommandCatalog): Promise<RobotCommandCatalog | null> {
+  const { projectFile } = await resolveLabviewProject(selection);
+  try { return await withActiveLabviewCommands(projectFile, catalog, recentInspections.get(identityPath(projectFile))); }
+  catch { recentInspections.delete(identityPath(projectFile)); return null; }
+}
+
+export async function runLabviewNiAdapter(requestFile: string, responseFile: string): Promise<void> {
   if (process.platform !== "win32") throw new Error("NI inspection is available on Windows with LabVIEW installed. Existing cached and declared catalogs remain available.");
   const developmentScript = path.resolve(__dirname, "../../resources/labview-inspection/InspectCommands.ps1");
   const script = await fs.access(developmentScript).then(() => developmentScript,
@@ -185,7 +194,7 @@ async function runAdapter(requestFile: string, responseFile: string): Promise<vo
 }
 
 /** Inspect the selected, already-open project; cache in Bordeaux user data only. */
-export async function inspectLabviewCommands(selection: string, cacheDirectory: string, adapter: (requestFile: string, responseFile: string) => Promise<void> = runAdapter): Promise<RobotCommandCatalog> {
+export async function inspectLabviewCommands(selection: string, cacheDirectory: string, adapter: (requestFile: string, responseFile: string) => Promise<void> = runLabviewNiAdapter): Promise<RobotCommandCatalog> {
   const catalog = await discoverLabviewProject(selection);
   let temporary: string | undefined;
   try {
@@ -216,6 +225,9 @@ export async function inspectLabviewCommands(selection: string, cacheDirectory: 
     const result = merge(refreshed, decoded.commands, decoded.inspection);
     activeInspections.set(result.commands, { projectFile: after.projectFile, fingerprint: after.fingerprint, declarationHash: after.declarationHash,
       dependencies: await dependencySnapshot(decoded.dependencyPaths) });
+    recentInspections.delete(identityPath(after.projectFile));
+    recentInspections.set(identityPath(after.projectFile), result);
+    if (recentInspections.size > 8) recentInspections.delete(recentInspections.keys().next().value!);
     return result;
   } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
 }

@@ -12,10 +12,11 @@ import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdx
 import { prepareBdxBindings } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
-import { withCachedLabviewCommands } from "./labviewNiInspection";
+import { withCachedLabviewCommands, withSessionLabviewCommands } from "./labviewNiInspection";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { labviewLinkMatches, relativeLabviewLink, rebaseProjectLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "./projectLabviewLink";
-import { inspectLabviewCommandsQueued, syncLabviewCommands } from "./labviewProjectSync";
+import { inspectLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation } from "./labviewProjectSync";
+import { ensureLabviewCommandWrapper } from "./labviewWrappers";
 import { discoverRobotProject, type RobotProjectRuntime } from "./robotProjectRuntime";
 import {
   type RobotProjectBookmark,
@@ -433,7 +434,7 @@ async function connectRobotProject(projectPath: string, runtime: RobotProjectRun
   const exactSelection = labviewProject?.projectFile ?? selectedPath;
   const diskCatalog = await discoverRobotProject(exactSelection, runtime); guard();
   const discoveredCatalog = inspectedCatalog ?? (runtime === "labview"
-    ? cachedOnly ? await withCachedLabviewCommands(exactSelection, diskCatalog, labviewDiscoveryCacheDirectory()) : await syncLabviewCommands(exactSelection, labviewDiscoveryCacheDirectory(), diskCatalog)
+    ? cachedOnly ? await withSessionLabviewCommands(exactSelection, diskCatalog) ?? await withCachedLabviewCommands(exactSelection, diskCatalog, labviewDiscoveryCacheDirectory()) : await syncLabviewCommands(exactSelection, labviewDiscoveryCacheDirectory(), diskCatalog)
     : diskCatalog);
   const catalog: RobotCommandCatalog = {
     ...discoveredCatalog,
@@ -1454,6 +1455,40 @@ handle("robotProject:inspectLabview", async (_event, context) => {
   } finally {
     labviewInspectionInProgress = false;
   }
+});
+handle("robotProject:ensureWrappers", async (_event, context, rawIds) => {
+  assertRobotProjectContext(context);
+  if (!Array.isArray(rawIds) || rawIds.length > 1000 || rawIds.some(id => typeof id !== "string")) throw new Error("Select known LabVIEW commands for wrapper creation.");
+  const selection = linkedLabviewProjectFile, catalog = linkedRobotCatalog, generation = robotConnectionGeneration;
+  if (!selection || !catalog) throw new Error("Link robot code before creating command wrappers.");
+  const guard = () => { assertRobotProjectContext(context); if (generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile || catalog !== linkedRobotCatalog) throw new Error("The linked robot project changed during wrapper creation."); };
+  const commandIds = [...new Set(rawIds)];
+  commandIds.forEach(id => {
+    const matches = catalog.commands.filter(command => command.id === id);
+    if (matches.length !== 1 || !matches[0].labviewConnector) throw new Error("Rescan command inputs before creating this wrapper.");
+  });
+  return queueLabviewOperation(async () => {
+    guard();
+    // The command's terminals must still belong to the inspected source before NI scripts a wrapper.
+    const validated = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog });
+    guard();
+    const commands = commandIds.map(id => {
+      const matches = validated.catalog?.commands.filter(command => command.id === id && command.labviewConnector) ?? [];
+      if (matches.length !== 1) throw new Error("Command inputs changed. Rescan command inputs before creating this wrapper.");
+      return matches[0];
+    });
+    const validateSnapshot = async () => {
+      const current = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog });
+      guard();
+      if (current.definitionJson !== validated.definitionJson) throw new Error("Command inputs changed during wrapper creation. Rescan command inputs and try again.");
+    };
+    const results = [];
+    for (const command of commands) {
+      guard();
+      results.push(await ensureLabviewCommandWrapper(selection, command, labviewDiscoveryCacheDirectory(), guard, undefined, validateSnapshot));
+    }
+    guard(); return { created: results.filter(result => result.created).length };
+  });
 });
 handle("robotProject:buildCatalog", async (_event, context) => {
   assertRobotProjectContext(context);

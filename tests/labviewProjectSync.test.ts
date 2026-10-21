@@ -6,6 +6,7 @@ import { inspectLabviewCommandsQueued, syncLabviewCommands } from "../src/electr
 vi.mock("../src/electron/labviewNiInspection", () => ({
   inspectLabviewCommands: vi.fn(),
   withCachedLabviewCommands: vi.fn(),
+  withSessionLabviewCommands: vi.fn(),
 }));
 
 const selection = "C:\\Robot\\Robot.lvproj";
@@ -41,6 +42,16 @@ function catalog(status: "available" | "cached" = "cached"): RobotCommandCatalog
 beforeEach(() => vi.clearAllMocks());
 
 describe("automatic LabVIEW command sync", () => {
+  it("reuses revalidated session evidence before NI automation or disk cache", async () => {
+    const live = catalog("available"), session = vi.fn(async () => live), inspect = vi.fn(), cached = vi.fn();
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session, inspect, cached, discover: vi.fn() })).toBe(live);
+    expect(inspect).not.toHaveBeenCalled(); expect(cached).not.toHaveBeenCalled();
+  });
+  it("restores a valid saved cache before starting Windows inspection", async () => {
+    const saved = catalog(), inspect = vi.fn(), cached = vi.fn(async () => saved);
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), inspect, cached, discover: vi.fn() })).toBe(saved);
+    expect(inspect).not.toHaveBeenCalled();
+  });
   it("inspects on Windows and returns fresh evidence without loading the cache", async () => {
     const source = catalog(); const live = catalog("available");
     const inspect = vi.fn(async () => live); const cached = vi.fn(async () => source);
@@ -110,6 +121,15 @@ describe("automatic LabVIEW command sync", () => {
 });
 
 describe("shared LabVIEW inspection queue", () => {
+  it("coalesces concurrent refreshes of the same project", async () => {
+    const gate = deferred<RobotCommandCatalog>();
+    vi.mocked(inspectLabviewCommands).mockReturnValueOnce(gate.promise);
+    const first = inspectLabviewCommandsQueued(selection, cacheDirectory);
+    const second = inspectLabviewCommandsQueued(selection, cacheDirectory);
+    expect(second).toBe(first);
+    gate.resolve(catalog("available")); await first;
+    expect(inspectLabviewCommands).toHaveBeenCalledOnce();
+  });
   it("serializes different projects and continues after a rejected inspection", async () => {
     const first = deferred<RobotCommandCatalog>();
     const started = deferred<void>();

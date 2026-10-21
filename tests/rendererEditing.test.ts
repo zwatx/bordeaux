@@ -61,7 +61,7 @@ describe("editor waypoint operations", () => {
     expect(draft.waypoints[3].thetaOn).toBe(true);
   });
 
-  it("remaps waypoint ranges when deleting or inserting, and refuses to delete below two anchors", () => {
+  it("remaps waypoint ranges when deleting or inserting, including the last two anchors", () => {
     const draft = path();
     draft.ranges[0].w0 = 1; draft.ranges[0].w1 = 3;
     duplicateWaypoint(draft, 0);
@@ -69,9 +69,11 @@ describe("editor waypoint operations", () => {
     removeWaypoint(draft, 2);
     expect(draft.ranges[0]).toMatchObject({ w0: 2, w1: 3 });
     removeWaypoint(draft, 0); removeWaypoint(draft, 0);
-    const before = structuredClone(draft);
     removeWaypoint(draft, 0);
-    expect(draft).toEqual(before);
+    expect(draft.waypoints).toHaveLength(1);
+    removeWaypoint(draft, 0);
+    expect(draft.waypoints).toEqual([]);
+    expect(() => removeWaypoint(draft, 0)).not.toThrow();
   });
 
   it("shares handle alignment with load normalization without changing already-aligned saved values", () => {

@@ -20,6 +20,6 @@ delete env.ELECTRON_RUN_AS_NODE;
 console.log('Library UI artifacts: ' + output);
 const child = spawn(electron, [path.resolve('scripts/verify-library-ui-electron.cjs')], { env, stdio: 'inherit' });
 // Includes linked and folder undo scenarios that reopen the project several times.
-const timer = setTimeout(() => child.kill('SIGKILL'), 180_000);
+const timer = setTimeout(() => child.kill('SIGKILL'), 240_000);
 child.on('error', (error) => { clearTimeout(timer); console.error(error); process.exitCode = 1; });
 child.on('exit', (code) => { clearTimeout(timer); process.exitCode = code === 0 ? 0 : 1; });

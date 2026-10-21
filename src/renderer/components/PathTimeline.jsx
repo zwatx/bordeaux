@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { shiftDeletionInput } from './DeletionNotice';
 import { PointerDrag } from '../hooks/usePointerDrag';
 import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
@@ -385,6 +386,17 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, robot.maxSpeed)));
 
   return h('section', { ref: root, className: 'pt', 'aria-label': 'Timeline', 'data-stale': stale ? '' : undefined, 'data-compact': compact ? '' : undefined, 'data-narrow': narrow ? '' : undefined,
+    ...shiftDeletionInput((event) => {
+      const [kind, raw] = event.target.closest('[data-selection]').dataset.selection.split(':');
+      const index = Number(raw);
+      if (!Number.isInteger(index)) return;
+      pointerDrag.cancel();
+      if (kind === 'wp') actions.delWp(index);
+      else if (kind === 'seg') actions.delWp(index + 1);
+      else if (kind === 'rt') actions.delTarget(index);
+      else if (kind === 'em') { setOpenStack(null); actions.delMarker(index); }
+      else if (kind === 'cr') actions.delRange(index);
+    }, (event) => Boolean(event.target.closest?.('[data-selection]'))),
     onPointerMove: onBodyMove, onPointerLeave: () => hoverStore?.clear('timeline', hoverContext),
     onPointerCancel: () => hoverStore?.clear('timeline', hoverContext), onLostPointerCapture: () => hoverStore?.clear('timeline', hoverContext) },
     h('div', { className: 'pt-head', style: { height: HEAD } },
@@ -402,7 +414,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       h('line', { x1: GUTTER, x2: W - RIGHT, y1: HEAD + RULER, y2: HEAD + RULER, className: 'pt-axis' }),
       zones.map((zone) => {
         const x0 = x(tAtF(tl, zone.f0)), x1 = x(tAtF(tl, zone.f1));
-        return h('g', { key: 'z' + zone.index, className: 'pt-zone' + (selZone === zone.index ? ' selected' : '') },
+        return h('g', { key: 'z' + zone.index, className: 'pt-zone' + (selZone === zone.index ? ' selected' : ''), 'data-selection': 'cr:' + zone.index },
           h('rect', { x: x0, y: graphTop, width: Math.max(1, x1 - x0), height: graphH, className: 'pt-zone-fill' }),
           !series && zone.maxVel != null && h('line', { x1: x0, x2: x1, y1: y(zone.maxVel), y2: y(zone.maxVel), className: 'pt-zone-cap' }));
       }),
@@ -430,7 +442,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       return h(React.Fragment, { key: 'zh' + zone.index },
         h('button', { type: 'button', className: 'pt-zone-tag' + (on ? ' selected' : ''), style: { left: x0 + 1, top: graphTop + 3, maxWidth: Math.max(28, x1 - x0 - 2) },
           'aria-pressed': on, 'data-selection': 'cr:' + zone.index, onPointerDown: (event) => event.stopPropagation(), onClick: () => select('cr', zone.index) }, name),
-        !series && zone.maxVel != null && h('div', { className: 'pt-zone-cap-hit' + (on ? ' selected' : ''), style: { left: x0, width: Math.max(8, x1 - x0), top: y(zone.maxVel) - 6 },
+        !series && zone.maxVel != null && h('div', { className: 'pt-zone-cap-hit' + (on ? ' selected' : ''), 'data-selection': 'cr:' + zone.index, style: { left: x0, width: Math.max(8, x1 - x0), top: y(zone.maxVel) - 6 },
           role: 'slider', tabIndex: 0, 'aria-label': name + ' speed', 'aria-valuemin': 0, 'aria-valuemax': Number(speed(robot.maxSpeed).toFixed(2)),
           'aria-valuenow': Number(speed(zone.maxVel).toFixed(2)), 'aria-valuetext': fmt(speed(zone.maxVel)) + ' ' + speedUnit,
           onKeyDown: (event) => stepKeys(event, zone.maxVel, speedStep, (v) => {
@@ -438,7 +450,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
             if (changed(next, zone.maxVel)) actions.setRange(zone.index, { maxVel: next });
           }),
           onPointerDown: zoneCapDrag(zone.index) }, h('span', { className: 'pt-zone-cap-val' }, fmt(speed(zone.maxVel)))),
-        ['f0', 'f1'].map((which, side) => h('div', { key: which, className: 'pt-zone-edge', style: { left: (side ? x1 : x0) - 5, top: graphTop, height: graphH },
+        ['f0', 'f1'].map((which, side) => h('div', { key: which, className: 'pt-zone-edge', 'data-selection': 'cr:' + zone.index, style: { left: (side ? x1 : x0) - 5, top: graphTop, height: graphH },
           role: 'slider', tabIndex: 0, 'aria-label': name + (side ? ' end' : ' start'), 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(zone[which] * 100),
           onKeyDown: (event) => stepKeys(event, zone[which], 0.005, (f) => {
             const next = edgeFraction(zone, side, f);

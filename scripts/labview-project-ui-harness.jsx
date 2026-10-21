@@ -32,7 +32,7 @@ function Harness() {
   return <div style={{height:'100vh',display:'flex',flexDirection:'column',background:'var(--bg-1)'}}>
     <header className="toolbar"><ProjectChip name="Component fixture project" folderPath="/fixture/Component project" status="saved"
       robotCode={{...props,name:props.catalog?.projectName,commands:props.catalog?.commands.length}}
-      actions={{projects:()=>calls.push('projects'),create:()=>calls.push('new'),save:()=>calls.push('save'),saveCopy:()=>calls.push('copy'),linkCode:()=>calls.push('link'),refreshCode:()=>calls.push('refresh'),recentCode:id=>calls.push(id),buildCode:()=>calls.push('build')}} /></header>
+      actions={{projects:()=>calls.push('projects'),create:()=>calls.push('new'),save:()=>calls.push('save'),saveCopy:()=>calls.push('copy'),linkCode:()=>calls.push('link'),refreshCode:()=>calls.push('refresh'),rescanCode:()=>calls.push('rescan'),recentCode:id=>calls.push(id),buildCode:()=>calls.push('build')}} /></header>
     <div style={{display:'flex',flex:1,minHeight:0}}><main style={{flex:1,padding:32,color:'var(--txt-3)'}}><h2>Robot code component verification</h2><p>Actual ProjectChip, lazy Sources and command controls; explicit callback and platform fixtures. This is not the full App.</p></main>
       <aside className="ctxinsp inspector-refresh"><div className="ctxinsp-hd"><span className="ctxinsp-t">Intake command</span></div><div className="ctxinsp-body">
         <UI.ChoiceBrowser id="fixture-command" label="Command" value={command} items={[{value:'shoot',label:'Shoot game piece',meta:'Target speed'}]} onChoose={value=>{setCommand(value);return {status:'applied',current:()=>true};}} />
@@ -52,9 +52,13 @@ await test('Unlinked chip exposes the explicit Link action', async()=>{
   await pointer('Link robot code…'); assert(calls[0]==='link','Link callback'); assert(!document.querySelector('.labview-project-panel'),'No retired panel'); await menu(); await native({capture:'unlinked'});
 });
 await test('Windows platform fixture retains Change and Refresh with keyboard focus return', async()=>{
-  await mount(); await menu(); await pointer('Refresh commands'); assert(calls[0]==='refresh','Refresh callback'); assert(document.activeElement.matches('.project-chip'),'Refresh returns chip focus');
+  await mount(); props.catalog.labviewDiscovery.inspection.status='available'; props.catalog.labviewDiscovery.inspection.reason="Live inspection only; no saved-source cache: NI did not provide the inspection instance's saved-state metadata; NI did not provide VI saved-state metadata"; await render(); await menu();
+  assert(!document.querySelector('#project-menu').textContent.includes('Live inspection only'),'Successful live inspection stays quiet');
+  await pointer('Refresh commands'); assert(calls[0]==='refresh','Refresh callback'); assert(document.activeElement.matches('.project-chip'),'Refresh returns chip focus');
   await key('ArrowDown'); await ready(()=>!!document.querySelector('#project-menu'),'chip keyboard open'); await key('End'); await key('Home'); await key('Escape'); assert(document.activeElement.matches('.project-chip'),'Escape returns chip');
   await menu(); await pointer('Change robot code…'); assert(calls[1]==='link','Change callback'); await menu(); assert(document.querySelector('.project-menu-code').textContent.includes(catalog.projectName),'Cancel fixture retains code'); await native({capture:'windows-ready'});
+  await pointer('Rescan command inputs'); assert(calls[2]==='rescan','Explicit NI rescan callback');
+  await menu(); await pointer('View sources…'); await ready(()=>!!document.querySelector('dialog.robot-code-sources[open]'),'live inspection Sources'); assert(document.querySelector('.robot-code-sources').textContent.includes('Live inspection only'),'Sources retains the diagnostic'); await native({capture:'live-sources'}); await key('Escape');
 });
 await test('Loading and build progress disable their actual competing actions', async()=>{
   await mount(); props.status='loading'; props.operation='scan'; await render(); await menu(); assert(button('Link robot code…').disabled,'Loading Link disabled'); assert(document.querySelector('.project-menu-code [aria-busy="true"]'),'Busy code status'); await native({capture:'syncing'});
@@ -80,7 +84,7 @@ await test('Lazy Sources supports pagination, native search, Escape clearing the
   assert(!document.querySelector('.robot-code-sources')&&document.activeElement.matches('.project-chip'),'Second Escape closes and returns focus');
 });
 await test('Mac platform fixture retains saved inputs, Refresh and existing command controls', async()=>{
-  await mount('darwin'); await menu(); assert(document.querySelector('#project-menu').textContent.includes('Using saved command inputs'),'Saved input reason'); await pointer('Refresh commands'); assert(calls[0]==='refresh','Mac fixture Refresh callback');
+  await mount('darwin'); await menu(); assert(!document.querySelector('#project-menu').textContent.includes('Using saved command inputs'),'Successful saved inputs stay quiet'); await pointer('Refresh commands'); assert(calls[0]==='refresh','Mac fixture Refresh callback');
   await pointer(document.querySelector('.choice-change')); assert(document.querySelector('#fixture-command'),'Actual command browser opens'); await key('Escape'); await pointer(document.querySelector('#fixture-speed')); assert(document.activeElement.id==='fixture-speed','Actual parameter editor reachable'); await native({capture:'mac-ready'});
 });
 await act(async()=>root.render(<pre id="verification-report">{JSON.stringify(results,null,2)}</pre>));

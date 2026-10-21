@@ -6,9 +6,13 @@ Project sources are discovered directly from NI project XML, auto-populating fol
 referenced `.lvlib`/`.lvclass` containers. A file's membership and target are source information;
 they do not establish that the VI is an executable command.
 
-On Windows, keep that exact project open in LabVIEW. Selecting, restoring, or refreshing
-the linked project automatically inspects commands. **Sync commands** repeats discovery and
-inspection after changes. If inspection is unavailable, Bordeaux retains valid cached or
+On Windows, keep that exact project open in LabVIEW for the first inspection. Linking and
+**Refresh commands** reuse valid session metadata or saved cached inputs before inspecting
+NI again. Concurrent inspections of the same project share one request. Source, project,
+declaration and dependency changes invalidate reused metadata. **Rescan command inputs**
+forces NI inspection; use it after unsaved edits in LabVIEW, which file hashes cannot detect.
+Restoring a project reads local sources and cached metadata without starting NI.
+If inspection is unavailable, Bordeaux retains valid cached or
 declared commands and shows the reason with a retry action. On macOS, sync reloads source
 and cached metadata; live NI inspection requires Windows. Bordeaux's bundled inspection adapter reads
 connector metadata and saved scalar defaults from the existing LabVIEW process. It requires
@@ -46,8 +50,24 @@ additional outputs are not represented; they remain unavailable for native execu
 
 In the selected `RebuiltApprentice.lvproj`, `Intake/Commands/Start Intake.vi` exposes `Setpoint`
 (DBL) and `Description` (string). `Intake Immediate.vi` also exposes an operation enum.
-The generated `_wrapper.vi` files have front-panel controls but no connected connector pane;
-they therefore fail the typed filter naturally. No filename heuristic is needed.
+Generated `_wrapper.vi` files have front-panel controls but no connected connector pane.
+They are excluded from command inspection and source fingerprints, so generating a wrapper
+does not invalidate the original command's inspected inputs.
+
+## Missing wrappers
+
+When an inspected command is used by a path event or routine step, Bordeaux checks for a
+sibling named `<original VI basename>_wrapper.vi`. An existing nonempty file is preserved.
+For a missing wrapper on Windows, the bundled local VI Scripting helper uses the already-open
+selected project's My Computer context. It creates a reentrant VI, adds the original command
+as a subVI, and wires every inspected connector input and output to matching front-panel
+controls and indicators, including the command status terminals. It leaves the wrapper's
+connector pane unassigned. The helper never runs the command or connects to the robot.
+
+The wrapper is staged beside the source and published only after all terminal wiring succeeds
+and source/context checks still pass. It never replaces an existing wrapper. Wrapper files
+remain ordinary team source files: include their static references in the robot deployment
+as required by the dynamic wrapper dispatcher. Generation does not deploy or execute them.
 
 The native form covers **connector inputs and saved defaults**, without opening VI front
 panels. It does not inspect off-connector front-panel controls. The old planner's discovery
@@ -69,6 +89,9 @@ not certify that unsaved LabVIEW edits match files on disk or authorize robot ex
 Live-only snapshots are never persisted as saved-source evidence. After restarting Bordeaux,
 refresh commands in the open LabVIEW project to obtain a new live snapshot if no valid saved
 cache is available. Saving or exporting does not start NI inspection or connect to a robot.
+Successful live inspection stays quiet even when NI cannot report saved-state metadata;
+**View sources** retains the live-only explanation. Actual inspection failures still show
+their cause and a retry action.
 
 Inspection metadata is stored only in Bordeaux's user-data cache, never in the robot project.
 Refresh can use a cache without LabVIEW or MCP while the selected project, VI sources, and

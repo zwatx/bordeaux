@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import {describe,it,expect,vi} from 'vitest';
-import {deletionInput} from '../src/renderer/components/DeletionNotice';
+import {deletionInput,shiftDeletionInput} from '../src/renderer/components/DeletionNotice';
 import {AUTO} from '../src/renderer/lib/routineModel';
 import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
 const event=(patch={})=>({button:0,detail:1,type:'pointerdown',preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{getBoundingClientRect:()=>({left:1,bottom:2})},...patch});
@@ -12,12 +12,26 @@ function harness(){
  const useState=initial=>{const c=cells[cursor++]||={value:initial};return[c.value,n=>{c.value=typeof n==='function'?n(c.value):n;}];};
  const useRef=value=>cells[cursor++]||={current:value};
  const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(c=>c!==false&&c!=null)});
- const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','LibraryMenu','PathProperties','document','requestAnimationFrame',component+';return EditorLibrary;')({useId:()=> 'library-test'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,'LibraryMenu','PathProperties',doc,()=>{});
+ const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','shiftDeletionInput','LibraryMenu','PathProperties','document','requestAnimationFrame',component+';return EditorLibrary;')({useId:()=> 'library-test'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,shiftDeletionInput,'LibraryMenu','PathProperties',doc,()=>{});
  props={mode:'paths',prefs:{query:'',collapsed:{},scroll:0},update:vi.fn(),project:{paths:[{id:'a',name:'A',waypoints:[{},{}]},{id:'b',name:'B',waypoints:[{},{}]}],pathFolders:[]},routines:[],activePathId:'a',onPath:vi.fn(),onRoutine:vi.fn(),actions:{preflight:vi.fn(()=>true),deletePath:vi.fn(()=>true)},times:{},controller:{itemStatus:()=>({detail:'Local'}),fileTransfer:true},selection:{selected:['a'],set:vi.fn(),clear:vi.fn()},deletionNotice:'reserved footer'};
  const find=(n,predicate)=>{if(!n||typeof n!=='object')return null;if(predicate(n))return n;for(const c of n.children){const r=find(c,predicate);if(r)return r;}return null;};
  const render=()=>{cursor=0;tree=renderFn(props);};render();return{props,doc,render,find:predicate=>find(tree,predicate),more:()=>find(tree,n=>n.props['aria-label']==='Actions for A'),menu:()=>find(tree,n=>n.type==='LibraryMenu')};
 }
 describe('actual library deletion entry points',()=>{
+ it('Shift press deletes the authored path before focus and never repeats on the physical click',()=>{
+  const ui=harness(),owner=ui.doc.activeElement;
+  ui.props.actions.deletePath.mockImplementation(()=>{expect(ui.doc.activeElement).toBe(owner);return true;});
+  const row=ui.find(n=>n.props.className?.startsWith('library-row'));
+  row.props.onPointerDownCapture(event({shiftKey:true}));
+  row.props.onClickCapture(event({type:'click',shiftKey:true}));
+  expect(ui.props.actions.deletePath).toHaveBeenCalledExactlyOnceWith('a');
+  expect(ui.props.selection.set).not.toHaveBeenCalled();
+ });
+ it('Shift deletion honors an invalid owning draft without selecting another path',()=>{
+  const ui=harness(); ui.props.actions.preflight.mockReturnValue(false);
+  ui.find(n=>n.props.className?.startsWith('library-row')).props.onPointerDownCapture(event({shiftKey:true}));
+  expect(ui.props.actions.deletePath).not.toHaveBeenCalled(); expect(ui.props.onPath).not.toHaveBeenCalled();
+ });
  it('preflights at menu opening before pointer focus and never retries blocked physical clicks',()=>{
   const ui=harness(),owner=ui.doc.activeElement;ui.props.actions.preflight.mockImplementation(()=>{expect(ui.doc.activeElement).toBe(owner);return false;});
   const press=event();ui.more().props.onPointerDown(press);ui.render();expect(press.preventDefault).toHaveBeenCalled();expect(ui.menu()).toBeNull();

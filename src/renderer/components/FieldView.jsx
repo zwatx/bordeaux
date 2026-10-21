@@ -396,7 +396,12 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         return;
       }
       if (routine) {
-        if (role === 'rpath') { const id = t.getAttribute('data-idx'); if (actions.selectNode) actions.selectNode(id); drag.current = null; return; }
+        if (role === 'rpath') {
+          const id = t.getAttribute('data-idx');
+          if (e.button === 0 && e.shiftKey && actions.deleteNode) actions.deleteNode(id);
+          else if (actions.selectNode) actions.selectNode(id);
+          drag.current = null; return;
+        }
         startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: e.button === 1 });
         return;
       }
@@ -404,7 +409,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       if (e.button === 0 && e.shiftKey) {
         const idx = parseInt(t.getAttribute && t.getAttribute('data-idx'), 10);
         let removed = false;
-        if (role === 'wp' && doc.waypoints.length > 2 && actions.delWp) { actions.delWp(idx); removed = true; }
+        if (['wp', 'head', 'ct'].includes(role) && actions.delWp) { actions.delWp(role === 'ct' ? idx >> 1 : idx); removed = true; }
+        else if ((role === 'seg' || role === 'look') && actions.delWp) { actions.delWp(idx + 1); removed = true; }
         else if ((role === 'rt' || role === 'rth') && actions.delTarget) { actions.delTarget(idx); removed = true; }
         else if (role === 'em' && actions.delMarker) { actions.delMarker(idx); removed = true; }
         else if ((role === 'cr' || role === 'rs' || role === 're') && actions.delRange) { actions.delRange(idx); removed = true; }

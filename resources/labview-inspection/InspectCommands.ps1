@@ -2,7 +2,8 @@ param([Parameter(Mandatory=$true)][string]$RequestFile, [Parameter(Mandatory=$tr
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 # Bordeaux's inspection adapter uses NI's installed COM API. It never executes
-# team VIs, changes controls, saves projects, or accesses remote target instances.
+# team VIs or accesses remote target instances. The separate wrapper request runs
+# only Bordeaux's local scripting helper and saves a new, caller-owned temporary VI.
 Add-Type @'
 using System;
 using System.Reflection;
@@ -59,7 +60,7 @@ $app = $null
 $context = $null
 try {
   $request = Get-Content -LiteralPath $RequestFile -Raw | ConvertFrom-Json
-  if ($request.schemaVersion -ne 'bordeaux-ni-inspection/1' -or @($request.sources).Count -gt 1000) { throw 'Invalid Bordeaux inspection request.' }
+  if ($request.schemaVersion -notin @('bordeaux-ni-inspection/1', 'bordeaux-ni-wrapper/1') -or @($request.sources).Count -gt 1000) { throw 'Invalid Bordeaux NI request.' }
   $projectFile = Assert-LocalFile ([string]$request.projectFile)
   $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
   $registryView = if ([IntPtr]::Size -eq 4) { [Microsoft.Win32.RegistryView]::Registry32 } else { [Microsoft.Win32.RegistryView]::Registry64 }
@@ -92,6 +93,30 @@ try {
     } finally { [BordeauxNiInspection]::Release($project) }
   }
   if ($null -eq $context) { throw 'The selected project is not already open in LabVIEW. Open it, then inspect again.' }
+  if ($request.schemaVersion -eq 'bordeaux-ni-wrapper/1') {
+    $commandFile = Assert-LocalFile ([string]$request.commandFile)
+    $wrapperFile = [IO.Path]::GetFullPath([string]$request.wrapperFile)
+    if ([IO.Path]::GetDirectoryName($commandFile) -ne [IO.Path]::GetDirectoryName($wrapperFile) -or [IO.Path]::GetFileName($wrapperFile) -notmatch '^\.bordeaux-wrapper-[a-f0-9-]+\.vi$') { throw 'Wrapper output must be a Bordeaux temporary VI alongside the command.' }
+    if (Test-Path -LiteralPath $wrapperFile) { throw 'The temporary wrapper already exists.' }
+    $helper = Assert-LocalFile (Join-Path $PSScriptRoot 'CreateCommandWrapper.vi')
+    $generator = $null
+    try {
+      $generator = [BordeauxNiInspection]::Call($context, 'GetVIReference', @([string]$helper, [string]'', $false, 32))
+      [void][BordeauxNiInspection]::Call($generator, 'SetControlValue', @('command path', $commandFile))
+      [void][BordeauxNiInspection]::Call($generator, 'SetControlValue', @('wrapper path', $wrapperFile))
+      [void][BordeauxNiInspection]::Call($generator, 'SetControlValue', @('terminal numbers', [double[]]@($request.terminalNumbers)))
+      [void][BordeauxNiInspection]::Call($generator, 'Run', @($false))
+      $failure = [BordeauxNiInspection]::Call($generator, 'GetControlValue', @('error out'))
+      $terminalErrors = @([BordeauxNiInspection]::Call($generator, 'GetControlValue', @('terminal errors')))
+      if ($failure[0]) { throw ('Wrapper scripting failed: ' + $failure[1] + ' ' + $failure[2]) }
+      if ($terminalErrors.Count -ne [int]$request.terminalCount) { throw 'Wrapper terminal count does not match the inspected command. Rescan command inputs.' }
+      foreach ($failure in $terminalErrors) { if ($failure[0]) { throw ('Wrapper terminal wiring failed: ' + $failure[1] + ' ' + $failure[2]) } }
+      [void](Assert-LocalFile $wrapperFile)
+      $response = @{ schemaVersion = 'bordeaux-ni-wrapper/1'; wrapperFile = $wrapperFile; terminalCount = $terminalErrors.Count }
+      [IO.File]::WriteAllText($ResponseFile, ($response | ConvertTo-Json -Depth 8 -Compress), (New-Object Text.UTF8Encoding($false)))
+    } finally { [BordeauxNiInspection]::Release($generator) }
+    exit 0
+  }
   $rows = @()
   foreach ($source in @($request.sources)) {
     $vi = $null

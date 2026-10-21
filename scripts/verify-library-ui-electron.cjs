@@ -86,7 +86,7 @@ function inspectProblemsDisclosure() {
   const issues = [...document.querySelectorAll('.pt svg g.pt-issue')];
   const menu = trigger && document.getElementById(trigger.getAttribute('aria-controls'));
   return {
-    current: Boolean(panel && document.querySelector('.fieldcol') && document.querySelector('.pt') && !document.querySelector('.fieldcol[data-planning-ready="false"]')),
+    current: Boolean(panel && document.querySelector('.fieldcol') && document.querySelector('.pt') && !document.querySelector('.fieldcol[data-planning-ready="false"],.pt[data-stale],.pt .pt-issue.stale')),
     present: triggers.length === 1 && visible.length === 1 && Boolean(trigger.getAttribute('aria-controls')) && Number(count?.[1]) === issues.length && issues.length > 0,
     absent: triggers.length === 0 && issues.length === 0 && !panel?.querySelector('.pp-problem,[role="menu"]'),
     oldLabels: document.querySelectorAll('.pt-issue-label').length,
@@ -289,6 +289,44 @@ app.whenReady().then(async () => {
     await key('Z', ['meta']);
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length === 3 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'undo deleted waypoint');
     check('Shift-click deletes a waypoint and Undo restores it');
+    await pointerClick('[data-selection="wp:0"]');
+    await pointerClick('[data-role="ct"][data-idx="1"]', ['shift']);
+    await click('[aria-label="Save project"]');
+    assert.equal(saved.paths[0].waypoints.length, 2, 'Shift-click on a control handle deletes its waypoint');
+    await key('Z', ['meta']);
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length === 3 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'undo control-handle waypoint deletion');
+    for (const remaining of [2, 1, 0]) {
+      await pointerClick('[data-selection="wp:0"]', ['shift']);
+      await click('[aria-label="Save project"]');
+      assert.equal(saved.paths[0].waypoints.length, remaining, 'Timeline Shift-click can remove the final waypoint');
+    }
+    for (const restored of [1, 2, 3]) {
+      await key('Z', ['meta']);
+      await wait(() => evaluate((count) => document.querySelectorAll('.pt-wp').length === count, restored), 'undo final waypoint deletion');
+    }
+    await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'restored trajectory');
+    await pointerClick('[data-library-item="library-path-2"]', ['shift']);
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 199, 'Library Shift-click deletes an unreferenced path');
+    await pointerClick('.deletion-notice button');
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 200, 'Native Undo restores the deleted path');
+    await pointerClick('[aria-label="Actions for folder Side"]', ['shift']);
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.library-folder')].some(el => el.textContent.includes('Side'))), false, 'Shift-click on folder actions deletes the folder');
+    await pointerClick('.deletion-notice button');
+    await click('.place', 'Routines');
+    await pointerClick('[data-id="step-a"] .rt-step-ic', ['shift']);
+    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"]')), false, 'Routine Shift-click deletes from the whole row');
+    await pointerClick('.deletion-notice button');
+    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"]')), true, 'Routine Undo restores the step');
+    await pointerClick('[data-library-item="routine-b"]', ['shift']);
+    assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"]')), false, 'Shift-click deletes the routine');
+    await pointerClick('.deletion-notice button');
+    await click('.place', 'Paths');
+    check('Native Shift deletion and Undo cover the last waypoint, library paths/folders, routine rows and routines');
+    if (process.env.BORDEAUX_SHIFT_DELETE_ONLY) {
+      assert.deepEqual(errors, []);
+      await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
+      app.exit(0); return;
+    }
     await evaluate(() => document.querySelectorAll('.pt-wp')[1].click());
     const numericBefore = await evaluate(() => document.querySelector('.numinput').value);
     await evaluate(() => { const field = document.querySelector('.numinput'); field.focus(); field.select(); });
@@ -468,12 +506,13 @@ app.whenReady().then(async () => {
     await click('[data-library-item="library-path-0"]');
     check('switching commits an active pointer edit without modifying the destination path');
     await pointerClick('[data-library-item="library-path-0"]');
-    await pointerClick('[data-library-item="library-path-2"]', ['shift']);
-    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 3, 'Shift-click selects the contiguous visible range');
+    await pointerClick('[data-library-item="library-path-1"]', [process.platform === 'darwin' ? 'meta' : 'control']);
+    await pointerClick('[data-library-item="library-path-2"]', [process.platform === 'darwin' ? 'meta' : 'control']);
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 3, 'Command/Control-click builds a batch');
     await pointerClick('[data-library-item="library-path-2"]', [process.platform === 'darwin' ? 'meta' : 'control']);
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 2, 'Command/Control-click toggles one path without clearing the range');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0);
-    check('native Shift and Command/Control pointer selection works directly on rows without a selection mode');
+    check('native Command/Control pointer selection works directly on rows without a selection mode');
     await input('.library-search', 'Opening');
     assert.equal(await evaluate(() => document.querySelector('.library-selection > span').textContent), '2 selected · 1 hidden');
     assert.equal(await evaluate(() => document.querySelector('.push-button').title), '2 paths · Ctrl+Shift+P');
@@ -567,10 +606,10 @@ app.whenReady().then(async () => {
     await input('.library-rename input', 'Practice'); await click('[aria-label="Save name"]');
     await click('[aria-label="New path"]');
     await input('.library-rename input', 'Managed path'); await click('[aria-label="Save name"]');
-    await pointerClick('[data-library-item="library-path-0"]', ['shift']);
-    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), await evaluate(() => document.querySelectorAll('.library-pick').length), 'Newly created active path anchors the next range selection');
+    await pointerClick('[data-library-item="library-path-0"]', [process.platform === 'darwin' ? 'meta' : 'control']);
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 2, 'Newly created path remains in a Control/Command-click batch');
     await pointerClick('.library-pick[aria-current="true"]');
-    check('creating a path makes it the anchor for the next Shift range');
+    check('creating a path preserves direct batch selection');
     await click('[aria-label="Actions for Managed path"]'); await click('.library-menu button', 'Duplicate');
     await click('[aria-label="Save name"]');
     assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Managed path copy');
@@ -1111,6 +1150,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Actions for Opening move');
     await click('[aria-label="Actions for Opening move"]');
     await pointerClick('.fieldcol');
+    await wait(() => evaluate(() => !document.querySelector('.library-menu')), 'native popover toggle retires the dismissed menu');
     assert.equal(await evaluate(() => document.querySelector('.library-menu')), null, 'Click outside in the field dismisses the menu');
     await click('[aria-label="Actions for Opening move"]');
     await click('.library-menu button', 'Move or link…');
@@ -1608,6 +1648,10 @@ app.whenReady().then(async () => {
     win.webContents.sendInputEvent({type:'mouseUp',...blockedPoint,button:'left',clickCount:1});await delay(80);
     assert.equal(await evaluate(() => document.activeElement?.matches('.pt-limits input[aria-invalid="true"]')), true, 'Invalid draft retains focus');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.pp-problem'))), false, 'Blocked selection leaves problems unselected');
+    const pointCount = await evaluate(() => document.querySelectorAll('.pt-wp').length);
+    await pointerClick('[data-selection="wp:0"]', ['shift']);
+    assert.equal(await evaluate(() => document.querySelectorAll('.pt-wp').length), pointCount, 'Timeline Shift deletion refuses an invalid speed draft');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.pt-limits input[aria-invalid="true"]')), true, 'Refused timeline deletion retains draft focus');
     await key('Escape'); await key('Tab');
     // Hold only the real editing-worker request; current geometry stays editable with the exact held problem list.
     await evaluate(() => {
@@ -1672,6 +1716,9 @@ app.whenReady().then(async () => {
     await pointerClick('[title^="Undo"]');await click('[aria-label="Save project"]');
     assert.deepEqual(saved.paths[0],problemSource,'One Undo restores explicit Slow here');
     check('invalid drafts retain focus, pending geometry stays inspectable, fresh timing clears selection, and explicit Slow here is exactly one undoable edit');
+    // Undo starts asynchronous planning; opening against its held list may correctly be
+    // refused when preflight renders the replacement. This proof owns the current list.
+    await waitProblemsDisclosure(true, 'Undo restores current Problems before zone-tag dismissal proof');
     // Dismissing the real popover leaves the actual timeline zone tag unobscured.
     await problemsPointerClick('aside.pp[aria-label="Properties"] button[aria-haspopup="menu"]');
     await wait(async () => (await evaluate(inspectProblemsDisclosure)).open, 'Problems popover opens before zone-tag dismissal proof');
@@ -1828,6 +1875,31 @@ app.whenReady().then(async () => {
       await fs.writeFile(path.join(output, 'actual-project-routine.png'), (await win.webContents.capturePage()).toPNG());
       check('actual saved project shows both durations and routine preview despite an outdated optimization');
     }
+    // The project retains one editable empty object when its last library item is removed.
+    const sole = { ...structuredClone(source), id: 'sole-path', name: 'Last authored path' };
+    saved = { ...corpus, paths: [sole], pathFolders: [], pathLinks: [], routines: [{ id: 'sole-routine', name: 'Last routine', nodes: [{ id: 'sole-step', type: 'path', ref: sole.id }] }], activeRoutineId: 'sole-routine', editor: { activePathId: sole.id } };
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => !!document.querySelector('[data-library-item="sole-path"]')), 'last-item fixture');
+    await click('.place', 'Routines');
+    await pointerClick('[data-library-item="sole-routine"]', ['shift']);
+    await click('[aria-label="Save project"]');
+    assert.equal(saved.routines.length, 1); assert.notEqual(saved.routines[0].id, 'sole-routine'); assert.deepEqual(saved.routines[0].nodes, []);
+    await pointerClick('.deletion-notice button'); await click('[aria-label="Save project"]');
+    assert.equal(saved.routines[0].id, 'sole-routine'); assert.equal(saved.routines[0].nodes.length, 1);
+    await pointerClick('[data-id="sole-step"] .rt-step-body', ['shift']); await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.routines[0].nodes, []);
+    await click('.place', 'Paths');
+    await pointerClick('[data-library-item="sole-path"]', ['shift']); await click('[aria-label="Save project"]');
+    assert.equal(saved.paths.length, 1); assert.notEqual(saved.paths[0].id, 'sole-path'); assert.deepEqual(saved.paths[0].waypoints, []);
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(100);
+      await fs.writeFile(path.join(output, 'last-path-deleted-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+    }
+    await pointerClick('.deletion-notice button'); await click('[aria-label="Save project"]');
+    assert.equal(saved.paths[0].id, 'sole-path'); assert.deepEqual(saved.paths[0].waypoints, sole.waypoints);
+    await win.loadFile(rendererHtml);
+    await wait(() => evaluate(() => !!document.querySelector('[data-library-item="sole-path"]')), 'last-path Undo survives reopen');
+    check('Deleting the final path or routine creates an empty replacement and native Undo restores the authored item through save/reopen');
     assert.deepEqual(errors, []);
     await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
     app.exit(0);
