@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Server, utils, type Connection } from "ssh2";
 import type { AddressInfo } from "node:net";
+import { generateKeyPairSync } from "node:crypto";
 import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTransfer";
 
 const { STATUS_CODE: S, OPEN_MODE: O } = utils.sftp;
 const directory = "/home/lvuser/natinst/bin/Paths";
-const hostKey = utils.generateKeyPairSync("ed25519").private;
+// ssh2's Ed25519 generator strips genuine leading zero public-key bytes, intermittently
+// producing an unparsable fixture. Node's PEM encoder avoids that generator entirely.
+const hostKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" });
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
