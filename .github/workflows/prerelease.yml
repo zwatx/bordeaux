@@ -96,6 +96,12 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: node scripts/verify-signing-env.mjs mac
+      - name: Use HTTPS/TCP for Apple ticket delivery
+        if: matrix.platform == 'mac'
+        # Temporary runner workaround: https://github.com/actions/runner-images/issues/14924
+        run: |
+          printf '%s\n' 'block return out quick proto udp from any to any port 443' | sudo pfctl -f -
+          sudo pfctl -E
       - name: Build signed and notarized macOS packages
         if: matrix.platform == 'mac'
         env:
