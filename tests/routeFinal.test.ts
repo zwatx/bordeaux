@@ -283,6 +283,9 @@ describe("drawn curve grazing the field wall", () => {
     ] } as any;
 
 
+  // Preserve the report's wall-relative clearance after the field-height correction.
+  for (const w of grazingPath.waypoints) for (const point of [w, w.prevC, w.nextC]) point.y += 8.069 - 8.052;
+
   it("repairs the curve near its drawn shape instead of offering a slower hairpin", () => {
     const normal = getPlanner("profiledSpline").generate({ path: grazingPath, robot: grazingRobot });
     const clock = vi.spyOn(performance, "now").mockReturnValue(0);

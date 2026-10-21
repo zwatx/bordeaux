@@ -63,6 +63,7 @@ export interface FieldPack {
   revision: string;
   name: string;
   dimensions: { lengthM: number; widthM: number };
+  imageCalibration: { width: number; height: number; left: number; right: number; top: number; bottom: number; rotationDeg: number };
   coordinateFrame: string;
   appDisplayTransform: {
     appLengthM: number;

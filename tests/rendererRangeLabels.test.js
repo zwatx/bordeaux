@@ -46,7 +46,7 @@ describe("HTML toolrail obstacle in root SVG coordinates", () => {
   });
 });
 
-it("keeps labels and field geometry in root SVG coordinates when Flip rotates only the background image", () => {
+it("keeps the calibrated blue-origin projection fixed regardless of retired view preferences", () => {
   const project = createDemoProject(), doc = project.paths[0];
   doc.ranges = [{ anchor: "param", f0: .15, f1: .85, maxAngVel: .01, maxAngAccel: .004 }];
   const derived = PM.derivePath(doc, project.robot, 14, "profiledSpline");
@@ -55,6 +55,6 @@ it("keeps labels and field geometry in root SVG coordinates when Flip rotates on
     drive: project.robot.drive, accent: "#fff", metric: "velocity", playTime: 0, actions: {} }));
   const blue = render("blue"), red = render("red");
   expect(blue).toContain('preserveAspectRatio="xMidYMid meet"');
-  expect(red).toMatch(/<foreignObject[^>]* transform="rotate\(180 /);
-  expect(red.replace(/(<foreignObject\b[^>]*?) transform="[^"]+"/, "$1")).toBe(blue);
+  expect(red).toMatch(/<foreignObject[^>]* transform="rotate\(180 1950.5 791.5\)"/);
+  expect(red).toBe(blue);
 });

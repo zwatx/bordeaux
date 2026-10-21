@@ -16,7 +16,7 @@ import { validateProject } from "../src/shared/validation";
 import type { BordeauxProject, CommandArgumentValue, PlannerResult, PathDoc } from "../src/shared/types";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 
-const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v1/corpus.bordeaux.json", "utf8")).project;
+const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v2/corpus.bordeaux.json", "utf8")).project;
 let path: PathDoc;
 let result: PlannerResult;
 let selected: PathDoc;
@@ -171,7 +171,7 @@ describe("explicit accepted optimization", () => {
         (await readProject(file)).project,
         (await openProjectFolder(workspace)).project!,
         // A browser path document is itself the path record.
-        decodeProjectFile(JSON.stringify({ version: "2.0", robot: project.robot, ...applied })).project,
+        decodeProjectFile(JSON.stringify({ version: "2.0", field: project.field, robot: project.robot, ...applied })).project,
       ];
       for (const opened of reopened) {
         const restored = opened.paths.find((candidate) => candidate.id === edited.id)!;

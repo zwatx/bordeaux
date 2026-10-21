@@ -75,7 +75,7 @@ describe("route field safety and authored timing", () => {
     const selected = getAcceptedTrajectory(reopened.paths[0], reopened.robot, reopened.field)!;
     expect(selected).toEqual(candidate);
     expect(buildBdxExport(reopened).paths[0].samples).toEqual(candidate.samples);
-    const standalone = decodeProjectFile(JSON.stringify({ ...project.paths[0], version: "2.1", robot })).project;
+    const standalone = decodeProjectFile(JSON.stringify({ ...project.paths[0], version: "2.1", field: project.field, robot })).project;
     expect(getAcceptedTrajectory(standalone.paths[0], standalone.robot, standalone.field)).toEqual(candidate);
     expect(buildBdxExport(standalone).paths[0].samples).toEqual(candidate.samples);
   });

@@ -17,7 +17,7 @@ type FrozenScenario = {
   };
 };
 
-const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v1");
+const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 const projectContents = readFileSync(join(corpusDirectory, "corpus.bordeaux.json"), "utf8");
 const manifest = JSON.parse(readFileSync(join(corpusDirectory, "manifest.json"), "utf8"));
 const decoded = decodeProjectFile(projectContents);
@@ -90,8 +90,8 @@ describe("frozen Bordeaux-authored planner corpus", () => {
       expect(analysis.findings.filter((finding) => finding.severity === "error"), path.id).toEqual([]);
       if (scenario.features.includes("neutral-zone")) {
         expect(analysis.rawSamples.every((sample) => (
-          sample.x > REBUILT_2026_CROSSINGS.red.trenchTable.x
-          && sample.x < REBUILT_2026_CROSSINGS.blue.trenchTable.x
+          sample.x > REBUILT_2026_CROSSINGS.blue.trenchTable.x
+          && sample.x < REBUILT_2026_CROSSINGS.red.trenchTable.x
         )), path.id).toBe(true);
       }
     }

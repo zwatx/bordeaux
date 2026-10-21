@@ -146,7 +146,7 @@ describe("folder projects", () => {
     expect((await openProjectFolder(directory)).project).toEqual({ ...project, name: path.basename(directory) });
     await expect(fs.stat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(path.join(directory, hashed))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(JSON.parse(await fs.readFile(path.join(directory, "Paths/NewPath.path"), "utf8"))).toEqual({ version: "2.0", robot: project.robot, ...project.paths[0] });
+    expect(JSON.parse(await fs.readFile(path.join(directory, "Paths/NewPath.path"), "utf8"))).toEqual({ version: "2.0", field: project.field, robot: project.robot, ...project.paths[0] });
   });
   it("migrates a selected standalone legacy project but preserves an unrelated project", async () => {
     const directory = await folder(), project = createDemoProject();

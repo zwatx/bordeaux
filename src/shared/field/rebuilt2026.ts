@@ -1,8 +1,9 @@
 import { FIELD_H, FIELD_W } from "../math/fieldBounds";
 import type { FieldLandmark, FieldPack, FieldPoint, FieldRect } from "./types";
+import { FIELD_IMAGE } from "./imageCalibration";
 
 export const REBUILT_2026_FIELD_REVISION = "2026-manual-tu19-welded-4";
-export const BORDEAUX_FIELD_COORDINATE_SCHEMA_ID = "bordeaux-field/1.0";
+export const BORDEAUX_FIELD_COORDINATE_SCHEMA_ID = "wpilib-blue-origin/2026-welded/1";
 export const ACTIVE_FIELD_REFERENCE = {
   id: "2026-rebuilt",
   revision: REBUILT_2026_FIELD_REVISION,
@@ -11,9 +12,7 @@ export const ACTIVE_FIELD_REFERENCE = {
 export const REBUILT_2026_FIELD_LENGTH_M = 16.541;
 export const REBUILT_2026_FIELD_WIDTH_M = 8.069;
 
-// These semantic fixtures live in the official WPILib blue-origin frame. The
-// renderer has an older image calibration, so conversion into PathDoc space is
-// explicit rather than changing Bordeaux's long-standing field bounds.
+// Authored geometry, planner output and exports use the official blue-origin frame.
 const BLUE_BARRIER_X = 4.02844;
 const RED_BARRIER_X = REBUILT_2026_FIELD_LENGTH_M - BLUE_BARRIER_X;
 const TRENCH_OPENING_WIDTH_M = 1.278636;
@@ -36,12 +35,7 @@ const INITIAL_FUEL_DEPTH_M = 72 * 0.0254;
 const INITIAL_FUEL_WIDTH_M = 206 * 0.0254;
 
 export function officialToAppPoint(point: FieldPoint): FieldPoint {
-  return {
-    // WPILib's blue-wall origin increases toward the red wall, while the
-    // official overhead image used by Bordeaux draws red on the left.
-    x: (REBUILT_2026_FIELD_LENGTH_M - point.x) * FIELD_W / REBUILT_2026_FIELD_LENGTH_M,
-    y: point.y * FIELD_H / REBUILT_2026_FIELD_WIDTH_M,
-  };
+  return { ...point };
 }
 
 export function officialToAppRect(bounds: FieldRect): FieldRect {
@@ -54,10 +48,7 @@ export function officialToAppRect(bounds: FieldRect): FieldRect {
 }
 
 export function appToOfficialPoint(point: FieldPoint): FieldPoint {
-  return {
-    x: REBUILT_2026_FIELD_LENGTH_M - point.x * REBUILT_2026_FIELD_LENGTH_M / FIELD_W,
-    y: point.y * REBUILT_2026_FIELD_WIDTH_M / FIELD_H,
-  };
+  return { ...point };
 }
 
 export function appToAllianceViewPoint(point: FieldPoint, allianceView: "blue" | "red"): FieldPoint {
@@ -258,15 +249,16 @@ export const REBUILT_2026_FIELD: FieldPack = {
   revision: REBUILT_2026_FIELD_REVISION,
   name: "2026 REBUILT presented by Haas",
   dimensions: { lengthM: REBUILT_2026_FIELD_LENGTH_M, widthM: REBUILT_2026_FIELD_WIDTH_M },
+  imageCalibration: FIELD_IMAGE,
   coordinateFrame: "Official WPILib blue-wall origin: +X toward red, +Y away from the scoring-table guardrail",
   appDisplayTransform: {
     appLengthM: FIELD_W,
     appWidthM: FIELD_H,
-    description: "Mirror official X, then independently scale X/Y into Bordeaux's preserved overhead image where red is left and blue is right",
+    description: "Identity: authored coordinates are official blue-origin meters; calibrated image projection changes display pixels only",
   },
   authoringInvariants: [
-    "Canonical Bordeaux coordinates match the overhead image: red structures have smaller app X (left) and blue structures have larger app X (right).",
-    "The Red editor view rotates authored points 180 degrees for display only; it never changes landmark ownership.",
+    "Canonical Bordeaux coordinates use the fixed blue-side origin: +X toward red, +Y away from the scoring table, heading zero along +X and positive headings counterclockwise.",
+    "Flip rotates all authored paths 180 degrees in the canonical frame, including headings, handles and look-at points; it is a saved, undoable edit.",
     "Alliance left/right is from that alliance's drivers facing the field: red-left is scoring-table side and blue-left is non-scoring-table side.",
     "A route with different outbound and inbound crossings must use ordered per-leg traversal requirements; one global traversal is invalid.",
     "A swoosh is a typed 180-degree maneuver with explicit turn direction and radius, not an arbitrary coordinate loop.",
@@ -280,6 +272,12 @@ export const REBUILT_2026_FIELD: FieldPack = {
   solidObstacles,
   crossingBarriers,
   sources: [
+    {
+      label: "Original Bordeaux field overlay and calibrated playing rectangle",
+      url: "https://github.com/zwatx/bordeaux/blob/8a0fdfc/src/renderer/assets/field.png",
+      revision: "blue-origin-calibration-1",
+      sha256: "4907a5b4a3045b27060f875f33b9793c4017a059961a1a9dbee7cc3421867ee7",
+    },
     {
       label: "2026 FIRST Field Dimension Drawings",
       url: "https://firstfrc.blob.core.windows.net/frc2026/FieldAssets/2026-field-dimension-dwgs.pdf",

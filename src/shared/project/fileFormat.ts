@@ -3,6 +3,7 @@ import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { validateProjectSource } from "../validation";
 import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
+import { LEGACY_FIELD_SCHEMA, migrateLegacyFieldProject } from "./fieldMigration";
 
 const CURRENT_PROJECT_SCHEMA_VERSION = "1.0" as const;
 
@@ -24,7 +25,7 @@ function assertSupportedFieldReference(value: unknown): void {
   if (value.revision !== ACTIVE_FIELD_REFERENCE.revision) {
     throw new Error(`Bordeaux field compatibility error: unsupported field revision ${JSON.stringify(value.revision)}.`);
   }
-  if (value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId) {
+  if (value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId && value.coordinateSchemaId !== LEGACY_FIELD_SCHEMA) {
     throw new Error(`Bordeaux field compatibility error: unsupported coordinate schema ${JSON.stringify(value.coordinateSchemaId)}.`);
   }
 }
@@ -69,12 +70,8 @@ function needsV1Migration(value: Record<string, unknown>): boolean {
 }
 
 function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile {
-  const needsFieldMigration = isRecord(value) && Array.isArray(value.paths) && value.field === undefined;
-  const prepared = needsFieldMigration ? {
-    ...value,
-    field: { ...ACTIVE_FIELD_REFERENCE },
-    fieldMigration: { source: "legacy-unpinned", assigned: { ...ACTIVE_FIELD_REFERENCE } },
-  } : value;
+  const prepared = migrateLegacyFieldProject(value);
+  const needsFieldMigration = prepared !== value;
   const routinePromoted = isRecord(prepared) ? promoteRoutineProjectSchema(prepared) : prepared;
   const hasRouteSelection = isRecord(routinePromoted) && Array.isArray(routinePromoted.paths)
     && routinePromoted.paths.some((path) => isRecord(path) && isRecord(path.optimization)
@@ -117,13 +114,15 @@ export function decodeProjectValue(value: unknown): DecodedProjectFile {
         `Unsupported Bordeaux path version ${JSON.stringify(value.version)}. This version of Bordeaux supports path versions 2.0 and 2.1.`,
       );
     }
-    const { version: _version, robot, ...path } = value;
+    const { version: _version, robot, field, fieldMigration, ...path } = value;
     const name = typeof value.name === "string" && value.name.trim() ? value.name : "Imported Path";
     return validatedProject(
       {
         schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
         name,
         robot,
+        ...(field !== undefined ? { field } : {}),
+        ...(fieldMigration !== undefined ? { fieldMigration } : {}),
         paths: [path],
         plannerId: "profiledSpline",
       },

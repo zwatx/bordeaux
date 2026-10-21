@@ -600,7 +600,7 @@ describe("path preview worker final optimization", () => {
   });
 
   it("renders and plays implicit stop rotations from the real neutral-stop corpus path", () => {
-    const project = JSON.parse(readFileSync(new URL('../benchmarks/planner-corpus/v1/corpus.bordeaux.json', import.meta.url), 'utf8'));
+    const project = JSON.parse(readFileSync(new URL('../benchmarks/planner-corpus/v2/corpus.bordeaux.json', import.meta.url), 'utf8'));
     const path = project.paths.find((item: any) => item.id === 'corpus-neutral-stop');
     expect(path.waypoints.every((waypoint: any) => !waypoint.turnInPlace)).toBe(true);
     for (const optimize of [false, true]) {

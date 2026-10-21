@@ -17,11 +17,13 @@ import path from "node:path";
 // The owner approved 720/205/146 KiB later on 2026-10-17 for drag-preview parity, timeline
 // command stacks and waypoint insertion, the split Push control, and the menu/Routine redesigns:
 // measured app 734,507 B, worker 208,908 B and CSS 148,643 B.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 720 * 1024;
+// Blue-origin controls and guarded worker Flip add ~1 KiB beyond the previous application cap.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 722 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 205 * 1024;
+// Blue-origin Flip qualifies and rotates applied routes in the worker, outside the UI bundle.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 207 * 1024;
 const CSS_BUDGET_BYTES = 146 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");

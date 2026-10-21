@@ -11,8 +11,8 @@ import { robotHardLimits } from "../src/shared/robotLimits";
 import { decodeProjectFile } from "../src/shared/project/fileFormat";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 
-const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v1");
-const corpus = FixedGeometryCorpus.loadV1(corpusDirectory);
+const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
+const corpus = FixedGeometryCorpus.loadV2(corpusDirectory);
 const project = decodeProjectFile(readFileSync(join(corpusDirectory, "corpus.bordeaux.json"), "utf8")).project;
 
 describe("fixed-geometry final optimization", () => {

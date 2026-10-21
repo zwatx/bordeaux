@@ -93,7 +93,7 @@ describe('App setWaypointPositionLink (actual App source)', () => {
 
   it('gives the band the link action and the loaded document identity', () => {
     expect(declared('bandActions').getText()).toContain('setWaypointPositionLink');
-    expect(appSource.getFullText()).toMatch(/documentKey: projectKey,\n\s+commandPickFor:/);
+    expect(appSource.getFullText()).toMatch(/documentKey: projectKey,\r?\n\s+commandPickFor:/);
   });
 });
 

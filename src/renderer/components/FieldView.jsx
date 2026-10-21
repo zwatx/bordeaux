@@ -2,6 +2,8 @@ import * as React from "react";
 import { FieldScene } from "../assets/field-scene";
 import { displayedPoseAtTime, hoverWorldPoint, hoverVisits } from "../lib/pathHover";
 import fieldImage from "../assets/field.png";
+import { FIELD_W, FIELD_H } from "../../shared/math/fieldBounds";
+import { FIELD_IMAGE, FIELD_IMAGE_SCALE, worldToFieldImage, fieldImageToWorld } from "../../shared/field/imageCalibration";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
 import { wheelZoomFactor } from "../lib/zoom";
@@ -13,11 +15,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
   const h = React.createElement;
 
   // ---- field calibration (image px) ----
-  const IMG_W = 3901, IMG_H = 1583;
-  const X0 = 397, X1 = 3502, Y0 = 97, Y1 = 1486; // playing surface in image px
-  const FIELD_CX = (X0 + X1) / 2, FIELD_CY = (Y0 + Y1) / 2;
-  const FIELD_W = 17.548, FIELD_H = 8.052;        // meters (WPILib 2025/26)
-  const SX = (X1 - X0) / FIELD_W, SY = (Y1 - Y0) / FIELD_H;
+  const { width: IMG_W, height: IMG_H, left: X0, right: X1, top: Y0, bottom: Y1 } = FIELD_IMAGE;
+  const { x: SX, y: SY } = FIELD_IMAGE_SCALE;
 
   // muted semantic colors (reserved for meaning, low saturation)
   const C_START = '#4bbf86', C_END = '#d2655f', C_NODE = '#8b94a2', C_NEUTRAL = '#9aa3b0';
@@ -148,21 +147,19 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     const selectionKey = sel.kind + ':' + sel.idx;
     contextRef.current = { pathId: doc.id, selectionKey, tool, routine: Boolean(routine) };
     const lastInspectPress = useRef({ key: null, at: 0 });
-    const flip = alliance === 'red';
     const isTank = drive === 'tank';
 
     const clampWorld = (p) => ({ x: Math.max(0, Math.min(FIELD_W, p.x)), y: Math.max(0, Math.min(FIELD_H, p.y)) });
     const wx = (x) => X0 + x * SX;
     const wy = (y) => Y1 - y * SY;
-    const W2P = useCallback((p) => ({ x: wx(p.x), y: wy(p.y) }), []);
+    const W2P = worldToFieldImage;
 
     const clientToWorld = useCallback((cx, cy, bounded = true) => {
       const svg = svgRef.current; if (!svg) return { x: 0, y: 0 };
       const ctm = svg.getScreenCTM(); if (!ctm) return { x: 0, y: 0 };
       const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy;
       const u = pt.matrixTransform(ctm.inverse());
-      const mx = (u.x - X0) / SX, my = (Y1 - u.y) / SY;
-      const world = { x: mx, y: my };
+      const world = fieldImageToWorld(u);
       return bounded ? clampWorld(world) : world;
     }, []);
 
@@ -761,8 +758,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
       if (showGrid) {
         const g = [];
-        for (let m = 0; m <= Math.round(FIELD_W); m++) { const x = X0 + m * SX; g.push(h('line', { key: 'gx' + m, x1: x, y1: Y0, x2: x, y2: Y1, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
-        for (let m = 0; m <= Math.round(FIELD_H); m++) { const y = Y1 - m * SY; g.push(h('line', { key: 'gy' + m, x1: X0, y1: y, x2: X1, y2: y, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
+        for (let m = 0; m <= Math.floor(FIELD_W); m++) { const x = X0 + m * SX; g.push(h('line', { key: 'gx' + m, x1: x, y1: Y0, x2: x, y2: Y1, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
+        for (let m = 0; m <= Math.floor(FIELD_H); m++) { const y = Y1 - m * SY; g.push(h('line', { key: 'gy' + m, x1: X0, y1: y, x2: X1, y2: y, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
         els.push(h('g', { key: 'grid' }, g));
       }
 
@@ -1280,9 +1277,14 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     },
       h('rect', { x: -2000, y: -2000, width: IMG_W + 4000, height: IMG_H + 4000, fill: '#0a0b0d', 'data-role': 'bg' }),
       h('rect', { x: X0 - 6, y: Y0 - 6, width: (X1 - X0) + 12, height: (Y1 - Y0) + 12, rx: 4, fill: '#131418', stroke: '#2a2d33', strokeWidth: P(1.5), 'data-role': 'bg' }),
-      h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, transform: flip ? `rotate(180 ${FIELD_CX} ${FIELD_CY})` : undefined, 'data-role': 'bg', style: { pointerEvents: 'none' } },
+      h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, transform: `rotate(${FIELD_IMAGE.rotationDeg} ${(X0+X1)/2} ${(Y0+Y1)/2})`, 'data-role': 'bg', style: { pointerEvents: 'none' } },
         h('img', { src: fieldImage, width: IMG_W, height: IMG_H, draggable: false, style: { width: IMG_W + 'px', height: IMG_H + 'px', display: 'block', opacity: 0.9, filter: 'brightness(0.38) saturate(0.32) contrast(1.06)', WebkitUserDrag: 'none', userSelect: 'none', pointerEvents: 'none' } })),
-      h('rect', { x: X0 - 6, y: Y0 - 6, width: (X1 - X0) + 12, height: (Y1 - Y0) + 12, rx: 4, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.07, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
+      h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
+      showGrid && h('g', { className: 'field-origin', style: { pointerEvents: 'none' } },
+        h('title', null, 'Blue origin: +X toward red, +Y away from the scoring table; zero heading along +X'),
+        h('path', { d: `M ${X0} ${Y1 - P(32)} V ${Y1} H ${X0 + P(32)}`, fill: 'none', stroke: '#aeb6c2', strokeOpacity: 0.65, strokeWidth: P(1.3) }),
+        h('text', { x: X0 + P(8), y: Y1 + P(17), fill: '#aeb6c2', fontSize: P(10), fontFamily: 'JetBrains Mono, monospace' }, 'Blue origin (0, 0)'),
+          h('text', { x: X0 + P(145), y: Y1 + P(17), fill: '#aeb6c2', fontSize: P(9), fontFamily: 'JetBrains Mono, monospace' }, '+X →  +Y ↑')),
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),

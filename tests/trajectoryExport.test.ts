@@ -19,7 +19,7 @@ describe("project files", () => {
     expect(project.field).toEqual({
       id: "2026-rebuilt",
       revision: "2026-manual-tu19-welded-4",
-      coordinateSchemaId: "bordeaux-field/1.0",
+      coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
     });
     expect(JSON.parse(encodeProjectFile(project).contents).field).toEqual(project.field);
   });
@@ -34,7 +34,7 @@ describe("project files", () => {
     expect(decoded.project.field).toEqual({
       id: "2026-rebuilt",
       revision: "2026-manual-tu19-welded-4",
-      coordinateSchemaId: "bordeaux-field/1.0",
+      coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
     });
     expect(decoded.project.fieldMigration).toEqual({
       source: "legacy-unpinned",
@@ -46,8 +46,8 @@ describe("project files", () => {
   });
 
   it.each([
-    [{ id: "2027-unknown", revision: "1", coordinateSchemaId: "bordeaux-field/1.0" }, "field ID"],
-    [{ id: "2026-rebuilt", revision: "future-revision", coordinateSchemaId: "bordeaux-field/1.0" }, "field revision"],
+    [{ id: "2027-unknown", revision: "1", coordinateSchemaId: "wpilib-blue-origin/2026-welded/1" }, "field ID"],
+    [{ id: "2026-rebuilt", revision: "future-revision", coordinateSchemaId: "wpilib-blue-origin/2026-welded/1" }, "field revision"],
     [{ id: "2026-rebuilt", revision: "2026-manual-tu19-welded-4", coordinateSchemaId: "future-coordinates/2.0" }, "coordinate schema"],
   ])("rejects an unsupported %s with a compatibility error", (field, expectedPart) => {
     const project = createDemoProject() as unknown as Record<string, unknown>;

@@ -10,7 +10,7 @@ import type { ProjectBackgroundCheckpoint, ProjectCheckpointRequest, ProjectChec
 import { describeProjectWriteError } from "../shared/project/writeErrors";
 import type { ProjectDepartureCoordinator } from "./projectDeparture";
 import { ProjectRecoveryStore, type RecoveryBranch, type RecoveryOriginIdentity, type RecoveryOrigin, type RecoveryWriteRequest, type RecoveryWriteReceipt } from "./projectRecoveryStore";
-import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, type ProjectSourceCapture, type ProjectSourceDestination, type ProjectSourceResult } from "./projectSourcePersistence";
+import { canonicalProjectDigest, ProjectSourcePersistence, ProjectSourceError, sameProjectContext, type ProjectSourceCapture, type ProjectSourceDestination, type ProjectSourceResult } from "./projectSourcePersistence";
 import { absentProjectSource, ownProjectSource, ProjectSourceChangedError, type ProjectSourceOwner, type ProjectSourceEvidence } from "./projectFiles";
 import { projectFolderIdentity, sameProjectFolder, type ProjectFolderIdentity } from "./projectFolderIdentity";
 
@@ -98,6 +98,8 @@ export class ProjectPersistence {
   private revision = 0;
   private lastCapture: { key: string; revision: number; capturedAt: string } | null = null;
   private recoveredFrom: ProjectRecoveredFrom | undefined;
+  private recoveredSourceDigest: string | undefined;
+  private readonly preparedRecoveryDigests = new WeakMap<ProjectRecoveredFrom, string>();
   private latestSource: ProjectStorageReceipt | undefined;
   private latestRecovery: ProjectStorageReceipt | undefined;
   private sourceResolution: ProjectSession["sourceResolution"];
@@ -193,7 +195,10 @@ export class ProjectPersistence {
     if (!sameProjectContext(context, this.deps.getContext())) throw new Error("Project recovery context is no longer current");
     const snapshot = await this.deps.recovery.readSnapshot(recordId);
     if (!sameProjectContext(context, this.deps.getContext())) throw new Error("Project recovery context is no longer current");
-    return { project: snapshot.project, recoveredFrom: { origin: snapshot.origin, capturedAt: snapshot.capturedAt, receipt: snapshot.receipt } };
+    const recoveredFrom = { origin: snapshot.origin, capturedAt: snapshot.capturedAt, receipt: snapshot.receipt };
+    // Bind migrated editor source to its historical receipt only inside main.
+    this.preparedRecoveryDigests.set(recoveredFrom, canonicalProjectDigest(snapshot.project));
+    return { project: snapshot.project, recoveredFrom };
   }
   contextChanged(replacement = false, recoveredFrom?: ProjectRecoveredFrom): void {
     if (this.reload) this.settleReload(this.reload);
@@ -211,6 +216,7 @@ export class ProjectPersistence {
       this.recoveryOriginIdentity = undefined; this.sourceOwner = undefined; this.pendingDestination = undefined; this.documentOwner = {};
       this.recordId = randomUUID(); this.revision = 0; this.lastCapture = null;
       this.latestSource = undefined; this.latestRecovery = undefined; this.recoveredFrom = recoveredFrom && copy(recoveredFrom);
+      this.recoveredSourceDigest = recoveredFrom && (this.preparedRecoveryDigests.get(recoveredFrom) ?? recoveredFrom.receipt.digest);
       this.sourceResolution = undefined;
       this.savedSource = undefined;
       this.updates.clear(); this.sourceIdentities.clear();
@@ -501,9 +507,10 @@ export class ProjectPersistence {
       this.savedSource = { inputDigest: operation.capture.digest, result: { ...copy(saved), sourceOwner: saved.sourceOwner } };
       const receipt = this.receipt(operation.id, operation.capture, "source", saved.digest); this.latestSource = receipt;
       const resolved = operation.confirmedRecovery ? [operation.confirmedRecovery] : [];
-      if (this.recoveredFrom?.receipt.digest === operation.capture.digest) resolved.push(this.recoveredFrom.receipt);
+      if (this.recoveredFrom && this.recoveredSourceDigest === operation.capture.digest) resolved.push(this.recoveredFrom.receipt);
       this.sourceResolution = { inputDigest: operation.capture.digest, savedDigest: saved.digest, recoveries: copy(resolved) };
       this.recoveredFrom = undefined;
+      this.recoveredSourceDigest = undefined;
       // Only this successful current operation may install its captured physical head at the target.
       this.sourceOwner = Object.assign(saved.sourceOwner, { context: copy(saved.context) });
       if (this.pendingDestination === saved.sourceOwner) this.pendingDestination = undefined;

@@ -205,7 +205,7 @@ ipcMain.handle('library:confirm', () => new Promise((resolve) => { finishPush = 
 ipcMain.handle('library:inspect', () => deferInspection ? new Promise((resolve) => { finishInspection = resolve; }) : inspection());
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v1/corpus.bordeaux.json'), 'utf8'));
+    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
     const source = corpus.paths.find((item) => item.id === 'corpus-neutral-stop');
     saved = { ...corpus, name: 'Library verification', paths: Array.from({ length: 200 }, (_, index) => ({ ...structuredClone(source), id: 'library-path-' + index, name: index === 0 ? 'Opening move' : index === 1 ? 'Collect second' : 'Practice path ' + index, folderId: 'center' })),
       pathFolders: [{ id: 'center', name: 'Center' }, { id: 'side', name: 'Side' }], pathLinks: [],

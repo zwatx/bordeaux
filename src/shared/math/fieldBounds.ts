@@ -1,5 +1,6 @@
-export const FIELD_W = 17.548;
-export const FIELD_H = 8.052;
+// 2026 REBUILT welded field, in the fixed WPILib blue-origin frame.
+export const FIELD_W = 16.541;
+export const FIELD_H = 8.069;
 
 export interface WorldPoint {
   x: number;

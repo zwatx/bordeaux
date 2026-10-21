@@ -47,8 +47,8 @@ const preview = { prof: { totalTime: 3.7 }, finalTrajectory: { totalTimeS: 3.7 }
 let recorded: { project: any; messages: any[]; final: any; projections: number } | undefined;
 function recordedSearch() {
   if (recorded) return recorded;
-  const directory = new URL("../benchmarks/planner-corpus/v1/", import.meta.url);
-  const corpus = CorridorCorpus.loadV1(fileURLToPath(directory));
+  const directory = new URL("../benchmarks/planner-corpus/v2/", import.meta.url);
+  const corpus = CorridorCorpus.loadV2(fileURLToPath(directory));
   const project = decodeProjectFile(readFileSync(new URL("corpus.bordeaux.json", directory), "utf8")).project;
   const path = project.paths.find((candidate) => candidate.id === corpus.cases[1].pathId)!;
   const messages: any[] = [];

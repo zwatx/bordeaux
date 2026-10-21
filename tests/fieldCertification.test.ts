@@ -21,7 +21,7 @@ describe("field certification", () => {
       field: {
         id: "2026-rebuilt",
         revision: REBUILT_2026_FIELD.revision,
-        coordinateSchemaId: "bordeaux-field/1.0",
+        coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
       },
       supportPromises: FIELD_SUPPORT_PROMISES,
     });
@@ -80,8 +80,8 @@ describe("field certification", () => {
   it("rejects a round-tripping transform with the wrong field orientation", () => {
     const report = certifyField(REBUILT_2026_FIELD, {
       transforms: {
-        officialToAppPoint: (point) => ({ ...point }),
-        appToOfficialPoint: (point) => ({ ...point }),
+        officialToAppPoint: (point) => ({ x: 16.541 - point.x, y: point.y }),
+        appToOfficialPoint: (point) => ({ x: 16.541 - point.x, y: point.y }),
       },
       expectedDigest: null,
     });

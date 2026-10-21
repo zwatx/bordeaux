@@ -46,7 +46,8 @@ describe('routine review r2 strict source and feature selection', () => {
     const contents = await fs.readFile(path.resolve('tests/fixtures/projects/routine-opaque-canonical-v1.bordeaux'), 'utf8');
     expect(hash(contents)).toBe('2353c35d3789d3fe6ba6ecea7cfd3462bc695263c9fd0fc4776bb2e5137176af');
     const source = JSON.parse(contents);
-    expect(promoteRoutineProjectSchema(source)).toBe(source); expect(encodeProjectFile(source).contents).toBe(contents);
+    expect(promoteRoutineProjectSchema(source)).toBe(source); expect(encodeProjectFile(source).project.schemaVersion).toBe('1.0');
+    expect(encodeProjectFile(source).project.routines).toEqual(source.routines);
     const commandNode = source.routines[0].nodes.at(-1);
     commandNode.outputBranch.routes[1].nodes = [{ ...wait('actual'), ends: {} }];
     expect(promoteRoutineProjectSchema(source).schemaVersion).toBe('1.1');
@@ -63,7 +64,8 @@ describe('routine review r2 strict source and feature selection', () => {
     const file = path.join(root, recordId + '.json'), envelope = JSON.parse(await fs.readFile(file, 'utf8'));
     envelope.project = JSON.parse(contents); envelope.digest = hash(contents); await fs.writeFile(file, JSON.stringify(envelope));
     const reopened = await new ProjectRecoveryStore(root).readSnapshot(recordId);
-    expect(reopened.receipt.digest).toBe(hash(contents)); expect(encodeProjectFile(reopened.project).contents).toBe(contents);
+    expect(reopened.receipt.digest).toBe(hash(contents)); expect(reopened.project).toEqual(encodeProjectFile(JSON.parse(contents)).project);
+    expect(JSON.parse(await fs.readFile(file, 'utf8')).project).toEqual(JSON.parse(contents));
     expect(await store.markResolved(reopened.receipt, { digest: hash(contents), origin: { kind: 'folder', folderPath: root } })).toBe(true);
     expect((await new ProjectRecoveryStore(root).listSnapshots()).entries[0]).toMatchObject({ status: 'available', resolved: { digest: hash(contents), sourceDigest: hash(contents) } });
   });

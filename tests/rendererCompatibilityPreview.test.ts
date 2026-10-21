@@ -256,20 +256,17 @@ describe("renderer application", () => {
     expect(panels).toContain("alternateKey: 'C'");
   });
 
-  it("keeps the path fixed when flipping the field background", () => {
+  it("keeps the blue-origin image fixed while Flip commits authored coordinates", () => {
     const field = fs.readFileSync(new URL("../src/renderer/components/FieldView.jsx", import.meta.url), "utf8");
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
-    expect(field).toContain("transform: flip ? `rotate(180 ${FIELD_CX} ${FIELD_CY})` : undefined");
-    expect(field).toContain("const W2P = useCallback((p) => ({ x: wx(p.x), y: wy(p.y) }), []);");
-    expect(field).not.toContain("FIELD_W - p.x");
-    expect(field).not.toContain("FIELD_H - p.y");
-    expect(field.match(/\bflip\b/g)).toHaveLength(2);
-    const agentSync = fs.readFileSync(new URL("../src/renderer/lib/agentSessionSync.js", import.meta.url), "utf8");
-    expect(app).not.toContain("const flip = alliance === 'red' ? -1 : 1");
-    expect(agentSync).toContain("allianceView: 'blue'");
-    expect(app + agentSync).not.toContain("allianceView: alliance");
+    expect(field).toContain("const W2P = worldToFieldImage;");
+    expect(field).toContain("const world = fieldImageToWorld(u);");
+    expect(field).not.toContain("transform: flip ?");
+    expect(app).toContain("commitProjectChange(before, result.value)");
+    expect(app).toContain("mode: 'flip', project: before");
+    expect(app).toContain("if (projectRef.current !== before) return;");
+    expect(app).toContain("onFlip: flipPaths");
   });
-
   it("keeps dormant Chap assets out of the application shell", () => {
     const html = fs.readFileSync(new URL("../src/renderer/index.html", import.meta.url), "utf8");
     const panels = fs.readFileSync(new URL("../src/renderer/components/Panels.jsx", import.meta.url), "utf8");

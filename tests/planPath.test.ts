@@ -1,4 +1,4 @@
-import corpus from "../benchmarks/planner-corpus/v1/corpus.bordeaux.json";
+import corpus from "../benchmarks/planner-corpus/v2/corpus.bordeaux.json";
 import { describe, expect, it, vi } from "vitest";
 import { buildBdxExportWithPlannerResults } from "../src/shared/export/bdx";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";

@@ -10,8 +10,8 @@ import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometry
 import { decodeProjectFile } from "../src/shared/project/fileFormat";
 import type { ControlPoint, RobotConfig, TrajectorySample } from "../src/shared/types";
 
-const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v1");
-const corpus = CorridorCorpus.loadV1(directory);
+const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
+const corpus = CorridorCorpus.loadV2(directory);
 const project = decodeProjectFile(readFileSync(join(directory, "corpus.bordeaux.json"), "utf8")).project;
 const TOLERANCE_M = 1e-6;
 

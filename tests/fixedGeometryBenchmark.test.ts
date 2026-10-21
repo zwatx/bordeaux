@@ -13,14 +13,14 @@ import { getPlanner } from "../src/shared/planners";
 import { decodeProjectFile } from "../src/shared/project/fileFormat";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 
-const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v1");
+const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 const projectContents = readFileSync(join(directory, "corpus.bordeaux.json"), "utf8");
 const manifestContents = readFileSync(join(directory, "manifest.json"), "utf8");
 const fixedContents = readFileSync(join(directory, "fixed-geometry.json"), "utf8");
 const fixedDigest = readFileSync(join(directory, "fixed-geometry.sha256"), "utf8").trim();
 const project = decodeProjectFile(projectContents).project;
 const fixed = JSON.parse(fixedContents);
-const corpus = FixedGeometryCorpus.loadV1(directory);
+const corpus = FixedGeometryCorpus.loadV2(directory);
 
 function caseId(pathId: string): string {
   return corpus.cases.find((candidate) => candidate.pathId === pathId)!.id;
@@ -52,7 +52,7 @@ describe("fixed-geometry benchmark manifest", () => {
     tampered.robot.w = 0.7;
     writeFileSync(join(temporary, "corpus.bordeaux.json"), `${JSON.stringify(tampered, null, 2)}\n`);
 
-    expect(() => FixedGeometryCorpus.loadV1(temporary)).toThrow("project digest does not match");
+    expect(() => FixedGeometryCorpus.loadV2(temporary)).toThrow("project digest does not match");
     expect(() => new (FixedGeometryCorpus as any)(Symbol("forged"), "forged", [])).toThrow("pinned manifest");
     expect(corpus.validate("invented-fixture", generated("corpus-neutral-slalom")).rankingEligible).toBe(false);
   });

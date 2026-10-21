@@ -39,7 +39,7 @@ async function save() { const before = saves; await click('.project-chip'); awai
 }
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v1/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     first.name = 'Path 1';
     first.ranges = [{ anchor: 'param', f0: 0.15, f1: 0.85 }];
