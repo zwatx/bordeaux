@@ -86,7 +86,7 @@ function inspectProblemsDisclosure() {
   const issues = [...document.querySelectorAll('.pt svg g.pt-issue')];
   const menu = trigger && document.getElementById(trigger.getAttribute('aria-controls'));
   return {
-    current: Boolean(panel && document.querySelector('.fieldcol') && document.querySelector('.pt') && !document.querySelector('.fieldcol[data-planning-ready="false"]')),
+    current: Boolean(panel && document.querySelector('.fieldcol') && document.querySelector('.pt') && !document.querySelector('.fieldcol[data-planning-ready="false"],.pt[data-stale],.pt .pt-issue.stale')),
     present: triggers.length === 1 && visible.length === 1 && Boolean(trigger.getAttribute('aria-controls')) && Number(count?.[1]) === issues.length && issues.length > 0,
     absent: triggers.length === 0 && issues.length === 0 && !panel?.querySelector('.pp-problem,[role="menu"]'),
     oldLabels: document.querySelectorAll('.pt-issue-label').length,
@@ -1716,6 +1716,9 @@ app.whenReady().then(async () => {
     await pointerClick('[title^="Undo"]');await click('[aria-label="Save project"]');
     assert.deepEqual(saved.paths[0],problemSource,'One Undo restores explicit Slow here');
     check('invalid drafts retain focus, pending geometry stays inspectable, fresh timing clears selection, and explicit Slow here is exactly one undoable edit');
+    // Undo starts asynchronous planning; opening against its held list may correctly be
+    // refused when preflight renders the replacement. This proof owns the current list.
+    await waitProblemsDisclosure(true, 'Undo restores current Problems before zone-tag dismissal proof');
     // Dismissing the real popover leaves the actual timeline zone tag unobscured.
     await problemsPointerClick('aside.pp[aria-label="Properties"] button[aria-haspopup="menu"]');
     await wait(async () => (await evaluate(inspectProblemsDisclosure)).open, 'Problems popover opens before zone-tag dismissal proof');
