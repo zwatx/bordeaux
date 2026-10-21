@@ -1,6 +1,18 @@
 # Resume checkpoint — 2026-10-21
 
-The user explicitly requested a stopping place so they can resume with Fast. Stop after this local checkpoint. This is **not release sign-off**. Nothing from this task has been pushed, opened as a PR, merged, tagged or released.
+This records the user's earlier stopping checkpoint. Verification resumed at the user's request and is summarized below. This is **not release sign-off**. Nothing from this task has been pushed, opened as a PR, merged, tagged or released.
+
+## Verification completed after resuming
+
+Runtime code remained unchanged at `d81a50f568f90e74b39d6dd156123ddff3bee378` throughout the resumed checks.
+
+- Independent `field-blue-origin-core-review-20261021-5` closed the last near-zero finding with no blockers: 19 focused tests and 490 in-memory checks passed. The exact 200-degree production repro retained 0.831538 seconds, 57 samples and zero angular velocity in both directions through Flip, Use normal and export. Explicit CW/CCW half-turn probes also retained their direction.
+- Idle built smoke passed: `.ui-artifacts/field-smoke-resume.log`. The deadline was unchanged.
+- Native coordinate workflow passed on the final code: `.ui-artifacts/field-native-resume.log`, screenshots in `.ui-artifacts/field-blue-origin-resume/`. Coverage includes pointer/keyboard Flip, invalid draft refusal, all paths/headings, Undo/Redo, save/reopen, both units and supported sizes/inspector states, inverse pointer projection, and delayed-worker protection. Parent personally inspected representative screenshots across both sizes, units and inspector states; layout is unchanged from the independently reviewed eight-image matrix.
+- `projectFolderBdx.test.ts` first rerun had another Windows EPERM rename, in the serialization test rather than the prior near-limit case: 11 passed, 1 failed (`field-bdx-isolated-resume.json`). The pre-coordinate checkout at `fb96137` passed 12/12 (`field-bdx-baseline-resume.json`). The next current-code rerun also passed 12/12 (`field-bdx-isolated-resume-r2.json`). This establishes intermittency, not a proven root cause. No filesystem assertions or production writes were changed to suppress it.
+- The earlier build/typecheck, 76-test final focused run, certification, license and audit evidence below still applies to the unchanged runtime code. The complete four-shard run remains 2701 passed, 8 failed, 8 skipped and predates the final clamp; it is not represented as a green current full suite. Seven failures match the historical Windows baseline; the eighth rename error passed the isolated rerun.
+
+No independent review blocker remains. Local verification is complete within the stated scope. Full release/CI/platform validation and NI/robot execution remain separate; no publication was performed.
 
 ## Workspace and completed work
 
