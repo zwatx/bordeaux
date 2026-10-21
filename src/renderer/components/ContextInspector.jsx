@@ -447,7 +447,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       title = range ? range.name || 'Zone' : waypoint ? waypointLabel(sel.idx)
         : target ? 'Rotation target' : marker ? marker.name || 'Command' : doc.name || 'Path';
       const remove = range ? () => actions.delRange(sel.idx) : target ? () => actions.delTarget(sel.idx)
-        : marker ? () => actions.delMarker(sel.idx) : waypoint && n > 2 ? () => actions.delWp(sel.idx) : null;
+        : marker ? () => actions.delMarker(sel.idx) : waypoint ? () => actions.delWp(sel.idx) : null;
       const removeLabel = range ? 'Delete zone' : target ? 'Delete rotation target' : marker ? 'Delete command' : 'Delete waypoint';
       body = h(React.Fragment, null,
         h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit the saved values or remove a feature below to try again. Select other features on the field or timeline.'),
@@ -585,7 +585,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         actions.moveWpOrder && n > 2 && h('div', { className: 'qrow', style: { marginTop: '8px' } },
           h('button', { className: 'qbtn', type: 'button', disabled: i === 0, onClick: () => actions.moveWpOrder(i, -1) }, 'Move earlier'),
           h('button', { className: 'qbtn', type: 'button', disabled: i === n - 1, onClick: () => actions.moveWpOrder(i, 1) }, 'Move later')),
-        n > 2 && h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delWp(i) }, h(Icon, { name: 'trash', size: 15 }), 'Delete waypoint'));
+        h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delWp(i) }, h(Icon, { name: 'trash', size: 15 }), 'Delete waypoint'));
     }
 
     else if (sel.kind === 'seg' && wps[sel.idx] && wps[sel.idx + 1]) {

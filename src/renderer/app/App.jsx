@@ -658,13 +658,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [persistenceQueue, applyRobotProjectConnection, robotProjectState.suggestion]);
 
-    const refreshRobotProject = useCallback(async () => {
+    const refreshRobotProject = useCallback(async (rescan = false) => {
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.refreshRobotProject !== 'function') return;
       const generation = robotRestoreGeneration.current;
       // Like Build, a refresh keeps the link and its catalog; only the operation marks the pending work.
       setRobotProjectState((current) => ({ ...current, operation: 'refresh', error: '', notice: '' }));
       try {
-        const result = await window.bordeauxAPI.refreshRobotProject(sessionContext.current);
+        const result = await (rescan && window.bordeauxAPI.inspectLabviewCommands
+          ? window.bordeauxAPI.inspectLabviewCommands(sessionContext.current) : window.bordeauxAPI.refreshRobotProject(sessionContext.current));
         if (robotRestoreGeneration.current !== generation) return;
         applyRobotProjectConnection(result);
       } catch (error) {
@@ -672,6 +673,26 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         setRobotProjectState((current) => ({ ...current, status: current.catalog ? 'stale' : 'error', operation: null, error: operationErrorMessage(error) }));
       }
     }, [applyRobotProjectConnection]);
+
+    const usedCommandKey = useMemo(() => {
+      const ids = new Set();
+      for (const path of project.paths) for (const marker of path.markers || []) if (marker.invocation?.commandId) ids.add(marker.invocation.commandId);
+      for (const routine of project.routines || []) AUTO.walk(routine.nodes, node => { if (node.invocation?.commandId) ids.add(node.invocation.commandId); });
+      return JSON.stringify([...ids].sort());
+    }, [project]);
+    useEffect(() => {
+      const api = window.bordeauxAPI, catalog = robotProjectState.catalog;
+      if (!api?.ensureCommandWrappers || !catalog || robotProjectState.status !== 'ready' || robotProjectState.operation) return;
+      const ids = JSON.parse(usedCommandKey).filter(id => catalog.commands.some(command => command.id === id && command.labviewConnector));
+      if (!ids.length) return;
+      let current = true;
+      void api.ensureCommandWrappers(sessionContext.current, ids).then(() => {
+        if (current) setRobotProjectState(state => state.wrapperError ? { ...state, wrapperError: '' } : state);
+      }, error => {
+        if (current) setRobotProjectState(state => ({ ...state, wrapperError: 'Couldn’t prepare command wrapper. ' + operationErrorMessage(error) }));
+      });
+      return () => { current = false; };
+    }, [usedCommandKey, projectKey, robotProjectState.catalog, robotProjectState.status, robotProjectState.operation]);
 
     const buildRobotCatalog = useCallback(async () => {
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.buildRobotCatalog !== 'function') return;
@@ -862,6 +883,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       else updateDirty(true);
     }, [project, updateDirty]);
     useEffect(() => scheduleAutosave(), [project, scheduleAutosave]);
+    // A selected link belongs to the source project; do not wait for another geometry edit or the debounce.
+    const savedLinkKey = JSON.stringify([project.editor?.labviewProjectPath, project.editor?.robotProjectBookmarkId]);
+    const previousLinkKey = useRef(savedLinkKey);
+    useEffect(() => {
+      const changed = previousLinkKey.current !== savedLinkKey;
+      previousLinkKey.current = savedLinkKey;
+      if (changed && robotProjectState.status === 'ready') scheduleAutosave(true);
+    }, [savedLinkKey, robotProjectState.status, scheduleAutosave]);
     useEffect(() => editStore.subscribe(() => {
       const draft = editStore.getSnapshot();
       const canceled = !draft && editStore.getLastResolution() === 'cancel';
@@ -1348,12 +1377,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const commitWaypointProject = (before, next) => commitProjectChange(before, next, pathScope(docRef.current.id));
     const toggleTheta = useCallback((i, on) => commit((d) => { d.waypoints[i].thetaOn = on; return d; }), [commit]);
     const setHandleLen = useCallback((i, key, len) => commit((d) => { const w = d.waypoints[i]; const a = Math.atan2(w[key].y - w.y, w[key].x - w.x); w[key] = { x: w.x + Math.cos(a) * len, y: w.y + Math.sin(a) * len }; return d; }), [commit]);
-    // Field Shift-delete keeps focus in the inspector. Its draft commits and renders first, so the
-    // deletion reads the drafted path and the draft cannot write the deleted feature back.
+    // Resolve the owning draft before field, timeline or inspector deletion. Invalid drafts
+    // retain their owner; a valid draft renders before the deletion reads the path.
     const deleteFeature = useCallback((remove) => {
-      flushSync(() => commitFocusedDraft());
+      if (!preflightDeletion()) return false;
       commit(remove); select(null, -1);
-    }, [commit, select]);
+      return true;
+    }, [preflightDeletion, commit, select]);
     const delWp = useCallback((i) => deleteFeature((d) => removeWaypoint(d, i)), [deleteFeature]);
 
     const enableTargetsAtFraction = (d, f) => {
@@ -1662,12 +1692,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const delPath = (id) => {
       if (!preflightDeletion()) return false;
       const before = projectRef.current, i = before.paths.findIndex((path) => path.id === id);
-      if (before.paths.length <= 1 || i < 0) return false;
+      if (i < 0) return false;
       const target = before.paths[i];
       const references = referencingRoutines(routineState(before).routines, target.id);
       if (references.length) { alert('“' + target.name + '” is used by ' + references.map((candidate) => candidate.name).join(', ') + '. Remove those steps before deleting the path.'); return false; }
       const pathLinks = (before.pathLinks || []).filter((link) => link.fromPathId !== target.id && link.toPathId !== target.id);
-      const entry = commitProjectChange(before, { ...before, paths: before.paths.filter((_, k) => k !== i), pathLinks: pathLinks.length === (before.pathLinks || []).length ? before.pathLinks : pathLinks });
+      const paths = before.paths.filter((_, k) => k !== i);
+      if (!paths.length) paths.push({ ...blankPath('New path'), waypoints: [] });
+      const entry = commitProjectChange(before, { ...before, paths, pathLinks: pathLinks.length === (before.pathLinks || []).length ? before.pathLinks : pathLinks });
       setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(a, before.paths.length - 2) : a));
       setSel({ kind: null, idx: -1 }); playbackStore.reset();
       announceDeletion(entry, 'Path deleted', 'Deleted path “' + target.name + '”.');
@@ -1726,8 +1758,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const deleteRoutine = (id) => {
       if (!preflightDeletion()) return false;
       const live = routineState(projectRef.current), target = live.routines.find((candidate) => candidate.id === id);
-      if (live.routines.length <= 1 || !target) return false;
-      const entry = commitRoutineState((state) => { const index = state.routines.findIndex((candidate) => candidate.id === id); const next = state.routines.filter((candidate) => candidate.id !== id); const activeRoutineId = state.activeRoutineId === id ? next[Math.min(index, next.length - 1)].id : state.activeRoutineId; return { routines: next, activeRoutineId }; });
+      if (!target) return false;
+      const entry = commitRoutineState((state) => { const index = state.routines.findIndex((candidate) => candidate.id === id); const next = state.routines.filter((candidate) => candidate.id !== id); if (!next.length) next.push(blankRoutine()); const activeRoutineId = state.activeRoutineId === id ? next[Math.min(index, next.length - 1)].id : state.activeRoutineId; return { routines: next, activeRoutineId }; });
       resetForRoutine();
       announceDeletion(entry, 'Routine deleted', 'Deleted routine “' + target.name + '”.');
       return true;
@@ -1929,7 +1961,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       openInEditor: (id) => { const idx = project.paths.findIndex((path) => path.id === id); if (idx >= 0) { setActive(idx); setPage('plan'); } },
     }), [routineOutcomes, routinePasses, routine, project.paths, robotProjectState.catalog, preflightDeletion, deletionEpoch, branchGeneration.current]);
     const selectRoutineStep = useCallback((id) => { commitFocusedDraft(); setRoutineSel(id); }, []);
-    const autoFieldActions = useMemo(() => ({ selectNode: (id) => { commitFocusedDraft(); setRoutineSel((s) => s === id ? null : id); }, select: () => selectRoutineStep(null) }), [selectRoutineStep]);
+    const autoFieldActions = useMemo(() => ({ selectNode: (id) => { commitFocusedDraft(); setRoutineSel((s) => s === id ? null : id); }, deleteNode: acq.del, select: () => selectRoutineStep(null) }), [selectRoutineStep, acq]);
 
     const onFit = useCallback(() => setView(FIT), []);
     const zoomBy = useCallback((factor) => setView((v) => {
@@ -2677,7 +2709,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       recovery: recoveryState, recoveredFrom, bdxPending, bdxError: saveState.status === 'error' && saveState.retryExport ? saveState.error : '', bdxDetails: saveState.exportDetails,
       robotCode: { ...robotProjectState, name: robotProjectState.catalog?.projectName, commands: robotProjectState.catalog?.commands?.length },
       actions: { projects: () => showProjects('list'), create: () => showProjects('new'), save: () => requestSaveCopy(false), saveCopy: requestSaveCopy,
-        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject, buildCode: buildRobotCatalog, ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
+        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, rescanCode: typeof window.bordeauxAPI?.inspectLabviewCommands === 'function' ? () => refreshRobotProject(true) : undefined, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject, buildCode: buildRobotCatalog, ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.reloadProjectSource === 'function' ? { reloadSource: () => { void reloadSource(); } } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.revealProjectSource === 'function' ? { showSource: () => { void showSourceFile(); },
           showFailureSeen: (seen) => setShowFailure((failure) => failure === seen ? null : failure) } : {}),

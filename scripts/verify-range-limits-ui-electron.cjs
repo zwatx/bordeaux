@@ -375,6 +375,10 @@ app.whenReady().then(async () => {
       await loadFeatures();
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1] + ' renamed'], kind + ': save and reload agree');
       await wait(async () => (await timelineNames()).includes(names[1] + ' renamed'), 'restored ' + names[1] + ' renamed on the timeline');
+      await press(await timelineItem(section, names[1] + ' renamed'), ['shift']); await save();
+      assert.deepEqual(savedNames(kind), [names[0] + ' renamed'], kind + ': timeline Shift-click deletes');
+      await undoOnce(); await save();
+      assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1] + ' renamed'], kind + ': timeline deletion has one Undo');
     }
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
     assert.deepEqual(errors, []);

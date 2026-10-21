@@ -2,14 +2,15 @@ import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import {describe,it,expect,vi} from 'vitest';
 import {createUndoHistory,PROJECT_SCOPE,ROUTINE_SCOPE,pathScope,captureProjectChange,deleteFolder,applyProjectEntry,withLibraryFields} from '../src/renderer/lib/undoHistory';
-import {routineState,withRoutineState} from '../src/renderer/lib/editorProject';
+import {routineState,withRoutineState,blankRoutine} from '../src/renderer/lib/editorProject';
+import {blankPath} from '../src/shared/project/defaults';
 import {promoteRoutineProjectSchema} from '../src/shared/project/routineSchema';
 import {AUTO} from '../src/renderer/lib/routineModel';
 import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
 import {commandArguments} from '../src/renderer/components/ContextInspector';
 import {robotValueSchemasEqual} from '../src/shared/robotValueSchema';
 const source=ts.createSourceFile('App.jsx',readFileSync(new URL('../src/renderer/app/App.jsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
-const names=['retireDeletion','recordUndo','commitRoutineState','setRoutine','preflightDeletion','announceDeletion','undoDeletion','showPathAfterProjectChange','applyUndoEntry','commitProjectChange','delPath','deletePathFolder','deleteRoutine','stepHistory','setActiveRoutine','stepCount','branchNotice','branchIntent'];
+const names=['retireDeletion','recordUndo','commitRoutineState','setRoutine','preflightDeletion','announceDeletion','undoDeletion','showPathAfterProjectChange','applyUndoEntry','commitProjectChange','delPath','deletePathFolder','deleteRoutine','stepHistory','setActiveRoutine','stepCount','branchNotice','branchIntent','deleteFeature'];
 const declarations=new Map();let step,branchCapture;
 function visit(node){if(ts.isVariableDeclaration(node)&&names.includes(node.name.getText(source)))declarations.set(node.name.getText(source),node.getText(source));if(ts.isVariableDeclaration(node)&&node.name.getText(source)==='acq'){const body=node.initializer.arguments[0].body.expression;step=body.properties.find(p=>p.name?.getText(source)==='del').initializer.getText(source);branchCapture=body.properties.find(p=>p.name?.getText(source)==='branch').initializer.getText(source);}ts.forEachChild(node,visit);}visit(source);
 const code=names.map(name=>'const '+declarations.get(name)+';').join('\n')+'\nconst deleteStep='+step+';\nconst captureBranch=()=>'+branchCapture+'; return {'+names.join(',')+',deleteStep,captureBranch};';
@@ -18,10 +19,10 @@ const wait=id=>({id,type:'builtin',builtinId:'bordeaux.wait',arguments:{duration
 function harness(){
  const initial={schemaVersion:'1.0',name:'Test',robot:{},paths:[path('a'),path('b')],pathLinks:[],pathFolders:[{id:'f',name:'Folder'}],routines:[{id:'r',name:'First',nodes:[wait('one'),wait('two')]},{id:'s',name:'Second',nodes:[]}],activeRoutineId:'r'};
  const state={notice:null,valid:true,modal:false,scheduled:[],flush:()=>{},finish:()=>{},active:0};
- const ctx={useCallback:fn=>fn,clone:structuredClone,history:createUndoHistory(),PROJECT_SCOPE,ROUTINE_SCOPE,pathScope,captureProjectChange,deleteFolder,applyProjectEntry,withLibraryFields,routineState,withRoutineState,promoteRoutineProjectSchema,AUTO,referencingRoutines,
+ const ctx={useCallback:fn=>fn,clone:structuredClone,blankPath,blankRoutine,history:createUndoHistory(),PROJECT_SCOPE,ROUTINE_SCOPE,pathScope,captureProjectChange,deleteFolder,applyProjectEntry,withLibraryFields,routineState,withRoutineState,promoteRoutineProjectSchema,AUTO,referencingRoutines,
  projectRef:{current:initial},documentEpoch:{current:1},deletionEpoch:1,deletionAction:{current:null},deletionSequence:{current:0},projectTransitionRef:{current:null},deletionContext:{current:{page:'auto',projectKey:1}},routine:initial.routines[0],robotProjectState:{catalog:null},activeIdx:0,
  document:{activeElement:null,querySelector:()=>state.modal?{}:null,querySelectorAll:()=>[]},force:vi.fn(),setDeletionNotice:n=>{state.notice=n;},setProject:p=>{ctx.projectRef.current=typeof p==='function'?p(ctx.projectRef.current):p;},setRoutineSel:vi.fn(),setSel:vi.fn(),setActiveIdx:n=>{state.active=typeof n==='function'?n(state.active):n;},playbackStore:{reset:vi.fn()},resetForRoutine:vi.fn(),alert:vi.fn(),
- flushProjectDraft:()=>{state.flush();return state.valid;},flushSync:fn=>fn(),finishEdit:()=>state.finish(),cancelEdit:()=>false,scopeKey:PROJECT_SCOPE,
+ flushProjectDraft:()=>{state.flush();return state.valid;},flushSync:fn=>fn(),finishEdit:()=>state.finish(),cancelEdit:()=>false,scopeKey:PROJECT_SCOPE,commit:vi.fn(),select:vi.fn(),
  requestAnimationFrame:fn=>state.scheduled.push(fn),applyUndoEntryRef:{current:null},writeDoc:()=>{},editablePath:p=>p,
  branchGeneration:{current:0},catalogRef:{current:null},commandArguments,robotValueSchemasEqual,page:'auto',commitFocusedDraft:()=>{},setPage:vi.fn()};
  Object.defineProperty(ctx,'docRef',{get:()=>({current:ctx.projectRef.current.paths[state.active]})});
@@ -30,6 +31,11 @@ function harness(){
  return{ctx,state,...owner};
 }
 describe('actual App local deletion owners',()=>{
+ it('feature deletion refuses invalid drafts before changing the path or selection',()=>{
+  const h=harness(),remove=vi.fn();h.state.valid=false;
+  expect(h.deleteFeature(remove)).toBe(false);expect(h.ctx.commit).not.toHaveBeenCalled();expect(h.ctx.select).not.toHaveBeenCalled();
+  h.state.valid=true;expect(h.deleteFeature(remove)).toBe(true);expect(h.ctx.commit).toHaveBeenCalledExactlyOnceWith(remove);expect(h.ctx.select).toHaveBeenCalledExactlyOnceWith(null,-1);
+ });
  it('moves notice-owned focus to persistent chrome before workspace replacement, without crossing a modal or unrelated owner',()=>{
   const h=harness(),noticeOwner={closest:selector=>selector==='.deletion-notice'?{}:null};
   const place={focus:vi.fn(()=>{h.ctx.document.activeElement=place;})},field={focus:vi.fn()};
@@ -76,10 +82,23 @@ describe('actual App local deletion owners',()=>{
   h.state.finish=()=>h.recordUndo({scope:ROUTINE_SCOPE,touches:[ROUTINE_SCOPE],kind:'routines',state:structuredClone(routineState(h.ctx.projectRef.current))});
   expect(h.undoDeletion(old)).toBe(false);expect(old.active).toBe(false);expect(h.ctx.projectRef.current.routines).toHaveLength(1);
  });
- it('retains last-item and referenced-path guards',()=>{
+ it('retains the referenced-path guard',()=>{
   const h=harness();h.ctx.projectRef.current.routines[0].nodes=[{id:'ref',type:'path',ref:'b'}];expect(h.delPath('b')).toBe(false);expect(h.ctx.alert).toHaveBeenCalledOnce();
-  h.ctx.projectRef.current.paths=[path('a')];expect(h.delPath('a')).toBe(false);
-  h.ctx.projectRef.current.routines=[h.ctx.projectRef.current.routines[0]];expect(h.deleteRoutine('r')).toBe(false);expect(h.ctx.history.size.past).toBe(0);
+  expect(h.ctx.history.size.past).toBe(0);
+ });
+ it('deletes the last path with an undoable empty replacement',()=>{
+  const h=harness();h.ctx.projectRef.current.paths=[path('a')];
+  expect(h.delPath('a')).toBe(true);const replacement=structuredClone(h.ctx.projectRef.current.paths);
+  expect(replacement).toHaveLength(1);expect(replacement[0].id).not.toBe('a');expect(replacement[0].waypoints).toEqual([]);
+  h.stepHistory('undo')();expect(h.ctx.projectRef.current.paths).toEqual([path('a')]);
+  h.stepHistory('redo')();expect(h.ctx.projectRef.current.paths).toEqual(replacement);
+ });
+ it('deletes the last routine with an undoable empty replacement',()=>{
+  const h=harness();h.ctx.scopeKey=ROUTINE_SCOPE;h.ctx.projectRef.current.routines=[h.ctx.projectRef.current.routines[0]];const original=structuredClone(h.ctx.projectRef.current.routines);
+  expect(h.deleteRoutine('r')).toBe(true);const replacement=structuredClone(h.ctx.projectRef.current.routines);
+  expect(replacement).toHaveLength(1);expect(replacement[0].id).not.toBe('r');expect(replacement[0].nodes).toEqual([]);
+  h.stepHistory('undo')();expect(h.ctx.projectRef.current.routines).toEqual(original);
+  h.stepHistory('redo')();expect(h.ctx.projectRef.current.routines).toEqual(replacement);
  });
  it('computes routine updates once outside replayable setters and preserves queued unrelated project fields',()=>{
   const h=harness(),update=vi.fn(state=>({...state,routines:state.routines.map(r=>r.id==='s'?{...r,name:'Renamed'}:r)}));

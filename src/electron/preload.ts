@@ -107,6 +107,7 @@ const bordeauxAPI = {
   openRecentRobotProject: (id: string, context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:openRecent", id, context),
   refreshRobotProject: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:refresh", context),
   inspectLabviewCommands: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:inspectLabview", context),
+  ensureCommandWrappers: (context: ProjectDurabilityContext, commandIds: string[]) => ipcRenderer.invoke("robotProject:ensureWrappers", context, commandIds),
   buildRobotCatalog: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:buildCatalog", context),
   getRobotPairing: (): Promise<RobotPairing | null> => ipcRenderer.invoke("robot:getPairing"),
   probeRobot: (endpoint: RobotEndpoint): Promise<RobotProbe> => ipcRenderer.invoke("robot:probe", endpoint),

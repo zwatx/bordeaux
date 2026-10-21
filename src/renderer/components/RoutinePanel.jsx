@@ -1,4 +1,4 @@
-import { deletionInput } from './DeletionNotice';
+import { deletionInput, shiftDeletionInput } from './DeletionNotice';
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
@@ -600,6 +600,7 @@ export function RoutinePanel(props) {
     const title = stepTitle(node, paths, catalog);
     const live = active && activePass ? 'Pass ' + activePass.pass + ' of ' + (passOf(activePass.repeatId) || '?') : active ? 'Now' : null;
     return h('div', { key: node.id, 'data-id': node.id, style: { '--depth': depth },
+      ...(!readOnly ? shiftDeletionInput(() => { setRange([]); acq.del(node.id); }) : {}),
       className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '')
         + (dnd.drag?.id === node.id ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') + (dnd.drag.target.allowed ? '' : ' drop-invalid') : '') },
       readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
@@ -610,7 +611,7 @@ export function RoutinePanel(props) {
             h('span', { className: 'rt-collapse-kind' }, h(Glyph, { name: glyphFor(node) })), h('span', { className: 'rt-collapse-chev' }, h(Icon, { name: 'chevron', size: 14 })))
         : h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })),
       h('button', { className: 'rt-step-body', type: 'button', 'data-nav': 'row:' + node.id, tabIndex: stop('row:' + node.id), 'aria-pressed': sel, 'aria-keyshortcuts': readOnly ? undefined : 'Shift+F10 A Delete Alt+ArrowUp Alt+ArrowDown', 'aria-expanded': kids.length ? !isCollapsed : undefined,
-        onClick: (event) => { if (event.shiftKey && selId && !readOnly) { extendTo(node.id); return; } setRange([]); onSelect(sel && selId === node.id ? null : node.id); },
+        onClick: () => { setRange([]); onSelect(sel && selId === node.id ? null : node.id); },
         onKeyDown: onBodyKeyDown(node), title: isCollapsed ? undefined : info.meta },
         h('span', { className: 'rt-step-title' }, title),
         // A warning is a mark beside the name; its sentence is the tooltip and stays in the accessible name.

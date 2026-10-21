@@ -87,7 +87,8 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
     if ((!document.activeElement || document.activeElement === document.body) && !document.querySelector('dialog[open]')) trigger.current?.focus();
     return undefined;
   }, [sources, robotCode.catalog]);
-  const codeFact = robotCode.error || robotCode.catalog?.labviewDiscovery?.inspection?.reason;
+  const inspection = robotCode.catalog?.labviewDiscovery?.inspection;
+  const codeFact = robotCode.error || robotCode.wrapperError || (inspection?.status === 'stale' || inspection?.status === 'unavailable' ? inspection.reason : '');
   const storageFull = recovery?.status === 'failed' && recovery.code === 'capacity';
   const again = status === 'failed' && attempt > 1;
   // Copy details stays in the menu and confirms in place, so the result is visible and announced.
@@ -185,6 +186,7 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
           : robotCode.status === 'missing' ? 'Missing' : robotCode.status === 'error' ? 'Couldn’t load' : 'Not linked'))),
       robotCode.suggestion && item('Use ' + robotCode.suggestion.name, actions.useCode, null, { disabled: !!robotCode.operation }),
       linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
+      linked && actions.rescanCode && item('Rescan command inputs', actions.rescanCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog[open]')) setSources(robotCode.catalog); }),
       robotCode.recentProjects?.length > 0 && h('button', { type: 'button', role: 'menuitem', tabIndex: -1, 'aria-expanded': showRecentCode,

@@ -151,7 +151,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
       h(Num, { label: 'X', value: w.x, unit: 'm', onChange: (v) => actions.setWp(i, { x: v }) }),
       h(Num, { label: 'Y', value: w.y, unit: 'm', onChange: (v) => actions.setWp(i, { y: v }) }),
       linkedRow(i));
-    if (n > 2) { remove = () => actions.delWp(i); removeLabel = 'Delete waypoint'; }
+    remove = () => actions.delWp(i); removeLabel = 'Delete waypoint';
   } else if (sel.kind === 'seg' && wps[sel.idx] && wps[sel.idx + 1]) {
     const i = sel.idx;
     title = name(i) + ' → ' + name(i + 1);

@@ -3,6 +3,21 @@ import * as React from 'react';
 const h = React.createElement;
 const composing = event => event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229;
 
+/** Delete on the modified press before focus/drag handlers can change its owner. */
+export function shiftDeletionInput(action, accepts = () => true) {
+  return {
+    onPointerDownCapture: event => {
+      if (event.button !== 0 || !event.shiftKey || !accepts(event)) return;
+      event.preventDefault(); event.stopPropagation(); action(event);
+    },
+    onClickCapture: event => {
+      if (!event.shiftKey || !accepts(event)) return;
+      event.preventDefault(); event.stopPropagation();
+      if (event.detail === 0) action(event);
+    },
+  };
+}
+
 // Own the press before native focus moves. Its physical click never repeats the action;
 // an independent accessibility/programmatic click always gets a fresh owner preflight.
 export function deletionInput(action) {

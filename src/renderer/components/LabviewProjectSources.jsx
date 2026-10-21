@@ -48,6 +48,7 @@ export function LabviewProjectSources({ catalog, initiallyExpanded = false }) {
     h('button', { className: 'labview-text-action', type: 'button', 'aria-expanded': expanded, onClick: () => setExpanded(!expanded) }, expanded ? 'Hide sources' : 'View sources (' + discovery.viCount + ' VIs)'),
     expanded && h('div', { className: 'labview-source-content' },
     h('p', { className: 'labview-source-meta' }, discovery.projectFile + ', ' + discovery.targets.map((target) => target.name).join(', ')),
+    discovery.inspection?.reason && h('p', { className: 'labview-source-meta' }, discovery.inspection.reason),
     h('label', { className: 'fieldlabel' }, 'Find a project source',
       h('input', { className: 'textinput', type: 'search', value: query, placeholder: 'Name, folder, or target',
         onChange: (event) => { setQuery(event.target.value); setLimit(40); },

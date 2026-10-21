@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
-import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands } from "../src/electron/labviewNiInspection";
+import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
 import { bdxBindingsFromCatalog, prepareBdxBindings } from "../src/electron/bdxBindings";
 import { robotInvocationErrors } from "../src/shared/robotCommands";
@@ -234,9 +234,10 @@ describe("NI legacy connector discovery", () => {
     expect(decodeSubset().inspection.reason).toContain("did not provide VI saved-state metadata");
   });
 
-  it("applies the observed infrastructure exclusions without a wrapper filename heuristic", () => {
+  it("excludes infrastructure and generated wrappers from command discovery", () => {
     const item = { name: "Start_wrapper.vi", type: "VI", target: "Robot", projectPath: "Robot/Intake/Commands/Start_wrapper.vi", file: "Intake/Commands/Start_wrapper.vi", status: "present" as const, origin: "autoFolder" as const };
-    expect(eligibleLabviewLegacySource(item)).toBe(true);
+    expect(eligibleLabviewLegacySource(item)).toBe(false);
+    expect(eligibleLabviewLegacySource({ ...item, name: "Start.vi", file: "Intake/Commands/Start.vi" })).toBe(true);
     expect(eligibleLabviewLegacySource({ ...item, projectPath: "Robot/Support Code/Start.vi" })).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, projectPath: "Robot/Framework/Start.vi" })).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, name: "Intake Command Helper.vi copy.vi" })).toBe(false);
@@ -264,6 +265,15 @@ describe("NI legacy connector discovery", () => {
     expect(changed.commands[0].labviewConnector).toBeUndefined();
     expect(changed.warnings.join(" ")).toContain("declared parameters");
     expect(bdxBindingsFromCatalog(changed).parameterTypes["team.intake.start"]).toBeUndefined();
+  });
+
+  it("reuses session evidence after wrapper creation but rejects changed command sources", async () => {
+    const fixture = await cacheFixture();
+    const inspected = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.writeFile(path.join(fixture.root, "Intake/Commands/Start_wrapper.vi"), "generated wrapper sentinel");
+    expect((await withSessionLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project)))?.commands).toBe(inspected.commands);
+    await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
+    expect(await withSessionLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project))).toBeNull();
   });
 
   it("reuses a portable inspected cache and invalidates changed external type definitions and VI sources", async () => {

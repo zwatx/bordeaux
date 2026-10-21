@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { deletionInput } from './DeletionNotice';
+import { deletionInput, shiftDeletionInput } from './DeletionNotice';
 import { UI } from './ui';
 import { AUTO } from '../lib/routineModel';
 import { selectedPathIds } from '../hooks/usePushSelection';
@@ -147,9 +147,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   const menuId = React.useId();
   const [menu, setMenu] = useState(null), [editing, setEditing] = useState(null), [propertiesId, setPropertiesId] = useState(null);
   const [draft, setDraft] = useState(''), [error, setError] = useState(''), [blocked, setBlocked] = useState(null);
-  const search = useRef(null), edit = useRef(null), scroll = useRef(null), root = useRef(null), anchor = useRef(activeId);
-  // Opening another path moves the range anchor with it; the selection itself resets in usePushSelection.
-  useEffect(() => { anchor.current = activeId; }, [activeId]);
+  const search = useRef(null), edit = useRef(null), scroll = useRef(null), root = useRef(null);
   const selected = pathsMode ? selection.selected : active ? [active.id] : [];
   const folderName = (id) => folders.find((folder) => folder.id === id)?.name || '';
   const query = prefs.query.trim().toLowerCase();
@@ -171,14 +169,8 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   };
   const choose = (item, event = {}) => {
     setMenu(null); setBlocked(null);
+    if (event.shiftKey && event.type === 'click') { remove(pathsMode ? 'path' : 'routine', item); return; }
     if (!pathsMode) { onRoutine(item.id); return; }
-    if (event.shiftKey) {
-      const from = Math.max(0, displayed.findIndex((path) => path.id === anchor.current)); const to = displayed.findIndex((path) => path.id === item.id);
-      const range = displayed.slice(Math.min(from, to), Math.max(from, to) + 1).map((path) => path.id);
-      selection.set(event.metaKey || event.ctrlKey ? [...new Set([...selected, ...range])] : range);
-      return;
-    }
-    anchor.current = item.id;
     if (event.metaKey || event.ctrlKey) {
       const next = selected.includes(item.id) ? selected.filter((id) => id !== item.id) : [...selected, item.id];
       selection.set(next.length ? next : [item.id]);
@@ -218,7 +210,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
     const durationText = unfinished ? '—' : duration?.status === 'ready' ? duration.seconds.toFixed(2) + ' s' : duration?.status === 'error' ? '—' : '…';
     const durationTitle = unfinished ? 'Not timed yet · place at least two waypoints' : duration?.status === 'ready' ? 'Trajectory time' : duration?.status === 'error' ? 'Trajectory time unavailable: ' + duration.message : 'Computing trajectory time';
     return h('div', { key: item.id, className: 'library-item' }, editing?.id === item.id ? editForm() :
-      h('div', { className: 'library-row' + (selected.includes(item.id) ? ' selected' : ''), onPointerDown: event => { if (event.button === 2) { event.preventDefault(); actions.preflight?.(); } }, onContextMenu: (event) => openMenu(event, kind, item) },
+      h('div', { className: 'library-row' + (selected.includes(item.id) ? ' selected' : ''), ...shiftDeletionInput(() => remove(kind, item)), onPointerDown: event => { if (event.button === 2) { event.preventDefault(); actions.preflight?.(); } }, onContextMenu: (event) => openMenu(event, kind, item) },
         h('button', { className: 'library-pick', type: 'button', 'data-library-item': item.id, 'aria-current': item.id === activeId ? 'true' : undefined, 'aria-pressed': selected.includes(item.id), title: item.name + '\n' + status.detail,
           onClick: (event) => choose(item, event), onDoubleClick: () => rename(kind, item),
           onKeyDown: (event) => {
@@ -235,7 +227,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   const group = (folder) => {
     const id = folder.id, members = items.filter((item) => item.folderId === id), collapsed = prefs.collapsed[id];
     return h('section', { key: id, className: 'library-group' },
-      editing?.kind === 'folder' && editing.id === id ? editForm() : h('div', { className: 'library-folder', onPointerDown: event => { if (event.button === 2) { event.preventDefault(); actions.preflight?.(); } }, onContextMenu: (event) => openMenu(event, 'folder', folder) },
+      editing?.kind === 'folder' && editing.id === id ? editForm() : h('div', { className: 'library-folder', ...shiftDeletionInput(() => remove('folder', folder)), onPointerDown: event => { if (event.button === 2) { event.preventDefault(); actions.preflight?.(); } }, onContextMenu: (event) => openMenu(event, 'folder', folder) },
         h('button', { type: 'button', 'aria-expanded': !collapsed, onClick: () => update({ collapsed: { ...prefs.collapsed, [id]: !collapsed } }) }, h(Icon, { name: 'chevron', size: 12 }), h('span', null, folder.name)),
         h('button', { className: 'library-more', type: 'button', 'aria-label': 'Actions for folder ' + folder.name, 'aria-haspopup': 'menu', popovertarget: menuId, ...deletionInput((event) => openMenu(event, 'folder', folder)) }, '…')),
       !collapsed && (members.length ? members.map(row) : h('div', { className: 'library-empty' }, 'Empty folder')));
@@ -283,6 +275,6 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
         disabled: !menuItem.waypoints.length, title: !menuItem.waypoints.length ? 'Place a waypoint before appending a path' : undefined }),
       menu.kind === 'path' && menuButton('Move or link…', () => { setPropertiesId(menuItem.id); setMenu(null); }),
       menu.kind === 'folder' && menuButton('New path', () => create('path', () => actions.addPath(menuItem.id))),
-      h('hr'), menuButton(menu.kind === 'folder' ? 'Delete folder' : 'Delete', () => remove(menu.kind, menuItem), { className: 'danger', disabled: menu.kind !== 'folder' && items.length <= 1 })),
+      h('hr'), menuButton(menu.kind === 'folder' ? 'Delete folder' : 'Delete', () => remove(menu.kind, menuItem), { className: 'danger' })),
     properties && h(PathProperties, { item: properties, project, actions, close: () => { setPropertiesId(null); focusRow(propertiesId); } }));
 }

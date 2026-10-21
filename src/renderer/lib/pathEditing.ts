@@ -39,13 +39,14 @@ export function moveWaypointTo(path: PathDoc, index: number, point: ControlPoint
 // These operations mutate the isolated draft owned by the editor's history commit.
 // Endpoint actions and outgoing-segment metadata must follow their topology rules.
 export function removeWaypoint(path: PathDoc, index: number): PathDoc {
-  if (path.waypoints.length <= 2 || index < 0 || index >= path.waypoints.length) return path;
+  if (index < 0 || index >= path.waypoints.length) return path;
   const oldCount = path.waypoints.length;
   const endpointJiggle = index === oldCount - 1 && path.waypoints[index].jiggle ? { ...path.waypoints[index].jiggle } : null;
   const indexMap = Array.from({ length: oldCount }, (_, oldIndex) => oldIndex === index ? null : oldIndex < index ? oldIndex : oldIndex - 1);
   path.waypoints.splice(index, 1);
   const last = path.waypoints.length - 1;
   remapWaypointRanges(path, indexMap, index);
+  if (!path.waypoints.length) return path;
   delete path.waypoints[last].segmentHeadingMode;
   delete path.waypoints[last].segmentLookAt;
   delete path.waypoints[0].headingTransition;
