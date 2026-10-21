@@ -37,6 +37,7 @@ ipcMain.handle('branches:restore', () => ({ project: saved, location }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true, location }; });
 ipcMain.handle('branches:autosave', (_event, project) => { autosaves.push(project); return { saved: true, location }; });
+ipcMain.handle('branches:export', () => { throw new Error('Event event1: command labview.legacy.9550c83fef51616cba926b82 is missing in the linked LabVIEW project. Inspect commands before exporting BDX.'); });
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save');
 }
 app.whenReady().then(async () => {
@@ -162,6 +163,44 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true' && !document.querySelector('.field-status-label')), 'retry restores the trajectory');
     await save(); assert.equal(saved.paths[0].constraints.maxVel, 0.6);
     console.log('PASS A planning timeout keeps editing available and recovers with Try again');
+
+    // Expanded export failures must reserve their height above placement guidance.
+    await click('[aria-label="Place command"]');
+    win.webContents.send('branches:menu', { command: 'export-bdx' });
+    await wait(() => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Export failed'), 'export failure');
+    await click('.field-status summary');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      for (const inspector of [false, true]) {
+        const isOpen = await evaluate(() => !!document.querySelector('[aria-label="Hide inspector"]'));
+        if (isOpen !== inspector) {
+          if (isOpen) await click('[aria-label="Hide inspector"]');
+          else await click('.pp-more');
+        }
+        await delay(200);
+        const geometry = await evaluate(() => {
+          const details = document.querySelector('.field-status-details').getBoundingClientRect();
+          const hint = document.querySelector('.stage-hint').getBoundingClientRect();
+          const field = document.querySelector('.fieldcol').getBoundingClientRect();
+          return { bottom: details.bottom, hintTop: hint.top, left: details.left, right: details.right, fieldLeft: field.left, fieldRight: field.right };
+        });
+        assert.ok(geometry.bottom <= geometry.hintTop, 'Expanded error must not overlap command placement hint');
+        assert.ok(geometry.left >= geometry.fieldLeft && geometry.right <= geometry.fieldRight, 'Error details fit the field');
+        await snapshot('export-command-' + width + '-inspector-' + inspector);
+      }
+    }
+    // Native keyboard toggles the disclosure and reaches its recovery action.
+    await click('.field-status summary');
+    await key('Tab');
+    for (let i = 0; i < 100 && !(await evaluate(() => document.activeElement?.matches('.field-status summary'))); i++) await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status summary')), true);
+    await key(' ');
+    assert.equal(await evaluate(() => document.querySelector('.field-status details').open), true);
+    await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.textContent), 'Dismiss');
+    await key('Enter');
+    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'keyboard dismisses export failure');
+    console.log('PASS Expanded long export error stays above command placement guidance at both sizes and inspector states; keyboard disclosure and dismissal');
   } catch (error) { console.error(error); if(win) await snapshot('failure'); process.exitCode=1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });

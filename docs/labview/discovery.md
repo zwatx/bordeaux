@@ -60,6 +60,16 @@ connector forms are therefore not complete parity with those historical control 
 
 Inspected commands can be selected and edited with typed parameters. Saved connector evidence permits direct BDX serialization, while execution readiness remains a separate caller-owned concern. The generated catalog does not execute commands or install a runtime.
 
+Save, local BDX export, and selected-file push also use the linked project's active connector
+snapshot within the current Bordeaux session. This includes live-only inspection when NI
+cannot report saved-state flags or a typedef was discovered during inspection. Bordeaux
+rechecks the project, VI sources and type dependencies before writing, and rejects changes
+with a **Refresh commands** instruction. This uses the inspected types and defaults; it does
+not certify that unsaved LabVIEW edits match files on disk or authorize robot execution.
+Live-only snapshots are never persisted as saved-source evidence. After restarting Bordeaux,
+refresh commands in the open LabVIEW project to obtain a new live snapshot if no valid saved
+cache is available. Saving or exporting does not start NI inspection or connect to a robot.
+
 Inspection metadata is stored only in Bordeaux's user-data cache, never in the robot project.
 Refresh can use a cache without LabVIEW or MCP while the selected project, VI sources, and
 referenced typedef/container files match their hashes. Unsaved or unknown NI modification

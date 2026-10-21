@@ -3,7 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { RobotCommandCatalog, RobotCommandDescriptor, LabviewProjectDiscovery } from "../shared/types";
-import { discoverLabviewProject, resolveLabviewProject } from "./labviewProject";
+import { discoverLabviewProject, resolveLabviewProject, LABVIEW_CATALOG_SOURCE } from "./labviewProject";
 import { writeJsonAtomically } from "./projectFiles";
 import { decodeLabviewNiInspection } from "./labviewNiTypes";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
@@ -17,7 +17,12 @@ const identityPath = (file: string) => process.platform === "win32" ? file.toLow
 type Source = { file: string; path: string; target: string; sha256: string };
 export interface LabviewNiSource { file: string; target: string }
 type Inspection = NonNullable<LabviewProjectDiscovery["inspection"]>;
-interface Snapshot { projectFile: string; fingerprint: string; sources: Source[]; typeHashes: Array<{ path: string; sha256: string }> }
+interface Snapshot { projectFile: string; fingerprint: string; declarationHash: string | null; sources: Source[]; typeHashes: Array<{ path: string; sha256: string }> }
+// Live connector snapshots are usable for authoring/export in this process, even
+// when NI cannot prove saved-state metadata. They never become a saved-source cache.
+const activeInspections = new WeakMap<RobotCommandDescriptor[], {
+  projectFile: string; fingerprint: string; declarationHash: string | null; dependencies: Array<{ path: string; sha256: string }>;
+}>();
 
 /** Match the legacy project-tree exclusions; filenames alone never confirm a command. */
 export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items"][number]): boolean {
@@ -57,7 +62,10 @@ async function snapshot(selection: string, catalog: RobotCommandCatalog): Promis
   }
   sources.sort((a, b) => `${a.target}/${a.file}`.localeCompare(`${b.target}/${b.file}`));
   typeSources.sort((a, b) => a.file.localeCompare(b.file));
-  return { projectFile, sources, typeHashes: typeSources.map((type) => ({ path: path.resolve(root, type.file), sha256: type.sha256 })),
+  let declarationHash: string | null = null;
+  try { declarationHash = await bytesHash(path.join(root, LABVIEW_CATALOG_SOURCE)); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  return { projectFile, sources, declarationHash, typeHashes: typeSources.map((type) => ({ path: path.resolve(root, type.file), sha256: type.sha256 })),
     fingerprint: hash(JSON.stringify({ projectFile: identityPath(projectFile), projectHash: await bytesHash(projectFile), sources, typeSources })) };
 }
 function cachePath(cacheDirectory: string, projectFile: string): string { return path.join(cacheDirectory, `${hash(identityPath(projectFile))}.json`); }
@@ -145,6 +153,19 @@ export async function withCachedLabviewCommands(selection: string, catalog: Robo
   } catch (error) { return unavailable(catalog, "stale", `${errorMessage(error)} Inspect commands again.`); }
 }
 
+/** Revalidate a main-owned live snapshot without automating NI or claiming saved-state evidence. */
+export async function withActiveLabviewCommands(selection: string, catalog: RobotCommandCatalog, active: RobotCommandCatalog | null | undefined): Promise<RobotCommandCatalog | null> {
+  const evidence = active && activeInspections.get(active.commands);
+  if (!active || !evidence) return null;
+  const current = await snapshot(selection, catalog);
+  if (identityPath(current.projectFile) !== identityPath(evidence.projectFile)) throw new Error("The active command inspection belongs to another LabVIEW project. Refresh commands before exporting BDX.");
+  if (current.fingerprint !== evidence.fingerprint || current.declarationHash !== evidence.declarationHash
+    || JSON.stringify(evidence.dependencies) !== JSON.stringify(await dependencySnapshot(evidence.dependencies.map(item => item.path)))) {
+    throw new Error("LabVIEW sources, command declarations or type definitions changed since command inspection. Refresh commands before exporting BDX.");
+  }
+  return active;
+}
+
 async function runAdapter(requestFile: string, responseFile: string): Promise<void> {
   if (process.platform !== "win32") throw new Error("NI inspection is available on Windows with LabVIEW installed. Existing cached and declared catalogs remain available.");
   const developmentScript = path.resolve(__dirname, "../../resources/labview-inspection/InspectCommands.ps1");
@@ -180,7 +201,7 @@ export async function inspectLabviewCommands(selection: string, cacheDirectory: 
     // Re-discover auto folders as well as hashing existing files before accepting the result.
     const refreshed = await discoverLabviewProject(selection);
     const after = await snapshot(selection, refreshed);
-    if (before.fingerprint !== after.fingerprint) throw new Error("Project sources changed during NI inspection. Inspect again after saving your intended source changes.");
+    if (before.fingerprint !== after.fingerprint || before.declarationHash !== after.declarationHash) throw new Error("Project sources changed during NI inspection. Inspect again after saving your intended source changes.");
     // Never bind old NI metadata to a hash first observed after inspection.
     const dependencies = preInspectedDependencies(before, decoded.dependencyPaths);
     if (!dependencies) {
@@ -192,6 +213,9 @@ export async function inspectLabviewCommands(selection: string, cacheDirectory: 
       if (JSON.stringify(dependencies) !== JSON.stringify(await dependencySnapshot(decoded.dependencyPaths))) throw new Error("NI type definitions changed during inspection. Inspect commands again.");
       await writeJsonAtomically(cachePath(cacheDirectory, before.projectFile), { schemaVersion: SCHEMA_VERSION, fingerprint: before.fingerprint, dependencies, report });
     } else await fs.rm(cachePath(cacheDirectory, before.projectFile), { force: true });
-    return merge(refreshed, decoded.commands, decoded.inspection);
+    const result = merge(refreshed, decoded.commands, decoded.inspection);
+    activeInspections.set(result.commands, { projectFile: after.projectFile, fingerprint: after.fingerprint, declarationHash: after.declarationHash,
+      dependencies: await dependencySnapshot(decoded.dependencyPaths) });
+    return result;
   } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
 }
