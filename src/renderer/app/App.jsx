@@ -2652,7 +2652,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setRobotProjectState((current) => ({ ...current, operation: 'export' }));
       try {
         const result = await window.bordeauxAPI.exportBdx(materializeProject(), selected);
-        if (result?.exported) setBdxNotice('Saved ' + result.relativePath + ', ' + result.sampleCount + ' samples, ' + result.eventCount + ' events. Local export complete; robot code checks compatibility before execution.');
+        if (result?.exported) setBdxNotice({ detail: 'Saved ' + result.relativePath + ', ' + result.sampleCount + ' samples, ' + result.eventCount + ' events. Local export complete; robot code checks compatibility before execution.' });
       } catch (error) { setExportError(operationErrorMessage(error)); }
       finally { setRobotProjectState((current) => ({ ...current, operation: null })); }
     }, [flushProjectDraft, materializeProject]);
@@ -2878,7 +2878,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
-      bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice, action: { label: 'Dismiss', onClick: () => setBdxNotice('') } },
+      bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice.detail, autoDismissMs: 5000, dismissKey: bdxNotice,
+        action: { label: 'Dismiss', onClick: () => setBdxNotice((current) => current === bdxNotice ? '' : current) } },
       exportError && { id: 'export', error: true, label: 'Export failed', detail: exportError,
         action: { label: 'Dismiss', onClick: () => setExportError('') } },
       editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,

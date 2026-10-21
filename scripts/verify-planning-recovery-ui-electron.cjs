@@ -4,7 +4,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const output = process.env.BORDEAUX_PLANNING_RECOVERY_UI_OUTPUT;
 app.setPath('userData', path.join(output, 'user-data'));
-let win, saved, saves = 0;
+let win, saved, saves = 0, exportSucceeds = false;
 const autosaves = [];
 const location = { folderPath: '/fixtures/Recovery project', projectPath: '/fixtures/Recovery project/.bordeaux-workspace.json' };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,7 +37,10 @@ ipcMain.handle('branches:restore', () => ({ project: saved, location }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true, location }; });
 ipcMain.handle('branches:autosave', (_event, project) => { autosaves.push(project); return { saved: true, location }; });
-ipcMain.handle('branches:export', () => { throw new Error('Event event1: command labview.legacy.9550c83fef51616cba926b82 is missing in the linked LabVIEW project. Inspect commands before exporting BDX.'); });
+ipcMain.handle('branches:export', () => {
+  if (exportSucceeds) return { exported: true, relativePath: 'paths/Path 1.bdx', sampleCount: 125, eventCount: 1 };
+  throw new Error('Event event1: command labview.legacy.9550c83fef51616cba926b82 is missing in the linked LabVIEW project. Inspect commands before exporting BDX.');
+});
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save');
 }
 app.whenReady().then(async () => {
@@ -186,9 +189,12 @@ app.whenReady().then(async () => {
         });
         assert.ok(geometry.bottom <= geometry.hintTop, 'Expanded error must not overlap command placement hint');
         assert.ok(geometry.left >= geometry.fieldLeft && geometry.right <= geometry.fieldRight, 'Error details fit the field');
+        assert.ok(await actionCentered(), 'Recovery action stays centered on its summary row when details expand');
         await snapshot('export-command-' + width + '-inspector-' + inspector);
       }
     }
+    await delay(5200);
+    assert.equal(await evaluate(() => document.querySelector('.field-status-label')?.textContent), 'Export failed', 'Failures never expire automatically');
     // Native keyboard toggles the disclosure and reaches its recovery action.
     await click('.field-status summary');
     await key('Tab');
@@ -201,6 +207,73 @@ app.whenReady().then(async () => {
     await key('Enter');
     await wait(() => evaluate(() => !document.querySelector('.field-status')), 'keyboard dismisses export failure');
     console.log('PASS Expanded long export error stays above command placement guidance at both sizes and inspector states; keyboard disclosure and dismissal');
+
+    async function actionCentered() {
+      return evaluate(() => {
+        const summary = document.querySelector('.field-status summary').getBoundingClientRect();
+        const action = document.querySelector('.field-status-action').getBoundingClientRect();
+        return Math.abs((summary.top + summary.bottom - action.top - action.bottom) / 2) <= 0.5;
+      });
+    }
+    const hasSuccess = () => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'BDX exported');
+    const moveAway = () => win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 180 });
+    async function exportSuccess() {
+      win.webContents.send('branches:menu', { command: 'export-bdx' });
+      await wait(hasSuccess, 'successful export notice');
+    }
+    exportSucceeds = true;
+    await exportSuccess();
+    await click('.field-status summary');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      for (const inspector of [false, true]) {
+        const isOpen = await evaluate(() => !!document.querySelector('[aria-label="Hide inspector"]'));
+        if (isOpen !== inspector) {
+          if (isOpen) await click('[aria-label="Hide inspector"]');
+          else await click('.pp-more');
+        }
+        assert.ok(await actionCentered(), 'Dismiss centered beside expanded Details');
+        await snapshot('export-success-' + width + '-inspector-' + inspector + '-expanded');
+        await click('.field-status summary');
+        assert.ok(await actionCentered(), 'Dismiss centered beside collapsed Details');
+        await snapshot('export-success-' + width + '-inspector-' + inspector + '-collapsed');
+        await click('.field-status summary');
+        assert.equal(await evaluate(() => document.querySelector('.field-status details').open), true);
+      }
+    }
+    moveAway();
+    await click('.toolbar .place[aria-current="page"]');
+    await delay(5200);
+    assert.ok(await hasSuccess(), 'Expanded details stay readable after the expiry time, without pointer or keyboard focus');
+    await click('.field-status summary');
+    moveAway();
+    for (let i = 0; i < 100 && !(await evaluate(() => document.activeElement?.matches('.field-status summary'))); i++) await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status summary')), true);
+    await delay(5200);
+    assert.ok(await hasSuccess(), 'Keyboard focus pauses expiry even when details are collapsed');
+    await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status-action')), true);
+    await key('Enter');
+    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'keyboard dismisses success');
+
+    await exportSuccess();
+    await click('.field-status-action');
+    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'pointer dismisses success');
+    // A new surface under the pointer must not inherit the dismissed surface's pause state.
+    await exportSuccess();
+    await delay(5200);
+    assert.ok(await hasSuccess(), 'Hover pauses expiry');
+    moveAway();
+    await click('.toolbar .place[aria-current="page"]');
+    await delay(4000);
+    assert.ok(await hasSuccess(), 'Success remains visible before five idle seconds');
+    await exportSuccess();
+    await delay(1500);
+    assert.ok(await hasSuccess(), 'Repeating an identical export starts a new lifetime');
+    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'success automatically dismisses after five idle seconds');
+    assert.equal(await evaluate(() => document.activeElement?.matches('.toolbar .place[aria-current="page"]')), true, 'Expiry preserves keyboard focus');
+    await snapshot('export-success-expired');
+    console.log('PASS Success auto-dismisses after five idle seconds; hover, focus and expanded details pause; repeated exports renew; native pointer/keyboard Dismiss; centered at both sizes and inspector states');
   } catch (error) { console.error(error); if(win) await snapshot('failure'); process.exitCode=1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });
