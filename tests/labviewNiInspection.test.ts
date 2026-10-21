@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
 import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
-import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
+import { bdxBindingsFromCatalog, prepareBdxBindings } from "../src/electron/bdxBindings";
 import { robotInvocationErrors } from "../src/shared/robotCommands";
 import { buildRobotBinary } from "../src/shared/export/robotBinary";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
@@ -322,5 +322,59 @@ describe("NI legacy connector discovery", () => {
     const refreshed = await withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
     expect(refreshed.commands).toEqual([]);
     expect(await fs.readdir(fixture.cache)).toEqual([]);
+  });
+
+  it("exports the active live-only command snapshot without creating or trusting a saved cache", async () => {
+    const fixture = await cacheFixture();
+    await fs.writeFile(fixture.project, (await fs.readFile(fixture.project, "utf8"))
+      .replace('<Item Name="Command Status Info.ctl" Type="VI" URL="../Command Status Info.ctl"/>', ""));
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
+      await fixture.adapter(request, response);
+      const raw = JSON.parse(await fs.readFile(response, "utf8"));
+      raw.dirtyContext = null;
+      raw.vis[0].modifiedBefore = null;
+      raw.vis[0].modifiedAfter = null;
+      await fs.writeFile(response, JSON.stringify(raw));
+    });
+    expect(activeCatalog.labviewDiscovery?.inspection?.reason).toContain("Live inspection only");
+    expect(await fs.readdir(fixture.cache)).toEqual([]);
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog: { ...activeCatalog } };
+    const f = binaryWriterFixture(false, false);
+    f.path.markers = [{ id: "event1", name: "event1", f: .5, invocation: { commandId: activeCatalog.commands[0].id, arguments: {}, cancelOnPathEnd: false } }];
+    const bindings = await prepareBdxBindings(options);
+    const built = buildRobotBinary(f.project, { kind: "path", id: f.path.id }, bindings);
+    expect(built.eventCount).toBe(1);
+    expect(Buffer.from(built.bytes).includes(Buffer.from("Start.vi"))).toBe(true);
+    expect((await prepareBdxBindings(options)).definitionJson).toBe(bindings.definitionJson);
+    expect((await prepareBdxBindings({ ...options, activeCatalog: undefined })).catalog.commands).toEqual([]);
+    expect((await prepareBdxBindings({ ...options, activeCatalog: structuredClone(activeCatalog) })).catalog.commands).toEqual([]);
+    await fs.writeFile(fixture.typedef, "type changed after the live snapshot");
+    await expect(prepareBdxBindings(options)).rejects.toThrow(/changed since command inspection/);
+  });
+
+  it("rejects a live snapshot after VI changes or when supplied for a different linked project", async () => {
+    const fixture = await cacheFixture();
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog };
+    const other = await cacheFixture();
+    await expect(prepareBdxBindings({ ...options, projectFile: other.project })).rejects.toThrow(/another LabVIEW project/);
+    await fs.writeFile(path.join(fixture.root, source.file), "VI changed after inspection");
+    await expect(prepareBdxBindings(options)).rejects.toThrow(/changed since command inspection/);
+    expect((await prepareBdxBindings({ ...options, projectFile: null })).catalog.commands).toEqual([]);
+  });
+
+  it("rejects changed, added and removed declarations in the active snapshot", async () => {
+    const fixture = await cacheFixture();
+    const declaration = path.join(fixture.root, "bordeaux-catalog.json");
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache };
+    let activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.writeFile(declaration, JSON.stringify({ schemaVersion: "bordeaux-labview-catalog/1", catalogId: "team", commands: [] }));
+    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
+    activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.appendFile(declaration, "\n");
+    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
+    activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.rm(declaration);
+    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
   });
 });

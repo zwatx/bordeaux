@@ -24,7 +24,7 @@ it.each(["first-bindings", "worker", "second-bindings"])("actual extracted main 
   // Inject only passive binding/worker boundaries. Production source, recovery, lease and folder writer are unchanged.
   const sandbox: Record<string, any> = { validateProjectSource, ProjectBdxChangedError, projectTargetGeneration: 1, projectContext: () => context, compatibilitySnapshotRevision: 0,
     currentLegacyFile: null, currentProjectPath: null, currentProjectFolder: folder, smokeDirectory: null, path, projectWorkspacePath, openProjectFolder,
-    robotConnectionGeneration: 0, linkedLabviewProjectFile: null, linkedRobotProjectBookmarkId: null, labviewDiscoveryCacheDirectory: () => path.join(root, "cache"), MAX_BDX_BATCH: 64,
+    robotConnectionGeneration: 0, linkedLabviewProjectFile: null, linkedRobotCatalog: null, linkedRobotProjectBookmarkId: null, labviewDiscoveryCacheDirectory: () => path.join(root, "cache"), MAX_BDX_BATCH: 64,
     prepareBdxBindings: async () => { bindings++; if ((phase === "first-bindings" && bindings === 1) || (phase === "second-bindings" && bindings === 2)) { entered.resolve(); await release.promise; } return { definitionJson: "fixture" }; },
     buildBdxBatchOffThread: async (_job: unknown, signal: AbortSignal) => { workers++; workerSignal = signal; if (phase === "worker") { entered.resolve(); await release.promise; } return [{ fileName: "Fixture.bdx", bytes: new Uint8Array([1]) }]; },
     writeProjectFolderBdx: async (...args: Parameters<typeof writeProjectFolderBdx>) => { writers++; return writeProjectFolderBdx(...args); } };

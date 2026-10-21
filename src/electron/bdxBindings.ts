@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import type { RobotCommandCatalog } from "../shared/types";
 import type { BinaryBindings, BdxParameterType } from "../shared/export/robotBinary";
 import { discoverLabviewProject } from "./labviewProject";
-import { withCachedLabviewCommands } from "./labviewNiInspection";
+import { withActiveLabviewCommands, withCachedLabviewCommands } from "./labviewNiInspection";
 import { parseLabviewXml } from "./labviewProjectDiscovery";
 
-/** Saved NI type evidence describes bytes only. It never certifies robot execution. */
+/** Inspected NI type evidence describes bytes only. It never certifies robot execution. */
 export function bdxBindingsFromCatalog(catalog: RobotCommandCatalog | null): BinaryBindings {
   const types: BinaryBindings["parameterTypes"] = Object.create(null);
   const definitions = (catalog?.commands ?? []).filter((command) => command.labviewConnector).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map((command) => {
@@ -36,7 +36,9 @@ export function bdxBindingsFromCatalog(catalog: RobotCommandCatalog | null): Bin
     definitionJson: definitionBytes.toString("utf8") };
 }
 
-export async function prepareBdxBindings(options: { projectFile: string | null; inspectionCacheDirectory: string }): Promise<BinaryBindings> {
+export async function prepareBdxBindings(options: { projectFile: string | null; inspectionCacheDirectory: string; activeCatalog?: RobotCommandCatalog | null }): Promise<BinaryBindings> {
   if (!options.projectFile) return bdxBindingsFromCatalog(null);
-  return bdxBindingsFromCatalog(await withCachedLabviewCommands(options.projectFile, await discoverLabviewProject(options.projectFile), options.inspectionCacheDirectory));
+  const discovered = await discoverLabviewProject(options.projectFile);
+  const active = await withActiveLabviewCommands(options.projectFile, discovered, options.activeCatalog);
+  return bdxBindingsFromCatalog(active ?? await withCachedLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory));
 }

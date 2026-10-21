@@ -524,7 +524,7 @@ function captureLinkedProject(project: BordeauxProject) {
   const projectFile = linkedLabviewProjectFile, bookmark = linkedRobotProjectBookmarkId;
   if (projectFile && !linkedProjectMatches(project)) throw new Error("The linked LabVIEW project does not match this Bordeaux project");
   return {
-    bindingOptions: (hasCommands: boolean) => ({ projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() }),
+    bindingOptions: (hasCommands: boolean) => ({ projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog }),
     isCurrent: () => generation === robotConnectionGeneration && projectGeneration === projectTargetGeneration
       && projectFile === linkedLabviewProjectFile && bookmark === linkedRobotProjectBookmarkId,
   };
@@ -1085,7 +1085,7 @@ async function exportSaved(persisted: SavedProjectCheckpoint, scope: ProjectBdxE
   const hasCommands = selected.some(candidate => candidate.markers.some(marker => marker.invocation));
   scope.assertCurrent();
   if (hasCommands && projectFile && !linkedProjectMatches(source, savedLocation.folderPath)) throw new Error("The linked LabVIEW project does not match this project");
-  const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() };
+  const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog };
   scope.enterPhase("bindings");
   const bindings = await prepareBdxBindings(options); scope.assertCurrent();
   const files = [];
@@ -1271,7 +1271,7 @@ handle("diagnostics:preview", async (_event, rawProject) => {
       const project = rawProject as BordeauxProject;
       const selected = project.paths.find((item) => item.id === project.editor?.activePathId) ?? project.paths[0];
       if (!selected) throw new Error("Select a path before preparing export diagnostics");
-      const bindings = await prepareBdxBindings({ projectFile: selected.markers.some((marker) => marker.invocation) ? linkedLabviewProjectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory() });
+      const bindings = await prepareBdxBindings({ projectFile: selected.markers.some((marker) => marker.invocation) ? linkedLabviewProjectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog });
       const built = await buildBdxOffThread({ project, selection: { kind: "path", id: selected.id }, bindings });
       fieldPin = {
         id: built.document.field.id,
