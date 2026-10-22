@@ -38,7 +38,7 @@ describe('dynamic repeat authoring and source', () => {
   });
   it('offers dynamic output selection without a condition picker or required repeat count', () => {
     const html = renderToStaticMarkup(React.createElement(StepInspector, { node: loop, routine: { nodes: [loop] }, paths: [], acq: { outcomes: {}, passes: {} }, run: { segs: [] }, robotProject: { catalog } }));
-    expect(html).toContain('Until command output');
+    expect(html).toContain('Until output');
     expect(html).toContain('routine-repeat-output');
     expect(html).not.toContain('routine-repeat-times-');
     expect(html).not.toContain('routine-repeat-condition');

@@ -249,7 +249,7 @@ app.whenReady().then(async () => {
       ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
       await load('output-loop'); await planned();
       await click('[data-id="output-loop"] .rt-step-body');
-      await click('[aria-label="Repeat mode"] button', 'Until command output');
+      await click('[aria-label="Repeat mode"] button', 'Until output');
       await wait(async () => (await source())[0].nodes[0].times === undefined, 'dynamic repeat clears only its count');
       await click('#routine-repeat-output'); await key('Down'); await key('Enter');
       await wait(async () => (await source())[0].nodes[0].until?.output === 'finished', 'completed command output stop selection');

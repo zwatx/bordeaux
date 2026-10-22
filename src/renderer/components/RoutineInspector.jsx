@@ -181,14 +181,14 @@ export function StepInspector(props) {
     const passes = Math.min(previewLimit, acq.passes?.[node.id] ?? 1);
     body = h(React.Fragment, null,
       FieldLabel('Repeat mode'),
-      h(Seg, { ariaLabel: 'Repeat mode', value: dynamic ? 'dynamic' : 'fixed', options: [{ v: 'fixed', label: 'Fixed count' }, { v: 'dynamic', label: 'Until command output' }],
+      h(Seg, { ariaLabel: 'Repeat mode', value: dynamic ? 'dynamic' : 'fixed', options: [{ v: 'fixed', label: 'Fixed count' }, { v: 'dynamic', label: 'Until output', title: 'Repeat until a completed command output matches' }],
         onChange: (mode) => set(mode === 'dynamic' ? { times: undefined, until: node.until?.source === 'output' ? node.until
           : { source: 'output', nodeId: node.nodes.findLast(child => child.type === 'function' && child.cat === 'command')?.id || '', output: '', operator: 'eq' } } : { times: 2 }) }),
       !dynamic && h(CommandParameterEditor, { key: node.id + ':times', id: 'routine-repeat-times-' + safeControlId(node.id), label: node.until ? 'Most passes' : 'Passes',
         schema: { kind: 'integer' }, parameter: { min: 1, max: 50 }, value: node.times, onChange: (times) => set({ times }) }),
       h(RepeatStop, { node, catalog, set }),
       node.until && Section('Preview',
-        FieldLabel('Passes to preview'),
+        previewLimit <= 8 && FieldLabel('Passes to preview'),
         previewLimit <= 8
           ? h(Seg, { ariaLabel: 'Passes to preview', value: passes, options: Array.from({ length: previewLimit }, (_, index) => ({ v: index + 1, label: String(index + 1) })), onChange: (value) => acq.setPasses(node.id, value) })
           : h(CommandParameterEditor, { key: node.id + ':passes', id: 'routine-repeat-passes-' + safeControlId(node.id), label: 'Passes to preview', schema: { kind: 'integer' },

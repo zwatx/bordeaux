@@ -244,7 +244,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 /* One bar, left to right: project · places · the place's actions · robot (destination, Push). The project slot has the
    library's width, so the places start at the work area's edge and never move with status. */
 .toolbar{position:relative;z-index:30;display:flex;flex-shrink:0;align-items:center;height:44px;padding:0 8px 0 0;background:var(--bg-1);border-bottom:1px solid var(--line-2)}
-.tb-project{display:flex;flex:0 0 var(--library-width,264px);align-items:center;min-width:0;height:100%;padding:0 10px 0 8px;border-right:1px solid var(--line-2)}
+.tb-project{display:flex;flex:0 0 var(--library-width,264px);align-items:center;min-width:0;height:100%;padding:0 10px 0 8px;border-right:1px solid var(--line-2);container:project-slot/inline-size}
 /* macOS: the bar is the window's drag region and the project slot clears the traffic lights. Only empty bar space
    drags; every control, menu and dialog inside it opts out. */
 [data-platform="darwin"] .toolbar{-webkit-app-region:drag}
@@ -258,7 +258,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 /* The project slot and section divider remain stable on every page, including Settings. */
 .tb-project .project-control{flex:1 1 auto}
 .project-chip-unsaved{display:inline-flex;flex:none;align-items:center;margin-right:4px;vertical-align:middle}
-@media (min-width:1300px){
+@container project-slot (min-width:220px){
   .tb-project .project-chip{width:100%;grid-template-columns:minmax(0,1fr) auto 12px;column-gap:8px}
   .tb-project .project-chip-meta{grid-column:2;grid-row:1;max-width:100px}
   .tb-project .project-chip-chevron{grid-column:3;grid-row:1}
