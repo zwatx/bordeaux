@@ -56,6 +56,26 @@ async function cacheFixture() {
 }
 
 describe("NI legacy connector discovery", () => {
+  it("stops scheduling on a fingerprint failure and drains in-flight reads before returning", async () => {
+    const f = await cacheFixture();
+    for (let index = 1; index < 40; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);
+    await fs.writeFile(f.project, '<Project><Item Name="Robot" Type="RT myRIO"><Item Name="Intake" Type="Folder" URL="../Intake"><Property Name="NI.DISK" Type="Bool">true</Property></Item></Item></Project>');
+    const read = fs.readFile.bind(fs), adapter = vi.fn();
+    let reads = 0, active = 0;
+    const spy = vi.spyOn(fs, "readFile").mockImplementation((async (...args: Parameters<typeof fs.readFile>) => {
+      if (!String(args[0]).endsWith('.vi')) return read(...args);
+      if (++reads === 1) throw Error('fingerprint read failed');
+      active++;
+      try { await new Promise(resolve => setTimeout(resolve, 20)); return await read(...args); }
+      finally { active--; }
+    }) as typeof fs.readFile);
+    try {
+      await expect(inspectLabviewCommands(f.project, f.cache, adapter)).rejects.toThrow('fingerprint read failed');
+      expect(active).toBe(0); expect(reads).toBeLessThanOrEqual(8); expect(adapter).not.toHaveBeenCalled();
+      const stopped = reads;
+      await new Promise(resolve => setTimeout(resolve, 30)); expect(reads).toBe(stopped);
+    } finally { spy.mockRestore(); }
+  });
   it("bounds concurrent fingerprints and reads each shared VI once per validation snapshot", async () => {
     const f = await cacheFixture();
     try {

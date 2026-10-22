@@ -27,10 +27,16 @@ const recentInspections = new Map<string, RobotCommandCatalog>();
 
 // Bound concurrent local I/O. Results keep source order, and every refresh still reads current bytes.
 async function parallelFiles<T>(items: T[], visit: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
+  let next = 0, failed = false;
+  let failure: unknown;
   await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
-    while (next < items.length) { const index = next++; await visit(items[index]); }
+    while (!failed && next < items.length) {
+      const index = next++;
+      try { await visit(items[index]); }
+      catch (error) { if (!failed) { failed = true; failure = error; } }
+    }
   }));
+  if (failed) throw failure;
 }
 
 /** Match the legacy project-tree exclusions; filenames alone never confirm a command. */
