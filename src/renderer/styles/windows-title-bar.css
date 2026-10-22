@@ -1,0 +1,23 @@
+/* Dedicated Windows chrome; no selectors change the macOS toolbar or traffic lights. */
+.desktop-root { height: 100%; }
+.windows-desktop { display: flex; flex-direction: column; height: 100%; }
+.windows-desktop > .app { flex: 1; min-height: 0; height: auto; }
+.windows-desktop > .editor-startup { flex: 1; min-height: 0; height: auto; }
+.windows-title-bar {
+  display: flex; align-items: center; flex: 0 0 36px; height: 36px; min-width: 0;
+  background: var(--bg, #161618); color: var(--txt-2, #b9b9bd);
+  border-bottom: 1px solid var(--line, #303033); user-select: none; -webkit-app-region: drag;
+}
+.windows-title-brand { display: flex; align-items: center; gap: 8px; padding: 0 18px 0 12px; font-size: 12px; font-weight: 500; }
+.windows-title-mark { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--line-2, #454549); border-radius: 5px; font-size: 11px; }
+.windows-title-menus, .windows-title-controls { display: flex; align-self: stretch; flex: none; -webkit-app-region: no-drag; }
+.windows-title-bar button { -webkit-app-region: no-drag; font-family: inherit; font-weight: 400; border: 0; background: transparent; color: inherit; padding: 0; border-radius: 0; }
+.windows-title-menus button { padding: 0 11px; font-size: 12px; }
+.windows-title-bar button:hover, .windows-title-bar button[aria-expanded="true"] { background: var(--ctl-hover, #303033); color: var(--txt, #eee); }
+.windows-title-bar button:focus-visible { outline: 2px solid var(--focus, #eee); outline-offset: -4px; }
+.windows-title-drag { flex: 1; align-self: stretch; min-width: 36px; }
+.windows-title-controls button { display: grid; place-items: center; width: 46px; }
+.windows-title-controls svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
+.windows-title-error { font-size: 12px; padding: 0 12px; -webkit-app-region: no-drag; }
+.windows-title-bar[data-focused="false"] .windows-title-brand { opacity: .65; }
+@media (forced-colors: active) { .windows-title-bar { border-color: CanvasText; } .windows-title-bar button:focus-visible { outline-color: Highlight; } }

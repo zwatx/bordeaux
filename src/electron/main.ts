@@ -1,4 +1,6 @@
 import type { ProjectCopyDefaultsRequest } from "../shared/project/desktopProjects";
+import { attachWindowChrome, registerWindowChrome } from "./windowChrome";
+import { WINDOWS_TITLE_BAR_HEIGHT } from "../shared/windowChrome";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
 import { createHash, randomUUID } from "node:crypto";
@@ -571,6 +573,12 @@ function createWindow() {
       titleBarStyle: "hiddenInset" as const,
       trafficLightPosition: { x: 14, y: 18 },
     } : {}),
+    ...(process.platform === "win32" ? {
+      titleBarStyle: "hidden" as const,
+      useContentSize: true,
+      height: 900 + WINDOWS_TITLE_BAR_HEIGHT,
+      minHeight: 720 + WINDOWS_TITLE_BAR_HEIGHT,
+    } : {}),
     backgroundColor: "#12151b",
     show: false,
     webPreferences: {
@@ -582,6 +590,7 @@ function createWindow() {
   });
 
   const window = mainWindow;
+  attachWindowChrome(window, process.platform);
   let windowEpoch = projectWindowEpoch, initialNavigation = true;
   nativeDeparture.documentEntered(projectContext());
   window.once("ready-to-show", () => {
@@ -761,6 +770,7 @@ function buildMenu() {
     ] } as Electron.MenuItemConstructorOptions] : []),
     {
       label: "File",
+      id: "chrome-file",
       submenu: [
         // New names a project in its own folder; Projects lists recents. Neither shows the folder picker first.
         { label: "New project…", accelerator: "CmdOrCtrl+N", click: () => sendCommand("new-project") },
@@ -779,14 +789,15 @@ function buildMenu() {
     },
     {
       label: "Robot",
+      id: "chrome-robot",
       submenu: [
         { label: "Link robot project…", click: () => sendCommand("robot-link") },
         { label: "Build command catalog…", click: () => sendCommand("robot-build") },
-        { type: "separator" },
       ],
     },
     {
       label: "Agents",
+      id: "chrome-agents",
       submenu: [
         {
           label: "Enable MCP access",
@@ -818,18 +829,21 @@ function buildMenu() {
         },
       ],
     },
-    { label: "View", submenu: [...(!app.isPackaged ? [
+    { label: "View", id: "chrome-view", submenu: [...(!app.isPackaged ? [
       { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => reloadProjectWindow(false) },
       { label: "Force reload", accelerator: "CmdOrCtrl+Shift+R", click: () => reloadProjectWindow(true) },
     ] : []), { role: "toggleDevTools" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }] },
-    ...(process.platform === "darwin" ? [] : [{ label: "Help", submenu: [
+    ...(process.platform === "darwin" ? [] : [{ label: "Help", id: "chrome-help", submenu: [
       updateMenuItem(),
       { type: "separator" },
       { label: `Bordeaux ${applicationVersion}`, enabled: false },
     ] } as Electron.MenuItemConstructorOptions]),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  if (process.platform === "win32") mainWindow?.setMenuBarVisibility(false);
 }
+
+registerWindowChrome({ handle, getWindow: () => mainWindow, getMenu: () => Menu.getApplicationMenu(), platform: process.platform });
 
 /** Own the initiating native window, document and transition through every asynchronous open/create step. */
 function captureProjectActivation(): () => void {

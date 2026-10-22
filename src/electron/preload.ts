@@ -1,4 +1,5 @@
 import type { AppUpdateState } from "../shared/appUpdates";
+import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState } from "../shared/windowChrome";
 import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings } from "../shared/robotFileDelivery";
 import type { RobotPushScope, RobotDeploymentComparison } from "../shared/export/robotDeployment";
 import { contextBridge, ipcRenderer } from "electron";
@@ -17,6 +18,14 @@ type AgentSessionPublication = AgentSessionSnapshot & { accessGeneration: number
 
 const bordeauxAPI = {
   platform: process.platform,
+  getWindowState: (): Promise<WindowState> => ipcRenderer.invoke("window:state"),
+  windowAction: (action: WindowAction): Promise<void> => ipcRenderer.invoke("window:action", action),
+  openWindowMenu: (menu: WindowMenu, anchor: WindowMenuAnchor): Promise<boolean> => ipcRenderer.invoke("window:menu", menu, anchor),
+  onWindowState: (handler: (state: WindowState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: WindowState) => handler(state);
+    ipcRenderer.on("window:stateChanged", listener);
+    return () => ipcRenderer.removeListener("window:stateChanged", listener);
+  },
   getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke("appUpdates:state"),
   checkAppUpdates: (): Promise<void> => ipcRenderer.invoke("appUpdates:check"),
   downloadAppUpdate: (): Promise<void> => ipcRenderer.invoke("appUpdates:download"),

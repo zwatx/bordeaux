@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
+import { attachWindowChrome } from "../src/electron/windowChrome";
 
 /** Actual main window callbacks with Electron boundary fixtures; storage/approval evidence lives in projectNativeDeparture.test. */
 async function fixture() {
@@ -21,6 +22,7 @@ async function fixture() {
     async loadFile() { this.webContents.emit("did-frame-navigate", {}, "file:///fixture", -1, "", true); }
   }
   const sandbox: Record<string, any> = { mainWindow: null, projectWindowEpoch: "old", projectDocumentSession: "document", projectTargetGeneration: 1,
+    attachWindowChrome,
     randomUUID, BrowserWindow: Window, path, __dirname: path.resolve("src/electron"), process: { platform: "darwin", env: {} }, appUpdates: null,
     projectContext: () => ({ windowEpoch: sandbox.projectWindowEpoch, documentSessionId: sandbox.projectDocumentSession, targetGeneration: sandbox.projectTargetGeneration }),
     activateProjectTarget: () => { sandbox.projectTargetGeneration++; }, replaceProjectSession: () => { sandbox.projectDocumentSession = randomUUID(); calls.push("replace"); },
