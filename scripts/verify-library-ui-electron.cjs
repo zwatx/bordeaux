@@ -59,6 +59,8 @@ async function pointerClick(selector, modifiers = []) {
 }
 async function key(keyCode, modifiers = []) {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+  if (keyCode === 'Enter') win.webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers });
+  if (keyCode === 'Space') win.webContents.sendInputEvent({ type: 'char', keyCode: ' ', modifiers });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   await delay(60);
 }
@@ -450,7 +452,9 @@ app.whenReady().then(async () => {
     await key('1');
     assert.equal(await evaluate(() => document.querySelector('.toolrail-b.on').getAttribute('aria-label')), 'Select / move');
     await evaluate(() => document.querySelector('[aria-label="Select / move"]').focus());
-    await key('Tab'); await key('Enter');
+    await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Place waypoint', 'Tab reaches the tool activation target');
+    await key('Enter');
     assert.equal(await evaluate(() => document.querySelector('.toolrail-b.on').getAttribute('aria-label')), 'Place waypoint');
     await pointerClick('[aria-label="Select / move"]');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {

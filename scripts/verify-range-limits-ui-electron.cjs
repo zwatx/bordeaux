@@ -382,7 +382,7 @@ app.whenReady().then(async () => {
     }
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
     assert.deepEqual(errors, []);
-    console.log(process.env.BORDEAUX_RANGE_LIMITS_REMAINDER_ONLY ? 'PASS Native Tab/Space removal, cleared save/reload, all enabled layouts and native empty region creation' : 'PASS Independent acceleration add/remove, native pointer/arrow/Enter/Space/Tab, menu and numeric Escape, canonical values, save/reload, both units, open/closed inspector at 1440x900 and 1100x720');
+    console.log(process.env.BORDEAUX_RANGE_LIMITS_REMAINDER_ONLY ? 'PASS Native Tab/Enter removal, cleared save/reload, all enabled layouts and native empty region creation' : 'PASS Independent acceleration add/remove, native pointer/arrow/Enter/Space/Tab, menu and numeric Escape, canonical values, save/reload, both units, open/closed inspector at 1440x900 and 1100x720');
   } catch (error) { console.error(error, errors); if (win) await snapshot('failure'); process.exitCode = 1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });
