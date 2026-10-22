@@ -179,7 +179,7 @@ describe("generated trajectory capabilities", () => {
     expect(panel).toContain("Drive to pose, Runtime dynamic");
     expect(panel).toContain("Unsupported saved definition · Bordeaux cannot generate or preview it");
     const inspector = renderToStaticMarkup(createElement(StepInspector, { node, routine, paths: [], acq: {}, run, robotProject: { catalog: catalog() } }));
-    expect(inspector).toContain("no robot runner supports it yet");
+    expect(inspector).toContain("Preview and robot execution are unavailable.");
     expect(inspector).not.toContain("<input");
   });
 });

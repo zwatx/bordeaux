@@ -16,7 +16,7 @@ describe('workspace Space admission', () => {
     expect(isPlaybackSpace(event({ keyCode: 229 }), 'plan', doc())).toBe(false);
     expect(isPlaybackSpace(event(), 'robot', doc())).toBe(false);
   });
-  it.each(['.choice-change[aria-expanded][aria-controls]', '[data-role="issue"]', '[data-problems-control]', '[data-native-chrome]'])('preserves explicit control ownership for %s', selector => {
+  it.each(['details>summary', '.choice-change[aria-expanded][aria-controls]', '[data-role="issue"]', '[data-problems-control]', '[data-native-chrome]'])('preserves explicit control ownership for %s', selector => {
     const target = { closest: selectors => selectors.split(',').includes(selector) ? {} : null };
     expect(isPlaybackSpace(event({ target }), 'plan', doc())).toBe(false);
   });

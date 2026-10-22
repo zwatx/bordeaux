@@ -25,6 +25,8 @@ Independent read-only review inspected 50 final images and found no confirmed pr
 
 ## Retained failures and limits
 
+PR #95's first CI run exposed stale wording/script-count assertions and one real keyboard regression: playback captured Space on native disclosure summaries. The correction exempts `details>summary`, retaining ordinary-control playback and typed-editor ownership. Focused validation passed 79 tests and a full build (740,998 B application JS). Native error disclosure/keyboard Dismiss passed alongside ordinary Grid playback and draft typing; independent read-only review found no blocker and inspected five affected captures. The full CI rerun remains the merge gate.
+
 Beta.22 cleanup removes the persistent Routines stay local label and the Local preview text, retaining an accessible 32px info button and its native popover. The empty Push slot no longer draws a separator. Four focused suites passed (72 tests), full build passed at 740,982 B application JS / 211,818 B worker / 150,755 B CSS, and `quiet-routine-labels-native` passed both supported sizes with stable hashes and no robot calls. The parent inspected the final navigation, empty and preview-note states; independent read-only review inspected all nine requested states and found no blocker. Pointer, Space, Escape, Tab and outside-click popover behavior remains covered. The version bump to 0.2.0-beta.22 changes no UI source.
 
 Two earlier routine runs expected superseded copy; final assertions retain the runtime-unavailable requirement using the current text. Earlier Windows runs used an incorrect viewport-center expectation and a stale native menu reference after autosave; final checks measure text within tabs and retrieve the current menu. Those failed artifacts remain retained.

@@ -187,7 +187,7 @@ exports.runConsequences = async h => {
     }
     const missing = clone(catalog); missing.commands[0].outputs = [clone(OUTPUTS[0])];
     await start('missing output recovery', width); await resetPopulated(missing); const missingBefore = await source();
-    assert.ok(await evaluate(() => document.body.textContent.includes('The saved output is missing')));
+    assert.ok(await evaluate(() => document.body.textContent.includes('Output missing. Saved routes are kept.')));
     await chooseOutput('distance'); assert.deepEqual(await source(), missingBefore, 'Reselect missing saved output is unchanged'); await noAction(missingBefore);
     await chooseOutput(''); await wait(async () => !commandNode(await source()).outputBranch, 'Continue recovers missing output'); await notice('continue', width);
     await click('.deletion-notice button'); await expectSource(missingBefore);

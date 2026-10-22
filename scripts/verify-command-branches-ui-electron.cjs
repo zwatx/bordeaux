@@ -125,7 +125,7 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.places .place')), 'missing output reload');
     await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
     await click('[data-id="inspect-step"] .rt-step-body');
-    await wait(() => evaluate(() => document.body.textContent.includes('The saved output is missing')), 'missing output message');
+    await wait(() => evaluate(() => document.body.textContent.includes('Output missing. Saved routes are kept.')), 'missing output message');
     assert.equal(await evaluate(() => document.querySelectorAll('.rt-branch').length), 3);
     await click('#command-branch-output'); await key('Escape');
     await wait(async () => JSON.stringify(await source()) === JSON.stringify(baselineRoutines), 'missing output preserves complete baseline source');
