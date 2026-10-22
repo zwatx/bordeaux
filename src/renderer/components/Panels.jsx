@@ -21,7 +21,7 @@ import { deletionInput } from "./DeletionNotice";
     return h('header', { className: 'toolbar' },
       // App owns the project chip and its flows. The slot has a fixed width, so status changes never move the places.
       h('div', { className: 'tb-project' }, props.project),
-      h('nav', { className: 'places', 'aria-label': 'Project sections' }, PLACES.map((place) => h('button', { key: place.id, type: 'button', className: 'place',
+      h('nav', { className: 'places', style: { '--place-index': PLACES.findIndex(place => place.id === current) }, 'aria-label': 'Project sections' }, PLACES.map((place) => h('button', { key: place.id, type: 'button', className: 'place',
         'aria-current': current === place.id ? 'page' : undefined, onClick: () => onPlace?.(place.id) }, place.label))),
       h('div', { className: 'tb-spacer' }),
       h('div', { className: 'tb-actions' },

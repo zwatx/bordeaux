@@ -47,9 +47,9 @@ describe("routine export safety", () => {
     expect(markup).not.toContain("Remove unsupported step");
   });
 
-  it("authors local branches/repeats/ends while preserving the available Wait gate", () => {
-    expect(AUTO.authorableSteps(catalog()).map((step: { id: string }) => step.id)).toEqual(["path", "command", "decision", "repeat", "end", "wait"]);
-    expect(AUTO.authorableSteps({ ...catalog(), generatedSchemaVersion: "1.1", builtIns: [] }).map((step: { id: string }) => step.id)).toEqual(["path", "command", "decision", "repeat", "end"]);
+  it("authors commands/repeats/ends and native Wait without condition or catalog gates", () => {
+    expect(AUTO.authorableSteps(catalog()).map((step: { id: string }) => step.id)).toEqual(["path", "command", "repeat", "end", "wait"]);
+    expect(AUTO.authorableSteps({ ...catalog(), generatedSchemaVersion: "1.1", builtIns: [] }).map((step: { id: string }) => step.id)).toEqual(["path", "command", "repeat", "end", "wait"]);
     expect(AUTO.newNode("function", "command")).toMatchObject({ type: "function", cat: "command" });
     expect(AUTO.nodeDeploymentState({ id: "legacy", type: "function", cat: "generate" })).toMatchObject({ deployable: false, legacy: true });
     expect(() => AUTO.nodeTitle({ id: "unknown", type: "future" }, [])).not.toThrow();

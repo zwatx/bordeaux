@@ -166,7 +166,9 @@ export function defaultRobotCommandArguments(command: RobotCommandDescriptor): R
     ]));
 }
 
-function parameterLimitError(value: CommandArgumentValue, parameter: RobotCommandParameter): string | null {
+type RobotValueDescriptor = Pick<RobotCommandParameter, 'name' | 'label' | 'schema' | 'min' | 'max'>;
+
+function parameterLimitError(value: CommandArgumentValue, parameter: RobotValueDescriptor): string | null {
   if (parameter.min === undefined && parameter.max === undefined) return null;
   if (parameter.schema.kind === "integerString" && typeof value === "string" && /^[+-]?\d+$/.test(value)) {
     const comparable = BigInt(value);
@@ -188,7 +190,7 @@ function parameterLimitError(value: CommandArgumentValue, parameter: RobotComman
   return null;
 }
 
-export function robotParameterValueError(value: unknown, parameter: RobotCommandParameter): string | null {
+export function robotParameterValueError(value: unknown, parameter: RobotValueDescriptor): string | null {
   const schemaError = robotSchemaValueError(value, parameter.schema, parameter.label || parameter.name);
   return schemaError ?? parameterLimitError(value as CommandArgumentValue, parameter);
 }
@@ -363,10 +365,6 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
         const argumentsValue = node.arguments;
         const durationS = argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)
           ? (argumentsValue as Record<string, unknown>).durationS : undefined;
-        if ((catalog?.generatedSchemaVersion !== "1.2" && catalog?.generatedSchemaVersion !== "1.3")
-          || !catalog.builtIns?.some((builtIn) => builtIn.id === "bordeaux.wait" && builtIn.kind === "wait")) {
-          issues.push({ path: `${base}.builtinId`, message: "Routine built-ins require generated catalog schema 1.2 with bordeaux.wait before export", severity: "error" });
-        }
         if (node.builtinId !== "bordeaux.wait" || !Number.isFinite(durationS) || (durationS as number) < 0.02 || (durationS as number) > 15
           || !argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue) || Object.keys(argumentsValue).length !== 1) {
           issues.push({ path: `${base}.arguments`, message: "Wait must declare only a finite durationS from 0.02 to 15 seconds", severity: "error" });

@@ -24,17 +24,6 @@ function FieldLabel(t, right) { return h('div', { className: 'fieldlabel' }, h('
 const Hint = (text) => h('p', { className: 'seg-hint' }, text);
 const Section = (title, ...children) => h('section', { className: 'rt-insp-sec', 'aria-label': title }, h('h3', { className: 'cgroup-h' }, title), ...children);
 
-function conditionItems(catalog, value) {
-  return A.conditionPickerItems(A.authoritativeConditions(catalog), value, 'Choose a condition');
-}
-/** A registered robot condition. A saved ID the catalog lost stays visible and replaceable. */
-function ConditionPicker({ id, label, value, catalog, onChange }) {
-  const registered = A.authoritativeConditions(catalog);
-  return h(React.Fragment, null,
-    h(Dropdown, { id, label, value: value || '', items: conditionItems(catalog, value), onChange }),
-    !registered.length && Hint('Conditions come from bordeaux-catalog.json. Refresh commands after adding one.'));
-}
-
 function outputValueDefault(schema) {
   if (schema.kind === 'boolean') return true;
   if (schema.kind === 'enum') return schema.enumValues[0];
@@ -59,12 +48,9 @@ function EndsSection({ node, routine, catalog, set }) {
     consumer && h('p', { className: 'rt-insp-note' }, 'A result needs the command to finish.'),
     conflict && h('div', { className: 'rt-insp-problem', role: 'status' }, 'This ending would skip the result its branch or repeat reads.',
       h('button', { type: 'button', className: 'choice-change', onClick: () => write({ endWhen: undefined, ...(limited ? { onTimeout: 'endRoutine' } : {}) }) }, limited ? 'Use the limit to end the routine' : 'Remove the early end')),
-    h('div', { className: 'rt-insp-toggle' }, consumer && !early
-      // A result consumer must finish, so an early end is unavailable; a saved conflict keeps its working toggle and repair.
-      ? h('button', { className: 'toggle', type: 'button', disabled: true, 'aria-pressed': false, title: 'A result needs the command to finish.' },
-          h('span', { className: 'toggle-track' }, h('span', { className: 'toggle-thumb' })), h('span', { className: 'toggle-lbl' }, 'End early on a condition'))
-      : h(Toggle, { on: early, label: 'End early on a condition', onChange: (on) => write({ endWhen: on ? { source: 'condition', conditionId: '' } : undefined }) })),
-    early && h(ConditionPicker, { id: 'routine-ends-condition', label: 'End early when', value: ends.endWhen.conditionId, catalog, onChange: (conditionId) => write({ endWhen: { ...ends.endWhen, source: 'condition', conditionId } }) }),
+    early && h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Saved condition ending' },
+      Hint('Saved condition: ' + (ends.endWhen.conditionId || '(unselected)') + '. Use a command output branch for new decisions.'),
+      h('button', { type: 'button', className: 'qbtn wide', onClick: () => write({ endWhen: undefined }) }, 'Remove saved condition ending')),
     command && h('div', { className: 'rt-insp-toggle' }, h(Toggle, { on: limited, label: 'Time limit', onChange: (on) => write(on ? A.newCommandEnds(routine, node.id) : { timeoutS: undefined, onTimeout: undefined }) })),
     command && limited && h(React.Fragment, null,
       h(CommandParameterEditor, { key: node.id + ':limit', id: 'routine-limit-' + safeControlId(node.id), label: 'Limit in seconds', schema: { kind: 'number' }, parameter: SECONDS, value: ends.timeoutS,
@@ -74,7 +60,7 @@ function EndsSection({ node, routine, catalog, set }) {
         options: [{ v: 'continue', label: 'Continue', disabled: consumer, title: consumer ? 'A result needs the command to finish.' : undefined }, { v: 'endRoutine', label: 'End routine' }] })));
 }
 
-/** Stop rule of a repeat: never, a registered condition, or a typed result of a command directly inside it. */
+/** Check a completed command's typed result at the end of each pass. */
 function RepeatStop({ node, catalog, set }) {
   const stop = node.until;
   const producers = node.nodes.filter((child) => child.type === 'function' && child.cat === 'command');
@@ -85,10 +71,10 @@ function RepeatStop({ node, catalog, set }) {
   const numeric = stop?.schema && !['boolean', 'enum'].includes(stop.schema.kind);
   const mode = stop ? stop.source : 'never';
   return Section('Stop early',
-    h(Seg, { ariaLabel: 'Stop early', value: mode, options: [{ v: 'never', label: 'Never' }, { v: 'condition', label: 'Condition' }, { v: 'output', label: 'Result', title: 'A command result' }],
-      onChange: (next) => next === mode ? null : set({ until: next === 'never' ? undefined : next === 'condition' ? { source: 'condition', conditionId: '' }
-        : { source: 'output', nodeId: producers[0]?.id || '', output: '', operator: 'eq' } }) }),
-    stop?.source === 'condition' && h(ConditionPicker, { id: 'routine-repeat-condition', label: 'Stop when', value: stop.conditionId, catalog, onChange: (conditionId) => set({ until: { source: 'condition', conditionId } }) }),
+    node.times !== undefined && h(Seg, { ariaLabel: 'Stop early', value: mode, options: [{ v: 'never', label: 'Never' }, { v: 'output', label: 'Command output' }],
+      onChange: (next) => next === mode ? null : set({ until: next === 'never' ? undefined
+        : { source: 'output', nodeId: producers.at(-1)?.id || '', output: '', operator: 'eq' } }) }),
+    stop?.source === 'condition' && Hint('Saved condition: ' + (stop.conditionId || '(unselected)') + '. Choose a command output to replace it.'),
     stop?.source === 'output' && (producers.length === 0
       ? Hint('Add a command directly inside this repeat first.')
       : h(React.Fragment, null,
@@ -117,7 +103,7 @@ function RepeatStop({ node, catalog, set }) {
             numeric && h(Dropdown, { id: 'routine-repeat-operator', label: 'Comparison', value: stop.operator, items: OPERATORS, onChange: (operator) => set({ until: { ...stop, operator } }) }),
             h(CommandParameterEditor, { key: node.id + ':' + stop.output, id: 'routine-repeat-value-' + safeControlId(node.id), label: numeric ? 'Value' : 'Stop when it is', schema: stop.schema,
               parameter: output || {}, value: stop.value, onChange: (value) => set({ until: { ...stop, value } }) })))),
-    stop && Hint('Checked after each pass.'));
+    stop && Hint('Checked after each pass, using that pass’s completed command result.'));
 }
 
 function Problems({ issues, jumps }) {
@@ -180,10 +166,9 @@ export function StepInspector(props) {
       remove('Delete wait'));
 
   } else if (node.type === 'decision') {
-    glyph = 'branch'; title = 'Branch';
+    glyph = 'branch'; title = 'Saved condition branch'; tag = 'Legacy';
     body = h(React.Fragment, null,
-      h(ConditionPicker, { id: 'routine-condition', label: 'Robot condition', value: node.cond, catalog, onChange: (cond) => set({ cond }) }),
-      Hint('Checked once when the routine reaches it.'),
+      Hint('Saved condition: ' + (node.cond || '(unselected)') + '. Its routes are kept. Add a command and select its output for new decisions.'),
       h('div', { className: 'rt-route-names' },
         h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
         h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
@@ -192,18 +177,23 @@ export function StepInspector(props) {
 
   } else if (node.type === 'repeat') {
     glyph = 'repeat'; title = 'Repeat';
-    const passes = Math.min(node.times, acq.passes?.[node.id] ?? 1);
+    const dynamic = node.times === undefined, previewLimit = node.times ?? 50;
+    const passes = Math.min(previewLimit, acq.passes?.[node.id] ?? 1);
     body = h(React.Fragment, null,
-      h(CommandParameterEditor, { key: node.id + ':times', id: 'routine-repeat-times-' + safeControlId(node.id), label: node.until ? 'Most passes' : 'Passes',
+      FieldLabel('Repeat mode'),
+      h(Seg, { ariaLabel: 'Repeat mode', value: dynamic ? 'dynamic' : 'fixed', options: [{ v: 'fixed', label: 'Fixed count' }, { v: 'dynamic', label: 'Until command output' }],
+        onChange: (mode) => set(mode === 'dynamic' ? { times: undefined, until: node.until?.source === 'output' ? node.until
+          : { source: 'output', nodeId: node.nodes.findLast(child => child.type === 'function' && child.cat === 'command')?.id || '', output: '', operator: 'eq' } } : { times: 2 }) }),
+      !dynamic && h(CommandParameterEditor, { key: node.id + ':times', id: 'routine-repeat-times-' + safeControlId(node.id), label: node.until ? 'Most passes' : 'Passes',
         schema: { kind: 'integer' }, parameter: { min: 1, max: 50 }, value: node.times, onChange: (times) => set({ times }) }),
       h(RepeatStop, { node, catalog, set }),
       node.until && Section('Preview',
         FieldLabel('Passes to preview'),
-        node.times <= 8
-          ? h(Seg, { ariaLabel: 'Passes to preview', value: passes, options: Array.from({ length: node.times }, (_, index) => ({ v: index + 1, label: String(index + 1) })), onChange: (value) => acq.setPasses(node.id, value) })
+        previewLimit <= 8
+          ? h(Seg, { ariaLabel: 'Passes to preview', value: passes, options: Array.from({ length: previewLimit }, (_, index) => ({ v: index + 1, label: String(index + 1) })), onChange: (value) => acq.setPasses(node.id, value) })
           : h(CommandParameterEditor, { key: node.id + ':passes', id: 'routine-repeat-passes-' + safeControlId(node.id), label: 'Passes to preview', schema: { kind: 'integer' },
-              parameter: { min: 1, max: node.times }, value: passes, onChange: (value) => acq.setPasses(node.id, value) }),
-        Hint(passes < node.times ? 'Assumes the stop check is true after pass ' + passes + '.' : 'Runs every pass.')),
+              parameter: { min: 1, max: previewLimit }, value: passes, onChange: (value) => acq.setPasses(node.id, value) }),
+        Hint(dynamic || passes < node.times ? 'Assumes the stop check is true after pass ' + passes + '. This preview count does not limit runtime repetition.' : 'Runs every pass.')),
       h('button', { className: 'rt-openbtn', type: 'button', onClick: () => {
         const result = acq.edit({ kind: 'unwrapRepeat', nodeId: node.id });
         setUnwrapReason(result.changed ? '' : result.reason || '');

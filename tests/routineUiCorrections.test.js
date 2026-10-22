@@ -22,7 +22,7 @@ describe('result consumer endings', () => {
   it('offers no early end on a result consumer and says why', () => {
     const node = inspect();
     const html = renderInspector(node, { id: 'r', name: 'R', nodes: [node] });
-    expect(html).toMatch(/<button class="toggle" type="button" disabled="" aria-pressed="false" title="A result needs the command to finish\.">/);
+    expect(html).not.toContain('End early on a condition');
     expect(html).toContain('A result needs the command to finish.');
   });
 
@@ -31,15 +31,15 @@ describe('result consumer endings', () => {
     const html = renderInspector(node, { id: 'r', name: 'R', nodes: [node] });
     expect(html).toContain('This ending would skip the result its branch or repeat reads.');
     expect(html).toContain('Remove the early end');
-    // The saved toggle is the ordinary, enabled control so the user can turn it off.
-    expect(html).toMatch(/<button class="toggle on" type="button" aria-label="End early on a condition" aria-pressed="true">/);
+    expect(html).toContain('Remove saved condition ending');
   });
 
-  it('still offers both endings to a command whose result nothing reads', () => {
+  it('offers a time limit without creating new condition endings', () => {
     const node = { ...inspect(), outputBranch: undefined };
     const html = renderInspector(node, { id: 'r', name: 'R', nodes: [node] });
     expect(html).not.toContain('disabled="" aria-pressed="false" title="A result needs');
-    expect(html).toMatch(/aria-label="End early on a condition" aria-pressed="false"/);
+    expect(html).not.toContain('End early on a condition');
+    expect(html).toContain('Time limit');
   });
 });
 

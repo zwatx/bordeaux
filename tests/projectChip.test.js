@@ -20,6 +20,12 @@ describe('project chip', () => {
     expect(markup).not.toContain('Not saved');
   });
 
+  it('shows an immediate unsaved star during debounce and keeps Saved unmarked', () => {
+    expect(chip({ status: 'saving', writing: false })).toContain('project-chip-unsaved');
+    expect(chip({ status: 'saving', writing: false })).toContain('Unsaved');
+    expect(chip({})).not.toContain('project-chip-unsaved');
+  });
+
   it('shortens desktop errors to their first fact', () => {
     expect(shortFact(new Error("Error invoking remote method 'project:createNamed': Error: That project folder already exists. Choose another name."))).toBe('That project folder already exists');
     expect(shortFact('Folder is read-only')).toBe('Folder is read-only');
@@ -47,9 +53,9 @@ describe('project chip', () => {
     expect(chip({})).toContain('<span class="sr-only" role="status"></span>');
   });
 
-  it('keeps Saved while the debounce runs and before a write has taken 400 ms', () => {
+  it('keeps a quiet unsaved star before a write has taken 400 ms', () => {
     expect(chip({ status: 'saving', writing: false })).toContain('data-status="saved"');
     expect(chip({ status: 'saving', writing: true })).toContain('aria-busy="true"');
-    expect(chip({ status: 'saving', writing: true })).toContain('>Saved<');
+    expect(chip({ status: 'saving', writing: true })).toContain('>Unsaved<');
   });
 });

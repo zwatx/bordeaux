@@ -40,7 +40,7 @@ export function CommandBranches({ node, command, acq }) {
   const numeric = branch && !['boolean', 'enum'].includes(branch.schema.kind);
   const patchRoute = (routeId, patch) => edit({ kind: 'patchRoute', routeId, patch });
   return h('section', { ref: sectionRef, className: 'command-branches', 'aria-label': 'Command output branches' },
-    h('div', { className: 'fieldlabel' }, 'After it ends'),
+    h('div', { className: 'fieldlabel' }, 'After command completes'),
     h(Dropdown, { id: 'command-branch-output', label: 'Branch on output', value: branch?.output || '',
       items: [{ value: '', label: 'Continue to next step', meta: branch && total ? 'Removes ' + steps(total, 'branch step') : undefined },
         ...(branch && !current ? [{ value: branch.output, label: branch.output, meta: 'Output unavailable — sync commands or choose another output', badge: 'Missing' }] : []),

@@ -54,6 +54,27 @@ app.whenReady().then(async () => {
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'current trajectory');
     assert.ok(await evaluate(() => document.querySelector('.project-chip-name')?.textContent.includes('Recovery project') || document.querySelector('.toolbar').textContent.includes('Recovery project')));
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await key('Tab'); // The original failure only appeared after keyboard navigation.
+      const grid = await evaluate(() => { const button = document.querySelector('[aria-label="Toggle field grid"]'); button.focus(); return button.getAttribute('aria-pressed'); });
+      await key('Space');
+      await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause trajectory playback"]'))), 'Space plays from focused field toolbar');
+      assert.equal(await evaluate(() => document.querySelector('[aria-label="Toggle field grid"]').getAttribute('aria-pressed')), grid, 'Space does not activate focused Grid');
+      await key('Space');
+      await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Space pauses from focused toolbar');
+      await click('#band-path-name');
+      const name = await evaluate(() => document.activeElement.value);
+      await key('Space');
+      assert.ok(await evaluate(name => document.activeElement.value.length === name.length + 1, name), 'Space still types into a name draft');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Typing does not start playback');
+      await key('Escape');
+      await click('.project-chip'); await evaluate(() => document.querySelector('.project-chip').focus()); await key('Space');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Open project menu owns Space');
+      await key('Escape');
+      await snapshot('space-playback-and-clean-field-' + width);
+    }
+    win.setContentSize(1440, 900);
     // Targeted local rechecks still use the production App and native input.
     // CI omits this flag and exercises the complete recovery/notice workflow.
     if (process.env.BORDEAUX_FIELD_COORDINATES_ONLY !== '1') {
@@ -322,7 +343,7 @@ app.whenReady().then(async () => {
         });
         assert.deepEqual(projection.frame, [524,95,3377-524,1488-95], 'Frame uses the original overlay playable boundaries');
         assert.equal(projection.imageTransform, 'rotate(180 1950.5 791.5)', 'The original overlay is oriented once into blue-origin and stays fixed while paths flip');
-        assert.match(projection.origin, /Blue origin/);
+        assert.equal(projection.origin, undefined, 'Origin and direction labels are hidden without changing the calibrated frame');
         const firstAfter = afterFlip.paths[0].waypoints[0];
         assert.ok(Math.abs(projection.x - (524 + firstAfter.x * (3377-524)/16.541)) < .1, 'Rendered X equals saved X in the calibrated frame');
         assert.ok(Math.abs(projection.y - (1488 - firstAfter.y * (1488-95)/8.069)) < .1, 'Rendered Y equals saved Y in the calibrated frame');

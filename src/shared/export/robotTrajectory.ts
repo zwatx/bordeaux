@@ -259,9 +259,10 @@ function projectForStaticPlanning(project: BordeauxProject): BordeauxProject {
 /** Compile the shared model; executable binding trust belongs to the calling export boundary. */
 export function buildRobotTrajectory(
   project: BordeauxProject,
-  catalog: RobotCommandCatalog,
+  catalogSource: RobotCommandCatalog | null,
   options: { requireGeneratedBindings?: boolean; materializeArgumentDefaults?: boolean } = {},
 ): BuiltRobotTrajectory {
+  const catalog: RobotCommandCatalog = catalogSource ?? { projectName: project.name, sourceFileCount: 0, scannedAt: '', commands: [], warnings: [] };
   // Defaults change only validated and emitted invocations. Planning keeps the authored
   // markers, which are part of an applied optimization's input identity.
   const compiled = options.materializeArgumentDefaults ? withArgumentDefaults(project, catalog) : project;
@@ -283,11 +284,6 @@ export function buildRobotTrajectory(
     if (eventCount > MAX_EVENT_COUNT) throw new Error(`Robot trajectory export exceeds ${MAX_EVENT_COUNT} events`);
   }
   const routine = deployableRoutine(project, new Set(sourcePaths.map((path) => path.id)));
-  if (routine && routine.nodes.some(function containsBuiltIn(node): boolean {
-    return node.type === "builtin" || (node.type === "decision" && [...node.then, ...node.else].some(containsBuiltIn));
-  }) && catalog.generatedSchemaVersion !== "1.2" && catalog.generatedSchemaVersion !== "1.3") {
-    throw new Error("Routine built-ins require generated catalog schema 1.2 or newer before export");
-  }
   assertRoutineNodeCount(routine);
   const preflightDocument = {
     catalog: {

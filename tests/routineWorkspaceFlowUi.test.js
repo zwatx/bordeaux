@@ -98,15 +98,15 @@ describe('routine flow insertion and empty states', () => {
     expect(empty(paths, catalog)).toContain('Start with the path the robot drives first');
     expect(empty(paths, catalog)).not.toContain('linked robot code');
     expect(empty([], null)).toContain('This project has no paths yet.');
-    expect(empty([], null)).toContain('Commands and robot conditions come from linked robot code.');
+    expect(empty([], null)).toContain('Wait works without robot code.');
   });
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {
     const items = addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, null);
     expect(items.find((item) => item.kind === 'command')).toMatchObject({ meta: 'Needs linked robot code' });
-    expect(items.find((item) => item.kind === 'decision')).toMatchObject({ meta: 'Needs linked robot code' });
-    expect(items.find((item) => item.kind === 'decision').disabled).toBeUndefined();
-    expect(addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, catalog).find((item) => item.kind === 'decision').meta).toBeUndefined();
+    expect(items.find((item) => item.kind === 'decision')).toBeUndefined();
+    expect(items.find((item) => item.kind === 'wait').disabled).toBeFalsy();
+    expect(addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, catalog).some((item) => item.kind === 'decision')).toBe(false);
   });
 });
 

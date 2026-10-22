@@ -125,7 +125,11 @@ must deliberately adapt these loader, timing, dispatch, completion, and cancella
 to BDXLV1 files. Discovery does not change or execute any of that robot code.
 
 
-## Conditions
+## Command outputs and legacy conditions
+
+New routine decisions use command output terminals discovered by NI inspection. Add a command, configure its inputs, and select an output under **After command completes**. Boolean outputs create True/False routes; enums create named routes; numeric outputs support ordered comparisons and Otherwise. Repeat stop rules also read a completed command output. No condition declaration or annotation is needed. Wait is built into Bordeaux and requires no catalog entry. See [command output branches](../command-output-branches.md) for source and runtime-adapter details.
+
+The following condition declaration format is retained for compatibility with older saved routines and event gates. It is not offered for new routine decisions.
 
 NI connector inspection discovers commands, not conditions. Conditions currently come from
 an explicit `conditions` array in `bordeaux-catalog.json` beside the `.lvproj`, for example:

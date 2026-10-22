@@ -509,7 +509,8 @@ export interface RoutineWaitEnds { endWhen?: RoutinePredicate }
 export interface RoutineRepeatNode {
   id: string;
   type: "repeat";
-  times: number;
+  /** Omitted for a dynamic repeat; a command-output stop rule is then required. */
+  times?: number;
   until?: RoutinePredicate | RoutineOutputStop;
   nodes: RoutineNode[];
 }

@@ -107,7 +107,7 @@ describe("Bordeaux-owned routine built-ins", () => {
     ]));
   });
 
-  it("serializes Wait only against the 1.2 generated contract", () => {
+  it("serializes native Wait without a generated catalog capability", () => {
     const project = createDemoProject();
     project.routines[0].nodes = [{ id: "wait", type: "builtin", builtinId: "bordeaux.wait", arguments: { durationS: 0.25 } }];
     expect(buildRobotTrajectory(project, generatedCatalog()).document.routine?.nodes).toEqual([
@@ -117,11 +117,12 @@ describe("Bordeaux-owned routine built-ins", () => {
     const legacy = generatedCatalog();
     legacy.generatedSchemaVersion = "1.1";
     legacy.supportVersion = "0.2.0";
-    expect(() => buildRobotTrajectory(project, legacy)).toThrow(/schema 1\.2/i);
+    expect(buildRobotTrajectory(project, legacy).document.routine?.nodes[0]).toMatchObject({ type: 'builtin', builtinId: 'bordeaux.wait' });
 
     const missing = generatedCatalog();
     missing.builtIns = [];
-    expect(() => buildRobotTrajectory(project, missing)).toThrow(/bordeaux\.wait/i);
+    expect(buildRobotTrajectory(project, missing).document.routine?.nodes[0]).toMatchObject({ type: 'builtin', builtinId: 'bordeaux.wait' });
+    expect(buildRobotTrajectory(project, null).document.routine?.nodes[0]).toMatchObject({ type: 'builtin', builtinId: 'bordeaux.wait' });
   });
 
   it("serializes a path, generated condition, Wait, and command in one routine", () => {
@@ -152,14 +153,13 @@ describe("Bordeaux-owned routine built-ins", () => {
     expect(run.steps[0]).toMatchObject({ dur: 0.25, t0: 0, t1: 0.25 });
   });
 
-  it("offers Wait in Add only with the catalog built-in and gives it a bounded inspector control", () => {
+  it("always offers native Wait in Add and gives it a bounded inspector control", () => {
     const routine = { id: "r", name: "R", nodes: [] };
     const wait = (catalog: RobotCommandCatalog | null) => addMenuSteps(routine, { list: { kind: "root" } }, catalog).find((item: { kind: string }) => item.kind === "wait");
     expect(wait(generatedCatalog())).toMatchObject({ label: "Wait" });
     expect(wait(generatedCatalog()).disabled).toBeFalsy();
-    // Without bordeaux.wait the kind stays discoverable but cannot be added.
-    expect(wait({ ...generatedCatalog(), builtIns: [] })).toMatchObject({ disabled: true, meta: "Needs bordeaux.wait in the catalog" });
-    expect(wait(null)).toMatchObject({ disabled: true });
+    expect(wait({ ...generatedCatalog(), builtIns: [] }).disabled).toBeFalsy();
+    expect(wait(null).disabled).toBeFalsy();
     const html = renderToStaticMarkup(createElement(StepInspector, {
       node: { id: "wait-a", type: "builtin", builtinId: "bordeaux.wait", arguments: { durationS: 1 } }, routine, paths: [], acq: {}, run: { segs: [] },
     }));

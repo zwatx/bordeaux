@@ -205,7 +205,7 @@ app.whenReady().then(async () => {
       assert.deepEqual((await source())[0].nodes, [], 'Cancelling empty insertion preserves source');
       activeCatalog = null;
       await load(null);
-      assert.ok(await evaluate(() => document.querySelector('.rt-empty').textContent.includes('Commands and robot conditions come from linked robot code')), 'No catalog empty state explains linking');
+      assert.ok(await evaluate(() => document.querySelector('.rt-empty').textContent.includes('Wait works without robot code')), 'No catalog empty state explains native Wait and linking commands');
       await click('.rt-empty-add');
       await snapshot('no-catalog-insert-' + width);
       await key('Escape');
@@ -237,6 +237,56 @@ app.whenReady().then(async () => {
       await load('unsupported-generated'); await click('[data-id="unsupported-generated"] .rt-step-body');
       assert.ok(await evaluate(() => document.querySelector('.routine-insp').textContent.includes('no robot runner supports it yet')), 'Saved unsupported definition never claims runtime generation');
       await snapshot('unsupported-definition-' + width);
+      // Native output-driven repeat authoring: the preview count is never a runtime cap.
+      const bool = { kind: 'boolean', valueType: 'Boolean' };
+      activeCatalog = { ...catalog, builtIns: [], commands: [{ id: 'completion', label: 'Check whether collection is finished', member: 'Completion.vi', parameters: [], labviewConnector: {},
+        outputs: [{ name: 'finished', label: 'Finished', schema: bool }] }] };
+      saved.routines = [{ ...routine, nodes: [{ id: 'output-loop', type: 'repeat', times: 2, nodes: [
+        { id: 'loop-path-a', type: 'path', ref: route.id }, { id: 'loop-path-b', type: 'path', ref: route.id },
+        { id: 'completion-step', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } },
+      ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
+      await load('output-loop'); await planned();
+      await click('[data-id="output-loop"] .rt-step-body');
+      await click('[aria-label="Repeat mode"] button', 'Until command output');
+      await wait(async () => (await source())[0].nodes[0].times === undefined, 'dynamic repeat clears only its count');
+      await click('#routine-repeat-output'); await key('Down'); await key('Enter');
+      await wait(async () => (await source())[0].nodes[0].until?.output === 'finished', 'completed command output stop selection');
+      let dynamic = (await source())[0].nodes[0];
+      assert.equal(dynamic.until.nodeId, 'completion-step'); assert.equal(dynamic.until.value, true); assert.equal(dynamic.until.source, 'output');
+      assert.equal(await evaluate(() => Boolean(document.querySelector('#routine-repeat-condition'))), false, 'No separate condition picker');
+      await click('#routine-repeat-passes-output-loop');
+      await evaluate(() => document.activeElement.select()); await win.webContents.insertText('3'); await key('Enter');
+      assert.deepEqual((await source())[0].nodes[0], dynamic, 'Preview passes never change authored runtime loop');
+      await snapshot('dynamic-command-repeat-' + width);
+      const stableDynamic = await source(), savedBeforeDynamic = saves;
+      await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > savedBeforeDynamic, 'dynamic repeat save');
+      await load('output-loop'); assert.deepEqual(await source(), stableDynamic, 'Dynamic repeat survives save/reopen without a count');
+      // Ordinary focused buttons give Space to playback and keep Enter for their own action.
+      await planned(); await click('[data-id="output-loop"] .rt-step-body');
+      await evaluate(() => document.querySelector('[aria-label="Close step inspector"]').focus());
+      await key('Space'); await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause routine playback"]'))), 'Space starts routine from focused inspector button');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.routine-insp'))), 'Space did not activate Close');
+      await key('Space'); await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play routine"]'))), 'Space pauses routine');
+      await key('Enter'); assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp'))), false, 'Enter still activates Close');
+      const geometry = [];
+      for (const place of ['Paths', 'Routines', 'Settings']) {
+        await click('.places .place', place); await delay(250);
+        geometry.push(await evaluate(() => {
+          const project = document.querySelector('.tb-project').getBoundingClientRect(), nav = document.querySelector('.places').getBoundingClientRect();
+          return { projectLeft: project.left, projectWidth: project.width, navLeft: nav.left, navWidth: nav.width };
+        }));
+        await snapshot('navigation-' + place.toLowerCase() + '-' + width);
+      }
+      assert.deepEqual(geometry[1], geometry[0]); assert.deepEqual(geometry[2], geometry[0], 'Project and tabs stay fixed across all pages');
+      // No catalog: Wait remains available and can be inserted with the keyboard.
+      activeCatalog = null; saved.routines = [{ ...routine, nodes: [] }]; await load(null);
+      await click('.rt-empty-add');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].some(el => /condition/i.test(el.textContent))), false);
+      await click('.rt-add-menu input'); await win.webContents.insertText('Wait'); await key('Enter');
+      await wait(async () => (await source())[0].nodes.length === 1, 'offline Wait inserted');
+      assert.equal((await source())[0].nodes[0].builtinId, 'bordeaux.wait');
+      await snapshot('native-wait-no-catalog-' + width);
+      activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
       scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'native insert/Escape/focus', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });

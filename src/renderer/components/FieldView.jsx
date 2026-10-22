@@ -1280,11 +1280,6 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, transform: `rotate(${FIELD_IMAGE.rotationDeg} ${(X0+X1)/2} ${(Y0+Y1)/2})`, 'data-role': 'bg', style: { pointerEvents: 'none' } },
         h('img', { src: fieldImage, width: IMG_W, height: IMG_H, draggable: false, style: { width: IMG_W + 'px', height: IMG_H + 'px', display: 'block', opacity: 0.9, filter: 'brightness(0.38) saturate(0.32) contrast(1.06)', WebkitUserDrag: 'none', userSelect: 'none', pointerEvents: 'none' } })),
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
-      showGrid && h('g', { className: 'field-origin', style: { pointerEvents: 'none' } },
-        h('title', null, 'Blue origin: +X toward red, +Y away from the scoring table; zero heading along +X'),
-        h('path', { d: `M ${X0} ${Y1 - P(32)} V ${Y1} H ${X0 + P(32)}`, fill: 'none', stroke: '#aeb6c2', strokeOpacity: 0.65, strokeWidth: P(1.3) }),
-        h('text', { x: X0 + P(8), y: Y1 + P(17), fill: '#aeb6c2', fontSize: P(10), fontFamily: 'JetBrains Mono, monospace' }, 'Blue origin (0, 0)'),
-          h('text', { x: X0 + P(145), y: Y1 + P(17), fill: '#aeb6c2', fontSize: P(9), fontFamily: 'JetBrains Mono, monospace' }, '+X →  +Y ↑')),
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),
