@@ -232,6 +232,8 @@ export interface RobotCommandOutput {
   max?: number | string;
   /** Saved NI connector terminal identity, separate from its display caption. */
   terminalNumber?: number;
+  /** Named path from returned connector terminals to a result inside a cluster. */
+  fieldPath?: string[];
 }
 
 export interface RobotCommandDescriptor {

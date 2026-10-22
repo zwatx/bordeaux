@@ -18,6 +18,35 @@ const host = (answer: (request: RoutineCommandRequest) => unknown = () => true):
 const run = (nodes: RoutineNode[], adapters = host(), signal = new AbortController().signal, descriptors = [descriptor()]) => executeRoutine(routine(nodes), descriptors, new Set(['A', 'B']), adapters, signal);
 
 describe('completed command output decisions', () => {
+  it('branches on the observed legacy completion enum without exposing notifier bookkeeping', () => {
+    const schema: RobotValueSchema = { kind: 'enum', valueType: 'Enum', enumValues: ['Successful', 'Aborted', 'Incomplete'] };
+    const output = { name: 'Command Info Out.Status', fieldPath: ['Command Info Out', 'Status'], schema };
+    const legacy = { ...descriptor(), outputs: [output] };
+    const decision: RoutineCommandOutputBranch = { output: output.name, schema, routes: [
+      ...schema.enumValues!.map(value => ({ id: value, label: value, operator: 'eq' as const, value, nodes: [] })),
+      { id: 'other', label: 'Otherwise', operator: 'otherwise', nodes: [] },
+    ] };
+    for (const status of schema.enumValues!) {
+      expect(selectCommandOutputRoute(decision, legacy, { 'Command Info Out': { Status: status } }).id).toBe(status);
+      expect(selectCommandOutputRoute(decision, legacy, { [output.name]: status }).id).toBe(status);
+    }
+    for (const outputs of [{}, { 'Command Info Out': {} }, { 'Command Info Out': { Status: 0 } },
+      { 'Command Info Out': Object.create({ Status: 'Successful' }) }]) {
+      expect(() => selectCommandOutputRoute(decision, legacy, outputs)).toThrow();
+    }
+  });
+
+  it('uses the current pass completion field for dynamic repeats', async () => {
+    const schema: RobotValueSchema = { kind: 'enum', valueType: 'Enum', enumValues: ['Successful', 'Aborted', 'Incomplete'] };
+    const output = { name: 'Command Info Out.Status', fieldPath: ['Command Info Out', 'Status'], schema };
+    const repeat = loop(); repeat.until = { source: 'output', nodeId: 'C', output: output.name, schema, operator: 'eq', value: 'Successful' };
+    const adapters = host(); let calls = 0;
+    adapters.command = vi.fn<RoutineExecutionAdapters['command']>(async request => ({ invocationId: request.invocationId, status: 'completed',
+      outputs: { 'Command Info Out': { Status: ++calls === 2 ? 'Successful' : 'Incomplete' } } }));
+    expect(await run([repeat], adapters, undefined, [{ ...descriptor(), outputs: [output] }])).toBe('completed');
+    expect(calls).toBe(2);
+  });
+
   it('routes true and false without truthiness coercion', () => {
     expect(selectCommandOutputRoute(branch(), descriptor(), { finished: true }).id).toBe('yes');
     expect(selectCommandOutputRoute(branch(), descriptor(), { finished: false }).id).toBe('no');

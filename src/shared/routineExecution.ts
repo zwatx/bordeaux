@@ -55,11 +55,25 @@ function checkBranch(branch: RoutineCommandOutputBranch, command: RobotCommandDe
   return output;
 }
 
+function completedOutput(command: RobotCommandDescriptor, output: RobotCommandOutput, outputs: Record<string, unknown>, context = ''): unknown {
+  if (Object.hasOwn(outputs, output.name)) return outputs[output.name];
+  if (output.fieldPath?.length) {
+    let value: unknown = outputs;
+    for (const field of output.fieldPath) {
+      if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, field)) {
+        throw new Error(`${command.label}: completed command did not return ${output.name}${context}`);
+      }
+      value = (value as Record<string, unknown>)[field];
+    }
+    return value;
+  }
+  throw new Error(`${command.label}: completed command did not return ${output.name}${context}`);
+}
+
 /** Called only with one completed invocation's outputs. Invalid/missing values never become Otherwise. */
 export function selectCommandOutputRoute(branch: RoutineCommandOutputBranch, command: RobotCommandDescriptor, outputs: Record<string, unknown>): RoutineCommandOutputRoute {
   const output = checkBranch(branch, command);
-  if (!Object.hasOwn(outputs, branch.output)) throw new Error(`${command.label}: completed command did not return ${branch.output}`);
-  const value = outputs[branch.output], error = robotParameterValueError(value, output);
+  const value = completedOutput(command, output, outputs), error = robotParameterValueError(value, output);
   if (error) throw new Error(error);
   // Validate before evaluating even an unconditional fallback.
   const schemaError = robotSchemaValueError(value, branch.schema, 'Command output');
@@ -157,12 +171,13 @@ export async function executeRoutine(source: AutonomousRoutine, descriptors: Rob
           if (flow === 'repeat') break;
           if (node.until?.source === 'output') {
             const stop = node.until, completion = fresh.get(stop.nodeId);
-            if (!completion || !Object.hasOwn(completion.outputs, stop.output)) throw new Error('Repeat stop has no completed command result from this pass');
+            if (!completion) throw new Error('Repeat stop has no completed command result from this pass');
             const producer = node.nodes.find(child => child.id === stop.nodeId)!;
             const descriptor = commands.get((producer as Extract<RoutineNode, { type: 'function' }>).invocation!.commandId)!;
-            const error = robotParameterValueError(completion.outputs[stop.output], checkedOutput(descriptor, stop.output, stop.schema!));
+            const output = checkedOutput(descriptor, stop.output, stop.schema!), value = completedOutput(descriptor, output, completion.outputs, ' from this pass');
+            const error = robotParameterValueError(value, output);
             if (error) throw new Error(error);
-            if (compareCommandOutput(stop.schema!, completion.outputs[stop.output], stop.operator, stop.value)) break;
+            if (compareCommandOutput(stop.schema!, value, stop.operator, stop.value)) break;
           }
           // Yield even for immediate adapters so a dynamic loop can observe disable/cancel.
           await call(() => new Promise<void>(resolve => setTimeout(resolve, 0)));

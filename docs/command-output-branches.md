@@ -6,7 +6,9 @@ The desktop preview does not execute commands or evaluate real output values. Th
 
 The robot VI adapter and versioned routine transport are not connected yet. Routine export continues to reject output branches, repeats and end instructions; path-only BDX export remains independent. The interpreter grants no transport or deployment capability and is never called by desktop preview or local Save. Do not drop branch metadata to make a routine deployable.
 
-`RobotCommandDescriptor.outputs` comes from verified NI connector metadata for supported top-level scalar output terminals. `Command Status Info.ctl` terminals remain lifecycle plumbing. Unsupported outputs are reported independently, preserving supported command inputs and outputs. Live NI inspection requires Windows with LabVIEW; supported cached metadata can be read on other hosts.
+`RobotCommandDescriptor.outputs` comes from verified NI connector metadata for supported scalar output terminals. Every verified legacy command also offers **Completion status**: Successful, Aborted or Incomplete, projected from its output `Command Status Info.ctl` cluster. The descriptor records the real connector number and `fieldPath` (terminal name, then `Status`); its name and notifier fields remain private. The reference interpreter accepts either an explicitly flattened result key or that exact own-property path in the completed invocation's outputs. A future NI host must await actual command completion, not merely the return of `Run VI`, and normalize the enum to its verified labels.
+
+Unsupported outputs are reported independently, preserving supported command inputs and outputs. Live NI inspection requires Windows with LabVIEW; supported cached metadata can be read on other hosts. Refresh commands after updating Bordeaux to load the completion choice.
 
 `RoutineFunctionNode.outputBranch` stores the selected output name, its schema snapshot, and ordered routes. Each route has a stable ID, label, comparison, optional typed value, and nested routine nodes. Boolean routes cover True and False. Enum/numeric routes include exactly one final Otherwise route. Comparisons are first-match; exact 64-bit thresholds stay strings. At most 256 routes are accepted. Preview outcomes use the parent command node ID and selected route ID.
 
@@ -25,5 +27,6 @@ Verification:
 - `npm test -- tests`: repository tests, including branch persistence, traversal, legacy migration, NI parsing, and export rejection.
 - `npm run typecheck` and `npm run build`.
 - `node scripts/verify-command-branches-ui.mjs`: built-app checks with an isolated project, mocked catalog/filesystem, pointer and keyboard input, route editing, save/reload, and screenshots at 1440×900 and 1100×720. It does not verify live NI or robot execution.
+- `BORDEAUX_BRANCH_UI_MODE=completion node scripts/verify-command-branches-ui.mjs`: four sanitized legacy connector fixtures pass through the actual decoder, then expose completion choices and exact routes in the built UI at both sizes, with keyboard selection/focus return and save/reopen. No LabVIEW or robot is accessed.
 
 See `.plans/2026-09-19_command_output_branches_and_robot_execution.html` for the future execution contract, scheduler semantics, migration, and acceptance criteria.

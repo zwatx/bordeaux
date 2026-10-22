@@ -40,13 +40,16 @@ Matching filenames, ordinary clusters with similar labels, nested typedefs, and 
 in a `Commands` folder are insufficient.
 
 The status cluster contains a name, a U16 completion enum (Successful, Aborted, Incomplete),
-and a notifier reference. These belong to the legacy scheduler and are excluded from author
-arguments. Supported argument types map to the existing shared typed parameter contract;
+and a notifier reference. These are excluded from author arguments. The verified output
+cluster's enum is available as **Completion status** for routine branches and repeat stop
+checks after the command completes. Its descriptor retains the output connector number
+and named field path; names and notifier references are not offered as branch values.
+Supported argument types map to the existing shared typed parameter contract;
 unsupported references or ambiguous cluster fields retain an explanation. Unsupported
 numeric representations are not silently widened into permissive values.
-Additional output terminals do not exclude an otherwise supported source command: the
-legacy planner stores input controls only. Such descriptors explicitly note that their
-additional outputs are not represented; they remain unavailable for native execution.
+Additional Boolean, enum and numeric output terminals are separate branch choices. Outputs
+without supported type evidence retain a diagnostic rather than guessed branch values.
+Metadata supports local authoring and preview; it does not provide a robot routine runner.
 
 In the selected `RebuiltApprentice.lvproj`, `Intake/Commands/Start Intake.vi` exposes `Setpoint`
 (DBL) and `Description` (string). `Intake Immediate.vi` also exposes an operation enum.
