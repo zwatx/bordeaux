@@ -626,7 +626,7 @@ export interface FieldReference {
 }
 
 export interface FieldMigrationRecord {
-  source: "legacy-unpinned";
+  source: "legacy-unpinned" | "bordeaux-field/1.0";
   assigned: FieldReference;
 }
 

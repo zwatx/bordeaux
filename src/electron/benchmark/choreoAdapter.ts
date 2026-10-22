@@ -253,7 +253,7 @@ function buildTrajectory(
   trajectoryName: string,
   project: BordeauxProject,
   path: PathDoc,
-  corridorCase: ReturnType<typeof CorridorCorpus.loadV1>["cases"][number] | null,
+  corridorCase: ReturnType<typeof CorridorCorpus.loadV2>["cases"][number] | null,
 ): ChoreoTrajectoryInput {
   const fixed = benchmarkClass === "fixed-geometry";
   const waypoints = referenceWaypoints(path, project, 4, fixed);
@@ -310,10 +310,10 @@ export function prepareChoreoFixture(
 ): ChoreoPreparation {
   const project = fixtureProject(directory);
   const fixedCase = benchmarkClass === "fixed-geometry"
-    ? FixedGeometryCorpus.loadV1(directory).cases.find((value) => value.id === fixtureId)
+    ? FixedGeometryCorpus.loadV2(directory).cases.find((value) => value.id === fixtureId)
     : null;
   const corridorCase = benchmarkClass === "corridor"
-    ? CorridorCorpus.loadV1(directory).cases.find((value) => value.id === fixtureId) ?? null
+    ? CorridorCorpus.loadV2(directory).cases.find((value) => value.id === fixtureId) ?? null
     : null;
   const fixture = fixedCase ?? corridorCase;
   if (!fixture) return { supported: false, benchmarkClass, fixtureId, code: "fixture:identity", reason: "Fixture is not in the pinned benchmark corpus." };

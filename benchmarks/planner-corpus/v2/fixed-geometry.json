@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "bordeaux-fixed-geometry/1.0",
+  "corpusId": "bordeaux-authored-tactical-v2-blue-origin",
+  "sourceManifest": {
+    "file": "manifest.json",
+    "sha256": "sha256:422dab991dc8495264ef2fa134fc58dbd4ecf7454fcc1a9dd9afed7fcec9fb35"
+  },
+  "sourceProject": {
+    "file": "corpus.bordeaux.json",
+    "sha256": "sha256:13d691ba733f131d3982c8a17d739114e4ddf4d416a59c521da40be10267d2a8"
+  },
+  "frozenProperties": [
+    "geometry",
+    "heading-law",
+    "stops-and-waits",
+    "endpoint-velocity",
+    "constraints",
+    "swerve-model"
+  ],
+  "normalization": {
+    "distance": "recomputed-from-ordered-xy",
+    "progress": "recomputed-from-distance",
+    "index": "recomputed-from-order",
+    "numericPrecisionPlaces": 9
+  },
+  "validation": {
+    "maximumInputSamples": 250000,
+    "maximumDenseStepM": 0.02,
+    "maximumDenseStepS": 0.02,
+    "fixedGeometryToleranceM": 0.04,
+    "fixedHeadingToleranceDeg": 2,
+    "endpointVelocityToleranceMps": 0.025,
+    "stopPositionToleranceM": 0.04,
+    "stopVelocityToleranceMps": 0.05,
+    "constraintAbsoluteTolerance": 0.03,
+    "constraintRelativeTolerance": 0.01,
+    "centripetalRelativeTolerance": 0.025
+  },
+  "leaderboard": {
+    "drive": "swerve",
+    "tank": "correctness-only"
+  },
+  "cases": [
+    {
+      "id": "fixed-blue-table-trench",
+      "pathId": "corpus-blue-table-trench",
+      "deterministicSeed": 2026081501
+    },
+    {
+      "id": "fixed-blue-away-bump",
+      "pathId": "corpus-blue-away-bump",
+      "deterministicSeed": 2026081502
+    },
+    {
+      "id": "fixed-neutral-slalom",
+      "pathId": "corpus-neutral-slalom",
+      "deterministicSeed": 2026081503
+    },
+    {
+      "id": "fixed-red-away-trench",
+      "pathId": "corpus-red-away-trench",
+      "deterministicSeed": 2026081504
+    },
+    {
+      "id": "fixed-blue-table-bump",
+      "pathId": "corpus-blue-table-bump",
+      "deterministicSeed": 2026081505
+    },
+    {
+      "id": "fixed-neutral-stop",
+      "pathId": "corpus-neutral-stop",
+      "deterministicSeed": 2026081506
+    }
+  ]
+}

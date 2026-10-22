@@ -14,7 +14,7 @@ import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src
 import { routeCandidateIssue } from "../src/shared/planners/routeValidation";
 import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/shared/types";
 
-const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v1/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
+const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v2/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
 // Math transcendental results differ by a few ULPs between supported Node versions.
 // Keep all values and structure, ignoring only sub-nanounit noise in these regression fingerprints.
 function trajectoryFingerprint(value: unknown): string {
@@ -96,6 +96,13 @@ describe("route heading semantics match Normal", () => {
     }
   });
 
+  it("retains the pre-change pure timing fingerprints on the untouched v1 geometry", () => {
+    const legacy = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v1/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
+    for (const path of legacy.paths.filter((p) => p.headingMode === "tangent")) {
+      expect(trajectoryFingerprint(normal({ path, robot }).samples)).toBe(normalHashes[path.id]);
+    }
+  });
+
   it.each(tangentPaths.map((path) => [path.id, path] as const))("ignores hidden endpoint theta on unchanged %s", (_id, source) => {
     expect(tangentPaths).toHaveLength(5);
     const input = { path: structuredClone(source), robot };
@@ -110,7 +117,7 @@ describe("route heading semantics match Normal", () => {
     const matching = normal({ ...input, path: changed });
     expect(matching.samples).toEqual(actual.samples);
     expect(input.path).toEqual(original);
-    expect(trajectoryFingerprint(actual.samples)).toBe(normalHashes[source.id]);
+
     const issue = routeCandidateIssue(input, actual);
     expect(issue).toEqual(routeCandidateIssue({ ...input, path: changed }, matching));
     if (["corpus-blue-away-bump", "corpus-neutral-slalom", "corpus-blue-table-bump"].includes(source.id)) expect(issue).toBeUndefined();
@@ -136,11 +143,11 @@ describe("route heading semantics match Normal", () => {
       }
     }
     if (id === "neutral-slalom") {
-      expect(expected.totalTimeS).toBeCloseTo(2.663521, 5);
       expect(search.candidate!.optimization!.gainS).toBeGreaterThan(0.18);
       expect(panel(input, search.candidate!, search.seedStatus, expected.totalTimeS)).toMatch(/faster, [\d.]+%/);
     }
-    if (id === "blue-away-bump") expect(expected.totalTimeS).toBeCloseTo(1.948, 3);
+    // Exact v1 timing remains covered by the untouched-geometry fingerprints above.
+    // The current corpus has different physical dimensions and separate identities.
     expect(input.path).toEqual(before);
   }, 15_000);
 

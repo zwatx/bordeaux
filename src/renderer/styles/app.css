@@ -854,7 +854,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .field-status{position:relative;display:flex;align-items:flex-start;width:max-content;max-width:100%;min-width:0;border:1px solid var(--line-2);border-radius:var(--r);background:var(--hud-surface);box-shadow:var(--elevation);color:var(--txt-2);font-size:12px;line-height:1.4;pointer-events:auto}
 .field-status.error{border-color:rgba(210,101,95,.45)}
 .field-status details{min-width:0}
-.field-status summary{min-width:0;min-height:32px;padding:6px 10px}
+.field-status summary{min-width:0;min-height:36px;padding:6px 10px}
 .field-status summary::after{content:none}
 .field-status summary>svg{flex-shrink:0}
 .field-status summary>svg:last-child{color:var(--txt-3);transition:transform .14s}
@@ -863,7 +863,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .field-status-label{min-width:0;overflow:hidden;color:var(--txt);text-overflow:ellipsis;white-space:nowrap}
 .field-status-disclosure{margin-left:auto;padding-left:4px;color:var(--txt-3);white-space:nowrap}
 .field-status button{padding:4px 10px;border-radius:var(--r-s);color:var(--txt);font:inherit}
-.field-status .field-status-action{flex-shrink:0;margin:5px 5px 0 0;border:1px solid var(--line-3);background:var(--bg-3);font-weight:550}
+.field-status .field-status-action{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;height:28px;margin:4px 5px 4px 0;padding:0 10px;border:1px solid var(--line-3);background:var(--bg-3);font-weight:550}
 .field-status-details{width:100%;min-width:0;max-width:440px;max-height:min(240px,40vh);overflow:auto;overscroll-behavior:contain;padding:4px 12px;border-top:1px solid var(--line-2)}
 .field-status-item{padding:9px 0;overflow-wrap:anywhere}
 .field-status-item+.field-status-item{border-top:1px solid var(--line)}

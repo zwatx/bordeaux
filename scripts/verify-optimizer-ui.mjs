@@ -24,7 +24,7 @@ async function identities() {
   for (const file of ['scripts/verify-optimizer-ui.mjs', 'scripts/verify-optimizer-ui-electron.cjs',
     'scripts/verify-optimizer-ui-preload.cjs', 'scripts/verify-optimizer-ui-workers.cjs',
     'src/renderer', 'src/shared', 'package.json', 'package-lock.json',
-    'benchmarks/planner-corpus/v1/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
+    'benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
   return inputs;
 }
 let status = null, timedOut = false, timer, before, stableInputs = false;
@@ -32,7 +32,7 @@ const startedAt = new Date().toISOString();
 try {
   before = await identities();
   await json('inputs-before.json', before);
-  const corpus = JSON.parse(await fs.readFile(path.join(root, 'benchmarks/planner-corpus/v1/corpus.bordeaux.json'), 'utf8'));
+  const corpus = JSON.parse(await fs.readFile(path.join(root, 'benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
   const primary = structuredClone(corpus.paths.find((item) => item.id === 'corpus-neutral-slalom'));
   if (!primary) throw new Error('Neutral slalom verification fixture was not found');
   primary.name = 'Optimizer verification slalom';

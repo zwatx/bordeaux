@@ -1,4 +1,5 @@
 import { indexIntervalPolicies } from "../planners/intervalPolicies";
+import { stationaryTurnDelta } from "./angles";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
 import type { ConstraintRange, ControlPoint, DriveType, PathConstraints, PathDoc, RobotConfig, TurnInPlace } from "../types";
 import type { GeometryPoint } from "./geometry";
@@ -184,9 +185,7 @@ function profile(pts: readonly Pick<GeometryPoint, "s" | "curv">[], c: ProfileCo
   const turns: TimedTurn[] = [], turnDelay = new Map<number, number>(); let terminalDelay = 0;
   (opts.turns || []).slice().sort((a, b) => a.idx - b.idx).forEach((turn) => {
     if (turn.idx < 0 || turn.idx >= n) return;
-    let delta = angWrap(turn.end - turn.start);
-    if (turn.direction === 'clockwise' && delta > 0) delta -= Math.PI * 2;
-    if (turn.direction === 'counterclockwise' && delta < 0) delta += Math.PI * 2;
+    const delta = stationaryTurnDelta(turn.start, turn.end, turn.direction);
     if (Math.abs(delta) < 1e-9) return;
     const wMax = Math.max(1e-6, (turn.maxAngVel || 540) * D2R), aMax = Math.max(1e-6, (turn.maxAngAccel || 720) * D2R), jMax = Math.max(0, (turn.maxAngJerk || 0) * D2R);
     const duration = Math.max(Math.abs(delta) * 1.875 / wMax, Math.sqrt(Math.abs(delta) * 5.77351 / aMax), jMax > 1e-9 ? Math.cbrt(Math.abs(delta) * 60 / jMax) : 0);
@@ -423,7 +422,7 @@ function derivePath(doc: PathDoc, robot: RobotConfig | null, perSeg?: number, op
   });
   return { sample: smp, prof, anchors, metrics: mtr, warnings, wpFrac, wpIdx, mode, effRanges, headingMode, rev: !!doc.driveBackward };
 }
-function jigglePositions(anchor: ControlPoint, baseRad: number, options: { distanceM?: number; distance?: number; strokes: number; startDeg: number; stepDeg: number }, bounds = { w: 17.548, h: 8.052 }) {
+function jigglePositions(anchor: ControlPoint, baseRad: number, options: { distanceM?: number; distance?: number; strokes: number; startDeg: number; stepDeg: number }, bounds = { w: 16.541, h: 8.069 }) {
   const distance = Number(options.distanceM ?? options.distance), strokes = Math.round(Number(options.strokes)), startDeg = Number(options.startDeg), stepDeg = Number(options.stepDeg);
   if (!(distance >= 0.03) || strokes < 2 || strokes > 12 || !Number.isFinite(startDeg + stepDeg)) return null;
   const directions = new Set<number>(), positions: ControlPoint[] = [];

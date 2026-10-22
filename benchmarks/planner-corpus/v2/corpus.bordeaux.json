@@ -1,0 +1,515 @@
+{
+  "schemaVersion": "1.0",
+  "field": {
+    "id": "2026-rebuilt",
+    "revision": "2026-manual-tu19-welded-4",
+    "coordinateSchemaId": "wpilib-blue-origin/2026-welded/1"
+  },
+  "name": "Bordeaux Authored Planner Corpus v2 Blue Origin",
+  "robot": {
+    "drive": "swerve",
+    "w": 0.84,
+    "l": 0.84,
+    "heightM": 0.5,
+    "maxSpeed": 5
+  },
+  "paths": [
+    {
+      "id": "corpus-blue-table-trench",
+      "name": "Blue Table Trench Outbound",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 1.977605311146569,
+          "y": 0.7215201192250373,
+          "segType": "bezier",
+          "prevC": {
+            "x": 1.4033683020287204,
+            "y": 0.7445285941381025
+          },
+          "nextC": {
+            "x": 2.5518423202644174,
+            "y": 0.6985116443119723
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 0,
+          "stop": false,
+          "x": 4.02845177228174,
+          "y": 0.6393469945355192,
+          "segType": "bezier",
+          "prevC": {
+            "x": 2.8803472589468875,
+            "y": 0.46257456532538505
+          },
+          "nextC": {
+            "x": 5.176556285616593,
+            "y": 0.8161194237456534
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 20,
+          "stop": false,
+          "x": 6.0779785730567575,
+          "y": 1.3528502235469453,
+          "prevC": {
+            "x": 5.504111068839752,
+            "y": 1.153069319423746
+          },
+          "nextC": {
+            "x": 6.651846077273763,
+            "y": 1.5526311276701443
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 4.2,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0
+      },
+      "headingMode": "tangent",
+      "startVel": 0,
+      "goalVel": 1.2,
+      "exportable": true
+    },
+    {
+      "id": "corpus-blue-away-bump",
+      "name": "Blue Away Bump Sweep",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 2.0718667654433536,
+          "y": 6.213089915548934,
+          "segType": "bezier",
+          "prevC": {
+            "x": 1.524022963528606,
+            "y": 6.4199136577247895
+          },
+          "nextC": {
+            "x": 2.6197105673581027,
+            "y": 6.006266173373076
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 0,
+          "stop": false,
+          "x": 4.02845177228174,
+          "y": 5.474433693492301,
+          "segType": "bezier",
+          "prevC": {
+            "x": 2.946330276954637,
+            "y": 5.460404135618481
+          },
+          "nextC": {
+            "x": 5.110573267608843,
+            "y": 5.488463251366122
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 25,
+          "stop": false,
+          "x": 5.936586391611578,
+          "y": 6.263195479384005,
+          "prevC": {
+            "x": 5.402308698199224,
+            "y": 6.0423421793343275
+          },
+          "nextC": {
+            "x": 6.470864085023933,
+            "y": 6.4840487794336825
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 3.7,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0,
+        "maxCentripetalAccel": 4.5
+      },
+      "headingMode": "tangent",
+      "startVel": 0,
+      "goalVel": 0,
+      "exportable": true
+    },
+    {
+      "id": "corpus-neutral-slalom",
+      "name": "Neutral Zone Slalom",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 20,
+          "stop": false,
+          "x": 6.382066025,
+          "y": 1.8038002980625933,
+          "segType": "bezier",
+          "prevC": {
+            "x": 5.95603857,
+            "y": 1.4747574433750057
+          },
+          "nextC": {
+            "x": 6.808093479,
+            "y": 2.132843152750181
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 35,
+          "stop": false,
+          "x": 7.48492504,
+          "y": 2.655594883258818,
+          "segType": "bezier",
+          "prevC": {
+            "x": 6.879200935,
+            "y": 2.0242647789369106
+          },
+          "nextC": {
+            "x": 8.090649145,
+            "y": 3.2869249875807256
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 45,
+          "stop": false,
+          "x": 8.545366401,
+          "y": 4.058550670640836,
+          "segType": "bezier",
+          "prevC": {
+            "x": 7.927765352291261,
+            "y": 3.329013660955614
+          },
+          "nextC": {
+            "x": 9.16296744929126,
+            "y": 4.788087679832912
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 35,
+          "stop": false,
+          "x": 9.69064307,
+          "y": 5.261084202682564,
+          "segType": "bezier",
+          "prevC": {
+            "x": 9.108672851735282,
+            "y": 4.643783656484044
+          },
+          "nextC": {
+            "x": 10.272613288735283,
+            "y": 5.878384749380218
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 40,
+          "stop": false,
+          "x": 10.623831468,
+          "y": 6.263195479384005,
+          "prevC": {
+            "x": 10.2471932,
+            "y": 5.858739683947622
+          },
+          "nextC": {
+            "x": 11.000469736,
+            "y": 6.667651274820387
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 4,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0,
+        "maxCentripetalAccel": 4
+      },
+      "headingMode": "tangent",
+      "startVel": 0,
+      "goalVel": 0,
+      "exportable": true
+    },
+    {
+      "id": "corpus-red-away-trench",
+      "name": "Red Away Trench Outbound",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 180,
+          "stop": false,
+          "x": 14.561509459767496,
+          "y": 7.335454545454547,
+          "segType": "bezier",
+          "prevC": {
+            "x": 15.135218604741281,
+            "y": 7.309078976651765
+          },
+          "nextC": {
+            "x": 13.987800314793708,
+            "y": 7.361830114257328
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 180,
+          "stop": false,
+          "x": 12.51254822771826,
+          "y": 7.429653005464482,
+          "segType": "bezier",
+          "prevC": {
+            "x": 13.660652741053113,
+            "y": 7.626066815697964
+          },
+          "nextC": {
+            "x": 11.364443714383405,
+            "y": 7.233239195231
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 200,
+          "stop": false,
+          "x": 10.461136197857305,
+          "y": 6.633976651763539,
+          "prevC": {
+            "x": 11.035531566218374,
+            "y": 6.856766030799802
+          },
+          "nextC": {
+            "x": 9.886740829496237,
+            "y": 6.4111872727272745
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 4.2,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0
+      },
+      "headingMode": "tangent",
+      "startVel": 0,
+      "goalVel": 1.2,
+      "exportable": true
+    },
+    {
+      "id": "corpus-blue-table-bump",
+      "name": "Blue Table Bump Wrap",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 2.4017818554821053,
+          "y": 2.8560171385991064,
+          "segType": "bezier",
+          "prevC": {
+            "x": 1.8425679731436417,
+            "y": 2.945898271424203
+          },
+          "nextC": {
+            "x": 2.9609957378205674,
+            "y": 2.76613600577401
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": false,
+          "theta": 0,
+          "stop": false,
+          "x": 4.02845177228174,
+          "y": 2.594566306507701,
+          "segType": "bezier",
+          "prevC": {
+            "x": 3.065099709368587,
+            "y": 2.6029840412319922
+          },
+          "nextC": {
+            "x": 4.991803835194894,
+            "y": 2.5861485717834087
+          },
+          "corner": false
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 10,
+          "stop": false,
+          "x": 5.842324937314793,
+          "y": 2.8259538002980626,
+          "prevC": {
+            "x": 5.280784296601174,
+            "y": 2.75432063210254
+          },
+          "nextC": {
+            "x": 6.4038655780284115,
+            "y": 2.897586968493586
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 3.5,
+        "maxAccel": 6.5,
+        "maxDecel": 6.5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0,
+        "maxCentripetalAccel": 4.2
+      },
+      "headingMode": "tangent",
+      "startVel": 0,
+      "goalVel": 0,
+      "exportable": true
+    },
+    {
+      "id": "corpus-neutral-stop",
+      "name": "Neutral Stop and Reorient",
+      "waypoints": [
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 0,
+          "stop": false,
+          "x": 6.360762935947115,
+          "y": 5.912456532538501,
+          "segType": "bezier",
+          "prevC": {
+            "x": 5.857986728817444,
+            "y": 6.187810610189918
+          },
+          "nextC": {
+            "x": 6.863539143076785,
+            "y": 5.637102454887084
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 315,
+          "stop": true,
+          "x": 7.916076931844083,
+          "y": 5.060661947342275,
+          "wait": 0.15,
+          "segType": "bezier",
+          "prevC": {
+            "x": 6.952724868930932,
+            "y": 6.042730998509689
+          },
+          "nextC": {
+            "x": 8.879428994757237,
+            "y": 4.078592896174863
+          }
+        },
+        {
+          "linked": true,
+          "thetaOn": true,
+          "theta": 300,
+          "stop": false,
+          "x": 9.801306017779803,
+          "y": 2.405067064083458,
+          "prevC": {
+            "x": 9.2734418737178,
+            "y": 3.148633631395927
+          },
+          "nextC": {
+            "x": 10.329170161841805,
+            "y": 1.6615004967709885
+          }
+        }
+      ],
+      "targets": [],
+      "markers": [],
+      "ranges": [],
+      "constraints": {
+        "maxVel": 3.4,
+        "maxAccel": 5,
+        "maxDecel": 5,
+        "maxAngVel": 540,
+        "maxAngAccel": 720,
+        "maxAngDecel": 720,
+        "maxJerk": 0,
+        "maxAngJerk": 0,
+        "maxCentripetalAccel": 3.8
+      },
+      "headingMode": "manual",
+      "startVel": 0,
+      "goalVel": 0,
+      "exportable": true
+    }
+  ],
+  "pathLinks": [],
+  "routines": [
+    {
+      "id": "corpus-routine",
+      "name": "Corpus fixtures only",
+      "nodes": []
+    }
+  ],
+  "activeRoutineId": "corpus-routine",
+  "plannerId": "profiledSpline",
+  "editor": {
+    "activePathId": "corpus-blue-table-trench"
+  }
+}

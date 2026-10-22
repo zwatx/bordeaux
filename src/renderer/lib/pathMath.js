@@ -741,7 +741,7 @@ import { headingTransitionWindows, headingTransitionGoals, smoothHeadingTransiti
     return { sample: smp, prof, totalDistance: smp.length + (prof.actionDistance || 0), anchors, metrics: mtr, checks, wpFrac, wpIdx, mode, effRanges, headingMode, rev: !!doc.driveBackward, markers: [], planner: 'profiledSpline' };
   }
 
-  function jigglePositions(anchor, baseRad, options, bounds = { w: 17.548, h: 8.052 }) {
+  function jigglePositions(anchor, baseRad, options, bounds = { w: 16.541, h: 8.069 }) {
     const distance = Number(options.distanceM != null ? options.distanceM : options.distance), strokes = Math.round(Number(options.strokes)), startDeg = Number(options.startDeg), stepDeg = Number(options.stepDeg);
     if (!(distance >= 0.03) || strokes < 2 || strokes > 12 || !Number.isFinite(startDeg + stepDeg)) return null;
     const directions = new Set(), positions = [];

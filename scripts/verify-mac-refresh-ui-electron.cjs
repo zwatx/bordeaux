@@ -61,7 +61,7 @@ ipcMain.handle('refresh:autosave', async (_event, project) => {
 });
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v1/corpus.bordeaux.json'), 'utf8'));
+    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
     const source = corpus.paths.find((p) => p.id === 'corpus-neutral-stop');
     const paths = ['Original path', 'Follower path'].map((name, i) => {
       const p = { ...structuredClone(source), id: 'refresh-' + i, name, headingMode: 'targets', targets: [{ f: .45, deg: 35, anchor: 'param' }] };

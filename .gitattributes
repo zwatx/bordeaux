@@ -1,0 +1,3 @@
+# Frozen evidence is hashed as bytes; platform checkout must not rewrite line endings.
+benchmarks/planner-corpus/v2/** -text
+labview/tests/fixtures/binary/blue-origin/** -text

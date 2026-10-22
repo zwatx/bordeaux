@@ -13,7 +13,7 @@ const CERTIFICATION_SCHEMA_VERSION = "bordeaux-field-certification/1.0" as const
 const EPSILON = 1e-8;
 
 /** Update deliberately only after reviewing a changed certification report. */
-export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:14db440fb05645703cd4bd0ddbaf8f473b2b635046a37b44cfe707f68803a66b";
+export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:042a3128a371136874cfc5739dfb53132a860cfc9c1a5a18f8810feb1152928e";
 
 /** These commitments are deliberately distinct so coordinate fixes do not imply full behavior certification. */
 export const FIELD_SUPPORT_PROMISES = {
@@ -161,10 +161,10 @@ export function certifyField(
   let orientation = true;
   try {
     const officialCorners = [
-      { official: { x: 0, y: 0 }, app: { x: FIELD_W, y: 0 } },
-      { official: { x: pack.dimensions.lengthM, y: 0 }, app: { x: 0, y: 0 } },
-      { official: { x: 0, y: pack.dimensions.widthM }, app: { x: FIELD_W, y: FIELD_H } },
-      { official: { x: pack.dimensions.lengthM, y: pack.dimensions.widthM }, app: { x: 0, y: FIELD_H } },
+      { official: { x: 0, y: 0 }, app: { x: 0, y: 0 } },
+      { official: { x: pack.dimensions.lengthM, y: 0 }, app: { x: FIELD_W, y: 0 } },
+      { official: { x: 0, y: pack.dimensions.widthM }, app: { x: 0, y: FIELD_H } },
+      { official: { x: pack.dimensions.lengthM, y: pack.dimensions.widthM }, app: { x: FIELD_W, y: FIELD_H } },
     ];
     orientation = officialCorners.every(({ official, app: expected }) => {
       const app = transforms.officialToAppPoint(official);
@@ -176,7 +176,7 @@ export function certifyField(
     orientation = orientation && finitePoint(redView) && finitePoint(redOpposite)
       && close(redView.x, redOpposite.x) && close(redView.y, redOpposite.y);
   } catch { orientation = false; }
-  check("transform.alliance-orientation", orientation, "Official axes map to the established app frame and the Red view is a display-only 180-degree rotation.");
+  check("transform.alliance-orientation", orientation, "Authored coordinates equal official blue-origin meters; the opposite alliance is a 180-degree rotation within the same fixed frame.");
 
   check("landmark.unique-finite-in-bounds", landmarkGeometryIsValid(pack), "Landmarks have unique IDs and all declared coordinates, lines, and regions are finite and in bounds.");
 

@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "bordeaux-planner-corpus/1.0",
+  "corpusId": "bordeaux-authored-tactical-v2-blue-origin",
+  "frozenAt": "2026-10-21",
+  "freezeProtocol": "Blue-origin conversion of v1 synthetic scenarios, with explicit neutral-slalom clearance adjustment, frozen before new benchmark comparisons.",
+  "origin": {
+    "kind": "bordeaux-authored",
+    "realTeamData": false,
+    "redistribution": "Bordeaux-owned synthetic benchmark fixtures"
+  },
+  "claims": {
+    "representativeness": "synthetic-tactical-scenarios",
+    "allowed": "Representative 2026 field maneuvers for reproducible planner engineering tests.",
+    "prohibited": "Do not describe this corpus as donated, real-team, competition-proven, or statistically representative of team strategy."
+  },
+  "field": {
+    "id": "2026-rebuilt",
+    "revision": "2026-manual-tu19-welded-4",
+    "coordinateSchemaId": "wpilib-blue-origin/2026-welded/1"
+  },
+  "robot": {
+    "drive": "swerve",
+    "w": 0.84,
+    "l": 0.84,
+    "heightM": 0.5,
+    "maxSpeed": 5
+  },
+  "project": {
+    "file": "corpus.bordeaux.json",
+    "sha256": "sha256:13d691ba733f131d3982c8a17d739114e4ddf4d416a59c521da40be10267d2a8"
+  },
+  "scenarios": [
+    {
+      "pathId": "corpus-blue-table-trench",
+      "intent": "Exit the blue alliance zone through the scoring-table trench with a rolling endpoint.",
+      "features": [
+        "trench-crossing",
+        "nonzero-end-velocity",
+        "curved-geometry"
+      ],
+      "validation": {
+        "requiredTraversal": "trench-table",
+        "requiredPortalIds": [
+          "blue-trench-table"
+        ]
+      }
+    },
+    {
+      "pathId": "corpus-blue-away-bump",
+      "intent": "Sweep from the blue alliance zone through the non-scoring-table bump under a lateral-acceleration limit.",
+      "features": [
+        "bump-crossing",
+        "curved-geometry"
+      ],
+      "validation": {
+        "requiredTraversal": "bump-away",
+        "requiredPortalIds": [
+          "blue-bump-away"
+        ]
+      }
+    },
+    {
+      "pathId": "corpus-neutral-slalom",
+      "intent": "Traverse a multi-bend neutral-zone collection line without touching an alliance barrier.",
+      "features": [
+        "neutral-zone",
+        "curved-geometry",
+        "multi-segment"
+      ],
+      "validation": {
+        "requiredTraversal": "direct",
+        "requiredPortalIds": []
+      }
+    },
+    {
+      "pathId": "corpus-red-away-trench",
+      "intent": "Mirror the trench exit on the red alliance side with a rolling endpoint.",
+      "features": [
+        "trench-crossing",
+        "nonzero-end-velocity",
+        "mirrored-alliance"
+      ],
+      "validation": {
+        "requiredTraversal": "trench-away",
+        "requiredPortalIds": [
+          "red-trench-away"
+        ]
+      }
+    },
+    {
+      "pathId": "corpus-blue-table-bump",
+      "intent": "Wrap below the blue hub and cross the scoring-table bump with constrained curvature.",
+      "features": [
+        "bump-crossing",
+        "curved-geometry",
+        "hub-wrap"
+      ],
+      "validation": {
+        "requiredTraversal": "bump-table",
+        "requiredPortalIds": [
+          "blue-bump-table"
+        ]
+      }
+    },
+    {
+      "pathId": "corpus-neutral-stop",
+      "intent": "Stop inside the neutral zone, wait, reorient, and continue on fixed geometry.",
+      "features": [
+        "interior-stop",
+        "manual-heading",
+        "curved-geometry"
+      ],
+      "validation": {
+        "requiredTraversal": "direct",
+        "requiredPortalIds": []
+      }
+    }
+  ],
+  "derivedFrom": {
+    "corpusId": "bordeaux-authored-tactical-v1",
+    "projectSha256": "sha256:787f068012a9d03247b447fccc9d7f4a12a5c5b8b03dc35bd3b36461dbd93015",
+    "transform": "Mirror and rescale X into official meters; rescale Y; reflect headings and handles. No solver results used.",
+    "adjustments": [
+      "Contract neutral-slalom X positions and handles 10% about midfield to preserve its neutral-only intent with the full-depth barriers and unchanged 0.84 m robot. Apply the same transform to its corridor gates. No timing target selected this adjustment."
+    ]
+  }
+}

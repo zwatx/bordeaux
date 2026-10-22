@@ -277,8 +277,9 @@ it("keeps golden header, CRC and non-planner metadata comparisons exact", () => 
 });
 
 // Deliberate regeneration: BORDEAUX_UPDATE_BDX_FIXTURES=1 npx vitest run tests/robotBinary.test.ts
-it("matches the direct-VI golden files and normalized fixture evidence", () => {
-  const directory = path.resolve("labview/tests/fixtures/binary");
+it("matches frozen blue-origin binary files and independent decoded fixture evidence", () => {
+  const directory = path.resolve("labview/tests/fixtures/binary/blue-origin");
+  if (process.env.BORDEAUX_UPDATE_BDX_FIXTURES === "1") fs.mkdirSync(directory, { recursive: true });
   const manifest: unknown[] = [];
   for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
     const fixture = binaryWriterFixture(curved, events);

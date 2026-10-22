@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "bordeaux-corridor/1.0",
+  "corpusId": "bordeaux-authored-tactical-v2-blue-origin",
+  "sourceFixedGeometry": {
+    "file": "fixed-geometry.json",
+    "sha256": "sha256:d7c3e92102a7179bd5947d3d4318bcd04d49ba39b46813ebdb34911a9308273f"
+  },
+  "sourceProject": {
+    "file": "corpus.bordeaux.json",
+    "sha256": "sha256:13d691ba733f131d3982c8a17d739114e4ddf4d416a59c521da40be10267d2a8"
+  },
+  "validation": {
+    "maximumDenseStepM": 0.02,
+    "maximumDenseStepS": 0.02,
+    "maximumSourceStepM": 0.1,
+    "endpointPositionToleranceM": 0.03,
+    "endpointHeadingToleranceDeg": 2,
+    "gateToleranceM": 1e-06,
+    "stopPositionToleranceM": 0.04,
+    "stopVelocityToleranceMps": 0.05,
+    "candidateCentripetalRelativeTolerance": 0.025,
+    "candidateAdjacentCentripetalRelativeTolerance": 0.27
+  },
+  "leaderboard": {
+    "drive": "swerve"
+  },
+  "cases": [
+    {
+      "id": "corridor-blue-table-trench",
+      "pathId": "corpus-blue-table-trench",
+      "deterministicSeed": 2026081511,
+      "centerlineToFootprintBoundaryM": 1.05,
+      "gates": [
+        {
+          "id": "blue-table-trench",
+          "bounds": {
+            "xMin": 3.674311488,
+            "xMax": 4.381272396,
+            "yMin": 0.200422255,
+            "yMax": 1.102322404
+          }
+        },
+        {
+          "id": "blue-table-exit",
+          "bounds": {
+            "xMin": 5.229625484,
+            "xMax": 6.360762936,
+            "yMin": 0.801689021,
+            "yMax": 1.803800298
+          }
+        }
+      ],
+      "stops": [],
+      "eventOrder": [
+        "approach-trench",
+        "clear-trench"
+      ]
+    },
+    {
+      "id": "corridor-neutral-slalom",
+      "pathId": "corpus-neutral-slalom",
+      "deterministicSeed": 2026081512,
+      "centerlineToFootprintBoundaryM": 1.1,
+      "gates": [
+        {
+          "id": "slalom-entry",
+          "bounds": {
+            "xMin": 7.060748496,
+            "xMax": 7.909101584,
+            "yMin": 2.154539245,
+            "yMax": 3.156650522
+          }
+        },
+        {
+          "id": "slalom-center",
+          "bounds": {
+            "xMin": 8.121189856,
+            "xMax": 8.969542945,
+            "yMin": 3.557495032,
+            "yMax": 4.559606309
+          }
+        },
+        {
+          "id": "slalom-exit",
+          "bounds": {
+            "xMin": 9.266466526,
+            "xMax": 10.114819615,
+            "yMin": 4.760028564,
+            "yMax": 5.762139841
+          }
+        }
+      ],
+      "stops": [],
+      "eventOrder": [
+        "slalom-entry",
+        "slalom-exit"
+      ]
+    },
+    {
+      "id": "corridor-neutral-stop",
+      "pathId": "corpus-neutral-stop",
+      "deterministicSeed": 2026081513,
+      "centerlineToFootprintBoundaryM": 1.05,
+      "gates": [
+        {
+          "id": "neutral-stop",
+          "bounds": {
+            "xMin": 7.491900388,
+            "xMax": 8.340253476,
+            "yMin": 4.609711873,
+            "yMax": 5.511612022
+          }
+        },
+        {
+          "id": "neutral-stop-exit",
+          "bounds": {
+            "xMin": 8.811560748,
+            "xMax": 9.754175291,
+            "yMin": 3.106544958,
+            "yMax": 4.108656234
+          }
+        }
+      ],
+      "stops": [
+        {
+          "waypointIndex": 1,
+          "waitS": 0.15
+        }
+      ],
+      "eventOrder": [
+        "stop-arrival",
+        "stop-departure"
+      ]
+    }
+  ]
+}

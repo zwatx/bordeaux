@@ -260,8 +260,13 @@ export class ProjectRecoveryStore {
       if (meta.recordId !== recordId || !record(parsed.metadata) || meta.originId !== parsed.metadata.originId) throw new RecoveryStoreError("invalid-record", meta);
       if (parsed.format !== FORMAT) throw new RecoveryStoreError("unsupported-version", meta);
       const encoded = encodeProjectFile(parsed.project);
-      if (typeof parsed.digest !== "string" || !DIGEST.test(parsed.digest) || parsed.digest !== hash(encoded.contents)) throw new RecoveryStoreError("invalid-record", meta);
-      const envelope: Envelope = { format: FORMAT, metadata: meta, project: encoded.project, digest: parsed.digest,
+      // Old receipts authenticate the original canonical source, before field migration.
+      // Retain those bytes in the envelope when updating resolutions; readSnapshot converts
+      // the validated source for the editor without rewriting its historical receipt.
+      const legacy = record(parsed.project) && record(parsed.project.field) && parsed.project.field.coordinateSchemaId === "bordeaux-field/1.0";
+      const source = legacy ? `${JSON.stringify(parsed.project, null, 2)}\n` : encoded.contents;
+      if (typeof parsed.digest !== "string" || !DIGEST.test(parsed.digest) || parsed.digest !== hash(source)) throw new RecoveryStoreError("invalid-record", meta);
+      const envelope: Envelope = { format: FORMAT, metadata: meta, project: legacy ? parsed.project as unknown as BordeauxProject : encoded.project, digest: parsed.digest,
         ...(parsed.resolved === undefined ? {} : { resolved: resolution(parsed.resolved, { recordId, revision: meta.revision, digest: parsed.digest }) }) };
       const uncertain = uncertainResolutions.get(pathKey(this.file(recordId)));
       if (uncertain?.revision === meta.revision && uncertain.digest === parsed.digest) delete envelope.resolved;

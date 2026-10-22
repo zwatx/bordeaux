@@ -104,7 +104,7 @@ ipcMain.handle('fixture:create', (_e, request) => {
 app.whenReady().then(async () => {
   try {
     await fs.mkdir(readOnlyFolder, { recursive: true }); await fs.chmod(readOnlyFolder, 0o500);
-    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v1/corpus.bordeaux.json'), 'utf8'));
+    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
     const source = corpus.paths.find((item) => item.id === 'corpus-neutral-stop');
     project = { ...corpus, name: 'Project folder workflow', paths: [{ ...source, id: 'opening', name: 'Opening move' }], routines: [], pathLinks: [], editor: { activePathId: 'opening' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'verify-project-folder-ui-preload.cjs') } });

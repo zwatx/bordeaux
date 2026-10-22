@@ -98,7 +98,7 @@ describe("practical route qualification", () => {
   });
 
   it("retains aligned cubic graph handles alongside the overshooting smoothed variant", () => {
-    const { path, robot } = fixture([{ x: 2.2, y: 4 }, { x: 6.36, y: 4.99 }]);
+    const { path, robot } = fixture([{ x: (1-2.2/17.548)*16.541, y: 4/8.052*8.069 }, { x: (1-6.36/17.548)*16.541, y: 4.99/8.052*8.069 }]);
     path.headingMode = "targets";
     const candidates = routeCandidates({ path, robot }, () => false);
     let smooth: RouteGeometry = candidates.next().value!;

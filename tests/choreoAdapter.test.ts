@@ -11,7 +11,7 @@ import {
   prepareChoreoFixture,
 } from "../src/electron/benchmark/choreoAdapter";
 
-const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v1");
+const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 
 describe("Choreo benchmark adapter", () => {
   it.each([

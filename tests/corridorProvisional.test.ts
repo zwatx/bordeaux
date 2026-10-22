@@ -1,4 +1,4 @@
-import corpus from "../benchmarks/planner-corpus/v1/corpus.bordeaux.json";
+import corpus from "../benchmarks/planner-corpus/v2/corpus.bordeaux.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PM } from "../src/shared/math/pm";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";

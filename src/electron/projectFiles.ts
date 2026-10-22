@@ -553,7 +553,7 @@ export async function autosaveProjectFolder(folder: string, value: unknown, proj
         const file = prior && reusable && !used.has(prior.toLowerCase()) ? prior : "";
         if (file) used.add(file.toLowerCase());
         const pathVersion = "waypoints" in item && item.optimization?.accepted?.version === 2 ? "2.1" : "2.0";
-        return { key, stem, extension, file, contents: `${JSON.stringify(extension === "path" ? { version: pathVersion, robot: project.robot, ...item } : { format: "bordeaux-routine/1", ...item }, null, 2)}\n` };
+        return { key, stem, extension, file, contents: `${JSON.stringify(extension === "path" ? { version: pathVersion, field: project.field, robot: project.robot, ...item } : { format: "bordeaux-routine/1", ...item }, null, 2)}\n` };
       });
       for (const document of documents) {
         if (document.file) continue;

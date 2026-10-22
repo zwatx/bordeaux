@@ -18,6 +18,7 @@ import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
 import { ContextInspector, commandArguments } from "../components/ContextInspector";
 import { FIELD_DIMS, FieldView } from "../components/FieldView";
+import { FIELD_IMAGE } from "../../shared/field/imageCalibration";
 import { Panels } from "../components/Panels";
 import { ProjectChip, firstFact, shortFact } from "../components/ProjectChip";
 import { DepartureHint, ProjectDeparture, ProjectPending, ProjectsDialog } from "../components/ProjectsDialog";
@@ -141,7 +142,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     rev: false,
   };
 
-  const FIT = { x: 307, y: 7, w: 3285, h: 1569 };
+  const FIT = { x: FIELD_IMAGE.left - 90, y: FIELD_IMAGE.top - 90, w: FIELD_IMAGE.right - FIELD_IMAGE.left + 180, h: FIELD_IMAGE.bottom - FIELD_IMAGE.top + 180 };
 
   const usePlayback = (store) => useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   /**
@@ -355,7 +356,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const [projectKey, setProjectKey] = useState(0);
     const [libraryPreferenceKey, setLibraryPreferenceKey] = useState(() => project.name + ':' + project.paths[0].id);
     useEffect(() => { if (page !== 'robot') setEditorPage(page); }, [page]);
-    const [alliance, setAlliance] = useState('blue');
+    const alliance = 'blue';
     const [showGrid, setShowGrid] = useState(true);
     const deletionAction = useRef(null), deletionSequence = useRef(0);
     const [deletionNotice, setDeletionNotice] = useState(null);
@@ -1375,6 +1376,21 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       return entry;
     };
     const commitWaypointProject = (before, next) => commitProjectChange(before, next, pathScope(docRef.current.id));
+    const flipPlanning = useMemo(() => FinalPlanning.create(), []);
+    const flipPaths = async () => {
+      if (!preflightDeletion()) return;
+      const before = projectRef.current;
+      const result = await flipPlanning.request({ mode: 'flip', project: before }, {
+        deadline: 'hard', failureNote: 'The paths were not changed.',
+      }).promise;
+      // A delayed worker response cannot overwrite intervening edits or a new project.
+      if (projectRef.current !== before) return;
+      if (result.status !== 'success') { alert(result.error?.message || result.fallbackReason); return; }
+      if (!preflightDeletion() || projectRef.current !== before) return;
+      commitProjectChange(before, result.value);
+      playbackStore.reset(); routinePlaybackStore.reset();
+      setComparison(null);
+    };
     const toggleTheta = useCallback((i, on) => commit((d) => { d.waypoints[i].thetaOn = on; return d; }), [commit]);
     const setHandleLen = useCallback((i, key, len) => commit((d) => { const w = d.waypoints[i]; const a = Math.atan2(w[key].y - w.y, w[key].x - w.x); w[key] = { x: w.x + Math.cos(a) * len, y: w.y + Math.sin(a) * len }; return d; }), [commit]);
     // Resolve the owning draft before field, timeline or inspector deletion. Invalid drafts
@@ -1967,7 +1983,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const zoomBy = useCallback((factor) => setView((v) => {
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
       const nw = Math.max(IMG_W * 0.12, Math.min(IMG_W * 1.6, v.w * factor));
-      const nh = nw * (IMG_H / IMG_W);
+      const nh = v.h * nw / v.w;
       return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh };
     }), []);
     const zoomPct = Math.round(FIT.w / view.w * 100);
@@ -2652,7 +2668,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setRobotProjectState((current) => ({ ...current, operation: 'export' }));
       try {
         const result = await window.bordeauxAPI.exportBdx(materializeProject(), selected);
-        if (result?.exported) setBdxNotice('Saved ' + result.relativePath + ', ' + result.sampleCount + ' samples, ' + result.eventCount + ' events. Local export complete; robot code checks compatibility before execution.');
+        if (result?.exported) setBdxNotice({ detail: 'Saved ' + result.relativePath + ', ' + result.sampleCount + ' samples, ' + result.eventCount + ' events. Local export complete; robot code checks compatibility before execution.' });
       } catch (error) { setExportError(operationErrorMessage(error)); }
       finally { setRobotProjectState((current) => ({ ...current, operation: null })); }
     }, [flushProjectDraft, materializeProject]);
@@ -2878,7 +2894,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
-      bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice, action: { label: 'Dismiss', onClick: () => setBdxNotice('') } },
+      bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice.detail, autoDismissMs: 5000, dismissKey: bdxNotice,
+        action: { label: 'Dismiss', onClick: () => setBdxNotice((current) => current === bdxNotice ? '' : current) } },
       exportError && { id: 'export', error: true, label: 'Export failed', detail: exportError,
         action: { label: 'Dismiss', onClick: () => setExportError('') } },
       editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,
@@ -2919,7 +2936,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, alliance, setAlliance })),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: run.blocked && h('div', { className: 'routine-status ' + (run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'planning' : 'error'), role: run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'status' : 'alert' },
                 h('span', { className: 'routine-status-icon' }, h(UI.Icon, { name: run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'route' : 'info', size: 14 })),
@@ -2970,7 +2987,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
                 h('div', { className: 'field-view-tools' },
                   h(Panels.MetricControl, { metric, setMetric, derived: scene.derived }),
-                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, alliance, setAlliance, fieldFocus, toggleFieldFocus })))),
+                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths, fieldFocus, toggleFieldFocus })))),
             h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
             h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
               actions: bandActions, edit: { begin: beginEdit, mutate, finish: finishEdit, cancel: cancelEdit, draft: editStore.getSnapshot, flushDraft: flushProjectDraft },

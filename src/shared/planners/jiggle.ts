@@ -6,7 +6,7 @@ export function jigglePositions(
   anchor: Pick<Waypoint, "x" | "y">,
   baseRad: number,
   options: JiggleAction & { distance?: number },
-  bounds = { w: 17.548, h: 8.052 },
+  bounds = { w: 16.541, h: 8.069 },
 ): Array<{ x: number; y: number }> | null {
   const distance = Number(options.distanceM ?? options.distance);
   const strokes = Math.round(Number(options.strokes));

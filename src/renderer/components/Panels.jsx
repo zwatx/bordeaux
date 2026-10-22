@@ -4,6 +4,7 @@ import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { shortcutLabel } from "../lib/shortcuts";
 import { UI } from "./ui";
+import { deletionInput } from "./DeletionNotice";
 
   const h = React.createElement;
   const { Icon, IconBtn, Dropdown } = UI;
@@ -81,15 +82,14 @@ import { UI } from "./ui";
       h('span', { className: 'metric-range', 'aria-hidden': true }, lo + '\u2013' + hi + ' ' + UnitPrefs.label(displayUnit)));
   }
 
-  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, alliance, setAlliance, fieldFocus, toggleFieldFocus }) {
+  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, onFlip, fieldFocus, toggleFieldFocus }) {
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
       toggleFieldFocus && h('button', { className: 'vc-text field-focus', type: 'button', 'aria-pressed': fieldFocus,
         onClick: toggleFieldFocus, title: 'Hide or show the path list  (\\)' }, 'Focus'),
       toggleFieldFocus && h('div', { className: 'vc-div' }),
-      // Flipping is a view of the field, so it sits with zoom and grid. The path itself never changes.
-      setAlliance && h('button', { className: 'vc-text field-flip', type: 'button', 'aria-pressed': alliance === 'red', onClick: () => setAlliance(alliance === 'blue' ? 'red' : 'blue'),
-        title: 'Flip the field 180° without changing the path', 'aria-label': 'Flip field 180 degrees' }, 'Flip'),
-      setAlliance && h('div', { className: 'vc-div' }),
+      onFlip && h('button', { className: 'vc-text field-flip', type: 'button', ...deletionInput(onFlip),
+        title: 'Move all paths to the opposite alliance (180°). Undo restores them.', 'aria-label': 'Flip all paths 180 degrees' }, 'Flip'),
+      onFlip && h('div', { className: 'vc-div' }),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom out', 'aria-label': 'Zoom out', onClick: () => zoomBy(1.18) }, h(Icon, { name: 'zoomout', size: 16 })),
       h('button', { className: 'vc-pct', type: 'button', title: 'Fit field  (F)', onClick: onFit }, zoomPct + '%'),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onClick: () => zoomBy(1 / 1.18) }, h(Icon, { name: 'zoomin', size: 16 })),

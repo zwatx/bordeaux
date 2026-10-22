@@ -5,9 +5,9 @@ import { validateProject } from "../src/shared/validation";
 import { createDemoProject } from "../src/shared/project/defaults";
 
 describe("2026 field vocabulary", () => {
-  it("keeps official dimensions separate from the renderer calibration", () => {
+  it("uses official dimensions directly in the blue-origin frame", () => {
     expect(REBUILT_2026_FIELD.dimensions.lengthM).toBe(16.541);
-    expect(REBUILT_2026_FIELD.appDisplayTransform.appLengthM).toBe(17.548);
+    expect(REBUILT_2026_FIELD.appDisplayTransform.appLengthM).toBe(16.541);
     const official = { x: 4.883, y: 2.25 };
     const roundTrip = appToOfficialPoint(officialToAppPoint(official));
     expect(roundTrip.x).toBeCloseTo(official.x, 10);
@@ -36,12 +36,12 @@ describe("2026 field vocabulary", () => {
     const fuel = resolveFieldTerm("far side of the initial neutral FUEL band", { alliance: "red" });
     const neutral = resolveFieldTerm("far side of the neutral zone", { alliance: "red" });
     expect(fuel.status).toBe("resolved");
-    expect(fuel.matches[0].point.x).toBeCloseTo(9.7441, 3);
-    expect(fuel.matches[0].point.x).toBeLessThan(neutral.matches[0].point.x);
+    expect(fuel.matches[0].point.x).toBeCloseTo(7.3561, 3);
+    expect(fuel.matches[0].point.x).toBeGreaterThan(neutral.matches[0].point.x);
   });
 
-  it("matches the official overhead image frame instead of swapping red and blue", () => {
-    expect(REBUILT_2026_CROSSINGS.red.trenchTable.x).toBeLessThan(REBUILT_2026_CROSSINGS.blue.trenchTable.x);
+  it("keeps blue at low X and red at high X in the fixed official frame", () => {
+    expect(REBUILT_2026_CROSSINGS.red.trenchTable.x).toBeGreaterThan(REBUILT_2026_CROSSINGS.blue.trenchTable.x);
     expect(REBUILT_2026_CROSSINGS.red.trenchTable.y).toBeCloseTo(REBUILT_2026_CROSSINGS.blue.trenchTable.y, 10);
     expect(REBUILT_2026_CROSSINGS.red.trenchTable.y).toBeLessThan(REBUILT_2026_CROSSINGS.red.trenchAway.y);
     expect(REBUILT_2026_FIELD.coordinateFrame).toContain("+Y away from the scoring-table");
@@ -51,7 +51,7 @@ describe("2026 field vocabulary", () => {
     const result = resolveFieldTerm("red left trench", { defaultAlliance: "blue", allianceView: "blue", robotHeightM: 0.5 });
     expect(result.status).toBe("resolved");
     expect(result.matches[0].id).toBe("red-trench-table");
-    expect(result.matches[0].point.x).toBeLessThan(REBUILT_2026_FIELD.appDisplayTransform.appLengthM / 2);
+    expect(result.matches[0].point.x).toBeGreaterThan(REBUILT_2026_FIELD.appDisplayTransform.appLengthM / 2);
     expect(result.matches[0].point.y).toBeLessThan(REBUILT_2026_FIELD.appDisplayTransform.appWidthM / 2);
     expect(resolveFieldTerm("red left trench", { alliance: "blue" }).message).toContain("will not silently substitute");
   });

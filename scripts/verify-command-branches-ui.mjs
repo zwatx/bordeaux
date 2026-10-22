@@ -17,7 +17,7 @@ async function identities() {
     else throw new Error('Unexpected input entry: ' + file);
   }
   for (const file of ['scripts/verify-command-branches-ui.mjs', 'scripts/verify-command-branches-ui-electron.cjs', 'scripts/verify-command-branches-ui-preload.cjs', 'scripts/verify-command-branches-ui-consequences.cjs',
-    'src/renderer/app/App.jsx', 'src/renderer/components/PathPanel.jsx', 'src/renderer/components/PathTimeline.jsx', 'src/renderer/lib/commandPick.js', 'src/renderer/components/CommandBranches.jsx', 'src/renderer/components/RoutineInspector.jsx', 'src/renderer/components/ui.jsx', 'src/renderer/lib/routineModel.js', 'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v1/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
+    'src/renderer/app/App.jsx', 'src/renderer/components/PathPanel.jsx', 'src/renderer/components/PathTimeline.jsx', 'src/renderer/lib/commandPick.js', 'src/renderer/components/CommandBranches.jsx', 'src/renderer/components/RoutineInspector.jsx', 'src/renderer/components/ui.jsx', 'src/renderer/lib/routineModel.js', 'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
   return inputs;
 }
 const before = await identities(); await json('inputs-before.json', before);

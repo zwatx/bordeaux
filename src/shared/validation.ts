@@ -365,7 +365,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
     if (project.field.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId) issues.push(issue("$.field.coordinateSchemaId", "Coordinate schema is not supported"));
   }
   if (project.fieldMigration !== undefined) {
-    if (!isRecord(project.fieldMigration) || project.fieldMigration.source !== "legacy-unpinned" || !isRecord(project.fieldMigration.assigned)) {
+    if (!isRecord(project.fieldMigration) || !["legacy-unpinned", "bordeaux-field/1.0"].includes(String(project.fieldMigration.source)) || !isRecord(project.fieldMigration.assigned)) {
       issues.push(issue("$.fieldMigration", "Field migration record is invalid"));
     } else if (!isRecord(project.field)
       || project.fieldMigration.assigned.id !== project.field.id

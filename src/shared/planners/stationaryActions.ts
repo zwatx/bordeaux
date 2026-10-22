@@ -1,5 +1,5 @@
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
-import { wrapRadians } from "../math/angles";
+import { stationaryTurnDelta, wrapRadians } from "../math/angles";
 import type { ConstraintRange, PathDoc, PlannerResult, PlannerStationaryAction, RobotConfig, TrajectorySample } from "../types";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
 import { jigglePositions } from "./jiggle";
@@ -9,10 +9,8 @@ const EPSILON = 1e-9;
 const DEG = Math.PI / 180;
 
 export function directedDelta(start: number, end: number, direction = "shortest"): number {
-  let delta = wrapRadians(end - start);
+  const delta = stationaryTurnDelta(start, end, direction);
   if (Math.abs(delta) < EPSILON) return 0;
-  if (direction === "clockwise" && delta > 0) delta -= Math.PI * 2;
-  if (direction === "counterclockwise" && delta < 0) delta += Math.PI * 2;
   return delta;
 }
 

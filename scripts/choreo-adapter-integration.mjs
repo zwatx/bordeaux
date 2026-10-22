@@ -33,7 +33,7 @@ if (version.stdout.trim() !== `choreo-cli ${CHOREO_VERSION}`) {
 }
 
 const repositoryRoot = process.cwd();
-const corpusDirectory = path.join(repositoryRoot, "benchmarks", "planner-corpus", "v1");
+const corpusDirectory = path.join(repositoryRoot, "benchmarks", "planner-corpus", "v2");
 const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-choreo-adapter-"));
 const cases = [
   { benchmarkClass: "fixed-geometry", fixtureId: "fixed-blue-away-bump" },
@@ -80,8 +80,8 @@ try {
       throw new Error(`Choreo ${entry.benchmarkClass} adapter failed: ${captured.failure ?? "unknown failure"}\n${stderr || stdout}`);
     }
     const corpus = entry.benchmarkClass === "fixed-geometry"
-      ? FixedGeometryCorpus.loadV1(corpusDirectory)
-      : CorridorCorpus.loadV1(corpusDirectory);
+      ? FixedGeometryCorpus.loadV2(corpusDirectory)
+      : CorridorCorpus.loadV2(corpusDirectory);
     const validation = corpus.validate(prepared.fixtureId, { ...captured.normalized, events: captured.events });
     process.stdout.write(`${JSON.stringify({
       adapter: "Choreo",

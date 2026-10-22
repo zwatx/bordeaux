@@ -61,7 +61,7 @@ try {
     const { autosaveProjectFolder, readProject, projectWorkspacePath } = require(path.join(root, 'dist-electron/electron/projectFiles.js'));
     const { encodeProjectFile } = require(path.join(root, 'dist-electron/shared/project/fileFormat.js'));
     const { ProjectRecoveryStore } = require(path.join(root, 'dist-electron/electron/projectRecoveryStore.js'));
-    const corpus = JSON.parse(await fs.readFile(path.join(root, 'benchmarks/planner-corpus/v1/corpus.bordeaux.json'), 'utf8'));
+    const corpus = JSON.parse(await fs.readFile(path.join(root, 'benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
     async function launch(directory, stage) {
       const env = { ...process.env, BORDEAUX_DEPARTURE_FIXTURE: directory, BORDEAUX_DEPARTURE_STAGE: stage,
         BORDEAUX_SMOKE_DIRECTORY: path.join(directory, 'userData') };

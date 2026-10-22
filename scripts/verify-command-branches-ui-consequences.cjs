@@ -40,7 +40,7 @@ exports.runConsequences = async h => {
   let captureSequence = 0;
   const start = async (name, width) => fs.appendFile(path.join(output, 'consequence-steps.jsonl'), JSON.stringify({ name, width, phase: 'start', at: new Date().toISOString() }) + '\n');
   const record = async row => { await fs.appendFile(path.join(output, 'consequence-steps.jsonl'), JSON.stringify({ name: row.name, width: row.width, phase: 'complete', at: new Date().toISOString() }) + '\n'); rows.push(row); await fs.writeFile(path.join(output, 'consequence-results.json'), JSON.stringify(rows, null, 2)); };
-  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v1/corpus.bordeaux.json', 'utf8'));
+  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
   const catalog = clone(h.catalog);
   catalog.commands[0].outputs = clone(OUTPUTS);
   catalog.commands[0].parameters = [

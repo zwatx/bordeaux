@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import corpus from '../benchmarks/planner-corpus/v1/corpus.bordeaux.json';
+import corpus from '../benchmarks/planner-corpus/v2/corpus.bordeaux.json';
 import { PathTimeline, CommandStackMenu, insertionReason } from '../src/renderer/components/PathTimeline';
 import { buildTimeline, fAtT, groupCommandChips, MIN_WAYPOINT_GAP, waypointInsertionAt } from '../src/renderer/components/pathTimelineModel';
 import { PM } from '../src/renderer/lib/pathMath';
@@ -168,7 +168,8 @@ describe('adding a waypoint at a timeline time', () => {
     }
     const doc = pathOf('corpus-neutral-slalom'), derived = plan(doc), tl = buildTimeline(derived);
     const bare = structuredClone(doc); delete bare.waypoints[0].nextC;
-    expect(waypointInsertionAt(tl, derived, bare, tl.total * 0.05)).toMatchObject({ ok: false, code: 'handles' });
+    const interior = tl.points.find((point) => point.f >= (derived.wpFrac[0] + derived.wpFrac[1]) / 2).t;
+    expect(waypointInsertionAt(tl, derived, bare, interior)).toMatchObject({ ok: false, code: 'handles' });
   });
 
   it('refuses while the path has no sampled geometry', () => {

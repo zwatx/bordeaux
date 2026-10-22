@@ -31,16 +31,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/install
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+          cache-scope: package
       - run: npm run verify:release-tag
       - run: npm test
       - run: npm run typecheck
-      - run: npm run certify:field
-        if: matrix.platform == 'linux'
       - name: Require macOS signing and notarization credentials
         if: matrix.platform == 'mac'
         env:
@@ -83,6 +79,9 @@ jobs:
       - name: Build Linux AppImages
         if: matrix.platform == 'linux'
         run: npm run package:linux -- --config.publish.channel=latest --config.publish.releaseType=release
+      # Package scripts already compiled the exact checked-out sources.
+      - run: node scripts/certify-field.mjs
+        if: matrix.platform == 'linux'
       - run: npm run verify:package -- release
       - name: Verify public production update manifest
         if: matrix.platform != 'linux'
@@ -106,6 +105,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
+          compression-level: 0
           path: |
             release/*.dmg
             release/*.zip

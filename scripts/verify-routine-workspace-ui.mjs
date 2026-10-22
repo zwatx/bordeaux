@@ -20,7 +20,7 @@ async function identities() {
   }
   for (const file of ['src/renderer', 'src/shared', 'dist-renderer', 'scripts/verify-routine-workspace-ui.mjs',
     'scripts/verify-routine-workspace-ui-electron.cjs', 'scripts/verify-command-branches-ui-preload.cjs',
-    'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v1/corpus.bordeaux.json']) await visit(file);
+    'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v2/corpus.bordeaux.json']) await visit(file);
   return files;
 }
 const before = await identities(); await json('inputs-before.json', before);

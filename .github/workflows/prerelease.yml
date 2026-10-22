@@ -23,17 +23,18 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    outputs:
+      ci-run-id: ${{ steps.ci.outputs.run-id }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
       - name: Require the main branch
         if: github.ref != 'refs/heads/main'
         run: |
@@ -57,11 +58,36 @@ jobs:
           fi
           if [ "$status" -ne 2 ]; then exit "$status"; fi
 
+      - name: Find main CI for the dispatched commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-ci.mjs find
+
   ci:
+    needs: validate
+    if: needs.validate.outputs.ci-run-id == ''
     uses: ./.github/workflows/ci.yml
 
+  verified-ci:
+    needs: validate
+    if: needs.validate.outputs.ci-run-id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Require successful main CI for the exact dispatched commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ needs.validate.outputs.ci-run-id }}
+        run: node scripts/release-ci.mjs require
+
   build:
-    needs: [validate, ci]
+    # Packaging can overlap CI; publication still requires both to succeed.
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -78,11 +104,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/install
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+          cache-scope: package
       - name: Validate checked-in prerelease version
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -157,6 +181,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
           path: |
             release/*.dmg
@@ -168,7 +193,11 @@ jobs:
             release/signature-evidence-*.json
 
   publish:
-    needs: build
+    needs: [validate, ci, verified-ci, build]
+    if: >-
+      ${{ always() && !cancelled() && needs.validate.result == 'success'
+          && needs.build.result == 'success'
+          && (needs.ci.result == 'success' || needs.verified-ci.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
