@@ -37,7 +37,15 @@ async function pointer(selector) {
   const point = await evaluate(selector => { const el = document.querySelector(selector); if (!el || el.disabled) throw Error('Missing control ' + selector); const r = el.getBoundingClientRect(), x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2); if (!el.contains(document.elementFromPoint(x, y))) throw Error('Occluded control ' + selector); return { x, y }; }, selector);
   win.webContents.sendInputEvent({ type: 'mouseMove', ...point }); win.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 }); win.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }); await delay(60);
 }
-async function capture(name) { await delay(150); fs.writeFileSync(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); result.screenshots.push(name + '.png'); write(); }
+async function capture(name) {
+  // Let SVG/caption layers repaint after native resizing and reload before retaining evidence.
+  await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await delay(200);
+  await win.webContents.capturePage();
+  await delay(200);
+  fs.writeFileSync(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
+  result.screenshots.push(name + '.png'); write();
+}
 app.on('browser-window-created', (_event, window) => {
   if (win) return; win = window;
   const send = win.webContents.send.bind(win.webContents);

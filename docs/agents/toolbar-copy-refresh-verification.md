@@ -21,6 +21,8 @@ Command fingerprinting uses up to eight simultaneous local reads, deterministic 
 
 Paired benchmark (`command-refresh-paired.json`): same 400-VI / 12.5 MiB fixture, eight alternating baseline/current passes, warm filesystem and mocked NI. Median fingerprint validation fell from 439.44 ms to 86.82 ms; discovery plus validation from 725.00 ms to 315.60 ms. This measures local validation, not cold filesystem or actual NI latency.
 
+Independent read-only review inspected 50 final images and found no confirmed product blocker. Two caption-glyph capture gaps were closed with a repaint-settled rerun (`integrated-toolbar-repaint-final`, all 14 checks passed, exit 0, no timeout). The closure reviewer personally confirmed all four controls in both replacement images; production source was unchanged. Local package verification passed at 8,337,167 archive bytes, and packaged smoke passed with `BORDEAUX_SMOKE_OK`.
+
 ## Retained failures and limits
 
 Two earlier routine runs expected superseded copy; final assertions retain the runtime-unavailable requirement using the current text. Earlier Windows runs used an incorrect viewport-center expectation and a stale native menu reference after autosave; final checks measure text within tabs and retrieve the current menu. Those failed artifacts remain retained.
