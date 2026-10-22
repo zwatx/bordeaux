@@ -1,5 +1,7 @@
 # Command decisions and workspace verification
 
+This records the first integrated revision. The later single-toolbar Windows layout and quiet status/copy checks are in `toolbar-copy-refresh-verification.md`; completion-result projection is in `completion-branch-verification.md`. Their newer evidence supersedes the 36px-strip dimensions below.
+
 Implementation: `feature/command-driven-decisions`, based on `8e8d58b`; core at `7002a6d`, integrated Windows chrome at `a11c3aa`, keyboard/counter/cleanup corrections at `bedad7b`, and narrow chooser ownership at `09c2f3f`.
 
 Commands author Boolean, enum and typed numeric output branches. A dynamic repeat runs its body at least once and checks the selected command's completed output from that pass; its saved source has no fixed count. Preview passes remain illustrative. Wait is available without a catalog. Legacy condition references retain their source and recovery explanation; new separate condition authoring is removed.

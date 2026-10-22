@@ -39,10 +39,10 @@ export function RoutineWorkspace({ routine, flow, field, transport, status }) {
       h('div', { className: 'routine-workspace-title' }, h('strong', null, routine.name)),
       h('div', { className: 'routine-workspace-actions' },
         h('button', { ref: trigger, type: 'button', className: 'routine-workspace-about', popovertarget: 'routine-preview-notes',
-          'aria-expanded': help, 'aria-controls': 'routine-preview-notes',
+          'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
           // Tabbing on closes it, so it never covers the control that takes focus next.
           onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); } },
-          h(UI.Icon, { name: 'info', size: 14 }), h('span', { className: 'routine-workspace-about-t' }, 'Local preview')),
+          h(UI.Icon, { name: 'info', size: 14 })),
         h('div', { ref: popover, id: 'routine-preview-notes', className: 'routine-preview-help', popover: 'auto', role: 'note', 'aria-label': 'About the local preview' },
           h('p', null, PREVIEW_HELP)),
         // Two views of one routine: the shared segmented control, not a second row of place tabs.

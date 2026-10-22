@@ -33,8 +33,7 @@ describe('routine delivery capability', () => {
     const html = renderToStaticMarkup(React.createElement(PushControl, {
       place: 'routines', paths: [], selection: { selected: [] }, activeRoutine: { id: 'r', name: 'Routine', nodes: [] }, controller: { busy: false },
     }));
-    // Unsupported routine push shows a quiet local-only label instead of a dead button.
-    expect(html.includes('>Routines stay local<')).toBe(!routinePush);
+    if (!routinePush) expect(html).toBe('');
     expect(html.includes('Push routine')).toBe(routinePush);
     if (routinePush) expect(html).toMatch(/<button type="button" class="push-button"[^>]*>Push routine<\/button>/);
   });

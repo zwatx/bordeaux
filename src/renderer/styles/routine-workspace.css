@@ -6,10 +6,8 @@
 .routine-workspace-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .routine-workspace-views{min-height:32px}
 .routine-workspace-views .seg-i{padding-inline:10px;white-space:nowrap}
-/* Beside an open inspector the trigger keeps its icon; its name stays for assistive technology. */
-@container routine-workspace (max-width:640px){.routine-workspace-about-t{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}}
 /* The preview boundary is one small native popover under its trigger; it overlays the flow and never repeats per step. */
-.routine-workspace-about{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:500}
+.routine-workspace-about{display:inline-flex;align-items:center;justify-content:center;width:32px;min-height:32px;padding:0;border-radius:var(--r);color:var(--txt-3)}
 .routine-workspace-about[aria-expanded=true]{background:var(--bg-3);color:var(--txt)}
 @media (hover:hover){.routine-workspace-about:hover{color:var(--txt)}}
 .routine-preview-help{position:fixed;inset:auto;width:min(288px,calc(100vw - 16px));margin:0;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt-2);box-shadow:var(--elevation),var(--shadow);font-size:12px;line-height:1.5}

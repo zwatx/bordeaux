@@ -37,7 +37,7 @@ async function loadApp() {
   await wait(async () => win.isFocused() && win.webContents.isFocused() && await evaluate(() => document.hasFocus()), 'initial native focus admission');
 }
 async function source() { await wait(() => Boolean(published?.routines), 'actual published routine source'); return structuredClone(published.routines); }
-async function isolate() { assert.deepEqual(confirms, [], 'No confirm call'); assert.deepEqual(robotCalls, [], 'No robot operation'); assert.deepEqual(await evaluate(() => window.__branchHarnessConfirms), [], 'Main-world confirm recorder'); assert.equal(await evaluate(() => document.querySelector('.push-local')?.textContent), 'Routines stay local'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routines have no robot Push scope'); }
+async function isolate() { assert.deepEqual(confirms, [], 'No confirm call'); assert.deepEqual(robotCalls, [], 'No robot operation'); assert.deepEqual(await evaluate(() => window.__branchHarnessConfirms), [], 'Main-world confirm recorder'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-local'))), false, 'No routine placeholder label'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routines have no robot Push scope'); }
 async function choose(name) { await click('#command-branch-output'); await click('[role="option"]', name); }
 async function snapshot(name) { await drain(); await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
 const catalog = { runtime: 'labview', projectName: 'Inspection fixture', sourceFileCount: 1, scannedAt: '', warnings: [], commands: [{

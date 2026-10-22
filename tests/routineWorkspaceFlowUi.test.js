@@ -161,7 +161,7 @@ describe('preview boundary is stated once', () => {
     const run = AUTO.buildRun(routine, [], {}, {}, 'profiledSpline', catalog, undefined, { repeatPasses: { routine_node_7f0c: 2 } });
     const workspace = renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine, run, flow: null, field: null, transport: null, status: null }));
     // The trigger keeps a stable controlled region; the native popover starts closed and sits outside the flow.
-    expect(workspace).toMatch(/<button type="button" class="routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes">/);
+    expect(workspace).toMatch(/<button type="button" class="routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes" aria-label="About preview" title="About preview">/);
     expect(workspace).toMatch(/<div id="routine-preview-notes" class="routine-preview-help" popover="auto" role="note" aria-label="About the local preview"><p>[^<]+<\/p><\/div>/);
     expect(workspace.indexOf('routine-preview-notes"')).toBeLessThan(workspace.indexOf('routine-workspace-body'));
     const help = text(workspace.match(/<div id="routine-preview-notes"[^>]*>([\s\S]*?)<\/div>/)[1]);
@@ -186,7 +186,8 @@ describe('preview boundary is stated once', () => {
     const empty = render([]), filled = render([path('p', 'a')]);
     expect(empty).not.toContain('routine-workspace-views');
     expect(empty).not.toContain('TRANSPORT');
-    expect(empty).toContain('Local preview');
+    expect(empty).toContain('aria-label="About preview"');
+    expect(empty).not.toContain('Local preview');
     expect(filled).toMatch(/class="seg routine-workspace-views"[\s\S]*aria-pressed="true"[^>]*>Flow<[\s\S]*>Field preview</);
     expect(filled).toContain('TRANSPORT');
   });

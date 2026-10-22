@@ -9,7 +9,6 @@ const { Icon } = UI;
 
 const timeOfDay = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 const folderName = (directory) => String(directory || '').replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || directory;
-export const ROUTINES_LOCAL = 'Push sends paths only. Routines stay local.';
 
 const WORKING = ['preparing', 'uploading', 'probing', 'trusting', 'saving'];
 
@@ -131,7 +130,7 @@ export function PushControl({ place, paths, selection, activeRoutine, controller
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
-  if (!pathsPlace && !routinePushAvailable) return h('div', { className: 'push-control' }, h('span', { className: 'push-local', title: ROUTINES_LOCAL }, 'Routines stay local'));
+  if (!pathsPlace && !routinePushAvailable) return null;
   const count = selected.length;
   const label = pathsPlace ? (count > 1 ? 'Push ' + count + ' paths' : 'Push path') : 'Push routine';
   const title = unfinished ? 'Place at least two waypoints to push'

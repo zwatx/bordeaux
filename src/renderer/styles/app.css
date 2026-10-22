@@ -266,6 +266,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .tb-text.optimizer-toggle{min-width:88px}
 .tb-text[aria-expanded="true"]{background:var(--bg-3);color:var(--txt)}
 .tb-push{display:flex;flex:0 1 auto;align-items:center;min-width:0;margin-left:10px;padding-left:12px;border-left:1px solid var(--line-2)}
+.tb-push:empty{display:none}
 .toolbar>.update-chip,.toolbar>.keyboard-help-trigger{flex:none;margin-left:6px}
 .toolbar .keyboard-help-trigger{display:grid;place-items:center;width:36px;min-width:36px;height:40px;min-height:40px;padding:0;border-color:transparent;background:transparent;color:var(--txt-3);font-size:13px}
 .toolbar .update-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 9px;border:1px solid var(--line-2);border-radius:999px;color:var(--txt);font-size:12px;white-space:nowrap}
@@ -293,7 +294,6 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .push-button:disabled{border-color:var(--line-2);background:transparent;color:var(--txt-3);cursor:not-allowed}
 /* Push keeps a compact surface with a 40px-tall hit area inside the bar. */
 .push-button::before{content:'';position:absolute;inset:-6px 0}
-.push-local{padding:0 6px;color:var(--txt-3);font-size:12px;white-space:nowrap}
 .push-button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media (hover:hover){
   .place:not([aria-current]):hover{color:var(--txt-2)}
