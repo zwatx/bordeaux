@@ -72,4 +72,14 @@ describe("Windows chrome capability", () => {
     detach(); f.window.emit("unmaximize"); f.contents.emit("did-finish-load"); expect(f.contents.send).toHaveBeenCalledTimes(2);
     const mac = fixture(); attachWindowChrome(mac.window as any, "darwin"); expect(mac.window.setMenuBarVisibility).not.toHaveBeenCalled(); expect(mac.window.setMinimumSize).not.toHaveBeenCalled();
   });
+
+  it("does not access the destroyed window's webContents during closed dispatch", () => {
+    const f = fixture(); attachWindowChrome(f.window as any, "win32");
+    const closed = vi.fn(); f.window.on("closed", closed);
+    f.kill();
+    Object.defineProperty(f.window, "webContents", { get: () => { throw Error("Object has been destroyed"); } });
+    expect(() => f.window.emit("closed")).not.toThrow();
+    expect(closed).toHaveBeenCalledOnce();
+    expect(f.contents.listenerCount("did-finish-load")).toBe(0);
+  });
 });

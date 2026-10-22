@@ -172,7 +172,7 @@
 .rt-tp-btn:disabled{opacity:.4;cursor:not-allowed}
 .rt-timeline-time,.rt-timeline-step{color:var(--txt);font:11.5px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-time{margin-left:10px}
-.rt-timeline-step{margin-left:auto}
+.rt-timeline-step{margin-left:auto;padding-left:10px}
 .rt-timeline-time small,.rt-timeline-step small{color:var(--txt-3);font:inherit}
 .rt-timeline-editor{position:relative;min-width:0;overflow:hidden}
 .rt-timeline-editor:has(.rt-tp-scrub:focus-visible){outline:2px solid var(--accent);outline-offset:-3px}

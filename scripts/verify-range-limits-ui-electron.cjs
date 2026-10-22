@@ -137,7 +137,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement === document.querySelector('.range-limits input')), true, 'Native pointer input must focus the numeric field');
     await key('Tab');
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Remove acceleration limit');
-    await key('Space'); await delay(350);
+    await key('Enter'); await delay(350);
     await save(); assert.deepEqual(activeLimits(), []);
     assert.equal(Object.hasOwn(saved.paths[0].ranges[0], 'maxAccel'), false);
     assert.equal(Object.hasOwn(saved.paths[0].ranges[0], 'maxDecel'), false);

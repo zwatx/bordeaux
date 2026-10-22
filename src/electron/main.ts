@@ -708,7 +708,13 @@ function createWindow() {
         await waitForSmoke(() => window.webContents.executeJavaScript("document.hasFocus() && document.activeElement?.value === '8.25'"), "exact valid uncommitted draft");
         const closed = new Promise<void>(resolve => window.once("closed", resolve));
         window.close();
-        await Promise.race([closed, new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("Smoke close did not finish after valid draft")), 15_000))]);
+        await Promise.race([closed, new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("Smoke close did not finish after valid draft")), 15_000))]).catch(async error => {
+          const state = nativeDeparture.coordinator.snapshot();
+          console.error("BORDEAUX_SMOKE_CLOSE_STATE", JSON.stringify({ departure: { phase: state.phase, requestId: state.request?.requestId,
+            source: state.checkpoint?.source, sourceFact: state.checkpoint?.sourceFact, basis: state.permit?.basis },
+            renderer: !window.isDestroyed() ? await window.webContents.executeJavaScript("({ focus: document.activeElement?.outerHTML, departure: document.querySelector('.pj-departure')?.textContent, invalid: [...document.querySelectorAll('[aria-invalid=true]')].map(e => e.outerHTML) })") : null }));
+          throw error;
+        });
         const filesWritten = fs.existsSync(projectWorkspacePath(smokeDirectory)) && fs.existsSync(path.join(smokeDirectory, "Smoke.bdx")) && fs.existsSync(path.join(smokeDirectory, "Paths")) && fs.existsSync(path.join(smokeDirectory, "Routines"));
         result.filesWritten = filesWritten;
         const closeState = nativeDeparture.coordinator.snapshot(), departure = closeState.permit;

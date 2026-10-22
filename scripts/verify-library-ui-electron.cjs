@@ -450,7 +450,7 @@ app.whenReady().then(async () => {
     await key('1');
     assert.equal(await evaluate(() => document.querySelector('.toolrail-b.on').getAttribute('aria-label')), 'Select / move');
     await evaluate(() => document.querySelector('[aria-label="Select / move"]').focus());
-    await key('Tab'); await key('Space');
+    await key('Tab'); await key('Enter');
     assert.equal(await evaluate(() => document.querySelector('.toolrail-b.on').getAttribute('aria-label')), 'Place waypoint');
     await pointerClick('[aria-label="Select / move"]');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
@@ -1052,11 +1052,11 @@ app.whenReady().then(async () => {
       await wait(() => evaluate(() => !document.querySelector('.ctxinsp') && document.activeElement === document.querySelector('.pp-more')), 'pointer closes the inspector and focuses More at ' + width);
       await key('Tab', ['shift']); await key('Tab');
       assert.equal(await evaluate(() => document.activeElement === document.querySelector('.pp-more')), true, 'Keyboard reaches More at ' + width);
-      await key('Space');
+      await key('Enter');
       await wait(() => evaluate(() => !!document.querySelector('.ctxinsp .ctxinsp-x')), 'keyboard reopens the inspector at ' + width);
       const reopenedInspector = await inspectorLayout();
       assertInspectorUsable(reopenedInspector, width);
-      assert.equal(reopenedInspector.time, inspector.time, 'Space on More does not start playback at ' + width);
+      assert.equal(reopenedInspector.time, inspector.time, 'Enter on More does not start playback at ' + width);
       await fs.writeFile(path.join(output, `inspector-5000-character-name-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     assert.equal(inspectorBodyScrolled, true, 'The inspector body overflowed and wheel-scrolled at a supported size');

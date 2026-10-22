@@ -65,16 +65,17 @@ export function attachWindowChrome(window: BrowserWindow, platform: string): () 
   // BrowserWindow minimums are outer dimensions. Preserve the old 1100x720 editor below our strip.
   const [outerWidth, outerHeight] = window.getSize(), [width, height] = window.getContentSize();
   window.setMinimumSize(1100 + outerWidth - width, 720 + WINDOWS_TITLE_BAR_HEIGHT + outerHeight - height);
+  const contents = window.webContents;
   const publish = () => {
-    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send("window:stateChanged", windowState(window));
+    if (!window.isDestroyed() && !contents.isDestroyed()) contents.send("window:stateChanged", windowState(window));
   };
   const events = ["maximize", "unmaximize", "enter-full-screen", "leave-full-screen", "focus", "blur"] as const;
   const emitter: EventEmitter = window;
   for (const event of events) emitter.on(event, publish);
-  window.webContents.on("did-finish-load", publish);
+  contents.on("did-finish-load", publish);
   const detach = () => {
     for (const event of events) emitter.removeListener(event, publish);
-    window.webContents.removeListener("did-finish-load", publish);
+    contents.removeListener("did-finish-load", publish);
     window.removeListener("closed", detach);
   };
   window.once("closed", detach);

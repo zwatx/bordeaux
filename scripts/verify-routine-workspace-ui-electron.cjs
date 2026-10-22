@@ -163,6 +163,10 @@ app.whenReady().then(async () => {
       await key('A');
       await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-pop,[role="dialog"]'))), 'insertion chooser');
       await snapshot('insert-' + width);
+      assert.ok(await evaluate(() => {
+        const pass = document.querySelector('.rt-timeline-pass-now'), step = document.querySelector('.rt-timeline-step');
+        return !pass || step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) >= pass.getBoundingClientRect().right + 8;
+      }), 'Playback pass and step counters have separate readable spacing');
       const insertion = await evaluate(() => {
         const menu = document.querySelector('.rt-add-menu'), list = menu.querySelector('.rt-add-list');
         const rect = menu.getBoundingClientRect(), last = [...list.querySelectorAll('[role="option"]')].at(-1).getBoundingClientRect();
@@ -263,6 +267,13 @@ app.whenReady().then(async () => {
       const stableDynamic = await source(), savedBeforeDynamic = saves;
       await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > savedBeforeDynamic, 'dynamic repeat save');
       await load('output-loop'); assert.deepEqual(await source(), stableDynamic, 'Dynamic repeat survives save/reopen without a count');
+      await click('[data-id="completion-step"] .rt-step-body');
+      await evaluate(() => document.querySelector('.routine-insp .choice-change').focus());
+      await key('Space');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp input[placeholder="Search commands"]'))), 'Space on command chooser opens its search');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('[aria-label="Play routine"]'))), 'Command chooser Space does not start playback');
+      await key('Escape');
+      assert.deepEqual(await source(), stableDynamic, 'Opening and cancelling the command chooser preserves the loop');
       // Ordinary focused buttons give Space to playback and keep Enter for their own action.
       await planned(); await click('[data-id="output-loop"] .rt-step-body');
       await evaluate(() => document.querySelector('[aria-label="Close step inspector"]').focus());
