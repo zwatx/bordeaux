@@ -282,6 +282,15 @@ app.whenReady().then(async () => {
       await key('Space'); await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play routine"]'))), 'Space pauses routine');
       assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Close step inspector', 'Playback keeps the focused inspector action');
       await key('Enter'); await wait(() => evaluate(() => !document.querySelector('.routine-insp')), 'Enter still activates Close');
+      // A repair action shares chooser styling, but Space must never activate its mutation.
+      saved.routines = structuredClone(stableDynamic);
+      saved.routines[0].nodes[0].nodes[2].ends = { endWhen: { source: 'condition', conditionId: 'piece' } };
+      await load('output-loop'); await click('[data-id="completion-step"] .rt-step-body');
+      await evaluate(() => document.querySelector('.rt-insp-problem .choice-change').focus());
+      await key('Space');
+      assert.equal((await source())[0].nodes[0].nodes[2].ends.endWhen.conditionId, 'piece', 'Space does not activate an ordinary mutation styled like a chooser');
+      await key('Enter');
+      await wait(async () => !(await source())[0].nodes[0].nodes[2].ends?.endWhen, 'Enter still activates the repair action');
       const geometry = [];
       for (const place of ['Paths', 'Routines', 'Settings']) {
         await click('.places .place', place); await delay(250);
