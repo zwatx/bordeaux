@@ -18,13 +18,16 @@ import path from "node:path";
 // command stacks and waypoint insertion, the split Push control, and the menu/Routine redesigns:
 // measured app 734,507 B, worker 208,908 B and CSS 148,643 B.
 // Blue-origin controls and guarded worker Flip add ~1 KiB beyond the previous application cap.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 722 * 1024;
+// Custom Windows chrome, dynamic-repeat controls and focused Space admission measure
+// 742,860 application bytes together. Keep every chunk counted with a 726 KiB cap.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 726 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
 // Blue-origin Flip qualifies and rotates applied routes in the worker, outside the UI bundle.
 const WORKER_JAVASCRIPT_BUDGET_BYTES = 207 * 1024;
-const CSS_BUDGET_BYTES = 146 * 1024;
+// Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
+const CSS_BUDGET_BYTES = 148 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
