@@ -31,7 +31,9 @@ async function click(selector, text) {
 }
 async function key(keyCode, modifiers = []) {
   await focus();
-  for (const type of ['keyDown', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode, modifiers });
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+  if (!modifiers.length && ['Space', 'Enter'].includes(keyCode)) win.webContents.sendInputEvent({ type: 'char', keyCode: keyCode === 'Space' ? ' ' : '\r', modifiers });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   await delay(70);
 }
 async function snapshot(name) {
@@ -267,7 +269,8 @@ app.whenReady().then(async () => {
       await key('Space'); await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause routine playback"]'))), 'Space starts routine from focused inspector button');
       assert.ok(await evaluate(() => Boolean(document.querySelector('.routine-insp'))), 'Space did not activate Close');
       await key('Space'); await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play routine"]'))), 'Space pauses routine');
-      await key('Enter'); assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp'))), false, 'Enter still activates Close');
+      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Close step inspector', 'Playback keeps the focused inspector action');
+      await key('Enter'); await wait(() => evaluate(() => !document.querySelector('.routine-insp')), 'Enter still activates Close');
       const geometry = [];
       for (const place of ['Paths', 'Routines', 'Settings']) {
         await click('.places .place', place); await delay(250);
