@@ -20,6 +20,8 @@ it("verifies canonical packaged update metadata and rejects the former owner", a
       "dist-renderer/index.html": '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'"><script type="module" src="./index.js"></script><link rel="stylesheet" href="./index.css">',
       "dist-renderer/index.js": "",
       "dist-renderer/index.css": "",
+      "node_modules/js-yaml/index.js": "",
+      "node_modules/js-yaml/lib/loader.js": "",
     };
     for (const name of ["@modelcontextprotocol/server", "electron-updater", "ssh2", "zod"]) entries[`node_modules/${name}/package.json`] = "{}";
     for (const [entry, contents] of Object.entries(entries)) {
@@ -40,6 +42,15 @@ it("verifies canonical packaged update metadata and rejects the former owner", a
     expect((await verify()).stdout).toContain("Verified");
     await fs.writeFile(path.join(resources, "app-update.yml"), config("Zw96042"));
     await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("app-update.yml has unexpected owner") });
+    await fs.writeFile(path.join(resources, "app-update.yml"), config("zwatx"));
+    await fs.rm(path.join(source, "node_modules/js-yaml/lib/loader.js"));
+    await createPackage(source, path.join(resources, "app.asar"));
+    await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("missing required entry: node_modules/js-yaml/lib/loader.js") });
+    await fs.writeFile(path.join(source, "node_modules/js-yaml/lib/loader.js"), "");
+    await fs.mkdir(path.join(source, "node_modules/js-yaml/dist"));
+    await fs.writeFile(path.join(source, "node_modules/js-yaml/dist/js-yaml.mjs"), "");
+    await createPackage(source, path.join(resources, "app.asar"));
+    await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("unused YAML browser/ESM bundle") });
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
   }

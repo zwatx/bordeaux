@@ -200,10 +200,10 @@ app.whenReady().then(async () => {
       await snapshot('angular-small-' + width + '-' + system);
       const viewChecks = [];
       if (width === 1100 && system === 'metric') {
-        for (const [selector, state] of [['[aria-label="Zoom in"]', 'zoom'], ['[aria-label="Flip field 180 degrees"]', 'zoom-flip'], ['.viewctl .field-focus', 'zoom-flip-focus']]) {
+        for (const [selector, state] of [['[aria-label="Zoom in"]', 'zoom'], ['[aria-label="Flip all paths 180 degrees"]', 'zoom-flip'], ['.viewctl .field-focus', 'zoom-flip-focus']]) {
           await click(selector); const inspection = await inspect(); assertCaptionsClear(inspection, state); viewChecks.push({ state, inspection });
         }
-        await click('.viewctl .field-focus'); await click('[aria-label="Flip field 180 degrees"]'); await click('[aria-label="Fit field to view"]');
+        await click('.viewctl .field-focus'); await click('[aria-label="Flip all paths 180 degrees"]'); await click('[aria-label="Fit field to view"]');
         assertCaptionsClear(await inspect(), 'restored fit');
       }
       await click(angularInput); assert.equal(await evaluate(() => document.activeElement.value), '0.004');
