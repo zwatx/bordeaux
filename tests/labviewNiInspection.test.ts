@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
 import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
@@ -56,6 +56,32 @@ async function cacheFixture() {
 }
 
 describe("NI legacy connector discovery", () => {
+  it("bounds concurrent fingerprints and reads each shared VI once per validation snapshot", async () => {
+    const f = await cacheFixture();
+    try {
+      for (let index = 1; index < 20; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);
+      const folder = '<Item Name="Intake" Type="Folder" URL="../Intake"><Property Name="NI.DISK" Type="Bool">true</Property></Item>';
+      await fs.writeFile(f.project, `<Project><Item Name="Robot" Type="RT myRIO">${folder}</Item><Item Name="Other" Type="RT roboRIO">${folder}</Item></Project>`);
+      const read = fs.readFile.bind(fs);
+      let active = 0, peak = 0, reads = 0;
+      const spy = vi.spyOn(fs, "readFile").mockImplementation((async (...args: Parameters<typeof fs.readFile>) => {
+        if (!String(args[0]).endsWith('.vi')) return read(...args);
+        reads++; peak = Math.max(peak, ++active);
+        try { await new Promise(resolve => setTimeout(resolve, 5)); return await read(...args); }
+        finally { active--; }
+      }) as typeof fs.readFile);
+      try {
+        await inspectLabviewCommands(f.project, f.cache, async (requestFile, responseFile) => {
+          const request = JSON.parse(await read(requestFile, "utf8"));
+          expect(request.sources).toHaveLength(40);
+          await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: f.project,
+            vis: request.sources.map((item: { file: string; target: string }) => ({ ...item, status: 'nonCommand', viType: 3, modifiedBefore: false, modifiedAfter: false })) }));
+        });
+        expect(reads).toBe(40); // Twenty unique VIs, before and after inspection; no cross-snapshot memoization.
+        expect(peak).toBeGreaterThan(1); expect(peak).toBeLessThanOrEqual(8);
+      } finally { spy.mockRestore(); }
+    } finally { await fs.rm(f.root, { recursive: true, force: true }); }
+  });
   it("exports newly inspected commands by original basename without any filename registration", () => {
     for (const file of ["Intake/Commands/Start.vi", "New subsystem/Brand new action.vi"]) {
       const vi = { ...row(), file, defaults: { Description: "saved text", Setpoint: -0.625 } };
