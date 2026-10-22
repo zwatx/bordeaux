@@ -67,6 +67,7 @@ app.on('browser-window-created', (_event, window) => {
     result.checks.push('startup-44px-toolbar-menu-and-controls');
     holdStartup = false; releaseStartup();
     await wait(() => evaluate(async () => Boolean((await window.bordeauxAPI.getProjectSession()).lifecycleReady && document.querySelector('.pt-wp'))), 'restored editor');
+    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.getAttribute('data-planning-ready') === 'true'), 'planned editor before capture');
     assert.equal(win.isMenuBarVisible(), false); result.checks.push('native-menu-bar-hidden');
     for (const [width, height, name] of [[1440, 900, 'editor-1440x900'], [1100, 720, 'editor-1100x720-minimum']]) {
       win.setContentSize(width, height); await delay(150);
@@ -78,7 +79,12 @@ app.on('browser-window-created', (_event, window) => {
         const controls = [...document.querySelectorAll('.toolbar button,.windows-title-bar button')].filter(el => el.getClientRects().length);
         return { bar: chrome.height, chromeTop: chrome.top, chromeRight: chrome.right, chromeLeft: chrome.left,
           toolbar: toolbar.height, toolbarTop: toolbar.top, editor: editor.height, editorTop: editor.top,
-          stageTop: document.querySelector('.stage').getBoundingClientRect().top, placesCenter: places.left + places.width / 2,
+          stageTop: document.querySelector('.stage').getBoundingClientRect().top, placesLeft: places.left, placesCenter: places.left + places.width / 2,
+          tabsCentered: [...document.querySelectorAll('.place')].every(button => {
+            const range=document.createRange(); range.selectNodeContents(button);
+            const text=range.getBoundingClientRect(), box=button.getBoundingClientRect();
+            return Math.abs(text.left+text.width/2-box.left-box.width/2)<=1;
+          }),
           oldChrome: document.querySelectorAll('.windows-title-brand,.windows-title-mark,.windows-title-menus,[role="menubar"]').length,
           controls: controls.map(el => { const r = el.getBoundingClientRect(); return { label: el.getAttribute('aria-label') || el.textContent,
             left: r.left, right: r.right, top: r.top, bottom: r.bottom, chrome: Boolean(el.closest('.windows-title-bar')) }; }) };
@@ -87,22 +93,32 @@ app.on('browser-window-created', (_event, window) => {
       assert.equal(geometry.chromeTop, 0); assert.equal(geometry.chromeRight, width);
       assert.equal(geometry.editorTop, 0); assert.equal(geometry.editor, height); assert.equal(geometry.stageTop, 44);
       assert.equal(geometry.oldChrome, 0, 'No brand, separate menu bar or extra row');
-      // Parent integration owns centering the three place tabs in the full editor viewport.
-      if (process.env.BORDEAUX_CHROME_ISOLATED_BASE !== '1') {
-        assert.ok(Math.abs(geometry.placesCenter - width / 2) <= 1, 'Project sections stay centered after integration');
-      }
+      // Center each label in its tab; the tab group stays beside the project/library divider.
+      assert.ok(geometry.tabsCentered, 'Each project section label is centered in its tab');
       for (const control of geometry.controls) {
         assert.ok(control.left >= 0 && control.right <= width && control.top >= 0 && control.bottom <= 44, 'Toolbar control fits: ' + control.label);
         if (!control.chrome) assert.ok(control.right <= geometry.chromeLeft, 'Window controls do not cover ' + control.label);
       }
       result[name] = geometry;
       await capture(name);
+      for (const [index, page] of [[2, 'routines'], [3, 'settings']]) {
+        await pointer('.places .place:nth-child(' + index + ')');
+        await wait(() => evaluate(index => document.querySelector('.places .place:nth-child(' + index + ')').getAttribute('aria-current') === 'page', index), page + ' selected');
+        const frame = await evaluate(() => ({ height: document.querySelector('.toolbar').getBoundingClientRect().height,
+          top: document.querySelector('.places').getBoundingClientRect().top, left: document.querySelector('.places').getBoundingClientRect().left,
+          chromeRight: document.querySelector('.windows-title-bar').getBoundingClientRect().right }));
+        assert.equal(frame.height, 44); assert.equal(frame.top, 0); assert.equal(frame.chromeRight, width);
+        assert.equal(frame.left, geometry.placesLeft);
+        await capture(page + '-toolbar-' + width);
+      }
+      await pointer('.places .place:nth-child(1)');
+      await wait(() => evaluate(() => document.querySelector('.fieldcol')?.getAttribute('data-planning-ready') === 'true'), 'planned Paths restored');
     }
     result.minimum = { outer: win.getMinimumSize(), content: win.getContentSize() };
     const [outerWidth, outerHeight] = win.getSize(), [contentWidth, contentHeight] = win.getContentSize();
     assert.deepEqual(win.getMinimumSize(), [1100 + outerWidth - contentWidth, 720 + outerHeight - contentHeight]);
     result.checks.push('single-44px-toolbar-exact-supported-sizes');
-    result.parentLayout = process.env.BORDEAUX_CHROME_ISOLATED_BASE === '1' ? 'Not checked: isolated base excludes parent-owned tab layout.' : 'Viewport-centered project sections passed.';
+    result.parentLayout = 'All three labels centered within their tabs.';
     win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'native foreground');
     const menuSelector = '[aria-label="Application menu"]', popup = Menu.getApplicationMenu();
     assert.deepEqual(popup.items.map(item => item.label), ['File', 'Robot', 'Agents', 'View', 'Help']);
@@ -129,7 +145,9 @@ app.on('browser-window-created', (_event, window) => {
     key('Escape'); await wait(() => evaluate(() => document.activeElement.matches('.place[aria-current="page"]')), 'Escape returns to editor');
     result.checks.push('application-menu-pointer-f10-tab-arrows-space-enter-escape');
     for (const [id, letter] of [['file', 'f'], ['robot', 'r'], ['agents', 'a'], ['view', 'v'], ['help', 'h']]) {
-      const submenu = popup.getMenuItemById('chrome-' + id).submenu;
+      // Background source saves can rebuild main's menus after navigation.
+      const submenu = application().getMenuItemById('chrome-' + id).submenu;
+      win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'focus after programmatic popup dismissal');
       let shown = false; submenu.once('menu-will-show', () => { shown = true; });
       key(letter, ['alt']); await wait(() => shown, 'Alt+' + letter + ' opens native ' + id);
       submenu.closePopup(win); await wait(() => evaluate(selector => document.querySelector(selector).getAttribute('aria-expanded') === 'false', menuSelector), 'Alt menu closed');

@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
       await click('.routine-workspace-about');
       const helpOpen = await previewHelp();
       assert.ok(helpOpen.open && helpOpen.expanded === 'true' && helpOpen.focused, 'Pointer opens preview help and keeps trigger focus');
-      assert.ok(helpOpen.sentences.length <= 2 && helpOpen.sentences.includes('The robot doesn’t run routines yet.'), 'Preview help states the runtime boundary in two sentences');
+      assert.ok(helpOpen.sentences.length <= 2 && helpOpen.sentences.includes('Robot routine playback is unavailable.'), 'Preview help states the runtime boundary in two sentences');
       assert.ok(helpOpen.fits, 'Preview help fits under its trigger');
       assert.equal(helpOpen.flow, helpClosed.flow, 'Opening preview help does not move the flow');
       await snapshot('preview-notes-' + width);
@@ -241,7 +241,7 @@ app.whenReady().then(async () => {
       await click('[data-id="finish"] .rt-step-body'); await snapshot('end-routine-' + width);
       saved.routines = [{ ...routine, nodes: [{ id: 'unsupported-generated', type: 'generatedTrajectory', generatorId: 'fixture', arguments: {}, fallback: { type: 'safeStop' } }] }];
       await load('unsupported-generated'); await click('[data-id="unsupported-generated"] .rt-step-body');
-      assert.ok(await evaluate(() => document.querySelector('.routine-insp').textContent.includes('no robot runner supports it yet')), 'Saved unsupported definition never claims runtime generation');
+      assert.ok(await evaluate(() => document.querySelector('.routine-insp').textContent.includes('Preview and robot execution are unavailable.')), 'Saved unsupported definition never claims runtime generation');
       await snapshot('unsupported-definition-' + width);
       // Native output-driven repeat authoring: the preview count is never a runtime cap.
       const bool = { kind: 'boolean', valueType: 'Boolean' };

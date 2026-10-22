@@ -21,11 +21,19 @@ Sender/main-frame/platform guards, the initial state snapshot and live updates, 
 - Personally inspected all six native screenshots: startup, 1440×900, 1100×720, maximized, Keyboard shortcuts modal and reloaded 1100×720. The controls occupy the existing row, stay readable above the modal and leave the supported editor height intact. Tab placement in these images is the unchanged isolated base.
 - Native stderr retains two `project:transitionBegin` / `A project departure is already pending` rejections while Reload/Close complete. The inherited App transition code catches that rejected admission and continues the main-owned departure checkpoint; this handoff does not change that path. Integrated review should retain and assess these logs.
 
-## Native integration still required
+## Parent integration on 2026-10-22
+
+Integrated as `e161ba8`, with the parent's concise copy and project-status changes, then fingerprint failure draining at `60ae102`. `.ui-artifacts/integrated-toolbar-final-r2` records all 14 checks passing, process exit 0 and no timeout. Ten production images cover startup, Paths at both supported sizes, Routines and Settings at both sizes, maximized, Keyboard shortcuts and reload. Labels are centered within their own tabs; the nav group stays beside the project divider across pages. The separate title strip is absent.
+
+Parent build/typecheck passed. Aggregate renderer sizes are 741,146 B application JS / 211,818 B worker JS / 150,964 B CSS, within unchanged ceilings. Native pointer/keyboard checks cover the Application menu, direct Alt submenus, local Save, min/max/restore and external state changes, caption Space/Enter, modal/inert-editor access, Reload and real Close. No installed app, NI instance or robot was used by these harnesses.
+
+Retained failed runs are harness failures: an obsolete viewport-centering expectation, then an old native menu reference after autosave rebuilt the menu. Final checks measure each label's text, obtain fresh menu references, and preserve the same product assertions. Native-popup dismissal is programmatic; OS popup selection/dismissal, drag/snap, Alt+Space, fatal rendering and actual macOS remain unverified.
+
+## Repeating native integration
 
 The parent owns the sequential foreground slot and has the installed application open. The isolated native check passed only after the parent granted that slot; the combined UI still requires integration sign-off. After merging the parent's toolbar/tab layout changes and this commit, build both outputs, set `BORDEAUX_CHROME_UI_OUTPUT` to a fresh absolute evidence directory, and run `node scripts/verify-windows-chrome.mjs` in that slot. Do not run it concurrently with another GUI harness. Leave `BORDEAUX_CHROME_ISOLATED_BASE` unset for the integrated run so tab centering remains required.
 
-The updated production main/preload/renderer harness asserts one 44px toolbar, exact 1440×900 and 1100×720 content, no brand/menu row, viewport-centered parent tabs, toolbar controls within bounds and clear of caption controls, and matching native minimums. **The default centered-tab assertion depends on the parent's Panels/app.css integration and will fail against this isolated base.** CSS has only 38 B of headroom under the unchanged ceiling, so the combined build must rerun its gate.
+The production main/preload/renderer harness asserts one 44px toolbar, exact 1440×900 and 1100×720 content, no brand/menu row, text centered in each tab, toolbar controls within bounds and clear of caption controls, and matching native minimums. Leave `BORDEAUX_CHROME_ISOLATED_BASE` unset for the combined layout.
 
 It prepares screenshots and native input checks for startup controls, Application by pointer/F10/Tab/arrows/Enter/Space, direct Alt submenus, offline Save, pointer minimize/maximize/restore, external state synchronization, keyboard caption activation, a real Keyboard shortcuts modal, an explicitly inert editor, protected main-owned Reload and fresh state subscriptions, and real Close while a modal is open. The test-owned process exits only after the production window closes.
 
