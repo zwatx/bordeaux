@@ -251,22 +251,13 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 [data-platform="darwin"] .tb-project{padding-left:80px}
 [data-platform="darwin"] .toolbar :is(button,input,select,a,[role="menu"],[role="dialog"],dialog,.project-control){-webkit-app-region:no-drag}
 .places{position:relative;display:grid;grid-template-columns:repeat(3,1fr);flex:none;align-items:stretch;align-self:stretch;width:246px;padding:0 4px}
-.place{position:relative;display:flex;align-items:center;padding:0 10px;color:var(--txt-3);font-size:13px;font-weight:500;transition:color .14s}
+.place{position:relative;display:flex;align-items:center;justify-content:center;padding:0 10px;color:var(--txt-3);font-size:13px;font-weight:500;transition:color .14s}
 .place[aria-current="page"]{color:var(--txt)}
 .places::after{content:'';position:absolute;left:14px;bottom:-1px;width:calc((100% - 8px)/3 - 20px);height:2px;border-radius:1px;background:var(--txt);transform:translateX(calc(var(--place-index,0)*(100% + 20px)));transition:transform .2s cubic-bezier(.2,.8,.2,1);pointer-events:none}
 @media (prefers-reduced-motion:reduce){.places::after{transition:none}}
 /* The project slot and section divider remain stable on every page, including Settings. */
 .tb-project .project-control{flex:1 1 auto}
-.project-chip-unsaved{display:inline-flex;flex:none;align-items:center;margin-right:4px;vertical-align:middle}
-@container project-slot (min-width:220px){
-  .tb-project .project-chip{width:100%;grid-template-columns:minmax(0,1fr) auto 12px;column-gap:8px}
-  .tb-project .project-chip-meta{grid-column:2;grid-row:1;max-width:100px}
-  .tb-project .project-chip-chevron{grid-column:3;grid-row:1}
-  .tb-project .project-chip:is([data-status="failed"],[data-status="recovered"]) .project-chip-meta{max-width:90px}
-  .tb-project .project-chip:has(.project-chip-bdx,.project-chip-bdx-pending){grid-template-columns:minmax(0,1fr) 12px}
-  .tb-project .project-chip:has(.project-chip-bdx,.project-chip-bdx-pending) .project-chip-meta{grid-column:1/-1;grid-row:2;max-width:none}
-  .tb-project .project-chip:has(.project-chip-bdx,.project-chip-bdx-pending) .project-chip-chevron{grid-column:2}
-}
+.tb-project .project-chip{width:100%;grid-template-columns:minmax(0,1fr) 12px}
 .tb-spacer{flex:1 1 0;min-width:8px}
 /* Toolbar actions are 40px targets with clear gaps; their surfaces only appear on hover, press or focus. */
 .tb-actions{display:flex;flex:none;align-items:center;gap:6px}

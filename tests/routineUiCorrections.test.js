@@ -57,7 +57,7 @@ describe('generated fallback descendants', () => {
   it('opens a fallback step read-only: no editors, no delete', () => {
     const html = renderInspector(fallbackWait, routine);
     expect(html).toContain('Read-only');
-    expect(html).toContain('kept as saved and cannot be changed here');
+    expect(html).toContain('Saved fallback. Read-only here.');
     expect(html).not.toContain('<input');
     expect(html).not.toContain('Delete wait');
   });

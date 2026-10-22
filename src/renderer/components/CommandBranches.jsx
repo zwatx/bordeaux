@@ -50,10 +50,10 @@ export function CommandBranches({ node, command, acq }) {
             meta: output.name !== branch?.output ? kind + removes : changed && total ? 'Type changed' + removes : kind };
         })],
       onChoose: choose }),
-    !branch && !outputs.length && h('p', { className: 'seg-hint' }, 'Sync a command with boolean, named, or numeric outputs to add branches.'),
+    !branch && !outputs.length && h('p', { className: 'seg-hint' }, 'Sync a command with outputs to add branches.'),
     branch && h(React.Fragment, null,
       (!current || changed) && h('div', { className: 'cmd-project-error', role: 'status' },
-        changed ? 'This output’s type changed. Rebuild its routes before using it.' : 'The saved output is missing from this command. Its routes are preserved.',
+        changed ? 'This output’s type changed. Rebuild its routes before using it.' : 'Output missing. Saved routes are kept.',
         changed && h('button', { type: 'button', className: 'rt-openbtn',
           ...deletionInput(() => replaceThen({ kind: 'rebuild' }, (section) => section.querySelector('#command-branch-output'))) }, 'Rebuild routes' + removes)),
       h('p', { className: 'seg-hint' }, (numeric ? 'First match wins, top to bottom. ' : '') + 'Routes rejoin at the next step. Preview only.'),

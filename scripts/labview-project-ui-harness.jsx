@@ -8,7 +8,7 @@ import { UI } from '../src/renderer/components/ui';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const results = [], root = createRoot(document.getElementById('root'));
-let props, calls;
+let props, calls, projectProps;
 const assert = (value, message) => { if (!value) throw new Error(message); };
 window.__labviewNativeEvents = []; window.__labviewBlurs = []; window.__labviewErrors = [];
 window.addEventListener('blur', () => { if (window.__labviewFocusArmed) window.__labviewBlurs.push(performance.now()); });
@@ -30,9 +30,10 @@ const catalog = { projectName: 'Competition robot 2468 — autonomous command pr
 function Harness() {
   const [command, setCommand] = React.useState('shoot'), [speed, setSpeed] = React.useState(2400);
   return <div style={{height:'100vh',display:'flex',flexDirection:'column',background:'var(--bg-1)'}}>
-    <header className="toolbar"><ProjectChip name="Component fixture project" folderPath="/fixture/Component project" status="saved"
+    <header className="toolbar"><div className="tb-project"><ProjectChip name="Component fixture project" folderPath="/fixture/Component project" status="saved" {...projectProps}
       robotCode={{...props,name:props.catalog?.projectName,commands:props.catalog?.commands.length}}
-      actions={{projects:()=>calls.push('projects'),create:()=>calls.push('new'),save:()=>calls.push('save'),saveCopy:()=>calls.push('copy'),linkCode:()=>calls.push('link'),refreshCode:()=>calls.push('refresh'),rescanCode:()=>calls.push('rescan'),recentCode:id=>calls.push(id),buildCode:()=>calls.push('build')}} /></header>
+      actions={{projects:()=>calls.push('projects'),create:()=>calls.push('new'),save:()=>calls.push('save'),saveCopy:()=>calls.push('copy'),linkCode:()=>calls.push('link'),refreshCode:()=>calls.push('refresh'),rescanCode:()=>calls.push('rescan'),recentCode:id=>calls.push(id),buildCode:()=>calls.push('build')}} /></div>
+      <nav className="places" aria-label="Project sections">{['Paths','Routines','Settings'].map(label=><button className="place" type="button" key={label}>{label}</button>)}</nav></header>
     <div style={{display:'flex',flex:1,minHeight:0}}><main style={{flex:1,padding:32,color:'var(--txt-3)'}}><h2>Robot code component verification</h2><p>Actual ProjectChip, lazy Sources and command controls; explicit callback and platform fixtures. This is not the full App.</p></main>
       <aside className="ctxinsp inspector-refresh"><div className="ctxinsp-hd"><span className="ctxinsp-t">Intake command</span></div><div className="ctxinsp-body">
         <UI.ChoiceBrowser id="fixture-command" label="Command" value={command} items={[{value:'shoot',label:'Shoot game piece',meta:'Target speed'}]} onChoose={value=>{setCommand(value);return {status:'applied',current:()=>true};}} />
@@ -42,11 +43,35 @@ function Harness() {
 }
 async function render() { await act(async () => root.render(<Harness/>)); }
 async function mount(platform='win32', linked=true) {
-  await act(async()=>root.render(null)); window.bordeauxAPI={platform}; calls=[];
+  await act(async()=>root.render(null)); window.bordeauxAPI={platform}; document.documentElement.dataset.platform=platform; calls=[]; projectProps={};
   props={catalog:linked?structuredClone(catalog):null,bookmarkId:'current',operation:null,status:linked?'ready':'unlinked',error:'',recentProjects:[{id:'other',projectName:'Practice robot with a very long descriptive project name',folderName:'C:/Robots/Practice Robot',lastLinkedAt:'2026-10-15T12:00:00.000Z'}]}; await render();
 }
 async function menu() { if (!document.querySelector('#project-menu')) await pointer(document.querySelector('.project-chip')); }
 async function test(name, fn) { try { await fn(); results.push({name,ok:true}); } catch(error) { results.push({name,ok:false,error:error.message}); } }
+await test('Quiet saved name, change asterisk and centered navigation stay stable', async()=>{
+  await mount();
+  const navLeft=document.querySelector('.places').getBoundingClientRect().left;
+  assert(!document.querySelector('.project-chip-meta')&&!document.querySelector('.project-chip-unsaved'),'Saved project shows its name alone');
+  await native({capture:'project-saved'});
+  for (const writing of [false,true]) {
+    projectProps={status:'saving',writing,name:'A long project name with many autonomous paths and routines'}; await render();
+    await act(async()=>new Promise(resolve=>setTimeout(resolve,500)));
+    assert(!document.querySelector('.project-chip-meta'),'No Saving or Unsaved text');
+    const star=document.querySelector('.project-chip-unsaved'), chip=document.querySelector('.project-chip');
+    assert(star?.textContent==='*'&&star.getBoundingClientRect().right<=chip.getBoundingClientRect().right,'Long project name keeps its asterisk visible');
+    assert(chip.getAttribute('aria-label').includes('Unsaved changes'),'Accessible change state');
+    assert(document.querySelector('.places').getBoundingClientRect().left===navLeft,'Status does not move navigation');
+    await native({capture:writing?'project-writing':'project-changed'});
+  }
+  for (const tab of document.querySelectorAll('.place')) {
+    const range=document.createRange();range.selectNodeContents(tab);const text=range.getBoundingClientRect(),box=tab.getBoundingClientRect();
+    assert(Math.abs(text.left+text.width/2-box.left-box.width/2)<1,'Centered '+tab.textContent);
+  }
+  projectProps={status:'failed',saveError:'Folder is read-only'};await render();await native({capture:'project-save-failed'});
+  assert(document.querySelector('.project-chip-status').textContent==='Not saved','Failed saves remain visible');
+  projectProps={status:'saved'};await render();assert(!document.querySelector('.project-chip-unsaved')&&!document.querySelector('.project-chip-meta'),'Saving clears the marker and status line');
+  await pointer(document.querySelector('.project-chip'));await key('Escape');assert(document.activeElement.matches('.project-chip'),'Menu keyboard focus returns');
+});
 await test('Unlinked chip exposes the explicit Link action', async()=>{
   await mount('win32',false); await menu(); assert(document.querySelector('.project-menu-code').textContent.includes('Not linked'),'Unlinked fact');
   await pointer('Link robot code…'); assert(calls[0]==='link','Link callback'); assert(!document.querySelector('.labview-project-panel'),'No retired panel'); await menu(); await native({capture:'unlinked'});

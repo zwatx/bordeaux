@@ -40,7 +40,7 @@ export function planningNotice(error: unknown, kind: PlanningErrorKind): Plannin
   const sentence = /[.!?]$/.test(message) ? message : message + ".";
   if (kind === "timeout") {
     return { kind, label: "Planning timed out", recovery: "retry",
-      detail: sentence + " Playback and field editing stay unavailable until a trajectory is ready. Try again, or simplify the path or its limits." };
+      detail: sentence + " Playback and field edits need a trajectory. Retry or simplify the path." };
   }
   return { kind, label: "Trajectory unavailable", recovery: "limits",
     detail: sentence + " Edit the limits or undo the last change to try again." };

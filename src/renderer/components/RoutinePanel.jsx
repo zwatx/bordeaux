@@ -692,11 +692,11 @@ export function RoutinePanel(props) {
         ? h('div', { className: 'rt-empty' },
             h('div', { className: 'rt-empty-t' }, 'No steps yet'),
             h('p', null, paths.length
-              ? 'Steps run top to bottom. Start with the path the robot drives first, then add waits, commands, branches and repeats where the plan needs them.'
-              : 'This project has no paths yet. Create one in Paths, then add it here.'),
+              ? 'Steps run top to bottom. Add a path, command, Wait or repeat.'
+              : 'Create a path in Paths, then add it here.'),
             h('button', { className: 'qbtn primary rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
               onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'),
-            !catalog && h('p', { className: 'rt-empty-note' }, 'Wait works without robot code. Link robot code to choose commands and their outputs.'))
+            !catalog && h('p', { className: 'rt-empty-note' }, 'Wait works offline. Link robot code for commands.'))
         : h('div', { className: 'rt-list' + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
             renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),

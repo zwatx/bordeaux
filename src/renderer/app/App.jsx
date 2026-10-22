@@ -1303,7 +1303,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       candidate._selAfter = oldCount;
 
       if (segmentType === 'clothoid') {
-        const message = 'The new clothoid join may rebuild the previous turn. Review the dashed path first.';
+        const message = 'This join may rebuild the previous turn. Review the dashed path.';
         setWaypointPreviewRequest({ doc: candidate, index: oldCount, plannerId, message, actionLabel: 'Place endpoint' });
         return;
       }
@@ -2913,7 +2913,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         action: { label: 'Dismiss', onClick: () => setExportError('') } },
       editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,
         action: { label: 'Try again', onClick: editing.retry } },
-      !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'The saved optimization could not be validated. Review it before using this path.',
+      !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'Saved optimization is unverified. Review before use.',
         action: { label: 'Optimize', onClick: () => setOptimizationOpen(true) } },
     ].filter(Boolean);
 

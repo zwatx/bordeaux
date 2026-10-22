@@ -211,7 +211,7 @@ app.whenReady().then(async () => {
       assert.deepEqual((await source())[0].nodes, [], 'Cancelling empty insertion preserves source');
       activeCatalog = null;
       await load(null);
-      assert.ok(await evaluate(() => document.querySelector('.rt-empty').textContent.includes('Wait works without robot code')), 'No catalog empty state explains native Wait and linking commands');
+      assert.ok(await evaluate(() => document.querySelector('.rt-empty').textContent.includes('Wait works offline')), 'No catalog empty state explains native Wait and linking commands');
       await click('.rt-empty-add');
       await snapshot('no-catalog-insert-' + width);
       await key('Escape');
@@ -224,7 +224,7 @@ app.whenReady().then(async () => {
       await load('once');
       assert.equal(await evaluate(() => document.querySelector('.rt-close-t').textContent), 'Runs once, then continues', 'A one-pass repeat never promises loop-back');
       await click('[data-id="legacy-reference"] .rt-step-body');
-      await wait(() => evaluate(() => document.querySelector('.routine-insp').textContent.includes('The preview plays the path saved with it; nothing is generated.')), 'saved legacy reference explanation');
+      await wait(() => evaluate(() => document.querySelector('.routine-insp').textContent.includes('Plays the saved preview path. Runtime generation is unavailable.')), 'saved legacy reference explanation');
       assert.ok(await evaluate(() => document.querySelector('[data-id="legacy-reference"]').textContent.includes('preview plays its saved reference path')), 'Saved reference row agrees with actual preview');
       await snapshot('once-and-saved-reference-' + width);
       saved.routines = [{ ...routine, nodes: [

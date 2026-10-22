@@ -77,7 +77,7 @@ updater.quitAndInstall = () => {
     const modals = () => evaluate(() => [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(node => node.className || node.tagName));
     await wait(async () => JSON.stringify(await modals()) === '["app-update-dialog"]', 'stalled update panel as the only modal');
     const owner = await evaluate(() => { const panel = document.querySelector('.app-update-dialog'); return { modal: panel.matches(':modal'), focus: panel.contains(document.activeElement), pending: Boolean(document.querySelector('.pj-pending')), title: panel.querySelector('#app-update-title')?.textContent }; });
-    assert.deepEqual(owner, { modal: true, focus: true, pending: false, title: 'Restart is taking longer than expected' }); result.stalledOwner = owner;
+    assert.deepEqual(owner, { modal: true, focus: true, pending: false, title: 'Restart delayed' }); result.stalledOwner = owner;
     fs.writeFileSync(path.join(output, 'stalled-panel.png'), (await win.webContents.capturePage()).toPNG());
     // Optional root visual evidence at the supported sizes; Close must stay unoccluded at each before the real pointer press.
     if (process.env.BORDEAUX_UPDATE_QUIT_SIZES === '1') {

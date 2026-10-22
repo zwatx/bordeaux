@@ -56,7 +56,7 @@ describe("final planning results", () => {
     expect(notice.label).toBe("Planning timed out");
     expect(notice.recovery).toBe("retry");
     expect(notice.detail).not.toMatch(/continuing/i);
-    expect(notice.detail).toMatch(/Playback and field editing stay unavailable/);
+    expect(notice.detail).toMatch(/Playback and field edits need a trajectory/);
   });
 
   it("strips the fallback clause from a final failure", () => {

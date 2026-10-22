@@ -4,7 +4,7 @@ import { UI } from './ui';
 const h = React.createElement;
 
 /** The preview boundary, said once. Per-step choices and untimed time live in the inspector and transport. */
-export const PREVIEW_HELP = 'The preview plays the routes and repeat passes you pick; it doesn’t run commands or check conditions. The robot doesn’t run routines yet.';
+export const PREVIEW_HELP = 'Preview only; commands and conditions do not run. Robot routine playback is unavailable.';
 
 export function RoutineWorkspace({ routine, flow, field, transport, status }) {
   const [view, setView] = React.useState('flow');

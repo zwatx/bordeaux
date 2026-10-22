@@ -109,7 +109,7 @@ export function OptimizationPanel({ path, paths, state, candidate, accepted, acc
           stale ? 'Update optimization' : legacy && !entry ? 'Optimize again' : entry ? 'Try again' : 'Optimize'),
       (accepted || stale) && h('button', { type: 'button', className: 'optimizer-reset', onClick: onNormal }, 'Use normal'),
       h('p', { className: 'optimizer-note optimizer-task' },
-        'Keeps waypoints, set headings, and stops. Uses the drawn curve as a starting guess and avoids field obstacles.'),
+        'Avoids obstacles. Keeps waypoints, headings and stops.'),
       h('details', { className: 'optimizer-settings', key: `settings-${path.id}` },
         h('summary', null, 'Search options'),
         h('div', { className: 'optimizer-search-actions' },

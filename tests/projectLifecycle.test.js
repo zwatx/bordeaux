@@ -211,10 +211,11 @@ describe('full recovery storage', () => {
     expect(sheet({ recoveryFact: 'Recovery storage is full' }, () => undefined)).not.toContain('Manage…');
   });
 
-  it('the chip face stays Saved when recovery storage is full', () => {
+  it('the saved chip stays quiet when recovery storage is full', () => {
     const markup = renderToStaticMarkup(React.createElement(ProjectChip, { name: 'Week 3 autos', folderPath: '/team/Week 3 autos', status: 'saved', robotCode: { status: 'unlinked' },
       recovery: { status: 'failed', fact: 'Recovery storage full', code: 'capacity' }, actions: { manageRecoveries() {} } }));
-    expect(markup).toContain('>Saved<');
+    expect(markup).not.toContain('project-chip-meta');
+    expect(markup).not.toContain('project-chip-unsaved');
     expect(markup).not.toContain('Recovery storage full');
   });
 });

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { isMacPlatform, shortcutLabel } from '../lib/shortcuts';
 import { UI } from './ui';
+import { shortFact } from '../lib/projectLifecycle';
 
 const h = React.createElement;
 const { useEffect, useRef, useState } = React;
@@ -8,7 +9,7 @@ const { Icon } = UI;
 
 const timeOfDay = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 const folderName = (directory) => String(directory || '').replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || directory;
-export const ROUTINES_LOCAL = 'Routines stay on this computer. Push uploads paths only.';
+export const ROUTINES_LOCAL = 'Push sends paths only. Routines stay local.';
 
 const WORKING = ['preparing', 'uploading', 'probing', 'trusting', 'saving'];
 
@@ -24,7 +25,7 @@ export function robotStatus(controller, resultAt) {
   if (controller.phase === 'transferred' && controller.result) {
     return { tone: 'good', text: 'Pushed ' + (controller.result.files?.length || 0) + ' · ' + timeOfDay(resultAt || new Date()), title: 'Verified in ' + controller.result.directory };
   }
-  if (controller.phase === 'failed' && controller.error) return { tone: 'bad', text: 'Not sent · ' + controller.error };
+  if (controller.phase === 'failed' && controller.error) return { tone: 'bad', text: 'Not sent · ' + shortFact(controller.error), title: controller.error };
   if (!endpoint) return { tone: 'unset', text: 'Robot not set up', title: 'Push opens robot setup' };
   return { tone: undefined, text: endpoint.host + ' · ' + folderName(endpoint.directory), title: endpoint.host + ':' + endpoint.directory };
 }
@@ -85,7 +86,7 @@ function PushMenu({ controller, status, total, incomplete, onPushAll }) {
         status.tone && status.tone !== 'unset' && h('span', { className: 'push-menu-result', 'data-tone': status.tone, title: status.title }, status.text)),
       item({ className: 'push-all', 'aria-disabled': allInert || undefined, title: allUnavailable || undefined,
         'aria-label': 'Push all ' + total + (total === 1 ? ' path' : ' paths'), onClick: allInert ? undefined : run(onPushAll) },
-      'Push all ' + total + (total === 1 ? ' path' : ' paths'), allUnavailable || 'Every path, including ones hidden by search or a folder'),
+      'Push all ' + total + (total === 1 ? ' path' : ' paths'), allUnavailable || 'Includes hidden paths'),
       h('hr', { role: 'separator' }),
       item({ className: 'push-menu-connection', onClick: run(() => controller.openConnection()) }, endpoint ? 'Robot connection…' : 'Set up robot…')));
 }

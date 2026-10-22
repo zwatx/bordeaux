@@ -95,7 +95,7 @@ export function DiagnosticBundleDialog({ getProject, targetSelector = ".toolbar 
         h("header", null,
           h("div", null, h("h2", { id: "beta-diagnostic-title" }, "Diagnostic bundle")),
           h("button", { ref: closeRef, className: "robot-push-close", type: "button", "aria-label": "Close diagnostic bundle", disabled: busy, onClick: close }, "×")),
-        h("p", { className: "robot-push-intro" }, "A local support file with app, field, routine and robot details. Nothing is sent automatically."),
+        h("p", { className: "robot-push-intro" }, "Preview a local support file. Nothing is sent."),
         error && h("div", { className: "robot-push-alert", role: "alert" }, error),
         !desktopAvailable && h("div", { className: "robot-push-section" },
           h("p", null, "Diagnostic bundles are available in the desktop app.")),

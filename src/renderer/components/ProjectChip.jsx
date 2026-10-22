@@ -19,7 +19,6 @@ export function parentLocation(folder) {
 }
 export const homeRelative = (place) => place.replace(/^(?:\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)(?=$|[\\/])/, '~');
 
-const WORD = { saved: 'Saved', saving: 'Saving', unsaved: 'Not saved', failed: 'Not saved', recovered: 'Recovered' };
 // Main's receipt time for a recovery copy, with seconds as departure surfaces show it.
 const receiptClock = (iso) => receiptTime(iso, { seconds: true });
 
@@ -37,28 +36,15 @@ async function copyText(text) {
   return copied;
 }
 
-// "Saving" appears only once an actual write has run for 400 ms, so the autosave debounce and quick writes
-// keep the quiet unsaved star instead of flashing a progress word.
-function useShownStatus(status, writing) {
-  const [shown, setShown] = useState(status === 'saving' ? 'saved' : status);
-  useEffect(() => {
-    if (status !== 'saving') { setShown(status); return undefined; }
-    if (!writing) return undefined;
-    const timer = setTimeout(() => setShown('saving'), 400);
-    return () => clearTimeout(timer);
-  }, [status, writing]);
-  return shown;
-}
-
-// The project is a quiet name and one status word. Its menu holds the save fixes, project commands and
+// The project is a quiet name with an asterisk for changes. Its menu holds the save fixes, project commands and
 // the linked robot code, which stays a separate thing from the project and from the robot destination.
 export function ProjectChip({ name, folderPath, status, writing, saveError, attempt, sourceChange, reloadError, showFailure, reloadKept, notice, recovery, recoveredFrom, bdxPending, bdxError, bdxDetails, robotCode, actions }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState('');
   const [sources, setSources] = useState(null), [showRecentCode, setShowRecentCode] = useState(false);
   const root = useRef(null), trigger = useRef(null), menu = useRef(null);
-  const shown = useShownStatus(status, writing);
   const unsaved = status !== 'saved';
+  const statusWord = status === 'failed' ? 'Not saved' : status === 'recovered' ? 'Recovered' : null;
   const close = (restoreFocus) => { setOpen(false); if (restoreFocus) trigger.current?.focus(); };
   // A Show file failure that arrived after the menu closed is shown in the next open menu, then retired when it closes.
   const shownFailure = useRef(null);
@@ -112,21 +98,19 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
   return h('div', { ref: root, className: 'project-control', onBlur: (event) => {
     if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   } },
-    h('button', { ref: trigger, type: 'button', className: 'project-chip', 'data-status': shown, 'aria-haspopup': 'menu', 'aria-expanded': open,
+    h('button', { ref: trigger, type: 'button', className: 'project-chip', 'data-status': status, 'aria-haspopup': 'menu', 'aria-expanded': open,
+      'aria-label': [name, unsaved && 'Unsaved changes', statusWord, bdxError && !bdxPending && 'BDX failed', bdxPending && 'Updating BDX'].filter(Boolean).join(', '),
       'aria-controls': open ? 'project-menu' : undefined, 'aria-busy': status === 'saving' || (status === 'failed' && writing) || undefined, title: folderPath || name,
       onClick: () => setOpen(!open), onKeyDown: (event) => {
         if ([' ', 'Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) event.stopPropagation();
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); }
       } },
-      // Two lines in a fixed slot: the name, then its status. Status changes never move the toolbar; both lines
-      // truncate visually but stay whole in the button's accessible name and in the menu.
-      h('span', { className: 'project-chip-name' }, name),
+      h('span', { className: 'project-chip-title' }, h('span', { className: 'project-chip-name' }, name),
+        unsaved && h('span', { className: 'project-chip-unsaved', 'aria-hidden': true }, '*')),
       h('span', { className: 'project-chip-chevron', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 12 })),
-      h('span', { className: 'project-chip-meta' },
+      (statusWord || bdxError || bdxPending) && h('span', { className: 'project-chip-meta' },
         // Keyed by try, action and cause, so every new failure replays its acknowledgment.
-        h('span', { key: shown === 'failed' ? (attempt || 1) + ':' + (notice?.key || 0) + ':' + saveError : shown, className: 'project-chip-status' },
-          unsaved && h('span', { className: 'project-chip-unsaved', 'aria-hidden': true }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }, h('path', { d: 'M5 0v10M.67 2.5l8.66 5M.67 7.5l8.66-5' }))),
-          shown === 'saved' && unsaved ? 'Unsaved' : WORD[shown]),
+        statusWord && h('span', { key: status === 'failed' ? (attempt || 1) + ':' + (notice?.key || 0) + ':' + saveError : status, className: 'project-chip-status' }, statusWord),
         bdxError && !bdxPending && h('span', { className: 'project-chip-bdx' }, 'BDX failed'),
         // The source is saved; the generated BDX files are still being rewritten (not yet current for Git or Push).
         bdxPending && h('span', { className: 'project-chip-bdx-pending' }, 'Updating BDX'))),

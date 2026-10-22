@@ -87,7 +87,7 @@ await test('Pointer and keyboard connect, trust identity, review multiple files,
   await native({ capture: 'uploading' });
   await resolve(mock.confirms[0], { state: 'transferred', files, directory: endpoint.directory });
   await native({ capture: 'success' });
-  assert(document.querySelector('dialog').textContent.includes('No routine was activated'), 'File success must not imply execution');
+  assert(document.querySelector('dialog').textContent.includes('Nothing started'), 'File success must not imply execution');
   await act(async () => native({ key: 'Escape' }));
   assert(!controller.open, 'Escape closes dialog');
   assert(document.activeElement.id === 'origin', 'Focus returns to initiating button');
@@ -101,10 +101,15 @@ await test('Trust failure keeps reviewed identity and retry available', async ()
   await native({ capture: 'identity-failure' });
 }, null);
 await test('Upload failure shows one error with a fresh review recovery', async () => {
-  await prepare(); await pointer('Upload 2 paths'); await reject(mock.confirms[0], 'SFTP readback did not match the uploaded file.');
+  await prepare(); await pointer('Upload 2 paths'); await reject(mock.confirms[0], 'SFTP readback did not match the uploaded file. No files verified. Check the robot folder before retrying.');
   assert(controller.phase === 'failed', 'Failed verification cannot report success');
   assert(document.querySelectorAll('[role="alert"]').length === 1, 'One useful error');
   await native({ capture: 'failure' });
+  assert(document.querySelector('[role="alert"]').textContent === 'SFTP readback did not match the uploaded file', 'Failure summary is concise');
+  const details=document.querySelector('.rfp-error-details');
+  assert(details&&!details.open&&details.textContent.includes('No files verified'), 'Details preserve the full readback failure');
+  details.querySelector('summary').focus(); await act(async()=>native({key:'Enter'}));
+  assert(details.open,'Keyboard opens failure Details');await native({capture:'failure-details'});
   await pointer('Try again'); assert(mock.prepares.length === 2, 'Retry prepares again');
 });
 await test('Repeated pushes use the remembered robot without connection or identity screens', async () => {
@@ -145,7 +150,7 @@ await test('Include widens only this review from the captured project, by keyboa
   props = { ...props, getProject: () => linkedProject }; await act(async () => root.render(<Harness />));
   await prepare();
   const note = () => document.querySelector('.rfp-linked');
-  assert(note()?.textContent === 'Linked to Trench run, which is not included. Include 1 path', 'Review names the linked path outside the push');
+  assert(note()?.textContent === 'Linked paths not included: Trench run. Include 1 path', 'Review names the linked path outside the push');
   assert(document.activeElement?.textContent === 'Cancel', 'Cancel keeps first focus, not Include or Upload');
   await native({ capture: 'linked-review' });
   linkedProject.paths.splice(2, 1);

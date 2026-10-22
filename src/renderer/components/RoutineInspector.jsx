@@ -140,7 +140,7 @@ export function StepInspector(props) {
         h('span', { className: 'ctxinsp-t', title: stepTitle(node, paths, catalog) }, stepTitle(node, paths, catalog)),
         h('span', { className: 'ctxinsp-tag' }, 'Read-only'),
         h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
-      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Part of a saved runtime-generation fallback. It is kept as saved and cannot be changed here.')));
+      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Saved fallback. Read-only here.')));
   }
 
   if (node.type === 'path') {
@@ -168,7 +168,7 @@ export function StepInspector(props) {
   } else if (node.type === 'decision') {
     glyph = 'branch'; title = 'Saved condition branch'; tag = 'Legacy';
     body = h(React.Fragment, null,
-      Hint('Saved condition: ' + (node.cond || '(unselected)') + '. Its routes are kept. Add a command and select its output for new decisions.'),
+      Hint('Saved condition: ' + (node.cond || '(unselected)') + '. Routes kept. Use command outputs for new decisions.'),
       h('div', { className: 'rt-route-names' },
         h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
         h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
@@ -215,7 +215,7 @@ export function StepInspector(props) {
     // A saved definition only: it cannot be added, generated on the desktop, or delivered to a robot runner today.
     glyph = 'route'; title = deployment.label || 'Generated trajectory'; tone = 'bad'; tag = 'Not supported';
     body = h(React.Fragment, null,
-      Hint('A saved definition for a path generated while the routine runs. Bordeaux cannot generate or preview it, and no robot runner supports it yet.'),
+      Hint('Saved runtime path. Preview and robot execution are unavailable.'),
       Hint('Saved fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'static steps, kept as saved and not checked (read-only)' : 'safe stop')),
       remove('Remove generated trajectory'));
 
@@ -267,7 +267,7 @@ export function StepInspector(props) {
     title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step'; tone = 'bad'; tag = 'Legacy — cannot deploy';
     body = h(React.Fragment, null,
       Hint('Saved by an earlier Bordeaux format. ' + (node.cat === 'generate' && node.preview
-        ? 'The preview plays the path saved with it; nothing is generated. It has no robot contract.'
+        ? 'Plays the saved preview path. Runtime generation is unavailable.'
         : 'The preview ignores it and it has no robot contract.') + ' Its data is kept as saved until you remove it.'),
       remove('Remove unsupported step'));
   }

@@ -258,7 +258,7 @@ import "../styles/settings.css";
       h('button', { className: 'rp-addvertex', type: 'button', disabled: footprint.length >= 16, onClick: () => addVertex() }, 'Add vertex on longest edge'),
       h('div', { className: 'rp-note' + (footprintValid ? '' : ' invalid'), role: footprintValid ? undefined : 'status' }, footprintValid
         ? 'Drag points in the preview or enter exact coordinates.'
-        : 'Keep the footprint convex, inside the robot dimensions, and around its center point.'));
+        : 'Use a convex footprint around the center, within the robot bounds.'));
 
     return h('div', { className: 'robotpage' },
       h('div', { className: 'rp-wrap' },
@@ -341,7 +341,7 @@ import "../styles/settings.css";
 
             mcpEnabled && h('div', { className: 'rp-sec rp-agent' },
               h('div', { className: 'rp-sech' }, 'Agent planning profile'),
-              h('div', { className: 'rp-note rp-agent-note' }, h(Icon, { name: 'info', size: 14 }), 'Used by MCP agents for heading, collection and shooting plans. Their changes still need your approval.'),
+              h('div', { className: 'rp-note rp-agent-note' }, h(Icon, { name: 'info', size: 14 }), 'Guides agent plans. Review changes before applying.'),
               agentProposal && h('div', { className: 'rp-proposal', role: 'region', 'aria-label': 'Agent robot profile proposal' },
                 h('b', null, 'Agent robot profile proposal'),
                 h('span', null, agentProposal.intent),
@@ -383,7 +383,7 @@ import "../styles/settings.css";
               h('div', { className: 'rp-stage' },
                 h('svg', { ref: previewRef, width: 260, height: 260, viewBox: '0 0 260 260',
                   className: shape === 'custom' ? 'editable' : '', onDoubleClick: addVertexFromPreview,
-                  'aria-label': shape === 'custom' ? 'Editable custom robot footprint. Drag a vertex or double-click an edge to add one.' : 'Robot footprint preview' },
+                  'aria-label': shape === 'custom' ? 'Drag a vertex. Double-click an edge to add one.' : 'Robot footprint preview' },
                   h('g', { transform: 'translate(130 130)' },
                     h('polygon', { points: footprintPoints, fill: 'var(--accent-soft)', stroke: 'var(--accent)', strokeWidth: 2.5, strokeLinejoin: 'round' }),
                     // forward indicator (front = +X)

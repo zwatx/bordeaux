@@ -95,10 +95,10 @@ describe('routine flow insertion and empty states', () => {
   it('explains an empty routine, a project without paths and missing robot code', () => {
     const empty = (paths_, catalog_) => text(renderToStaticMarkup(React.createElement(RoutinePanel, {
       routine: { id: 'r', name: 'R', nodes: [] }, run: AUTO.buildRun({ nodes: [] }, [], {}, {}), paths: paths_, time: 0, running: false, acq: { outcomes: {} }, catalog: catalog_ })));
-    expect(empty(paths, catalog)).toContain('Start with the path the robot drives first');
+    expect(empty(paths, catalog)).toContain('Add a path, command, Wait or repeat.');
     expect(empty(paths, catalog)).not.toContain('linked robot code');
-    expect(empty([], null)).toContain('This project has no paths yet.');
-    expect(empty([], null)).toContain('Wait works without robot code.');
+    expect(empty([], null)).toContain('Create a path in Paths, then add it here.');
+    expect(empty([], null)).toContain('Wait works offline.');
   });
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {
@@ -131,7 +131,7 @@ describe('unsupported saved steps are described, not promoted', () => {
     expect(plain).toContain('Legacy generate step · preview plays its saved reference path');
     expect(plain).not.toContain('ignored by the preview');
     const inspector = text(renderToStaticMarkup(React.createElement(StepInspector, { node, routine, paths, acq: {}, run, robotProject: { catalog } })));
-    expect(inspector).toContain('The preview plays the path saved with it; nothing is generated.');
+    expect(inspector).toContain('Plays the saved preview path. Runtime generation is unavailable.');
     expect(inspector).toContain('Remove unsupported step');
     expect(inspector).not.toContain('The preview ignores it');
   });
@@ -142,7 +142,7 @@ describe('unsupported saved steps are described, not promoted', () => {
     expect(plain).toContain('Unsupported saved definition · Bordeaux cannot generate or preview it');
     const inspector = text(renderToStaticMarkup(React.createElement(StepInspector, { node, routine: { nodes: [node] }, paths: [], acq: {}, run: { segs: [] }, robotProject: { catalog } })));
     expect(inspector).toContain('Not supported');
-    expect(inspector).toContain('Bordeaux cannot generate or preview it, and no robot runner supports it yet.');
+    expect(inspector).toContain('Preview and robot execution are unavailable.');
     expect(inspector).toContain('Saved fallback: safe stop');
     expect(`${plain} ${inspector}`).not.toMatch(/validated|Generated on the robot/);
   });
@@ -167,8 +167,8 @@ describe('preview boundary is stated once', () => {
     const help = text(workspace.match(/<div id="routine-preview-notes"[^>]*>([\s\S]*?)<\/div>/)[1]);
     expect(help).toBe(PREVIEW_HELP);
     expect(help.split(/(?<=[.!?])\s+/)).toHaveLength(2);
-    expect(help).toContain('it doesn’t run commands or check conditions');
-    expect(help).toContain('The robot doesn’t run routines yet.');
+    expect(help).toContain('commands and conditions do not run');
+    expect(help).toContain('Robot routine playback is unavailable.');
     // No assumptions list, per-repeat pass counts, internal IDs or repeated save/pose disclaimers.
     expect(workspace).not.toMatch(/<ul|<li/);
     expect(help).not.toMatch(/routine_node_7f0c|previews 2 passes|Saving|Poses|Untimed/);

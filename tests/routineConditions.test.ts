@@ -48,7 +48,7 @@ describe("authoritative routine conditions", () => {
     const blank = render("");
     expect(blank.inspector).not.toContain('id="routine-condition"');
     expect(blank.inspector).toContain("Saved condition branch");
-    expect(blank.inspector).toContain("select its output for new decisions");
+    expect(blank.inspector).toContain("Use command outputs for new decisions");
     expect(blank.panel).toContain("Branch on condition");
     const chosen = render("robot.conditions#ready");
     expect(chosen.inspector).toContain("robot.conditions#ready");
