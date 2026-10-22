@@ -8,6 +8,8 @@ app.setPath('documents', path.join(output, 'Documents'));
 app.commandLine.appendSwitch('force-device-scale-factor', '1');
 const result = { status: 'running', checks: [], screenshots: [], menus: [], robotCalls: [], versions: process.versions };
 let win, finished = false, saveCount = 0, closeRequested = false;
+let releaseStartup, holdStartup = true;
+const startupGate = new Promise(resolve => { releaseStartup = resolve; });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const write = () => fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript('(' + fn.toString() + ')(...' + JSON.stringify(args) + ')');
@@ -17,6 +19,7 @@ process.on('uncaughtException', fail); process.on('unhandledRejection', fail);
 const realHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => realHandle(channel, async (event, ...args) => {
   if (/^(robot|robotFiles|robotProject):/.test(channel) && !['robot:getPairing', 'robotFiles:connection', 'robotProject:restore', 'robotProject:listRecent'].includes(channel)) { result.robotCalls.push(channel); throw Error('Forbidden robot/NI call: ' + channel); }
+  if (channel === 'project:session' && holdStartup) await startupGate;
   const value = await listener(event, ...args);
   if (channel === 'project:saveWithCheckpoint') saveCount++;
   if (channel === 'window:action' && args[0] === 'close') closeRequested = true;
@@ -51,34 +54,87 @@ app.on('browser-window-created', (_event, window) => {
   });
   win.webContents.once('did-finish-load', () => void (async () => {
     win.show(); win.focus(); win.webContents.focus();
+    await wait(() => evaluate(() => Boolean(document.querySelector('.editor-startup') && document.querySelector('.windows-title-bar'))), 'startup chrome before project readiness');
+    assert.equal(await evaluate(() => document.querySelector('.editor-startup-toolbar').getBoundingClientRect().height), 44);
+    await capture('startup-chrome');
+    const startupMenu = Menu.getApplicationMenu();
+    let startupOpened = false; startupMenu.once('menu-will-show', () => { startupOpened = true; });
+    await pointer('[aria-label="Application menu"]'); await wait(() => startupOpened, 'Application reachable during startup');
+    startupMenu.closePopup(win); await wait(() => evaluate(() => document.querySelector('[aria-label="Application menu"]').getAttribute('aria-expanded') === 'false'), 'startup popup closed');
+    await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize during startup');
+    await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Restore window"]'))), 'startup state synchronized');
+    await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore during startup');
+    result.checks.push('startup-44px-toolbar-menu-and-controls');
+    holdStartup = false; releaseStartup();
     await wait(() => evaluate(async () => Boolean((await window.bordeauxAPI.getProjectSession()).lifecycleReady && document.querySelector('.pt-wp'))), 'restored editor');
     assert.equal(win.isMenuBarVisible(), false); result.checks.push('native-menu-bar-hidden');
-    for (const [width, height, name] of [[1440, 900, 'editor-1440x900'], [1100, 756, 'editor-1100x756-minimum']]) {
+    for (const [width, height, name] of [[1440, 900, 'editor-1440x900'], [1100, 720, 'editor-1100x720-minimum']]) {
       win.setContentSize(width, height); await delay(150);
       result.actualSize = { content: win.getContentSize(), outer: win.getSize(), dom: await evaluate(() => [innerWidth, innerHeight, devicePixelRatio]) }; write();
       await wait(() => evaluate((w, h) => innerWidth === w && innerHeight === h, width, height), name);
-      const geometry = await evaluate(() => ({ bar: document.querySelector('.windows-title-bar').getBoundingClientRect().height, editor: document.querySelector('.app').getBoundingClientRect().height }));
-      assert.equal(geometry.bar, 36); assert.equal(geometry.editor, height - 36); result[name] = geometry;
-      await capture(name);
-      if (width === 1100) { // Retain a separately labelled 1100x720 editor crop, without reducing its supported content area.
-        fs.writeFileSync(path.join(output, 'editor-content-1100x720.png'), (await win.webContents.capturePage({ x: 0, y: 36, width: 1100, height: 720 })).toPNG()); result.screenshots.push('editor-content-1100x720.png');
+      const geometry = await evaluate(() => {
+        const chrome = document.querySelector('.windows-title-bar').getBoundingClientRect(), toolbar = document.querySelector('.toolbar').getBoundingClientRect();
+        const editor = document.querySelector('.app').getBoundingClientRect(), places = document.querySelector('.places').getBoundingClientRect();
+        const controls = [...document.querySelectorAll('.toolbar button,.windows-title-bar button')].filter(el => el.getClientRects().length);
+        return { bar: chrome.height, chromeTop: chrome.top, chromeRight: chrome.right, chromeLeft: chrome.left,
+          toolbar: toolbar.height, toolbarTop: toolbar.top, editor: editor.height, editorTop: editor.top,
+          stageTop: document.querySelector('.stage').getBoundingClientRect().top, placesCenter: places.left + places.width / 2,
+          oldChrome: document.querySelectorAll('.windows-title-brand,.windows-title-mark,.windows-title-menus,[role="menubar"]').length,
+          controls: controls.map(el => { const r = el.getBoundingClientRect(); return { label: el.getAttribute('aria-label') || el.textContent,
+            left: r.left, right: r.right, top: r.top, bottom: r.bottom, chrome: Boolean(el.closest('.windows-title-bar')) }; }) };
+      });
+      assert.equal(geometry.bar, 44); assert.equal(geometry.toolbar, 44); assert.equal(geometry.toolbarTop, 0);
+      assert.equal(geometry.chromeTop, 0); assert.equal(geometry.chromeRight, width);
+      assert.equal(geometry.editorTop, 0); assert.equal(geometry.editor, height); assert.equal(geometry.stageTop, 44);
+      assert.equal(geometry.oldChrome, 0, 'No brand, separate menu bar or extra row');
+      // Parent integration owns centering the three place tabs in the full editor viewport.
+      if (process.env.BORDEAUX_CHROME_ISOLATED_BASE !== '1') {
+        assert.ok(Math.abs(geometry.placesCenter - width / 2) <= 1, 'Project sections stay centered after integration');
       }
+      for (const control of geometry.controls) {
+        assert.ok(control.left >= 0 && control.right <= width && control.top >= 0 && control.bottom <= 44, 'Toolbar control fits: ' + control.label);
+        if (!control.chrome) assert.ok(control.right <= geometry.chromeLeft, 'Window controls do not cover ' + control.label);
+      }
+      result[name] = geometry;
+      await capture(name);
     }
     result.minimum = { outer: win.getMinimumSize(), content: win.getContentSize() };
+    const [outerWidth, outerHeight] = win.getSize(), [contentWidth, contentHeight] = win.getContentSize();
+    assert.deepEqual(win.getMinimumSize(), [1100 + outerWidth - contentWidth, 720 + outerHeight - contentHeight]);
+    result.checks.push('single-44px-toolbar-exact-supported-sizes');
+    result.parentLayout = process.env.BORDEAUX_CHROME_ISOLATED_BASE === '1' ? 'Not checked: isolated base excludes parent-owned tab layout.' : 'Viewport-centered project sections passed.';
     win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'native foreground');
-    await evaluate(() => document.querySelector('.windows-title-menus button').focus()); key('ArrowRight');
-    await wait(() => evaluate(() => document.activeElement.textContent === 'Robot'), 'menu arrows'); key('Home');
-    const popup = Menu.getApplicationMenu().getMenuItemById('chrome-file').submenu;
-    let opened = 0; popup.on('menu-will-show', () => opened++);
-    key('ArrowDown'); await wait(() => opened === 1, 'native popup from keyboard');
+    const menuSelector = '[aria-label="Application menu"]', popup = Menu.getApplicationMenu();
+    assert.deepEqual(popup.items.map(item => item.label), ['File', 'Robot', 'Agents', 'View', 'Help']);
+    let opened = 0, observed;
+    const application = () => {
+      const current = Menu.getApplicationMenu();
+      if (observed !== current) { observed = current; current.on('menu-will-show', () => opened++); }
+      return current;
+    };
+    application();
+    const dismiss = async () => { application().closePopup(win); await wait(() => evaluate(selector => document.querySelector(selector).getAttribute('aria-expanded') === 'false', menuSelector), 'popup closed'); };
+    await evaluate(() => document.querySelector('.place[aria-current="page"]').focus()); key('F10');
+    await wait(() => evaluate(selector => document.activeElement === document.querySelector(selector), menuSelector), 'F10 focuses Application');
+    key('Tab'); await wait(() => evaluate(() => document.activeElement.getAttribute('aria-label') === 'Minimize window'), 'Tab reaches caption controls');
+    key('Tab', ['shift']); key('ArrowDown'); await wait(() => opened === 1, 'native application popup from keyboard');
     // Chromium input does not drive OS popup keyboard tracking. Keep input scoped to our process.
     result.limitations = ['Native popup Escape/selection, OS accelerators, drag/snap and Alt+Space require manual foreground checks; this harness does not send global input.'];
-    popup.closePopup(win); await wait(() => evaluate(() => document.querySelector('[role="menuitem"]').getAttribute('aria-expanded') === 'false'), 'popup closed');
-    result.checks.push('menu-arrow-down-native-popup');
-    await pointer('[role="menuitem"]'); await wait(() => opened === 2, 'native popup from pointer');
-    popup.closePopup(win); await delay(100);
-    key('F10'); await delay(50); key('F10'); await delay(50);
-    key('f', ['alt']); await wait(() => opened === 3, 'Alt+F native popup'); popup.closePopup(win); await delay(100); result.checks.push('pointer-menu-and-alt-f');
+    await dismiss();
+    await pointer(menuSelector); await wait(() => opened === 2, 'native application popup from pointer'); await dismiss();
+    for (const keyCode of ['Space', 'Enter']) {
+      await evaluate(selector => document.querySelector(selector).focus(), menuSelector); key(keyCode);
+      await wait(() => opened === (keyCode === 'Space' ? 3 : 4), keyCode + ' opens Application'); await dismiss();
+    }
+    key('Escape'); await wait(() => evaluate(() => document.activeElement.matches('.place[aria-current="page"]')), 'Escape returns to editor');
+    result.checks.push('application-menu-pointer-f10-tab-arrows-space-enter-escape');
+    for (const [id, letter] of [['file', 'f'], ['robot', 'r'], ['agents', 'a'], ['view', 'v'], ['help', 'h']]) {
+      const submenu = popup.getMenuItemById('chrome-' + id).submenu;
+      let shown = false; submenu.once('menu-will-show', () => { shown = true; });
+      key(letter, ['alt']); await wait(() => shown, 'Alt+' + letter + ' opens native ' + id);
+      submenu.closePopup(win); await wait(() => evaluate(selector => document.querySelector(selector).getAttribute('aria-expanded') === 'false', menuSelector), 'Alt menu closed');
+    }
+    result.checks.push('direct-native-alt-submenus-preserved');
     win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'focus after menus');
     const before = saveCount; key('S', ['control']); await delay(300);
     result.acceleratorDeliveredByRendererInput = saveCount > before;
@@ -92,8 +148,50 @@ app.on('browser-window-created', (_event, window) => {
     await pointer('[aria-label="Minimize window"]'); await wait(() => win.isMinimized(), 'native minimized'); win.restore(); win.focus(); win.webContents.focus();
     await wait(() => evaluate(() => document.hasFocus()), 'restored focus'); result.checks.push('pointer-minimize-and-native-restore');
     await evaluate(() => document.querySelector('[aria-label="Maximize window"]').focus()); key('Space'); await wait(() => win.isMaximized(), 'Space maximize'); key('Enter'); await wait(() => !win.isMaximized(), 'Enter restore'); result.checks.push('keyboard-space-enter-window-controls');
-    await evaluate(() => { const bar = document.querySelector('.windows-title-bar'); window.__chromeRegions = { drag: getComputedStyle(bar).webkitAppRegion, button: getComputedStyle(bar.querySelector('button')).webkitAppRegion }; });
-    result.regions = await evaluate(() => window.__chromeRegions); assert.deepEqual(result.regions, { drag: 'drag', button: 'no-drag' });
+    result.regions = await evaluate(() => ({ toolbar: getComputedStyle(document.querySelector('.toolbar')).webkitAppRegion,
+      chrome: getComputedStyle(document.querySelector('.windows-title-bar')).webkitAppRegion,
+      buttons: [...document.querySelectorAll('.toolbar button,.windows-title-bar button')].map(button => getComputedStyle(button).webkitAppRegion) }));
+    assert.equal(result.regions.toolbar, 'drag'); assert.equal(result.regions.chrome, 'no-drag');
+    assert.ok(result.regions.buttons.every(region => region === 'no-drag'));
+    // A real modal makes the editor inert. Caption buttons and native menus must stay reachable.
+    await pointer('[aria-label="Keyboard shortcuts"]');
+    await wait(() => evaluate(() => Boolean(document.querySelector('dialog:modal>.windows-title-bar'))), 'chrome in modal top layer');
+    await capture('keyboard-help-chrome');
+    application(); // A source Save can rebuild main's recent-project menus.
+    const beforeModalMenu = opened;
+    await pointer(menuSelector); await wait(() => opened > beforeModalMenu, 'Application reachable over modal'); await dismiss();
+    await evaluate(() => document.querySelector('.keyboard-help [aria-label="Close keyboard shortcuts"]').focus()); key('F10');
+    await wait(() => evaluate(selector => document.activeElement === document.querySelector(selector), menuSelector), 'F10 reaches Application from modal');
+    key('Enter'); await wait(() => opened > beforeModalMenu + 1, 'keyboard Application from modal'); await dismiss();
+    await pointer('[aria-label="Minimize window"]'); await wait(() => win.isMinimized(), 'minimize with modal open'); win.restore(); win.focus(); win.webContents.focus();
+    await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize with modal open');
+    await wait(() => evaluate(() => Boolean(document.querySelector('dialog:modal [aria-label="Restore window"]'))), 'modal chrome state synchronized');
+    await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore with modal open');
+    await pointer('.keyboard-help [aria-label="Close keyboard shortcuts"]');
+    await wait(() => evaluate(() => document.querySelector('.windows-title-bar')?.parentElement === document.body), 'chrome returns after modal closes');
+    result.checks.push('real-modal-pointer-keyboard-menu-and-window-controls');
+    await evaluate(() => { document.querySelector('.windows-desktop').inert = true; });
+    try {
+      application();
+      const beforeInertMenu = opened;
+      await pointer(menuSelector); await wait(() => opened > beforeInertMenu, 'Application outside inert editor'); await dismiss();
+      await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize outside inert editor');
+      await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore outside inert editor');
+    } finally { await evaluate(() => { document.querySelector('.windows-desktop').inert = false; }); }
+    result.checks.push('chrome-independent-of-inert-app');
+    // Main still owns the reload command and its project-departure admission.
+    let reloaded = false;
+    win.webContents.once('did-finish-load', () => { reloaded = true; });
+    Menu.getApplicationMenu().getMenuItemById('chrome-view').submenu.items.find(item => item.label === 'Reload').click();
+    await wait(() => reloaded, 'protected reload committed');
+    await wait(() => evaluate(async () => Boolean((await window.bordeauxAPI.getProjectSession()).lifecycleReady && document.querySelector('.pt-wp') && document.querySelector('.windows-title-bar'))), 'chrome after protected reload');
+    await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'caption control after reload');
+    await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Restore window"]'))), 'state subscribed after reload');
+    await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore after reload');
+    result.checks.push('main-owned-reload-and-fresh-chrome-state');
+    await capture('reloaded-1100x720');
+    await pointer('[aria-label="Keyboard shortcuts"]');
+    await wait(() => evaluate(() => Boolean(document.querySelector('dialog:modal>.windows-title-bar'))), 'caption Close reachable in modal');
     await pointer('[aria-label="Close window"]'); await wait(() => win.isDestroyed(), 'graceful title bar close');
   })().catch(fail));
 });

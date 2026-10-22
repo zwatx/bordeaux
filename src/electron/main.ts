@@ -1,6 +1,5 @@
 import type { ProjectCopyDefaultsRequest } from "../shared/project/desktopProjects";
 import { attachWindowChrome, registerWindowChrome } from "./windowChrome";
-import { WINDOWS_TITLE_BAR_HEIGHT } from "../shared/windowChrome";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
 import { createHash, randomUUID } from "node:crypto";
@@ -576,8 +575,8 @@ function createWindow() {
     ...(process.platform === "win32" ? {
       titleBarStyle: "hidden" as const,
       useContentSize: true,
-      height: 900 + WINDOWS_TITLE_BAR_HEIGHT,
-      minHeight: 720 + WINDOWS_TITLE_BAR_HEIGHT,
+      height: 900,
+      minHeight: 720,
     } : {}),
     backgroundColor: "#12151b",
     show: false,

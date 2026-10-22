@@ -1,23 +1,28 @@
-/* Dedicated Windows chrome; no selectors change the macOS toolbar or traffic lights. */
-.desktop-root { height: 100%; }
-.windows-desktop { display: flex; flex-direction: column; height: 100%; }
-.windows-desktop > .app { flex: 1; min-height: 0; height: auto; }
-.windows-desktop > .editor-startup { flex: 1; min-height: 0; height: auto; }
-.windows-title-bar {
-  display: flex; align-items: center; flex: 0 0 36px; height: 36px; min-width: 0;
-  background: var(--bg, #161618); color: var(--txt-2, #b9b9bd);
-  border-bottom: 1px solid var(--line, #303033); user-select: none; -webkit-app-region: drag;
+/* Windows controls share the editor toolbar; macOS keeps its native chrome. */
+.desktop-root,.windows-desktop{height:100%}
+.windows-desktop{position:relative}
+.windows-desktop .toolbar{padding-right:190px;-webkit-app-region:drag}
+.windows-desktop .toolbar :is(button,input,select,textarea,a,summary,[role="button"],[role="menu"],[role="dialog"],dialog,[contenteditable],.project-control){-webkit-app-region:no-drag}
+.windows-desktop .editor-startup-toolbar{height:44px;-webkit-app-region:drag}
+/* Fixed positioning also clears the modal top layer. A transformed/transparent dialog
+   entrance would otherwise clip or hide its chrome during a pending departure. */
+[data-platform="win32"] dialog:has(>.windows-title-bar){animation:none}
+.windows-title-bar[data-native-chrome]{
+  position:fixed;z-index:1000;top:0;right:0;display:flex;
+  width:182px;height:44px;margin:0;padding:0;border:0;border-bottom:1px solid var(--line-2);
+  background:var(--bg-1);color:var(--txt-2);user-select:none;-webkit-app-region:no-drag;
 }
-.windows-title-brand { display: flex; align-items: center; gap: 8px; padding: 0 18px 0 12px; font-size: 12px; font-weight: 500; }
-.windows-title-mark { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--line-2, #454549); border-radius: 5px; font-size: 11px; }
-.windows-title-menus, .windows-title-controls { display: flex; align-self: stretch; flex: none; -webkit-app-region: no-drag; }
-.windows-title-bar button { -webkit-app-region: no-drag; font-family: inherit; font-weight: 400; border: 0; background: transparent; color: inherit; padding: 0; border-radius: 0; }
-.windows-title-menus button { padding: 0 11px; font-size: 12px; }
-.windows-title-bar button:hover, .windows-title-bar button[aria-expanded="true"] { background: var(--ctl-hover, #303033); color: var(--txt, #eee); }
-.windows-title-bar button:focus-visible { outline: 2px solid var(--focus, #eee); outline-offset: -4px; }
-.windows-title-drag { flex: 1; align-self: stretch; min-width: 36px; }
-.windows-title-controls button { display: grid; place-items: center; width: 46px; }
-.windows-title-controls svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
-.windows-title-error { font-size: 12px; padding: 0 12px; -webkit-app-region: no-drag; }
-.windows-title-bar[data-focused="false"] .windows-title-brand { opacity: .65; }
-@media (forced-colors: active) { .windows-title-bar { border-color: CanvasText; } .windows-title-bar button:focus-visible { outline-color: Highlight; } }
+.windows-title-bar[data-native-chrome] button{
+  display:grid;place-items:center;flex:none;width:46px;min-width:0;height:100%;min-height:0;
+  margin:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;
+  -webkit-app-region:no-drag;
+}
+.windows-title-bar[data-native-chrome] .windows-title-menu{width:44px}
+.windows-title-bar[data-native-chrome] button:is(:hover,[aria-expanded="true"]){background:var(--bg-3);color:var(--txt)}
+.windows-title-bar[data-native-chrome] button:focus-visible{outline:2px solid var(--focus);outline-offset:-4px}
+.windows-title-bar svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1}
+.windows-title-controls{display:flex}
+.windows-title-controls svg{width:12px;height:12px}
+.windows-title-error{position:absolute;top:44px;right:0;width:max-content;max-width:300px;padding:8px 12px;background:var(--bg-1);font-size:12px}
+.windows-title-bar[data-focused="false"]{color:var(--txt-3)}
+@media(forced-colors:active){.windows-title-bar[data-native-chrome]{border-color:CanvasText}.windows-title-bar[data-native-chrome] button:focus-visible{outline-color:Highlight}}

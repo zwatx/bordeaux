@@ -1,8 +1,8 @@
 import type { BrowserWindow, IpcMainInvokeEvent, Menu } from "electron";
 import type { EventEmitter } from "node:events";
-import { WINDOWS_TITLE_BAR_HEIGHT, type WindowState } from "../shared/windowChrome";
+import type { WindowState } from "../shared/windowChrome";
 
-const menuIds = new Set(["file", "robot", "agents", "view", "help"]);
+const menuIds = new Set(["application", "file", "robot", "agents", "view", "help"]);
 type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 export function windowState(window: BrowserWindow): WindowState {
@@ -42,7 +42,8 @@ export function registerWindowChrome(options: { handle: Handle; getWindow: () =>
     const anchor = rawAnchor as { x?: unknown; y?: unknown } | null;
     if (!anchor || typeof anchor.x !== "number" || typeof anchor.y !== "number"
       || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)) throw new Error("Invalid menu anchor");
-    const menu = getMenu()?.getMenuItemById(`chrome-${id}`)?.submenu;
+    const application = getMenu();
+    const menu = id === "application" ? application : application?.getMenuItemById(`chrome-${id}`)?.submenu;
     if (!menu) throw new Error("Window menu unavailable");
     if (popupOpen) return false;
     const [width, height] = window.getContentSize(), zoom = window.webContents.getZoomFactor();
@@ -62,9 +63,9 @@ export function registerWindowChrome(options: { handle: Handle; getWindow: () =>
 export function attachWindowChrome(window: BrowserWindow, platform: string): () => void {
   if (platform !== "win32") return () => undefined;
   window.setMenuBarVisibility(false);
-  // BrowserWindow minimums are outer dimensions. Preserve the old 1100x720 editor below our strip.
+  // BrowserWindow minimums are outer dimensions; the toolbar is inside the 1100x720 content.
   const [outerWidth, outerHeight] = window.getSize(), [width, height] = window.getContentSize();
-  window.setMinimumSize(1100 + outerWidth - width, 720 + WINDOWS_TITLE_BAR_HEIGHT + outerHeight - height);
+  window.setMinimumSize(1100 + outerWidth - width, 720 + outerHeight - height);
   const contents = window.webContents;
   const publish = () => {
     if (!window.isDestroyed() && !contents.isDestroyed()) contents.send("window:stateChanged", windowState(window));
