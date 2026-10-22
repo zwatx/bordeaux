@@ -11,11 +11,11 @@ describe('settings workspace', () => {
     const project = React.createElement(ProjectChip, { name: 'Week 3 autos', folderPath: '/team/Week 3 autos', status: 'saved', robotCode: { status: 'unlinked' }, actions: {} });
     const push = React.createElement('div', { className: 'push-control' }, 'Push path');
     const markup = renderToStaticMarkup(React.createElement(Panels.Toolbar, { page: 'plan', project, push }));
-    // The project is a name over one status line; its menu holds project commands.
+    // Saved projects show only their name; the menu holds project commands.
     expect(markup).toContain('<span class="project-chip-name">Week 3 autos</span>');
-    expect(markup).toMatch(/<span class="project-chip-meta"><span class="project-chip-status">Saved<\/span><\/span>/);
+    expect(markup).not.toContain('project-chip-status');
     // Places are text buttons with no icons; the current one carries aria-current.
-    expect(markup).toContain('<nav class="places" aria-label="Project sections"><button type="button" class="place" aria-current="page">Paths</button><button type="button" class="place">Routines</button><button type="button" class="place">Settings</button></nav>');
+    expect(markup).toContain('<nav class="places" style="--place-index:0" aria-label="Project sections"><button type="button" class="place" aria-current="page">Paths</button><button type="button" class="place">Routines</button><button type="button" class="place">Settings</button></nav>');
     const order = ['tb-project', 'places', 'tb-actions', 'tb-push', 'keyboard-help-trigger'].map((name) => markup.indexOf(name));
     expect(order.every((index, i) => index >= 0 && (i === 0 || index > order[i - 1]))).toBe(true);
     expect(markup).not.toMatch(/pageswitch|Editor<|Flip/);

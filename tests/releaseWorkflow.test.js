@@ -47,7 +47,10 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   expect(ci.jobs.unit.strategy.matrix.shard).toEqual([1, 2, 3, 4]);
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
-  expect(groups.flatMap(({ checks }) => checks.trim().split("\n"))).toHaveLength(14);
+  const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
+  expect(desktopScripts).toHaveLength(15);
+  expect(new Set(desktopScripts).size).toBe(15);
+  expect(desktopScripts).toContain("scripts/verify-windows-chrome.mjs");
   const checks = ci.jobs.checks.steps.map(({ run }) => run ?? "").join("\n");
   for (const command of ["verify:license", "typecheck", "certify-field.mjs", "npm run build", "npm audit --audit-level=high"]) expect(checks).toContain(command);
   expect(ci.jobs.desktop.steps.some(({ run }) => run === "xvfb-run -a npm run test:smoke:built")).toBe(true);

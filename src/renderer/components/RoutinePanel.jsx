@@ -62,7 +62,7 @@ export function continuityText(issue) {
 /** Row title. Condition branches name their condition's catalog label. */
 export function stepTitle(node, paths, catalog) {
   if (node.type === 'decision') return node.cond ? 'Branch on ' + conditionLabel(catalog, node.cond) : 'Branch on condition';
-  if (node.type === 'repeat') return node.until ? 'Repeat up to ' + node.times + ' times' : 'Repeat ' + plural(node.times, 'time');
+  if (node.type === 'repeat') return node.times === undefined ? 'Repeat until command result' : node.until ? 'Repeat up to ' + node.times + ' times' : 'Repeat ' + plural(node.times, 'time');
   return A.nodeTitle(node, paths, catalog);
 }
 
@@ -127,7 +127,7 @@ export function repeatClosing(node, routine, catalog, cache, previewPasses) {
   const body = A.flowSummary(node.nodes, cache);
   if (!body.normal) return { glyph: body.exitRepeat && !body.endRoutine ? 'exit' : 'stop', terminal: true, parts: ['Never loops back; the first pass always ' + terminalPhrase(body)] };
   if (node.times === 1) return { glyph: 'join', parts: ['Runs once, then continues'] };
-  const passes = (node.until ? 'up to ' : '') + plural(node.times, 'pass');
+  const passes = node.times === undefined ? 'no fixed pass limit' : (node.until ? 'up to ' : '') + plural(node.times, 'pass');
   const conditionMissing = node.until?.source === 'condition' && !A.authoritativeConditions(catalog).some(item => item.value === node.until.conditionId);
   const stopName = conditionMissing ? 'the saved condition (unavailable)' : node.until && describeStop(node.until, routine, catalog);
   const previewing = node.until && previewPasses !== undefined ? ' · previewing ' + previewPasses : '';
@@ -176,20 +176,15 @@ function nudgeOperation(routine, id, dir) {
 
 /**
  * Step kinds Add offers in a list: the authorable kinds the model exposes, a command-result branch per branchable
- * output, and Exit repeat only inside a repeat. Wait stays visible but unavailable without the catalog built-in.
+ * output, and Exit repeat only inside a repeat. Wait is always available.
  * Legacy categories and generated trajectories are never offered.
  */
 export function addMenuSteps(routine, where, catalog) {
   const kinds = new Set(A.AUTHORABLE_STEPS.map((step) => step.id));
-  const offered = new Set(A.authorableSteps(catalog).map((step) => step.id));
   const items = [];
-  // Without linked code, commands and conditions can still be placed; the row and inspector name what is missing.
+  // Only commands depend on linked robot code; Wait is a native routine instruction.
   if (kinds.has('command')) items.push({ key: 'command', kind: 'command', label: 'Command', icon: 'bolt', tone: 'cmd', meta: catalog ? undefined : 'Needs linked robot code' });
-  if (kinds.has('wait')) items.push(offered.has('wait')
-    ? { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait' }
-    : { key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait', disabled: true, meta: catalog ? 'Needs bordeaux.wait in the catalog' : 'Needs linked robot code' });
-  if (kinds.has('decision')) items.push({ key: 'decision', kind: 'decision', label: 'Branch on robot condition', icon: 'branch',
-    meta: !catalog ? 'Needs linked robot code' : A.authoritativeConditions(catalog).length ? undefined : 'No registered conditions yet' });
+  if (kinds.has('wait')) items.push({ key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait' });
   (catalog?.commands || []).forEach((command) => A.branchOutputs(command).forEach((output) => items.push({
     key: 'branch:' + command.id + ':' + output.name, kind: 'commandBranch', command, output, icon: 'branch',
     label: 'Branch on ' + command.label + ' · ' + (output.label || output.name),
@@ -580,7 +575,7 @@ export function RoutinePanel(props) {
     if (node.type === 'path') return seg ? fmt(seg.t1 - seg.t0) : '';
     if (node.type === 'builtin') return (node.ends?.endWhen ? '≤ ' : '') + fmt(node.arguments?.durationS);
     if (node.type === 'function' && node.cat === 'command') return node.ends?.timeoutS !== undefined ? '≤ ' + fmt(node.ends.timeoutS) : 'Untimed';
-    if (node.type === 'repeat') return (node.until ? '≤ ' : '') + node.times + '×';
+    if (node.type === 'repeat') return node.times === undefined ? 'Until result' : (node.until ? '≤ ' : '') + node.times + '×';
     return '';
   }
 
@@ -697,11 +692,11 @@ export function RoutinePanel(props) {
         ? h('div', { className: 'rt-empty' },
             h('div', { className: 'rt-empty-t' }, 'No steps yet'),
             h('p', null, paths.length
-              ? 'Steps run top to bottom. Start with the path the robot drives first, then add waits, commands, branches and repeats where the plan needs them.'
-              : 'This project has no paths yet. Create one in Paths, then add it here.'),
+              ? 'Steps run top to bottom. Add a path, command, Wait or repeat.'
+              : 'Create a path in Paths, then add it here.'),
             h('button', { className: 'qbtn primary rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
               onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'),
-            !catalog && h('p', { className: 'rt-empty-note' }, 'Commands and robot conditions come from linked robot code.'))
+            !catalog && h('p', { className: 'rt-empty-note' }, 'Wait works offline. Link robot code for commands.'))
         : h('div', { className: 'rt-list' + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
             renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),

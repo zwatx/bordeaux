@@ -259,7 +259,9 @@ function validateRoutineNodes(
     }
     validateRoutineEnds(issues, node, base);
     if (node.type === "repeat") {
-      if (!Number.isInteger(node.times) || (node.times as number) < 1 || (node.times as number) > 50) issues.push(issue(`${base}.times`, "Repeat count must be an integer from 1 to 50"));
+      if (node.times === undefined) {
+        if (!isRecord(node.until) || node.until.source !== 'output') issues.push(issue(`${base}.until`, "Dynamic repeats require a command output stop rule"));
+      } else if (!Number.isInteger(node.times) || (node.times as number) < 1 || (node.times as number) > 50) issues.push(issue(`${base}.times`, "Repeat count must be an integer from 1 to 50"));
       if (node.until !== undefined) validateRoutineCondition(issues, node.until, `${base}.until`, true);
       validateRoutineNodes(issues, node.nodes, `${base}.nodes`, pathIds, nodeIds, state, depth + 1);
       continue;

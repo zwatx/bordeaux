@@ -88,7 +88,7 @@ app.whenReady().then(async () => {
       clearInterval(poll);
       const results = JSON.parse(report);
       await guard('terminal');
-      if (results.length !== 7 || new Set(results.map(item => item.name)).size !== 7) throw new Error('Expected exactly seven component cases');
+      if (results.length !== 8 || new Set(results.map(item => item.name)).size !== 8) throw new Error('Expected exactly eight component cases');
       if (errors.length) throw new Error('Renderer console errors: ' + errors.join('; '));
       await fs.writeFile(${JSON.stringify(path.join(output, 'results.json'))}, report);
       await fs.writeFile(path.join(${JSON.stringify(output)}, 'native-input.json'), JSON.stringify({ status: results.every(result => result.ok) ? 'passed' : 'failed', guards, parts, errors }, null, 2));

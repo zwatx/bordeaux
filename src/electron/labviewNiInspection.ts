@@ -25,6 +25,20 @@ const activeInspections = new WeakMap<RobotCommandDescriptor[], {
 }>();
 const recentInspections = new Map<string, RobotCommandCatalog>();
 
+// Bound concurrent local I/O. Results keep source order, and every refresh still reads current bytes.
+async function parallelFiles<T>(items: T[], visit: (item: T) => Promise<void>): Promise<void> {
+  let next = 0, failed = false;
+  let failure: unknown;
+  await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try { await visit(items[index]); }
+      catch (error) { if (!failed) { failed = true; failure = error; } }
+    }
+  }));
+  if (failed) throw failure;
+}
+
 /** Match the legacy project-tree exclusions; filenames alone never confirm a command. */
 export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items"][number]): boolean {
   return item.status === "present" && !!item.file?.toLowerCase().endsWith(".vi")
@@ -43,16 +57,24 @@ async function snapshot(selection: string, catalog: RobotCommandCatalog): Promis
   const seenTypes = new Set<string>();
   const robotTargets = new Set(catalog.labviewDiscovery.targets.filter((target) => target.type === "RT myRIO" || target.type === "RT roboRIO").map((target) => target.name));
   let totalBytes = 0;
-  const bytesHash = async (file: string) => {
-    const stat = await statLabviewLocalPath(file);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("NI inspection requires regular source files.");
-    if (stat.size > 32 * 1024 * 1024 || (totalBytes += stat.size) > 256 * 1024 * 1024) throw new Error("NI inspection source hashes exceed the read limit.");
-    return hash(await fs.readFile(file));
+  const hashes = new Map<string, Promise<string>>();
+  const bytesHash = (file: string): Promise<string> => {
+    let pending = hashes.get(file);
+    if (!pending) {
+      pending = (async () => {
+        const stat = await statLabviewLocalPath(file);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("NI inspection requires regular source files.");
+        if (stat.size > 32 * 1024 * 1024 || (totalBytes += stat.size) > 256 * 1024 * 1024) throw new Error("NI inspection source hashes exceed the read limit.");
+        return hash(await fs.readFile(file));
+      })();
+      hashes.set(file, pending);
+    }
+    return pending;
   };
   for (const item of catalog.labviewDiscovery.items) {
     if (item.status === "present" && item.file && /\.(?:ctl|lvlib|lvclass)$/i.test(item.file) && !seenTypes.has(item.file)) {
       seenTypes.add(item.file);
-      typeSources.push({ file: item.file, sha256: await bytesHash(path.resolve(root, item.file)) });
+      typeSources.push({ file: item.file, sha256: "" });
     }
     if (!robotTargets.has(item.target) || !eligibleLabviewLegacySource(item)) continue;
     const key = `${item.target}\0${item.file}`;
@@ -60,8 +82,10 @@ async function snapshot(selection: string, catalog: RobotCommandCatalog): Promis
     seen.add(key);
     if (sources.length >= MAX_SOURCES) throw new Error("NI inspection supports at most 1000 VI sources per project.");
     const file = path.resolve(root, item.file!);
-    sources.push({ file: item.file!, target: item.target, path: file, sha256: await bytesHash(file) });
+    sources.push({ file: item.file!, target: item.target, path: file, sha256: "" });
   }
+  await parallelFiles([...typeSources.map(item => ({ item, path: path.resolve(root, item.file) })), ...sources.map(item => ({ item, path: item.path }))],
+    async ({ item, path: file }) => { item.sha256 = await bytesHash(file); });
   sources.sort((a, b) => `${a.target}/${a.file}`.localeCompare(`${b.target}/${b.file}`));
   typeSources.sort((a, b) => a.file.localeCompare(b.file));
   let declarationHash: string | null = null;
@@ -120,12 +144,21 @@ async function dependencySnapshot(files: string[]): Promise<Array<{ path: string
   if (files.length > 10000) throw new Error("NI type dependencies exceed the file count limit.");
   let bytes = 0;
   const result: Array<{ path: string; sha256: string }> = [];
-  for (const file of files) {
+  const hashes = new Map<string, Promise<string>>();
+  await parallelFiles(files, async file => {
     if (!path.isAbsolute(file) || !/\.(?:ctl|lvlib|lvclass)$/i.test(file)) throw new Error("NI type dependencies must be absolute local type-definition paths.");
-    const stat = await statLabviewLocalPath(file);
-    if (!stat.isFile() || stat.size > 32 * 1024 * 1024 || (bytes += stat.size) > 128 * 1024 * 1024) throw new Error("NI type dependency hashes exceed the read limit.");
-    result.push({ path: file, sha256: hash(await fs.readFile(file)) });
-  }
+    let pending = hashes.get(file);
+    if (!pending) {
+      pending = (async () => {
+        const stat = await statLabviewLocalPath(file);
+        if (!stat.isFile() || stat.size > 32 * 1024 * 1024 || (bytes += stat.size) > 128 * 1024 * 1024) throw new Error("NI type dependency hashes exceed the read limit.");
+        return hash(await fs.readFile(file));
+      })();
+      hashes.set(file, pending);
+    }
+    await pending;
+  });
+  for (const file of files) result.push({ path: file, sha256: await hashes.get(file)! });
   return result;
 }
 function preInspectedDependencies(snapshot: Snapshot, paths: string[]): Array<{ path: string; sha256: string }> | null {

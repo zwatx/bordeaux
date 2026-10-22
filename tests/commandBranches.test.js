@@ -5,7 +5,7 @@ const output = (kind, extra = {}) => ({ name: 'result', schema: { kind, ...extra
 const command = (branch) => ({ id: 'command', type: 'function', cat: 'command', invocation: { commandId: 'scan', arguments: {} }, outputBranch: branch });
 describe('command output branching', () => {
   it('offers branch and bounded control authoring alongside commands, paths, and waits', () => {
-    expect(AUTO.AUTHORABLE_STEPS.map((step) => step.id)).toEqual(['path', 'command', 'decision', 'repeat', 'end', 'wait']);
+    expect(AUTO.AUTHORABLE_STEPS.map((step) => step.id)).toEqual(['path', 'command', 'repeat', 'end', 'wait']);
   });
   it('creates boolean and named routes with exact values and numeric fallback', () => {
     expect(AUTO.newOutputBranch(output('boolean')).routes.map((route) => route.value)).toEqual([true, false]);

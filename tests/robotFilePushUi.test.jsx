@@ -41,7 +41,7 @@ describe('Push split button', () => {
     const c = controller({ settings: { endpoint } });
     const { all, push } = control({ paths: [path('A'), path('B'), path('C')], controller: c });
     expect(all.props).toMatchObject({ role: 'menuitem', 'aria-label': 'Push all 3 paths', 'aria-disabled': undefined });
-    expect(text(all)).toContain('including ones hidden by search or a folder');
+    expect(text(all)).toContain('Includes hidden paths');
     all.props.onClick();
     expect(c.requestPush).toHaveBeenLastCalledWith({ kind: 'paths', pathIds: ['A', 'B', 'C'] });
     push.props.onClick();
@@ -115,7 +115,7 @@ describe('Robot connection: offline Save', () => {
   it('makes Save the primary action when no push is waiting, and says it works without the robot', () => {
     const html = dialog({});
     expect(actions(html)).toEqual(['Connect', 'Save*']);
-    expect(html).toContain('Save works without the robot. Connect checks its SSH host key.');
+    expect(html).toContain('Save offline. Connect to verify the robot.');
     expect(html).not.toContain('role="alert"');
   });
   it('keeps Connect primary when a push is waiting on this connection', () => {
@@ -136,7 +136,7 @@ describe('Robot connection: offline Save', () => {
   });
   it('keeps a failed save editing, with the store message', () => {
     const html = dialog({ settings: saved, editing: true, error: 'Robot settings could not be saved.' });
-    expect(html).toContain('<p class="rfp-alert" role="alert">Robot settings could not be saved.</p>');
+    expect(html).toContain('<p class="rfp-alert" role="alert">Robot settings could not be saved</p>');
     expect(html).not.toContain('Saved ·');
   });
 });
@@ -145,17 +145,18 @@ describe('Robot upload result: created folder', () => {
   const files = [{ pathId: 'A', name: 'A', fileName: 'A.bdx', size: 1 }];
   const done = (result) => dialog({ phase: 'transferred', settings: saved, result: { state: 'transferred', files, directory: '/home/lvuser/natinst/bin/Paths', ...result } });
   it('states an acknowledged creation of the exact folder', () => {
-    expect(done({ directoryCreated: true })).toContain('Created robot folder /home/lvuser/natinst/bin/Paths and verified the files there. No routine was activated.');
+    expect(done({ directoryCreated: true })).toContain('Folder created. Verified in /home/lvuser/natinst/bin/Paths. Nothing started.');
   });
   it.each([false, undefined, 'true'])('says nothing about creation when directoryCreated is %s', (directoryCreated) => {
     const html = done({ directoryCreated });
-    expect(html).toContain('Verified in /home/lvuser/natinst/bin/Paths. No routine was activated.');
+    expect(html).toContain('Verified in /home/lvuser/natinst/bin/Paths. Nothing started.');
     expect(html).not.toContain('Created');
   });
-  it('shows a later failure verbatim, including its created fact, with no success claim', () => {
+  it('keeps the failure concise and preserves readback and creation facts in Details', () => {
     const error = 'Could not verify upload: readback did not match. 1 of 2 files verified on the robot (A.bdx). Created robot folder /home/lvuser/natinst/bin/Paths.';
     const html = dialog({ phase: 'failed', settings: saved, error, canRetry: true, preview: { operationId: 'one', connection: saved, files } });
-    expect(html).toContain('role="alert">' + error + '</p>');
+    expect(html).toContain('role="alert">Could not verify upload: readback did not match</p>');
+    expect(html).toContain('<summary>Details</summary><p>' + error + '</p>');
     expect(html).not.toMatch(/uploaded|No routine was activated/);
   });
 });
@@ -166,17 +167,17 @@ describe('Push review: linked paths outside the push', () => {
   const reviewed = (paths, patch = {}) => ({ phase: 'review', settings: saved, preview: { operationId: 'one', connection: saved, files: files(), linked: paths }, busy: false, includeLinked: vi.fn(), confirmPush: vi.fn(), ...patch });
   const note = (html) => html.match(/<p class="rfp-note rfp-linked"[^>]*>(.*?)<\/p>/)?.[1].replace(/<!-- -->/g, '').replace(/<[^>]+>/g, '|') ?? null;
   it('names one path, several paths and long lists with the full list available, offering Include only for pushable paths', () => {
-    expect(note(dialog(reviewed(linked('Amp score'))))).toBe('Linked to Amp score, which is not included. |Include 1 path|');
-    expect(note(dialog(reviewed(linked('Amp score', 'Source 2*'))))).toBe('Linked to 2 paths that are not included: Amp score, Source 2 (still being drawn). |Include 1 path|');
+    expect(note(dialog(reviewed(linked('Amp score'))))).toBe('Linked paths not included: Amp score. |Include 1 path|');
+    expect(note(dialog(reviewed(linked('Amp score', 'Source 2*'))))).toBe('Linked paths not included: Amp score, Source 2 (still being drawn). |Include 1 path|');
     const html = dialog(reviewed(linked('A1', 'B2', 'C3', 'D4*', 'E5')));
-    expect(note(html)).toBe('Linked to 5 paths that are not included: A1, B2, C3 and 2 more. |Include 4 paths|');
+    expect(note(html)).toBe('Linked paths not included: A1, B2, C3 and 2 more. |Include 4 paths|');
     expect(html).toContain('title="A1, B2, C3, D4 (still being drawn), E5"');
-    expect(note(dialog(reviewed(linked('Amp score*', 'Source 2*'))))).toBe('Linked to 2 paths that are not included: Amp score (still being drawn), Source 2 (still being drawn).');
+    expect(note(dialog(reviewed(linked('Amp score*', 'Source 2*'))))).toBe('Linked paths not included: Amp score (still being drawn), Source 2 (still being drawn).');
   });
   it('states the 64-path limit instead of offering an Include that main would refuse', () => {
     const limit = (count) => note(dialog(reviewed(linked('Amp score'), { preview: { operationId: 'one', connection: saved, files: files(count), linked: linked('Amp score') } })));
-    expect(limit(64)).toBe('Linked to Amp score, which is not included. Push sends at most 64 paths at once.');
-    expect(limit(63)).toBe('Linked to Amp score, which is not included. |Include 1 path|');
+    expect(limit(64)).toBe('Linked paths not included: Amp score. Push sends at most 64 paths at once.');
+    expect(limit(63)).toBe('Linked paths not included: Amp score. |Include 1 path|');
   });
   it('shows the note only while reviewing, and nothing without linked paths', () => {
     expect(note(dialog(reviewed([])))).toBeNull();

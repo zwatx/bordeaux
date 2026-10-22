@@ -34,11 +34,9 @@ describe("authoritative routine conditions", () => {
     expect(AUTO.authoritativeConditions({ authoritative: true, generatedSchemaVersion: "1.0", conditions: [{ id: "legacy.ready" }] })).toEqual([]);
   });
 
-  // Condition authoring was removed earlier and is deliberately restored at the user's request: a branch is created
-  // blank, chosen only from the linked generated catalog, and a lost saved ID stays visible for replacement.
-  it("authors condition branches only from the linked catalog", () => {
+  it("keeps saved condition routes without offering new condition decisions or pickers", () => {
     const catalog = { authoritative: true, generatedSchemaVersion: "1.2", commands: [], conditions: [{ id: "robot.conditions#ready", label: "Ready" }] };
-    expect(addMenuSteps({ nodes: [] }, { list: { kind: "root" } }, catalog).map((item: { kind: string }) => item.kind)).toContain("decision");
+    expect(addMenuSteps({ nodes: [] }, { list: { kind: "root" } }, catalog).map((item: { kind: string }) => item.kind)).not.toContain("decision");
     const render = (cond: string) => {
       const node = { ...AUTO.newNode("decision"), id: "branch", cond };
       const routine = { id: "r", name: "R", nodes: [node] };
@@ -48,11 +46,12 @@ describe("authoritative routine conditions", () => {
       return { inspector, panel };
     };
     const blank = render("");
-    expect(blank.inspector).toContain('id="routine-condition"');
-    expect(blank.inspector).toContain("Choose a condition");
+    expect(blank.inspector).not.toContain('id="routine-condition"');
+    expect(blank.inspector).toContain("Saved condition branch");
+    expect(blank.inspector).toContain("Use command outputs for new decisions");
     expect(blank.panel).toContain("Branch on condition");
     const chosen = render("robot.conditions#ready");
-    expect(chosen.inspector).toContain("Ready");
+    expect(chosen.inspector).toContain("robot.conditions#ready");
     expect(chosen.panel).toContain("Branch on Ready");
     // A saved ID the catalog no longer lists is shown and flagged, not erased.
     const lost = render("robot.conditions#gone");

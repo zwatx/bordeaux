@@ -348,9 +348,9 @@
   const multiRoutineUi = routineLibraryOpened && newRoutineSelected && routineDuplicateSelected;
   const routineUiDetails = { routineLibraryOpened, newRoutineSelected, routineDuplicateSelected, originalCount: originalRoutineIds.length,
     finalCount: routineRows().length, newRoutineId, duplicateRoutineId, selectedName: routineName(activeRoutineRow()) };
-  // SFTP delivery uploads paths only: routines show a local-only label instead of a Push action.
+  // SFTP delivery uploads paths only; the routine toolbar has no Push action or placeholder label.
   const routineDeliveryBlocked = ![...document.querySelectorAll('.push-control button')].some((button) => button.textContent.trim() === 'Push routine')
-    && document.querySelector('.push-control .push-local')?.textContent === 'Routines stay local'
+    && !document.querySelector('.push-local')
     && !document.querySelector('[aria-labelledby="robot-file-title"]')?.open;
   if (!routineDeliveryBlocked) throw new Error('Routines must stay local without a Push action');
   [...document.querySelectorAll('.places .place')].find(button => button.textContent.trim() === 'Paths').click();

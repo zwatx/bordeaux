@@ -40,7 +40,7 @@ export function CommandBranches({ node, command, acq }) {
   const numeric = branch && !['boolean', 'enum'].includes(branch.schema.kind);
   const patchRoute = (routeId, patch) => edit({ kind: 'patchRoute', routeId, patch });
   return h('section', { ref: sectionRef, className: 'command-branches', 'aria-label': 'Command output branches' },
-    h('div', { className: 'fieldlabel' }, 'After it ends'),
+    h('div', { className: 'fieldlabel' }, 'After command completes'),
     h(Dropdown, { id: 'command-branch-output', label: 'Branch on output', value: branch?.output || '',
       items: [{ value: '', label: 'Continue to next step', meta: branch && total ? 'Removes ' + steps(total, 'branch step') : undefined },
         ...(branch && !current ? [{ value: branch.output, label: branch.output, meta: 'Output unavailable — sync commands or choose another output', badge: 'Missing' }] : []),
@@ -50,10 +50,10 @@ export function CommandBranches({ node, command, acq }) {
             meta: output.name !== branch?.output ? kind + removes : changed && total ? 'Type changed' + removes : kind };
         })],
       onChoose: choose }),
-    !branch && !outputs.length && h('p', { className: 'seg-hint' }, 'Sync a command with boolean, named, or numeric outputs to add branches.'),
+    !branch && !outputs.length && h('p', { className: 'seg-hint' }, 'Sync a command with outputs to add branches.'),
     branch && h(React.Fragment, null,
       (!current || changed) && h('div', { className: 'cmd-project-error', role: 'status' },
-        changed ? 'This output’s type changed. Rebuild its routes before using it.' : 'The saved output is missing from this command. Its routes are preserved.',
+        changed ? 'This output’s type changed. Rebuild its routes before using it.' : 'Output missing. Saved routes are kept.',
         changed && h('button', { type: 'button', className: 'rt-openbtn',
           ...deletionInput(() => replaceThen({ kind: 'rebuild' }, (section) => section.querySelector('#command-branch-output'))) }, 'Rebuild routes' + removes)),
       h('p', { className: 'seg-hint' }, (numeric ? 'First match wins, top to bottom. ' : '') + 'Routes rejoin at the next step. Preview only.'),

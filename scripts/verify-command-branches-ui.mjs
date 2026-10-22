@@ -16,7 +16,7 @@ async function identities() {
     else if (item.isFile()) { const data = await fs.readFile(file); inputs[file] = { bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }; }
     else throw new Error('Unexpected input entry: ' + file);
   }
-  for (const file of ['scripts/verify-command-branches-ui.mjs', 'scripts/verify-command-branches-ui-electron.cjs', 'scripts/verify-command-branches-ui-preload.cjs', 'scripts/verify-command-branches-ui-consequences.cjs',
+  for (const file of ['scripts/verify-command-branches-ui.mjs', 'scripts/verify-command-branches-ui-electron.cjs', 'scripts/verify-command-branches-ui-preload.cjs', 'scripts/verify-command-branches-ui-consequences.cjs', 'scripts/command-completion-fixture.cjs', 'src/electron/labviewNiTypes.ts', 'dist-electron/electron/labviewNiTypes.js',
     'src/renderer/app/App.jsx', 'src/renderer/components/PathPanel.jsx', 'src/renderer/components/PathTimeline.jsx', 'src/renderer/lib/commandPick.js', 'src/renderer/components/CommandBranches.jsx', 'src/renderer/components/RoutineInspector.jsx', 'src/renderer/components/ui.jsx', 'src/renderer/lib/routineModel.js', 'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
   return inputs;
 }
@@ -35,7 +35,11 @@ try {
   if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Branch source/harness/build inputs changed during native run');
   const result = JSON.parse(await fs.readFile(path.join(output, 'results.json'), 'utf8'));
   // BORDEAUX_BRANCH_UI_MODE=placement runs only the 11 command placement cases per supported size.
-  if (process.env.BORDEAUX_BRANCH_UI_MODE === 'placement') {
+  if (process.env.BORDEAUX_BRANCH_UI_MODE === 'completion') {
+    if (status.code !== 0 || timedOut || result.passed !== true || result.mode !== 'completion' || result.scenarios?.length !== 2
+      || result.scenarios.some(row => !row.passed || row.commands !== 4) || result.scenarios.map(row => row.width).join() !== '1440,1100'
+      || ![result.errors, result.confirms, result.robotCalls].every(rows => Array.isArray(rows) && rows.length === 0)) throw new Error('Completion branch native verdict failed');
+  } else if (process.env.BORDEAUX_BRANCH_UI_MODE === 'placement') {
     if (status.code !== 0 || timedOut || result.passed !== true || result.mode !== 'placement' || result.placement?.length !== 22 || result.placement.some(row => row.passed !== true)
       || [1440, 1100].some(width => result.placement.filter(row => row.width === width).length !== 11) || new Set(result.placement.map(row => row.width + ':' + row.name)).size !== 22
       || ![result.errors, result.confirms, result.robotCalls].every(rows => Array.isArray(rows) && rows.length === 0)) throw new Error('Placement JSON verdict failed: require native child success, 22 passing unique cases/11 per size, empty errors/confirms/robot calls');

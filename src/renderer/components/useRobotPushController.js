@@ -14,8 +14,8 @@ function useUnavailableRobotPushController({ projectKey }) {
     const routine = scope?.kind === 'routine';
     setUnavailable({ kind: routine ? 'routine' : 'path',
       pathId: scope?.kind === 'paths' && scope.pathIds?.length === 1 ? scope.pathIds[0] : null,
-      reason: routine ? 'Routines stay saved in this project. Only path files can be pushed.'
-        : 'Robot file transfer is unavailable in this editor. You can export the path file locally.' });
+      reason: routine ? 'Push sends paths only. Routines stay local.'
+        : 'Robot transfer unavailable. Export the path locally.' });
     setOpen(true);
   };
   return { open, unavailable, phase: 'unavailable', busy: false, error: '', deliveryAvailable: false,

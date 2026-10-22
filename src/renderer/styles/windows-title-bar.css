@@ -1,0 +1,28 @@
+/* Windows controls share the editor toolbar; macOS keeps its native chrome. */
+.desktop-root,.windows-desktop{height:100%}
+.windows-desktop{position:relative}
+.windows-desktop .toolbar{padding-right:190px;-webkit-app-region:drag}
+.windows-desktop .toolbar :is(button,input,select,textarea,a,summary,[role="button"],[role="menu"],[role="dialog"],dialog,[contenteditable],.project-control){-webkit-app-region:no-drag}
+.windows-desktop .editor-startup-toolbar{height:44px;-webkit-app-region:drag}
+/* Fixed positioning also clears the modal top layer. A transformed/transparent dialog
+   entrance would otherwise clip or hide its chrome during a pending departure. */
+[data-platform="win32"] dialog:has(>.windows-title-bar){animation:none}
+.windows-title-bar[data-native-chrome]{
+  position:fixed;z-index:1000;top:0;right:0;display:flex;
+  width:182px;height:44px;margin:0;padding:0;border:0;border-bottom:1px solid var(--line-2);
+  background:var(--bg-1);color:var(--txt-2);user-select:none;-webkit-app-region:no-drag;
+}
+.windows-title-bar[data-native-chrome] button{
+  display:grid;place-items:center;flex:none;width:46px;min-width:0;height:100%;min-height:0;
+  margin:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;
+  -webkit-app-region:no-drag;
+}
+.windows-title-bar[data-native-chrome] .windows-title-menu{width:44px}
+.windows-title-bar[data-native-chrome] button:is(:hover,[aria-expanded="true"]){background:var(--bg-3);color:var(--txt)}
+.windows-title-bar[data-native-chrome] button:focus-visible{outline:2px solid var(--focus);outline-offset:-4px}
+.windows-title-bar svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1}
+.windows-title-controls{display:flex}
+.windows-title-controls svg{width:12px;height:12px}
+.windows-title-error{position:absolute;top:44px;right:0;width:max-content;max-width:300px;padding:8px 12px;background:var(--bg-1);font-size:12px}
+.windows-title-bar[data-focused="false"]{color:var(--txt-3)}
+@media(forced-colors:active){.windows-title-bar[data-native-chrome]{border-color:CanvasText}.windows-title-bar[data-native-chrome] button:focus-visible{outline-color:Highlight}}

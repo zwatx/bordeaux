@@ -14,3 +14,13 @@ export function shortcutLabel(key, { shift = false } = {}, mac = isMacPlatform()
 export function modifierName(mac = isMacPlatform()) {
   return mac ? '⌘' : 'Ctrl';
 }
+
+/** Space belongs to playback in the workspace; text and explicit value choosers own it while editing. */
+export function isPlaybackSpace(event, page, doc = document) {
+  if (!['plan', 'auto'].includes(page) || event.key !== ' ' || event.defaultPrevented || event.isComposing || event.keyCode === 229
+    || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  const target = event.target;
+  if (target?.isContentEditable || target?.closest?.('[data-native-chrome],[data-role="issue"],[data-problems-control],details>summary,.choice-change[aria-expanded][aria-controls],input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="listbox"],[role="menu"],[aria-haspopup],[popovertarget],.seg,.toggle,[role="radio"],[role="checkbox"],[role="switch"]')) return false;
+  return ![...doc.querySelectorAll('dialog[open],[role="dialog"],[role="menu"],[role="listbox"],[popover]:popover-open')]
+    .some(element => element.getClientRects().length > 0);
+}

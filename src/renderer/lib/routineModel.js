@@ -19,7 +19,6 @@ import { createRoutineNodeId } from "../../shared/project/ids";
   const AUTHORABLE_STEPS = [
     { id: 'path', type: 'path', label: 'Path', description: 'Follow a planned trajectory', icon: 'route', color: 'var(--accent)' },
     { id: 'command', type: 'function', cat: 'command', label: 'Command', description: 'Run a generated robot command between paths', icon: 'bolt', color: '#4fbf78' },
-    { id: 'decision', type: 'decision', label: 'Branch on condition', icon: 'branch' },
     { id: 'repeat', type: 'repeat', label: 'Repeat', icon: 'repeat' },
     { id: 'end', type: 'end', cat: 'routine', label: 'End routine', icon: 'stop' },
     { id: 'wait', type: 'builtin', cat: 'wait', label: 'Wait', description: 'Pause the routine before its next step', icon: 'pause', color: '#cf962f' },
@@ -144,15 +143,9 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     return out;
   }
 
-  function hasWaitBuiltIn(catalog) {
-    return Boolean(catalog && catalog.authoritative === true && (catalog.generatedSchemaVersion === '1.2' || catalog.generatedSchemaVersion === '1.3')
-      && Array.isArray(catalog.builtIns)
-      && catalog.builtIns.some((builtIn) => builtIn && builtIn.id === 'bordeaux.wait' && builtIn.kind === 'wait'));
-  }
-
-  function authorableSteps(catalog) {
-    return AUTHORABLE_STEPS.filter((step) => step.id !== 'wait' || hasWaitBuiltIn(catalog));
-  }
+  // Wait is an editor/runtime instruction, independent of team code and catalogs.
+  function hasWaitBuiltIn() { return true; }
+  function authorableSteps() { return AUTHORABLE_STEPS; }
 
   function trajectoryGenerator(catalog, generatorId) {
     return catalog && catalog.authoritative === true && catalog.generatedSchemaVersion === '1.3'
@@ -190,7 +183,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
   // ---- display title for any node ----
   function nodeTitle(node, paths, catalog) {
     if (!node || typeof node !== 'object') return 'Unknown step';
-    if (node.type === 'repeat') return `Repeat ${node.times} times`;
+    if (node.type === 'repeat') return node.times === undefined ? 'Repeat until command result' : `Repeat ${node.times} times`;
     if (node.type === 'end') return node.scope === 'repeat' ? 'Exit repeat' : 'End routine';
     if (node.type === 'path') { const p = paths && paths.find((path) => path.id === node.ref); return p ? p.name : node.ref ? 'Unavailable path' : 'Choose a path'; }
     if (node.type === 'decision') return node.cond || 'Choose condition';
@@ -333,7 +326,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
           || (node.type === 'decision' && (!Array.isArray(node.then) || !Array.isArray(node.else)))
           || (node.outputBranch && !Array.isArray(node.outputBranch.routes))) { invalid('Routine child shape or type is invalid.'); return result; }
         if (node.type === 'path' && !pathsById.has(node.ref)) { invalid(`Referenced path ${node.ref || '(unselected)'} is unavailable.`); return result; }
-        if (node.type === 'repeat' && (!Number.isInteger(node.times) || node.times < 1 || node.times > 50)) { invalid('Repeat count must be from 1 to 50.'); return result; }
+        if (node.type === 'repeat' && (node.times === undefined ? node.until?.source !== 'output' : !Number.isInteger(node.times) || node.times < 1 || node.times > 50)) { invalid('Repeat needs a count from 1 to 50 or a command output stop rule.'); return result; }
         for (const list of childLists(node)) tree.push({ nodes: list.nodes, depth: frame.depth + 1 });
       }
     }
@@ -363,8 +356,8 @@ import { createRoutineNodeId } from "../../shared/project/ids";
       const node = frame.nodes[frame.index++], passStack = frame.passStack;
       if (node.type === 'repeat') {
         const requested = viewOptions.repeatPasses?.[node.id];
-        const passes = node.until ? Math.max(1, Math.min(node.times, Number.isInteger(requested) ? requested : 1)) : node.times;
-        if (node.until && passes < node.times) assumptions.push(`Repeat ${node.id}: assume its stop check is true after pass ${passes}.`);
+        const passes = node.until ? Math.max(1, Math.min(node.times ?? 50, Number.isInteger(requested) ? requested : 1)) : node.times;
+        if (node.until && (node.times === undefined || passes < node.times)) assumptions.push(`Repeat ${node.id}: assume its stop check is true after pass ${passes}.`);
         frames.push({ kind: 'repeat', node, pass: 0, passes, depth: frame.depth, passStack }); continue;
       }
       const kind = node.type === 'decision' ? 'decision' : node.type === 'path' ? 'path' : node.type === 'builtin' ? 'wait'
@@ -734,7 +727,7 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
       }
       if (node.type !== 'repeat') return;
       if (!node.nodes?.length) add(node, 'repeat-empty', 'Add steps to this repeat.');
-      if (!Number.isInteger(node.times) || node.times < 1 || node.times > 50) add(node, 'repeat-count', 'Repeat count must be from 1 to 50.');
+      if (node.times === undefined ? node.until?.source !== 'output' : !Number.isInteger(node.times) || node.times < 1 || node.times > 50) add(node, 'repeat-count', 'Repeat needs a count from 1 to 50 or a command output stop rule.');
       if (node.until?.source === 'condition') predicate(node, node.until);
       if (node.until?.source === 'output') {
         const stop = node.until, producer = node.nodes.find(child => child.id === stop.nodeId && child.type === 'function' && child.cat === 'command');

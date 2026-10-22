@@ -37,7 +37,7 @@ async function loadApp() {
   await wait(async () => win.isFocused() && win.webContents.isFocused() && await evaluate(() => document.hasFocus()), 'initial native focus admission');
 }
 async function source() { await wait(() => Boolean(published?.routines), 'actual published routine source'); return structuredClone(published.routines); }
-async function isolate() { assert.deepEqual(confirms, [], 'No confirm call'); assert.deepEqual(robotCalls, [], 'No robot operation'); assert.deepEqual(await evaluate(() => window.__branchHarnessConfirms), [], 'Main-world confirm recorder'); assert.equal(await evaluate(() => document.querySelector('.push-local')?.textContent), 'Routines stay local'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routines have no robot Push scope'); }
+async function isolate() { assert.deepEqual(confirms, [], 'No confirm call'); assert.deepEqual(robotCalls, [], 'No robot operation'); assert.deepEqual(await evaluate(() => window.__branchHarnessConfirms), [], 'Main-world confirm recorder'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-local'))), false, 'No routine placeholder label'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routines have no robot Push scope'); }
 async function choose(name) { await click('#command-branch-output'); await click('[role="option"]', name); }
 async function snapshot(name) { await drain(); await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
 const catalog = { runtime: 'labview', projectName: 'Inspection fixture', sourceFileCount: 1, scannedAt: '', warnings: [], commands: [{
@@ -60,6 +60,7 @@ ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++;
 app.whenReady().then(async () => {
   try {
     if (placementMode) return await runPlacement();
+    if (process.env.BORDEAUX_BRANCH_UI_MODE === 'completion') return await runCompletion();
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     saved = { ...corpus, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Command output branching', nodes: [{ id: 'inspect-step', type: 'function', cat: 'command', title: catalog.commands[0].label, invocation: { commandId: 'inspect', arguments: {} } }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
@@ -124,7 +125,7 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.places .place')), 'missing output reload');
     await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
     await click('[data-id="inspect-step"] .rt-step-body');
-    await wait(() => evaluate(() => document.body.textContent.includes('The saved output is missing')), 'missing output message');
+    await wait(() => evaluate(() => document.body.textContent.includes('Output missing. Saved routes are kept.')), 'missing output message');
     assert.equal(await evaluate(() => document.querySelectorAll('.rt-branch').length), 3);
     await click('#command-branch-output'); await key('Escape');
     await wait(async () => JSON.stringify(await source()) === JSON.stringify(baselineRoutines), 'missing output preserves complete baseline source');
@@ -142,6 +143,42 @@ app.whenReady().then(async () => {
   } catch (error) { console.error(error, errors); await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ passed: false, error: error.stack || String(error), checks, scenarios, errors, confirms, robotCalls, published, saved, runtime: { electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform } }, null, 2)); if (win) await snapshot('failure'); process.exitCode = 1; }
   finally { if (win) win.destroy(); app.exit(process.exitCode || 0); }
 });
+
+async function runCompletion() {
+  Object.assign(catalog, require('./command-completion-fixture.cjs').completionCatalog());
+  assert.equal(catalog.commands.length, 4);
+  assert.ok(catalog.commands.every(command => command.outputs.length === 1));
+  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+  const nodes = catalog.commands.map((command, index) => ({ id: 'completion-' + index, type: 'function', cat: 'command', title: command.label, invocation: { commandId: command.id, arguments: {} } }));
+  saved = { ...corpus, routines: [{ id: 'route-test', name: 'Command completion routes', nodes }], activeRoutineId: 'route-test',
+    editor: { activePathId: corpus.paths[0].id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+  win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
+    webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
+  for (const [width, height] of [[1440, 900], [1100, 720]]) {
+    win.setContentSize(width, height); await loadApp();
+    await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
+    for (const node of nodes) {
+      await click(`[data-id="${node.id}"] .rt-step-body`);
+      await click('#command-branch-output');
+      assert.ok(await evaluate(() => [...document.querySelectorAll('[role="option"]')].some(el => el.textContent.includes('Completion status'))));
+      if (node === nodes[0]) await snapshot('completion-picker-' + width);
+      await key('End'); await key('Enter');
+      assert.equal(await evaluate(() => document.activeElement.id), 'command-branch-output', 'Branch chooser restores keyboard focus');
+      await wait(async () => (await source())[0].nodes.find(item => item.id === node.id).outputBranch?.routes.length === 4, 'completion routes');
+      const branch = (await source())[0].nodes.find(item => item.id === node.id).outputBranch;
+      assert.deepEqual(branch.routes.map(route => route.value), ['Successful', 'Aborted', 'Incomplete', undefined]);
+    }
+    await snapshot('completion-routes-' + width);
+    const baseline = await source(), beforeSave = saves;
+    await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > beforeSave, 'completion save');
+    await loadApp(); await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
+    await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact completion branches reopen');
+    await click(`[data-id="${nodes[0].id}"] .rt-step-body`); await snapshot('completion-restored-' + width);
+    await isolate(); scenarios.push({ width, passed: true, commands: 4 });
+  }
+  await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ passed: true, mode: 'completion', scenarios, errors, confirms, robotCalls }, null, 2));
+  console.log('PASS: all four decoded legacy commands offer completion branches, exact routes and save/reopen at both supported sizes.');
+}
 
 // Command placement (BORDEAUX_BRANCH_UI_MODE=placement): the real built App on Paths with a mocked 12-command catalog.
 // Every gesture is a native sendInputEvent behind the existing focus admission; evaluate() only reads state.

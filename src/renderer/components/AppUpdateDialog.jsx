@@ -88,9 +88,9 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
   shownAttempt.current = attempt;
   const resume = resuming?.attempt === attempt ? resuming : null, waiting = Boolean(resume?.waiting);
   const busy = !stalled && ['checking', 'downloading', 'installing'].includes(phase);
-  const title = stalled ? 'Restart is taking longer than expected' : ({ available: 'Update available', downloading: 'Download in progress', downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates' })[phase] || 'Software updates';
+  const title = stalled ? 'Restart delayed' : ({ available: 'Update available', downloading: 'Downloading update', downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates' })[phase] || 'Software updates';
   const subtitle = resume?.fact ? 'Couldn’t return to editing · ' + resume.fact : waiting ? 'Returning to editing…'
-    : stalled ? 'You can close this panel and keep working. If Bordeaux doesn’t restart, install from All releases.' : phase === 'error' ? error : phase === 'unsupported' ? 'Download an installer from the official releases page.' : '';
+    : stalled ? 'Keep working, or install manually from All releases.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? 'Get the installer from All releases.' : '';
   const notes = releaseNoteBlocks(state.releaseNotes);
   const percent = Number.isFinite(progress?.percent) ? Math.min(100, Math.max(0, progress.percent)) : null;
   // Closing a stalled install hands editing back only once main accepts it for the attempt this panel shows (main

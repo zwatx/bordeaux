@@ -1,23 +1,20 @@
-/* Project chip: the project's name at full strength over one quiet status line. Failure is the only loud state.
-   It lives in a fixed toolbar slot; each line truncates on its own, while the button's accessible name and the
-   menu keep the whole name and status. */
+/* Project name and change asterisk; only recovery/failure states need a second line. */
 .project-control{position:relative;flex:0 1 auto;min-width:0;max-width:100%;-webkit-app-region:no-drag}
 .project-chip{display:grid;grid-template-columns:minmax(0,max-content) 12px;align-content:center;column-gap:5px;row-gap:1px;max-width:100%;height:38px;padding:0 8px;border:1px solid transparent;border-radius:var(--r);color:var(--txt);font-size:13px;font-weight:600;line-height:16px;text-align:left;transition:background-color .14s,border-color .14s}
 .project-chip:hover,.project-chip[aria-expanded="true"]{border-color:var(--line-2);background:var(--bg-2)}
 .project-chip:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.project-chip-title{display:flex;align-items:baseline;gap:3px;min-width:0}
 .project-chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-chip-unsaved{flex:none}
 .project-chip-meta{display:flex;grid-column:1/-1;align-items:center;gap:8px;min-width:0;overflow:hidden;line-height:14px;white-space:nowrap}
 .project-chip-status,.project-chip-bdx{flex:none;color:var(--txt-3);font-size:11.5px;font-weight:500;line-height:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .project-chip:is([data-status="failed"],[data-status="recovered"]) .project-chip-status,.project-chip-bdx{display:inline-flex;align-items:center;gap:5px;color:var(--warn-txt)}
-.project-chip:is([data-status="failed"],[data-status="recovered"]) .project-chip-status::before,.project-chip-bdx::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.project-chip-bdx::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--warn)}
 /* The chip is the only save surface, so a failure keeps a tint until it is fixed. */
 .project-chip:is([data-status="failed"],[data-status="recovered"]){border-color:color-mix(in oklab,var(--warn) 35%,transparent);background:var(--warn-soft)}
 /* Each new failure (keyed by try) briefly re-lights the word, so an instant failed Retry is still acknowledged. */
 .project-chip[data-status="failed"] .project-chip-status{animation:pj-ack .6s ease-out}
 @keyframes pj-ack{from{opacity:.25}}
-/* Saved and Saving share one width, so the chip does not shift while autosave runs. */
-.project-chip:not([data-status="failed"],[data-status="recovered"]) .project-chip-status{display:inline-grid}
-.project-chip:not([data-status="failed"],[data-status="recovered"]) .project-chip-status::after{content:'Saving';grid-area:1/1;height:0;visibility:hidden}
 .project-chip-chevron{display:flex;flex:none;align-self:center;color:var(--txt-3)}
 
 .project-menu{max-height:calc(100dvh - 88px);overflow-y:auto;position:absolute;left:0;top:calc(100% + 4px);z-index:250;width:264px;max-width:calc(100vw - 32px);padding:4px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}

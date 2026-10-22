@@ -186,6 +186,13 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
           unsupported.push({ file, target, reason: `Output ${terminal.name} (terminal ${terminal.terminalNumber}): ${error instanceof Error ? error.message : String(error)}` });
         }
       }
+      // Status is a useful completed-command result, while Name/notifier remain framework plumbing.
+      const completion = statuses.find((terminal) => terminal.direction === 1)!;
+      const completionName = `${completion.name}.Status`;
+      if (completionName.length > 256 || outputTerminals.some((terminal) => terminal.name === completionName)) {
+        unsupported.push({ file, target, reason: `Output ${completionName}: completion result name is too long or conflicts with another terminal name` });
+      } else outputs.push({ name: completionName, label: "Completion status", terminalNumber: completion.terminalNumber,
+        fieldPath: [completion.name, "Status"], schema: { kind: "enum", valueType: "Enum", enumValues: ["Successful", "Aborted", "Incomplete"] } });
       const description = text(row.description, "NI VI description", 16384);
       commands.push({ ...checked, description, outputs, ownerType: `LabVIEW (${target})`, member: file,
         source: { file, line: 1 }, labviewLegacy: true, runtimeReady: false,

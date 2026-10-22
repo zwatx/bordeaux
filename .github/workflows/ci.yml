@@ -52,6 +52,7 @@ jobs:
             checks: |
               scripts/verify-update-quit.mjs
               scripts/verify-labview-project-ui.mjs
+              scripts/verify-windows-chrome.mjs
               scripts/verify-library-ui.mjs
           - group: planning
             checks: |
@@ -71,6 +72,7 @@ jobs:
     env:
       ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
       BORDEAUX_UPDATE_QUIT_OUTPUT: .ui-artifacts/update-quit
+      BORDEAUX_CHROME_UI_OUTPUT: .ui-artifacts/windows-chrome
       BORDEAUX_LABVIEW_UI_OUTPUT: .ui-artifacts/labview
       BORDEAUX_PROJECT_UI_OUTPUT: .ui-artifacts/project
       BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library

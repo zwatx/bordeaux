@@ -37,7 +37,7 @@ describe('app update dialog', () => {
   });
   it('offers a dismissible manual recovery state without repeating a pending install', () => {
     const html = render({ phase: 'installing', installStalled: true });
-    expect(html).toContain('Restart is taking longer than expected');
+    expect(html).toContain('Restart delayed');
     expect(html).toContain('All releases');
     expect(html).toContain('>Close</button>');
     expect(html).not.toContain('Retry install');

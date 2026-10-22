@@ -9,7 +9,7 @@ describe("beta diagnostic dialog", () => {
     expect(dialog).toContain("readOnly: true");
     expect(dialog).toContain("saveBetaDiagnostic(preview.previewId)");
     expect(dialog).not.toContain("saveBetaDiagnostic(preview.contents)");
-    expect(dialog).toContain("Nothing is sent automatically.");
+    expect(dialog).toContain("Nothing is sent.");
     // The connection-to-diagnostics interaction is exercised in verify-library-ui-electron.cjs.
   });
 });

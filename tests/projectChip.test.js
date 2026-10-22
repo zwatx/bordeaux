@@ -6,18 +6,26 @@ import { ProjectChip, firstFact, parentLocation, shortFact } from '../src/render
 const chip = (props) => renderToStaticMarkup(React.createElement(ProjectChip, { name: 'Week 3 autos', folderPath: '/team/Week 3 autos', status: 'saved', robotCode: { status: 'unlinked' }, actions: {}, ...props }));
 
 describe('project chip', () => {
-  it('shows one status word, warning only for a failed save', () => {
-    expect(chip({})).toContain('<span class="project-chip-status">Saved</span>');
+  it('shows the saved project name alone, with words reserved for failures and recovery', () => {
+    expect(chip({})).not.toContain('project-chip-meta');
+    expect(chip({})).not.toContain('>Saved<');
     expect(chip({ status: 'failed', saveError: 'The project folder is read-only.' })).toContain('data-status="failed"');
     expect(chip({ status: 'failed' })).toContain('>Not saved<');
-    expect(chip({ folderPath: null, status: 'unsaved' })).toContain('>Not saved<');
+    expect(chip({ folderPath: null, status: 'unsaved' })).not.toContain('>Not saved<');
+    expect(chip({ status: 'recovered' })).toContain('>Recovered<');
   });
 
   it('keeps a BDX failure separate from the saved project', () => {
     const markup = chip({ bdxError: 'Project saved; BDX saving did not complete.' });
-    expect(markup).toContain('>Saved<');
+    expect(markup).not.toContain('>Saved<');
     expect(markup).toContain('<span class="project-chip-bdx">BDX failed</span>');
     expect(markup).not.toContain('Not saved');
+  });
+
+  it('shows an immediate text asterisk beside the name during debounce and keeps saved projects unmarked', () => {
+    expect(chip({ status: 'saving', writing: false })).toContain('<span class="project-chip-unsaved" aria-hidden="true">*</span>');
+    expect(chip({ status: 'saving', writing: false })).toContain('aria-label="Week 3 autos, Unsaved changes"');
+    expect(chip({})).not.toContain('project-chip-unsaved');
   });
 
   it('shortens desktop errors to their first fact', () => {
@@ -47,9 +55,10 @@ describe('project chip', () => {
     expect(chip({})).toContain('<span class="sr-only" role="status"></span>');
   });
 
-  it('keeps Saved while the debounce runs and before a write has taken 400 ms', () => {
-    expect(chip({ status: 'saving', writing: false })).toContain('data-status="saved"');
+  it('keeps pending changes marked without a routine status line during writes', () => {
+    expect(chip({ status: 'saving', writing: false })).toContain('data-status="saving"');
     expect(chip({ status: 'saving', writing: true })).toContain('aria-busy="true"');
-    expect(chip({ status: 'saving', writing: true })).toContain('>Saved<');
+    expect(chip({ status: 'saving', writing: true })).not.toContain('project-chip-meta');
+    expect(chip({ status: 'saving', writing: true })).not.toContain('>Saving<');
   });
 });

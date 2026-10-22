@@ -59,7 +59,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       available.length > 0 && h(Dropdown, { id: 'range-add-limit', ariaLabel: 'Add limit', placeholder: 'Add limit',
         value: '', icon: 'plus', compact: true, items: available.map(([value, label]) => ({ value, label })),
         onChange: (key) => change(key, limitFor(key)) }),
-      values.maxAccel != null && range.maxDecel !== range.maxAccel && h('div', { className: 'seg-hint' }, 'Saved limits differ for speeding up and slowing down. Editing acceleration sets both.'),
+      values.maxAccel != null && range.maxDecel !== range.maxAccel && h('div', { className: 'seg-hint' }, 'Acceleration and braking differ. Editing sets both.'),
       active.length === 0 && h('div', { className: 'seg-hint' }, 'Uses path limits.'));
   }
 
@@ -450,7 +450,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         : marker ? () => actions.delMarker(sel.idx) : waypoint ? () => actions.delWp(sel.idx) : null;
       const removeLabel = range ? 'Delete zone' : target ? 'Delete rotation target' : marker ? 'Delete command' : 'Delete waypoint';
       body = h(React.Fragment, null,
-        h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit the saved values or remove a feature below to try again. Select other features on the field or timeline.'),
+        h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit a value or remove a feature to retry.'),
         waypoint && h('div', { className: 'grid2' },
           h(Num, { label: 'X', value: waypoint.x, unit: 'm', onChange: (x) => actions.setWp(sel.idx, { x }) }),
           h(Num, { label: 'Y', value: waypoint.y, unit: 'm', onChange: (y) => actions.setWp(sel.idx, { y }) })),
@@ -524,15 +524,15 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
             ? initialFacing()
           : continuityOwnedHeading
             ? h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }),
-                'The outgoing heading law begins here. The planner turns toward its anchors while the robot keeps moving.')
+                'Turns toward the heading anchors while moving.')
           : incomingAuthoredHeading
             ? interiorHeadingEditor(h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }),
                 'This heading finishes the incoming ' + incomingHeadingMode + ' law. The outgoing ' + waypointHeadingMode + ' law begins from it continuously.'))
           : waypointHeadingMode === 'lookAt'
-            ? h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }), 'This segment continuously faces its tracked field point. Select the segment to edit or drag it.')
+            ? h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }), 'Faces the tracked point. Select the segment to edit it.')
           : waypointHeadingMode === 'tangent'
             ? h(React.Fragment, null,
-                h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }), 'This segment follows the path tangent. Set a manual heading to override only this segment.'),
+                h('div', { className: 'hint' }, h(Icon, { name: 'compass', size: 14 }), 'Follows the path tangent. A manual heading overrides this segment.'),
                 h('button', { className: 'qbtn wide', type: 'button', style: { marginTop: '4px' }, onClick: () => { actions.setSegmentHeadingMode(headingSegment, 'manual'); actions.faceWaypoint(i, 'tangent'); } }, h(Icon, { name: 'compass', size: 14 }), 'Set manual heading on segment'))
             : isAnchor
               ? h(React.Fragment, null,
@@ -724,7 +724,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
             },
           }),
           catalog && commands.length === 0 && h('div', { className: 'seg-hint', role: 'status' }, 'No command VIs found. Check the linked project or refresh commands.'),
-          unresolved && h('div', { className: 'cmd-project-error', role: 'status' }, 'This command is not in the linked project. Its saved ID and arguments are unchanged.'),
+          unresolved && h('div', { className: 'cmd-project-error', role: 'status' }, 'Command missing. Saved arguments are kept.'),
           selectedCommand && !selectedCommand.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Refresh commands to load this command’s inputs before exporting.'),
           selectedCommand && h('div', {
             className: 'cmd-command-summary',

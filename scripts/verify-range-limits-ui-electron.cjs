@@ -137,7 +137,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement === document.querySelector('.range-limits input')), true, 'Native pointer input must focus the numeric field');
     await key('Tab');
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Remove acceleration limit');
-    await key('Space'); await delay(350);
+    await key('Enter'); await delay(350);
     await save(); assert.deepEqual(activeLimits(), []);
     assert.equal(Object.hasOwn(saved.paths[0].ranges[0], 'maxAccel'), false);
     assert.equal(Object.hasOwn(saved.paths[0].ranges[0], 'maxDecel'), false);
@@ -382,7 +382,7 @@ app.whenReady().then(async () => {
     }
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
     assert.deepEqual(errors, []);
-    console.log(process.env.BORDEAUX_RANGE_LIMITS_REMAINDER_ONLY ? 'PASS Native Tab/Space removal, cleared save/reload, all enabled layouts and native empty region creation' : 'PASS Independent acceleration add/remove, native pointer/arrow/Enter/Space/Tab, menu and numeric Escape, canonical values, save/reload, both units, open/closed inspector at 1440x900 and 1100x720');
+    console.log(process.env.BORDEAUX_RANGE_LIMITS_REMAINDER_ONLY ? 'PASS Native Tab/Enter removal, cleared save/reload, all enabled layouts and native empty region creation' : 'PASS Independent acceleration add/remove, native pointer/arrow/Enter/Space/Tab, menu and numeric Escape, canonical values, save/reload, both units, open/closed inspector at 1440x900 and 1100x720');
   } catch (error) { console.error(error, errors); if (win) await snapshot('failure'); process.exitCode = 1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });

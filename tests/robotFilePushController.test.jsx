@@ -317,7 +317,7 @@ describe('shipping robot delivery selection', () => {
     expect(unavailable.open).toBe(true);
     expect(unavailable.deliveryAvailable).toBe(false);
     expect(unavailable.unavailable.pathId).toBe('A');
-    expect(unavailable.unavailable.reason).toContain('export the path file locally');
+    expect(unavailable.unavailable.reason).toContain('Export the path locally');
     expect(bridge.getRobotPairing).not.toHaveBeenCalled();
     expect(bridge.prepareRobotPush).not.toHaveBeenCalled();
     expect(bridge.prepareRobotFiles).not.toHaveBeenCalled();

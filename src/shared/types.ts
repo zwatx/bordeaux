@@ -232,6 +232,8 @@ export interface RobotCommandOutput {
   max?: number | string;
   /** Saved NI connector terminal identity, separate from its display caption. */
   terminalNumber?: number;
+  /** Named path from returned connector terminals to a result inside a cluster. */
+  fieldPath?: string[];
 }
 
 export interface RobotCommandDescriptor {
@@ -509,7 +511,8 @@ export interface RoutineWaitEnds { endWhen?: RoutinePredicate }
 export interface RoutineRepeatNode {
   id: string;
   type: "repeat";
-  times: number;
+  /** Omitted for a dynamic repeat; a command-output stop rule is then required. */
+  times?: number;
   until?: RoutinePredicate | RoutineOutputStop;
   nodes: RoutineNode[];
 }

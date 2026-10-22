@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
 import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
@@ -14,6 +14,8 @@ import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 const statusXml = (name: string) => `<Cluster><Name>${name}</Name><NumElts>3</NumElts><String><Name>Name</Name><Val/></String><EW><Name>Status</Name><Choice>Successful</Choice><Choice>Aborted</Choice><Choice>Incomplete</Choice><Val>0</Val></EW><Refnum><Name>notifier out</Name><RefKind>Notifier</RefKind><Val>0x00000000</Val></Refnum></Cluster>`;
 const statusMetadata = (name: string) => [[[[name], "C:\\NI\\Framework\\Command Status Info.ctl", false, 0, []]]];
 const source = { file: "Intake/Commands/Start.vi", target: "Robot" };
+const completionOutput = { name: "Command Info Out.Status", label: "Completion status", terminalNumber: 0,
+  fieldPath: ["Command Info Out", "Status"], schema: { kind: "enum", valueType: "Enum", enumValues: ["Successful", "Aborted", "Incomplete"] } };
 function row(extraXml = "<DBL><Name>Setpoint</Name><Val>0</Val></DBL>") {
   return { ...source, name: "Start.vi", description: "Immediate subsystem action", execState: 1, status: "inspected", modifiedBefore: false, modifiedAfter: false,
     dependenciesAvailable: true, dependencies: [], defaults: { Setpoint: 0, Description: "" } as Record<string, unknown>,
@@ -56,6 +58,52 @@ async function cacheFixture() {
 }
 
 describe("NI legacy connector discovery", () => {
+  it("stops scheduling on a fingerprint failure and drains in-flight reads before returning", async () => {
+    const f = await cacheFixture();
+    for (let index = 1; index < 40; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);
+    await fs.writeFile(f.project, '<Project><Item Name="Robot" Type="RT myRIO"><Item Name="Intake" Type="Folder" URL="../Intake"><Property Name="NI.DISK" Type="Bool">true</Property></Item></Item></Project>');
+    const read = fs.readFile.bind(fs), adapter = vi.fn();
+    let reads = 0, active = 0;
+    const spy = vi.spyOn(fs, "readFile").mockImplementation((async (...args: Parameters<typeof fs.readFile>) => {
+      if (!String(args[0]).endsWith('.vi')) return read(...args);
+      if (++reads === 1) throw Error('fingerprint read failed');
+      active++;
+      try { await new Promise(resolve => setTimeout(resolve, 20)); return await read(...args); }
+      finally { active--; }
+    }) as typeof fs.readFile);
+    try {
+      await expect(inspectLabviewCommands(f.project, f.cache, adapter)).rejects.toThrow('fingerprint read failed');
+      expect(active).toBe(0); expect(reads).toBeLessThanOrEqual(8); expect(adapter).not.toHaveBeenCalled();
+      const stopped = reads;
+      await new Promise(resolve => setTimeout(resolve, 30)); expect(reads).toBe(stopped);
+    } finally { spy.mockRestore(); }
+  });
+  it("bounds concurrent fingerprints and reads each shared VI once per validation snapshot", async () => {
+    const f = await cacheFixture();
+    try {
+      for (let index = 1; index < 20; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);
+      const folder = '<Item Name="Intake" Type="Folder" URL="../Intake"><Property Name="NI.DISK" Type="Bool">true</Property></Item>';
+      await fs.writeFile(f.project, `<Project><Item Name="Robot" Type="RT myRIO">${folder}</Item><Item Name="Other" Type="RT roboRIO">${folder}</Item></Project>`);
+      const read = fs.readFile.bind(fs);
+      let active = 0, peak = 0, reads = 0;
+      const spy = vi.spyOn(fs, "readFile").mockImplementation((async (...args: Parameters<typeof fs.readFile>) => {
+        if (!String(args[0]).endsWith('.vi')) return read(...args);
+        reads++; peak = Math.max(peak, ++active);
+        try { await new Promise(resolve => setTimeout(resolve, 5)); return await read(...args); }
+        finally { active--; }
+      }) as typeof fs.readFile);
+      try {
+        await inspectLabviewCommands(f.project, f.cache, async (requestFile, responseFile) => {
+          const request = JSON.parse(await read(requestFile, "utf8"));
+          expect(request.sources).toHaveLength(40);
+          await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: f.project,
+            vis: request.sources.map((item: { file: string; target: string }) => ({ ...item, status: 'nonCommand', viType: 3, modifiedBefore: false, modifiedAfter: false })) }));
+        });
+        expect(reads).toBe(40); // Twenty unique VIs, before and after inspection; no cross-snapshot memoization.
+        expect(peak).toBeGreaterThan(1); expect(peak).toBeLessThanOrEqual(8);
+      } finally { spy.mockRestore(); }
+    } finally { await fs.rm(f.root, { recursive: true, force: true }); }
+  });
   it("exports newly inspected commands by original basename without any filename registration", () => {
     for (const file of ["Intake/Commands/Start.vi", "New subsystem/Brand new action.vi"]) {
       const vi = { ...row(), file, defaults: { Description: "saved text", Setpoint: -0.625 } };
@@ -81,7 +129,7 @@ describe("NI legacy connector discovery", () => {
     const command = result.commands[0];
     expect(command).toMatchObject({ member: source.file, confidence: "confirmed", runtimeReady: false, labviewLegacy: true });
     expect(command.parameters).toMatchObject([{ name: "Description", schema: { kind: "string" }, defaultValue: "" }, { name: "Setpoint", schema: { kind: "number", valueType: "DBL" }, defaultValue: 0 }]);
-    expect(command.outputs).toEqual([]);
+    expect(command.outputs).toEqual([completionOutput]);
     expect(robotInvocationErrors({ commandId: command.id, arguments: { Description: "", Setpoint: "wrong type" } }, command)).toContain("Setpoint must be a finite number");
     expect(command.labviewConnector).toMatchObject({ terminalNumbers: row().connector.conNum, typeXml: row().connector.dataTypes,
       directions: row().connector.ioStatus, defaults: row().defaults });
@@ -105,7 +153,7 @@ describe("NI legacy connector discovery", () => {
     const result = decode(report(vi));
     expect(result.commands).toHaveLength(1);
     expect(result.commands[0].parameters.map((parameter) => parameter.name)).toEqual(["Description", "Setpoint"]);
-    expect(result.commands[0].outputs).toEqual([{ name: "Reading", label: "Sensor reading", terminalNumber: 12, schema: { kind: "number", valueType: "DBL" } }]);
+    expect(result.commands[0].outputs).toEqual([{ name: "Reading", label: "Sensor reading", terminalNumber: 12, schema: { kind: "number", valueType: "DBL" } }, completionOutput]);
     expect(result.commands[0].description).toBe(vi.description);
     expect(result.commands[0].runtimeReady).toBe(false);
     expect(result.inspection.unsupported).toEqual([]);
@@ -122,8 +170,27 @@ describe("NI legacy connector discovery", () => {
       { name: "Acquired", terminalNumber: 12, schema: { kind: "boolean", valueType: "Boolean" } },
       { name: "Outcome", terminalNumber: 13, schema: { kind: "enum", valueType: "Enum", enumValues: ["Ready", "Empty"] } },
       { name: "Count", terminalNumber: 14, min: "0", max: "18446744073709551615", schema: { kind: "integerString", valueType: "U64" } },
+      completionOutput,
     ]);
     expect(result.inspection.unsupported).toEqual([]);
+  });
+
+  it("offers completion branches for every legacy command even without extra result terminals", () => {
+    const vis = ["Calibrate", "Drive Immediate", "Reserve Drive", "Config Drive Pipeline Command"].map(name => ({ ...row(), file: `Drive/Commands/${name}.vi` }));
+    const decoded = decodeLabviewNiInspection({ ...report(), vis }, "C:\\Robot\\Robot.lvproj", vis);
+    expect(decoded.commands).toHaveLength(4);
+    for (const command of decoded.commands) {
+      expect(command.outputs).toEqual([completionOutput]);
+      expect(command.parameters.some(parameter => parameter.name.includes("Command Info"))).toBe(false);
+    }
+  });
+
+  it("does not guess between a completion field and a terminal with the same result name", () => {
+    const vi = row();
+    addOutput(vi, completionOutput.name, `<Boolean><Name>${completionOutput.name}</Name><Val>0</Val></Boolean>`);
+    const decoded = decode(report(vi));
+    expect(decoded.commands[0].outputs).toEqual([{ name: completionOutput.name, terminalNumber: 12, schema: { kind: "boolean", valueType: "Boolean" } }]);
+    expect(decoded.inspection.unsupported[0].reason).toMatch(/conflicts/);
   });
 
   it("reports unsupported and ambiguous outputs while keeping valid arguments and other results", () => {
@@ -134,7 +201,7 @@ describe("NI legacy connector discovery", () => {
     addOutput(vi, "Count again", "<I32><Name>Count</Name><Val>0</Val></I32>", 15);
     const result = decode(report(vi));
     expect(result.commands[0].parameters.map((parameter) => parameter.name)).toEqual(["Description", "Setpoint"]);
-    expect(result.commands[0].outputs?.map((output) => output.name)).toEqual(["Ready"]);
+    expect(result.commands[0].outputs?.map((output) => output.name)).toEqual(["Ready", completionOutput.name]);
     expect(result.inspection.unsupported).toHaveLength(3);
     expect(result.inspection.unsupported[0].reason).toMatch(/Output Handle \(terminal 12\).*type mapping/);
     expect(result.inspection.unsupported[1].reason).toMatch(/unique terminal names/);
@@ -255,7 +322,7 @@ describe("NI legacy connector discovery", () => {
     const inspected = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
     expect(inspected.commands).toHaveLength(1);
     expect(inspected.commands[0]).toMatchObject({ id: "team.intake.start", label: "Team intake", labviewConnector: { file: source.file } });
-    expect(inspected.commands[0].outputs).toMatchObject([{ name: "Acquired", terminalNumber: 12, schema: { kind: "boolean" } }]);
+    expect(inspected.commands[0].outputs).toMatchObject([{ name: "Acquired", terminalNumber: 12, schema: { kind: "boolean" } }, completionOutput]);
     const cached = await withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
     expect(cached.commands[0].outputs).toEqual(inspected.commands[0].outputs);
     expect(bdxBindingsFromCatalog(inspected).parameterTypes["team.intake.start"].Setpoint.niType).toBe("DBL");

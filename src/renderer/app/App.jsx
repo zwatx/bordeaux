@@ -5,6 +5,7 @@ import { FieldStatus } from "../components/FieldStatus";
 import * as React from "react";
 import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
+import { isPlaybackSpace } from "../lib/shortcuts";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
 import { liveEditingPreview } from "../assets/editing-planning";
@@ -1302,7 +1303,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       candidate._selAfter = oldCount;
 
       if (segmentType === 'clothoid') {
-        const message = 'The new clothoid join may rebuild the previous turn. Review the dashed path first.';
+        const message = 'This join may rebuild the previous turn. Review the dashed path.';
         setWaypointPreviewRequest({ doc: candidate, index: oldCount, plannerId, message, actionLabel: 'Place endpoint' });
         return;
       }
@@ -2816,13 +2817,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           && (e.key.indexOf('Arrow') === 0 || e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape');
         const textEditing = nativeKeyboardControl || e.target.isContentEditable || (matches && matches('textarea,input:not([type="range"])'));
         const k = e.key.toLowerCase();
-        if (page === 'plan' && e.key === ' ' && !textEditing) {
-          e.preventDefault();
-          if (e.repeat || !derivationCurrent) return;
-          if (typeof e.target.blur === 'function') e.target.blur();
-          playbackStore.toggle();
-          return;
-        }
         const toolShortcut = !e.metaKey && !e.ctrlKey && !e.altKey && !textEditing && TOOL_SHORTCUTS[k];
         if (page === 'plan' && toolShortcut) {
           e.preventDefault();
@@ -2862,6 +2856,25 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       return () => window.removeEventListener('keydown', onKey);
     }, [undo, redo, sel, delWp, delTarget, delMarker, delRange, select, page, derivationCurrent, nudgeWp, nudgeFrac, playbackStore]);
 
+    useEffect(() => {
+      let held = false;
+      const onDown = (event) => {
+        if (!isPlaybackSpace(event, page)) return;
+        event.preventDefault(); event.stopPropagation();
+        if (held || event.repeat) return;
+        held = true;
+        if (page === 'plan' && derivationCurrent) playbackStore.toggle();
+        else if (page === 'auto' && !run.blocked && run.total > 0) routinePlaybackStore.toggle();
+      };
+      const onUp = (event) => {
+        if (event.key !== ' ' || !held) return;
+        held = false; event.preventDefault(); event.stopPropagation();
+      };
+      const release = () => { held = false; };
+      window.addEventListener('keydown', onDown, true); window.addEventListener('keyup', onUp, true); window.addEventListener('blur', release);
+      return () => { window.removeEventListener('keydown', onDown, true); window.removeEventListener('keyup', onUp, true); window.removeEventListener('blur', release); };
+    }, [page, derivationCurrent, playbackStore, routinePlaybackStore, run.blocked, run.total]);
+
     const pathIndex = (id) => project.paths.findIndex((path) => path.id === id);
     // A focused draft commits first, so Push (including ⇧⌘P from a field) sends what is shown. An invalid draft keeps focus instead.
     const pushActions = { ...pushController, requestPush: (scope) => { if (!flushProjectDraft()) return; flushSync(() => finishEdit());
@@ -2900,7 +2913,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         action: { label: 'Dismiss', onClick: () => setExportError('') } },
       editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,
         action: { label: 'Try again', onClick: editing.retry } },
-      !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'The saved optimization could not be validated. Review it before using this path.',
+      !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'Saved optimization is unverified. Review before use.',
         action: { label: 'Optimize', onClick: () => setOptimizationOpen(true) } },
     ].filter(Boolean);
 
