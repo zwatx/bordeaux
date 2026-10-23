@@ -264,6 +264,36 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       error && h('span', { id: id + '-error', className: 'cmd-param-error', role: 'alert' }, error));
   }
 
+  /** Commits on blur or Enter, so typing a word is one history step rather than one per character. */
+  function StringValueEditor({ id, label, value, valueType, parameter, onChange }) {
+    const formatted = typeof value === 'string' ? value : '';
+    const [draft, setDraft] = React.useState(formatted);
+    React.useEffect(() => { setDraft(formatted); }, [formatted, id]);
+    const commit = (next) => { if (next !== formatted) onChange(next); };
+    return h('div', { className: 'cmd-param' },
+      h('label', { className: 'fieldlabel', htmlFor: id }, label),
+      h('input', {
+        id,
+        className: 'textinput cmd-param-input',
+        type: 'text',
+        value: draft,
+        'data-project-draft': true,
+        spellCheck: false,
+        autoComplete: 'off',
+        'data-lpignore': 'true',
+        'data-1p-ignore': true,
+        onChange: (event) => setDraft(event.target.value),
+        onBlur: (event) => commit(event.currentTarget.value),
+        onKeyDown: (event) => {
+          // Enter or Escape during IME composition belongs to the composition, not the draft.
+          if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) return;
+          if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); event.currentTarget.blur(); }
+          else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDraft(formatted); requestAnimationFrame(() => { if (document.activeElement === event.target) event.target.select(); }); }
+        },
+      }),
+      h('span', { className: 'cmd-param-type' }, parameterMetadata(parameter, valueType)));
+  }
+
   function JsonValueEditor({ id, label, value, schema, onChange }) {
     const valueType = schema && schema.valueType ? schema.valueType : 'unknown';
     const formatted = JSON.stringify(value == null ? {} : value, null, 2);
@@ -330,10 +360,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       return h(DecimalStringValueEditor, { id, label, value: current, valueType: schema.valueType, parameter, onChange });
     }
     if (schema.kind === 'string') {
-      return h('div', { className: 'cmd-param' },
-        h('label', { className: 'fieldlabel', htmlFor: id }, label),
-        h('input', { id, className: 'textinput cmd-param-input', type: 'text', value: typeof current === 'string' ? current : '', spellCheck: false, autoComplete: 'off', 'data-lpignore': 'true', 'data-1p-ignore': true, onChange: (event) => onChange(event.target.value) }),
-        h('span', { className: 'cmd-param-type' }, parameterMetadata(parameter, schema.valueType)));
+      return h(StringValueEditor, { id, label, value: current, valueType: schema.valueType, parameter, onChange });
     }
     if (schema.kind === 'enum') {
       const options = schema.enumValues || [];
