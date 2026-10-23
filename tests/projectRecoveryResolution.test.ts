@@ -278,12 +278,55 @@ describe("displayed exact discard and quota recovery", () => {
     expect((await f.recovery.readSnapshot(first.recordId)).receipt).toEqual({ recordId: first.recordId, revision: first.revision, digest: first.digest });
     expect(await f.catalog.discard(b.token, "owner")).toEqual({ removed: true });
   });
-  it("keeps corrupt/unavailable records visible and does not offer unsafe deletion or alias reveal admission", async () => {
-    const f = await storedFixture(), bad = randomUUID(); await fs.mkdir(path.join(f.root, "recovery")); await fs.writeFile(path.join(f.root, "recovery", bad + ".json"), "invalid");
-    const entry = (await f.catalog.list()).entries[0]; expect(entry).toMatchObject({ available: false, discardable: false });
-    await expect(f.catalog.prepareDiscard(entry.id, "owner")).rejects.toThrow("cannot be discarded");
+  it("offers exact-identity discard of a damaged record only, never of unsafe, changed or replaced entries", async () => {
+    const f = await storedFixture(), dir = path.join(f.root, "recovery"), bad = randomUUID(), linked = randomUUID(), folder = randomUUID();
+    const target = path.join(dir, bad + ".json"), outside = path.join(f.root, "outside.json");
+    await fs.mkdir(dir); await fs.writeFile(target, "invalid"); await fs.writeFile(outside, "outside");
+    await fs.symlink(outside, path.join(dir, linked + ".json")); await fs.mkdir(path.join(dir, folder + ".json"));
+    const listed = (await f.catalog.list()).entries, entry = listed.find(item => item.recordId === bad)!;
+    expect(entry).toMatchObject({ available: false, discardable: true, name: "Damaged recovery copy", code: "invalid-record" });
+    expect(JSON.stringify(listed)).not.toContain("fingerprint");
+    for (const unsafe of [linked, folder]) {
+      const item = listed.find(candidate => candidate.recordId === unsafe)!;
+      expect(item).toMatchObject({ available: false, discardable: false, name: "Recovery copy", code: "unsafe-entry" });
+      await expect(f.catalog.prepareDiscard(item.id, "owner")).rejects.toThrow("cannot be discarded");
+    }
     await expect(f.catalog.prepareDiscard("../../other.json", "owner")).rejects.toThrow("displayed");
-    expect(await fs.readFile(path.join(f.root, "recovery", bad + ".json"), "utf8")).toBe("invalid");
+    // Changed after listing: refused at reservation, then after reservation: refused at discard. Nothing is deleted.
+    await fs.writeFile(target, "invalid, but different");
+    await expect(f.catalog.prepareDiscard(entry.id, "owner")).rejects.toThrow("changed");
+    const reserved = await f.catalog.prepareDiscard((await f.catalog.list()).entries.find(item => item.recordId === bad)!.id, "owner");
+    await fs.writeFile(target, "changed again after the reservation");
+    expect(await f.catalog.discard(reserved.token, "owner")).toEqual({ removed: false });
+    expect(await fs.readFile(target, "utf8")).toBe("changed again after the reservation");
+    // Replaced by a valid record after listing: the listed damaged identity no longer matches.
+    const relisted = (await f.catalog.list()).entries.find(item => item.recordId === bad)!;
+    const repaired = await f.catalog.prepareDiscard(relisted.id, "owner");
+    await fs.rm(target); await f.recovery.writeSnapshot({ ...f.input, recordId: bad });
+    expect(await f.catalog.discard(repaired.token, "owner")).toEqual({ removed: false });
+    expect((await f.recovery.readSnapshot(bad)).displayName).toBe("retained");
+    await fs.writeFile(target, "damaged once more");
+    const confirmed = await f.catalog.prepareDiscard((await f.catalog.list()).entries.find(item => item.recordId === bad)!.id, "owner");
+    expect(await f.catalog.discard(confirmed.token, "owner")).toEqual({ removed: true });
+    await expect(fs.lstat(target)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readlink(path.join(dir, linked + ".json"))).toBe(outside); expect(await fs.readFile(outside, "utf8")).toBe("outside");
+    expect((await fs.lstat(path.join(dir, folder + ".json"))).isDirectory()).toBe(true);
+  });
+  it("never offers or performs discard of a damaged record a branch still claims", async () => {
+    const f = await storedFixture(), branch = f.recovery.createBranch(), written = await f.recovery.writeSnapshot(f.input, branch);
+    const target = path.join(f.root, "recovery", written.recordId + ".json"); await fs.writeFile(target, "damaged while claimed");
+    const raw = (await f.recovery.listSnapshots()).entries.find(item => item.recordId === written.recordId)!;
+    expect(raw).toMatchObject({ status: "unavailable", active: true }); expect(raw.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    const entry = (await f.catalog.list()).entries.find(item => item.recordId === written.recordId)!;
+    expect(entry).toMatchObject({ available: false, discardable: false });
+    await expect(f.catalog.prepareDiscard(entry.id, "owner")).rejects.toThrow("cannot be discarded");
+    const exact = { recordId: written.recordId, fingerprint: raw.fingerprint! };
+    expect(await f.recovery.verifyDamagedSnapshot(exact)).toBe(false); expect(await f.recovery.removeDamagedSnapshot(exact)).toBe(false);
+    expect(await fs.readFile(target, "utf8")).toBe("damaged while claimed");
+    f.recovery.releaseBranch(branch);
+    expect(await f.recovery.removeDamagedSnapshot(exact, () => false)).toBe(false);
+    expect(await f.recovery.removeDamagedSnapshot(exact)).toBe(true);
+    await expect(f.recovery.removeDamagedSnapshot({ recordId: "../escape", fingerprint: exact.fingerprint })).rejects.toMatchObject({ code: "invalid-input" });
   });
 });
 

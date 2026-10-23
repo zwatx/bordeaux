@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_RECOVERY_RECORD_BYTES, MAX_RECOVERY_RECORDS, MAX_RECOVERY_TOTAL_BYTES, ProjectRecoveryStore, type RecoveryWriteRequest } from "../src/electron/projectRecoveryStore";
+import { MAX_RECOVERY_RECORD_BYTES, MAX_RECOVERY_RECORDS, MAX_RECOVERY_SCAN_ENTRIES, MAX_RECOVERY_TOTAL_BYTES, STALE_RECOVERY_TEMPORARY_MS, ProjectRecoveryStore, type RecoveryWriteRequest } from "../src/electron/projectRecoveryStore";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 import { encodeProjectFile } from "../src/shared/project/fileFormat";
 import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
@@ -176,13 +176,14 @@ describe("local project recovery snapshots", () => {
     expect((await store.readSnapshot(input.recordId)).project).toHaveProperty("notes", (input.project as any).notes);
   });
 
-  it("isolates corrupt, unsupported and unknown entries without deleting or exposing payloads", async () => {
+  it("isolates corrupt and unsupported records, ignores unknown entries, and never deletes or exposes payloads", async () => {
     const { root, store } = await fixture(), healthy = request(), unsupported = request();
     await store.writeSnapshot(healthy); await store.writeSnapshot(unsupported);
     const version = JSON.parse(await fs.readFile(file(root, unsupported.recordId), "utf8")); version.format = "bordeaux-recovery/2";
     await fs.writeFile(file(root, unsupported.recordId), JSON.stringify(version));
     const corruptId = randomUUID(); await fs.writeFile(file(root, corruptId), "private malformed payload"); await fs.writeFile(path.join(root, "private-file-name.txt"), "private contents");
-    const listed = await store.listSnapshots(); expect(listed.entries).toHaveLength(4);
+    // An unrelated entry is not a recovery record: it holds no slot and is not listed.
+    const listed = await store.listSnapshots(); expect(listed.entries).toHaveLength(3); expect(listed.capacity.recordCount).toBe(3);
     expect(listed.entries.find(entry => entry.recordId === healthy.recordId)?.status).toBe("available");
     expect(listed.entries.find(entry => entry.recordId === unsupported.recordId)).toMatchObject({ status: "unavailable", code: "unsupported-version", metadata: { displayName: unsupported.displayName } });
     expect(listed.entries.find(entry => entry.recordId === corruptId)).toMatchObject({ status: "unavailable", code: "invalid-record" });
@@ -264,6 +265,65 @@ describe("local project recovery snapshots", () => {
     await Promise.all(names.map(name => fs.writeFile(path.join(root, name), "{}")));
     await expect(store.writeSnapshot(request())).rejects.toMatchObject({ code: "capacity" });
     const listed = await store.listSnapshots(); expect(listed.entries).toHaveLength(MAX_RECOVERY_RECORDS); expect(listed.limited).toBe(true);
+    expect((await fs.readdir(root)).sort()).toEqual(names.sort());
+  });
+
+  it("counts only owned record names toward the record limit, whatever debris surrounds them", async () => {
+    const { root, store } = await fixture(); await fs.mkdir(root);
+    const records = Array.from({ length: MAX_RECOVERY_RECORDS - 1 }, () => randomUUID() + ".json");
+    await Promise.all(records.map(name => fs.writeFile(path.join(root, name), "{}")));
+    const old = new Date(Date.now() - 2 * STALE_RECOVERY_TEMPORARY_MS), debris = [`.${randomUUID()}.${randomUUID()}.tmp`, randomUUID().toUpperCase() + ".json", "notes.txt", `.${randomUUID()}.tmp`];
+    for (const name of debris) { await fs.writeFile(path.join(root, name), "x"); await fs.utimes(path.join(root, name), old, old); }
+    for (let i = 0; i < 40; i++) await fs.writeFile(path.join(root, `unrelated-${i}.json`), "x");
+    await fs.mkdir(path.join(root, "folder"));
+    const input = request(); expect((await store.writeSnapshot(input)).stored).toBe(true);
+    const listed = await store.listSnapshots();
+    expect(listed).toMatchObject({ limited: false, capacity: { recordCount: MAX_RECOVERY_RECORDS, full: true } }); expect(listed.entries).toHaveLength(MAX_RECOVERY_RECORDS);
+    await expect(store.writeSnapshot(request())).rejects.toMatchObject({ code: "capacity" });
+    // A full store still replaces its own records; only the stale owned temporary was swept.
+    expect((await store.writeSnapshot({ ...input, revision: 2 })).written).toBe(true);
+    const remaining = await fs.readdir(root);
+    expect(remaining).not.toContain(debris[0]); for (const name of debris.slice(1)) expect(remaining).toContain(name);
+    expect(remaining).toHaveLength(MAX_RECOVERY_RECORDS + debris.length - 1 + 40 + 1);
+  });
+
+  it("sweeps only stale owned temporary files, keeping fresh, in-flight, linked and unrelated entries", async () => {
+    const { directory, root, store } = await fixture(); await fs.mkdir(root);
+    const owned = () => `.${randomUUID()}.${randomUUID()}.tmp`, at = (name: string) => path.join(root, name);
+    const old = new Date(Date.now() - 2 * STALE_RECOVERY_TEMPORARY_MS), outside = path.join(directory, "outside.txt");
+    const stale = owned(), fresh = owned(), linked = owned(), folder = owned(), unrelated = [`.${randomUUID()}.tmp`, `.${randomUUID().toUpperCase()}.${randomUUID()}.tmp`, `${stale}.keep`];
+    await fs.writeFile(outside, "outside"); await fs.writeFile(at(stale), "abandoned"); await fs.writeFile(at(fresh), "123456789");
+    await fs.symlink(outside, at(linked)); await fs.mkdir(at(folder));
+    for (const name of unrelated) await fs.writeFile(at(name), "x");
+    for (const name of [stale, ...unrelated]) await fs.utimes(at(name), old, old);
+    await fs.lutimes(at(linked), old, old); await fs.utimes(at(folder), old, old);
+    const listed = await store.listSnapshots();
+    // A fresh owned temporary is real disk use by a write in flight, so it still counts toward bytes (but not records).
+    expect(listed.entries).toEqual([]); expect(listed.capacity).toMatchObject({ recordCount: 0, bytes: 9 });
+    expect((await fs.readdir(root)).sort()).toEqual([fresh, linked, folder, ...unrelated].sort());
+    expect(await fs.readFile(outside, "utf8")).toBe("outside");
+    // A temporary this process is writing survives a sweep even when it looks stale, including through a root alias.
+    await fs.symlink(directory, path.join(directory, "alias")); const aliased = new ProjectRecoveryStore(path.join(directory, "alias", "recovery"));
+    const input = request(), writeFile = fs.writeFile.bind(fs); let survived = false;
+    vi.spyOn(fs, "writeFile").mockImplementation(async (filename, ...rest: any[]) => {
+      await (writeFile as any)(filename, ...rest);
+      if (String(filename).endsWith(".tmp")) {
+        await fs.utimes(filename as string, old, old); await aliased.listSnapshots();
+        survived = (await fs.readdir(root)).includes(path.basename(String(filename)));
+      }
+    });
+    expect((await store.writeSnapshot(input)).written).toBe(true); expect(survived).toBe(true);
+    expect((await store.readSnapshot(input.recordId)).receipt.recordId).toBe(input.recordId);
+  });
+
+  it("bounds the directory scan and refuses writes it cannot account for", async () => {
+    const { root, store } = await fixture(); await fs.mkdir(root);
+    const names = Array.from({ length: MAX_RECOVERY_SCAN_ENTRIES + 1 }, (_value, index) => `unrelated-${index}`);
+    await Promise.all(names.map(name => fs.writeFile(path.join(root, name), "x")));
+    const lstat = vi.spyOn(fs, "lstat");
+    const listed = await store.listSnapshots(); expect(listed).toMatchObject({ entries: [], limited: true, capacity: { full: true } });
+    expect(lstat.mock.calls.length).toBeLessThan(5);
+    await expect(store.writeSnapshot(request())).rejects.toMatchObject({ code: "capacity" });
     expect((await fs.readdir(root)).sort()).toEqual(names.sort());
   });
 

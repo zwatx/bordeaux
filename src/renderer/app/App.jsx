@@ -1783,6 +1783,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     const renameRoutine = (id, name) => {
       const clean = (name || '').trim(); if (!clean) return false;
+      // An unchanged name is not an edit; recording it would leave an empty Undo step.
+      if (routineState(projectRef.current).routines.find((candidate) => candidate.id === id)?.name === clean) return true;
       commitRoutineState((state) => ({ ...state, routines: state.routines.map((candidate) => candidate.id === id ? { ...candidate, name: clean } : candidate) })); return true;
     };
     const agentCandidates = agentProposal && Array.isArray(agentProposal.candidates) ? agentProposal.candidates : [];

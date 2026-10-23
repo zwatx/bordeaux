@@ -6,9 +6,20 @@ import { AUTO } from "../lib/routineModel";
 
 const { useEffect, useMemo, useRef, useState } = React;
 
-/** Plans every path a routine references. Routine-only edits keep the ready plans. */
+/** A ready plan reused only for the exact path, robot, field and planner it was validated against. */
+function reusablePlan(plans, path, robot, field, plannerId) {
+  const entry = plans.get(path);
+  return entry && entry.robot === robot && entry.field === field && entry.plannerId === plannerId ? entry.value : undefined;
+}
+
+/**
+ * Plans every path a routine references. Routine-only edits keep the ready plans,
+ * and ready plans survive leaving Routines or editing another referenced path.
+ * Edits replace path objects, so object identity covers every planning input of a path.
+ */
 export function useRoutinePlanning(enabled, routine, projectPaths, robot, field, plannerId) {
   const planner = useMemo(() => FinalPlanning.create(), []);
+  const readyPlans = useRef(new WeakMap());
   const referencedPaths = useRef([]);
   const paths = useMemo(() => {
     const next = AUTO.planningPaths(routine, projectPaths);
@@ -26,13 +37,30 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
   const [planningState, setPlanningState] = useState(() => ({
     paths, robot, field, plannerId, status: 'idle', values: {}, error: '',
   }));
+  // Read during render so a routine whose paths are all ready never flashes pending.
+  const reused = useMemo(() => {
+    if (!enabled) return null;
+    const values = {};
+    for (const path of paths) {
+      const value = reusablePlan(readyPlans.current, path, robot, field, plannerId);
+      if (!value) return null;
+      values[path.id] = value;
+    }
+    return { paths, robot, field, plannerId, status: 'ready', values, error: '' };
+  }, [enabled, paths, robot, field, plannerId]);
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || reused) return undefined;
     let active = true;
     let currentRequest = null;
-    setPlanningState({ paths, robot, field, plannerId, status: 'pending', values: {}, error: '' });
+    const values = {};
+    const unplanned = paths.filter((path) => {
+      const value = reusablePlan(readyPlans.current, path, robot, field, plannerId);
+      if (value) values[path.id] = value;
+      return !value;
+    });
+    setPlanningState({ paths, robot, field, plannerId, status: 'pending', values, error: '' });
     void (async () => {
-      for (const path of paths) {
+      for (const path of unplanned) {
         if (!active) return;
         currentRequest = planner.request(
           { key: path.id, path, robot, field, plannerId },
@@ -47,6 +75,7 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
           setPlanningState((current) => ({ ...current, status: 'error', error: `${path.name}: ${outcome.message}` }));
           return;
         }
+        readyPlans.current.set(path, { robot, field, plannerId, value: outcome.value });
         setPlanningState((current) => ({
           ...current,
           values: { ...current.values, [path.id]: outcome.value },
@@ -58,8 +87,9 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
       active = false;
       if (currentRequest) currentRequest.cancel();
     };
-  }, [enabled, planner, paths, robot, field, plannerId]);
+  }, [enabled, planner, reused, paths, robot, field, plannerId]);
   if (enabled && missingPathIds.length) return { status: 'error', values: {}, error: `${missingPathIds.length} ${missingPathIds.length === 1 ? 'path is' : 'paths are'} missing from this routine.`, missingPathIds };
+  if (reused) return reused;
   return enabled
     && planningState.paths === paths
     && planningState.robot === robot

@@ -13,7 +13,7 @@ export interface DiagnosticBundleInput {
   os: { platform: string; release: string; arch: string };
   fieldPin: { id: string; revision: string; coordinateSchemaId: string } | null;
   catalog: { schemaVersion: "1.0" | "1.1" | "1.2" | "1.3"; catalogId: string; catalogHash: string; supportVersion: string } | null;
-  export: { state: "generated"; sha256: string; pathCount: number; eventCount: number; sampleCount: number } | { state: "unavailable" | "invalid" };
+  export: { state: "generated"; sha256: string; pathCount: number; eventCount: number; sampleCount: number } | { state: "unavailable" } | { state: "invalid"; issueCount: number };
   routinePreflight: { state: PreflightState; issueCount: number };
   robotAcknowledgement: DiagnosticRobotAcknowledgement;
 }
@@ -125,7 +125,9 @@ export function buildDiagnosticBundle(input: DiagnosticBundleInput): string {
       pathCount: count(input.export.pathCount, "path count"),
       eventCount: count(input.export.eventCount, "event count"),
       sampleCount: count(input.export.sampleCount, "sample count"),
-    } : { state: input.export.state },
+    } : input.export.state === "invalid"
+      ? { state: "invalid" as const, issueCount: count(input.export.issueCount, "export issue count") }
+      : { state: input.export.state },
     routinePreflight: {
       state: input.routinePreflight.state,
       issueCount: count(input.routinePreflight.issueCount, "routine issue count"),

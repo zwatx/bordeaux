@@ -1284,7 +1284,8 @@ handle("diagnostics:preview", async (_event, rawProject) => {
   const catalog = diagnosticCatalog(linkedRobotCatalog);
   let fieldPin = diagnosticFieldPin(rawProject);
   let exportStatus: DiagnosticBundleInput["export"] = { state: "unavailable" };
-  let routinePreflight: DiagnosticBundleInput["routinePreflight"] = { state: "unavailable", issueCount: 0 };
+  // Diagnostics build only the selected path's BDX; routine preflight does not run here.
+  const routinePreflight: DiagnosticBundleInput["routinePreflight"] = { state: "unavailable", issueCount: 0 };
   const matches = Boolean(rawProject && typeof rawProject === "object" && linkedProjectMatches(rawProject as BordeauxProject));
   if (catalog && matches) {
     try {
@@ -1306,8 +1307,7 @@ handle("diagnostics:preview", async (_event, rawProject) => {
         sampleCount: built.sampleCount,
       };
     } catch (error) {
-      exportStatus = { state: "invalid" };
-      routinePreflight = { state: "failed", issueCount: diagnosticIssueCount(error) };
+      exportStatus = { state: "invalid", issueCount: diagnosticIssueCount(error) };
     }
   }
   const contents = buildDiagnosticBundle({

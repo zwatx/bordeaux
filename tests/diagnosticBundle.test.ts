@@ -140,7 +140,7 @@ describe("beta diagnostic bundle", () => {
 
   it.each([
     ["unavailable", { state: "unavailable" }, { state: "unavailable", issueCount: 0 }],
-    ["invalid", { state: "invalid" }, { state: "failed", issueCount: 2 }],
+    ["invalid", { state: "invalid", issueCount: 2 }, { state: "unavailable", issueCount: 0 }],
   ] as const)("records a %s export without its project contents", (_name, exportState, preflight) => {
     const bundle = JSON.parse(buildDiagnosticBundle(input({ export: exportState, routinePreflight: preflight, fieldPin: null, catalog: null, robotAcknowledgement: { state: "not-observed" } })));
     expect(bundle.export).toEqual(exportState);

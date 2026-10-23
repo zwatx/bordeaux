@@ -1,6 +1,6 @@
 # Bordeaux
 
-Bordeaux is a lightweight desktop editor for authoring robot paths, autonomous routines, and robot command events. Normal trajectories use shared physics-aware timing and need no optimizer. Optional per-path optimization searches for faster geometry inside an adjustable corridor; compare the candidate and apply it to select the exact trajectory used by playback, routines, and export. See [trajectory optimization](docs/trajectory-optimization.md).
+Bordeaux is a lightweight desktop editor for authoring robot paths, autonomous routines, and robot command events. Normal trajectories use shared physics-aware timing and need no optimizer. Optional per-path optimization searches for faster geometry through the required waypoints, headings, and stops, checking the robot footprint against the field; compare the candidate and apply it to select the exact trajectory used by playback, routines, and export. See [trajectory optimization](docs/trajectory-optimization.md).
 
 Bordeaux is a LabVIEW-only planner. Link a `.lvproj` to discover commands and their parameters, then export a selected path as a `.bdx` binary. The [binary contract](docs/labview/binary-format.md) defines the file layout and robot-code boundary.
 

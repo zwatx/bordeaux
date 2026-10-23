@@ -146,6 +146,16 @@ describe('recovery management rows', () => {
     expect(roomy).not.toContain('Recovery storage full');
     expect(roomy).not.toContain('Manage…');
   });
+
+  it('offers the discard step on a damaged copy only when main identified it, keeping its reason and Show file', () => {
+    const damaged = { id: 'entry-damaged', recordId: 'damaged', name: 'Damaged recovery copy', available: false, discardable: true, code: 'invalid-record', fact: 'Recovery record could not be read' };
+    const rows = recoveryRows({ entries: [damaged, listing.entries[5]] }, { manage: true });
+    expect(rows.map((row) => [row.entry.id, row.kind, row.discardable])).toEqual([['entry-damaged', 'unavailable', true], ['entry-bad', 'unavailable', false]]);
+    const markup = sheet({ limited: false, entries: [damaged, listing.entries[5]], capacity: { recordCount: 2, recordLimit: 32, bytes: 0, byteLimit: 1, full: false } });
+    expect(markup.match(/data-recovery="discard-step"/g)).toHaveLength(1);
+    expect(markup).toContain('Discard recovery copy of “Damaged recovery copy”…');
+    expect(markup.match(/>Can’t read<span class="pj-fix">Show file</g)).toHaveLength(2);
+  });
 });
 
 // Save copy: the actual sheet callbacks with deferred owners, defaults, picker replies and results. Rendering here is

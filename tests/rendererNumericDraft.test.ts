@@ -174,7 +174,7 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
   return field(tree)!.props;
 }
 
-function commandNumberInput(onChange: (value: number) => void, overrides = {}): ElementNode {
+function contextDraftEditors(): Record<string, (props: Record<string, unknown>) => ElementNode> {
   const element = (type: unknown, props: Record<string, unknown>, ...children: unknown[]): ElementNode => ({ type, props: props ?? {}, children });
   const React = {
     Fragment: Symbol("Fragment"),
@@ -182,18 +182,25 @@ function commandNumberInput(onChange: (value: number) => void, overrides = {}): 
     useEffect: () => undefined,
     useState: (initial: unknown) => [initial, () => undefined],
   };
-  const ContextDraftEditors = loadRendererExport<{ NumberValueEditor: (props: Record<string, unknown>) => ElementNode }>(
+  return loadRendererExport<Record<string, (props: Record<string, unknown>) => ElementNode>>(
     new URL("../src/renderer/components/ContextInspector.jsx", import.meta.url),
     "ContextDraftEditors",
     {
       context: { React, AUTO: {}, PM: {}, UnitPrefs: {}, UI: {}, FIELD_DIMS: { FIELD_W: 17.548, FIELD_H: 8.052 } },
       replacements: [[
         "export { ContextInspector, CommandParameterEditor, commandArguments, parameterValueError, safeControlId };",
-        "window.ContextDraftEditors = { NumberValueEditor };",
+        "window.ContextDraftEditors = { NumberValueEditor, StringValueEditor };",
       ]],
     },
   );
-  return inputIn(ContextDraftEditors.NumberValueEditor({
+}
+
+function commandStringInput(onChange: (value: string) => void, value = "intake"): ElementNode {
+  return inputIn(contextDraftEditors().StringValueEditor({ id: "command-mode", label: "Mode", value, valueType: "String", onChange }))!;
+}
+
+function commandNumberInput(onChange: (value: number) => void, overrides = {}): ElementNode {
+  return inputIn(contextDraftEditors().NumberValueEditor({
     id: "command-count",
     label: "Count",
     value: 2,
@@ -511,6 +518,39 @@ describe("renderer numeric drafts", () => {
     (input.props.onBlur as (event: { currentTarget: { value: string } }) => void)({ currentTarget: { value: "7" } });
 
     expect(onChange).toHaveBeenLastCalledWith(7);
+  });
+
+  it("commits a typed string argument once on blur instead of per keystroke", () => {
+    const onChange = vi.fn();
+    const input = commandStringInput(onChange);
+
+    expect(input.props["data-project-draft"]).toBe(true);
+    for (const value of ["s", "sh", "sho", "shoot"]) (input.props.onChange as Function)({ target: { value } });
+    expect(onChange).not.toHaveBeenCalled();
+    (input.props.onBlur as Function)({ currentTarget: { value: "shoot" } });
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("shoot");
+  });
+
+  it("submits a string argument on Enter and skips an unchanged blur", () => {
+    const onChange = vi.fn();
+    const input = commandStringInput(onChange);
+    const blur = vi.fn(() => (input.props.onBlur as Function)({ currentTarget: { value: "intake" } }));
+
+    (input.props.onKeyDown as Function)({ key: "Enter", preventDefault() {}, stopPropagation() {}, currentTarget: { value: "intake", blur } });
+
+    expect(blur).toHaveBeenCalledOnce();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("leaves Enter to an active IME composition", () => {
+    const input = commandStringInput(vi.fn());
+    const blur = vi.fn(), preventDefault = vi.fn();
+
+    (input.props.onKeyDown as Function)({ key: "Enter", isComposing: true, keyCode: 229, preventDefault, stopPropagation() {}, currentTarget: { value: "東", blur } });
+
+    expect(blur).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 });
 
