@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { BordeauxProject } from "../shared/types";
@@ -9,8 +9,16 @@ import { MAX_WORKSPACE_FILE_BYTES } from "./projectFiles";
 export const MAX_RECOVERY_RECORD_BYTES = MAX_WORKSPACE_FILE_BYTES;
 export const MAX_RECOVERY_RECORDS = 32;
 export const MAX_RECOVERY_TOTAL_BYTES = 256 * 1024 * 1024;
+/** Directory entries examined per scan. Debris never takes a record slot, but a hostile directory still bounds the work. */
+export const MAX_RECOVERY_SCAN_ENTRIES = MAX_RECOVERY_RECORDS * 8;
+/** An owned temporary untouched this long is a crashed write's leftover, not one still being written (writes take seconds). */
+export const STALE_RECOVERY_TEMPORARY_MS = 10 * 60_000;
 const FORMAT = "bordeaux-recovery/1";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOWER_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+// Exactly the names this store creates: `<recordId>.json` records and `.<recordId>.<uuid>.tmp` write temporaries.
+const RECORD_NAME = new RegExp(`^${LOWER_UUID}\\.json$`);
+const TEMPORARY_NAME = new RegExp(`^\\.${LOWER_UUID}\\.${LOWER_UUID}\\.tmp$`);
 const DIGEST = /^[0-9a-f]{64}$/;
 const MAX_TEXT = 256;
 const MAX_PATH = 4_096;
@@ -57,7 +65,10 @@ export interface RecoverySummary {
   resolved?: RecoveryResolution;
   code?: RecoveryErrorCode;
   detail?: string;
+  /** Main-only identity of a damaged regular record file, captured at listing; discard requires it to still match. */
+  fingerprint?: string;
 }
+export interface RecoveryDamagedTarget { recordId: string; fingerprint: string }
 export interface RecoveryListing { entries: RecoverySummary[]; limited: boolean; capacity: { recordCount: number; recordLimit: number; bytes: number; byteLimit: number; full: boolean } }
 export interface RecoveryWriteRequest {
   recordId: string;
@@ -72,6 +83,8 @@ export interface RecoveryWriteRequest {
 }
 export type RecoveryErrorCode = "invalid-input" | "invalid-project" | "invalid-record" | "unsupported-version"
   | "unsafe-entry" | "too-large" | "missing" | "storage-unavailable" | "capacity" | "revision-conflict";
+// Read failures that mean the record's own bytes are unusable (or from a newer version), never a transient or unsafe entry.
+const DAMAGED = new Set<RecoveryErrorCode>(["invalid-input", "invalid-project", "invalid-record", "unsupported-version", "too-large"]);
 const DETAILS: Record<RecoveryErrorCode, string> = {
   "invalid-input": "Recovery metadata is invalid", "invalid-project": "Recovery project is not valid",
   "invalid-record": "Recovery record could not be read", "unsupported-version": "Recovery version is not supported",
@@ -92,6 +105,8 @@ const claimedRecords = new Map<string, RecoveryBranch>();
 // A failed rollback must not make a cancelled mark visible/reusable in this process.
 // On restart its persisted marker still covers only the exact source that actually saved.
 const uncertainResolutions = new Map<string, RecoveryReceipt>();
+// Temporary names (unique per write) this process is writing now; a sweep never removes them, whatever their age or root alias.
+const writingTemporaries = new Set<string>();
 function branchState(branch: RecoveryBranch, root: string): BranchState {
   const state = branches.get(branch);
   if (!state || state.root !== pathKey(root) || !state.active) throw new RecoveryStoreError("revision-conflict");
@@ -209,6 +224,11 @@ async function readContents(filename: string): Promise<string> {
   } finally { await handle.close(); }
 }
 
+function damagedTarget(value: unknown): RecoveryDamagedTarget {
+  if (!record(value) || typeof value.fingerprint !== "string" || !DIGEST.test(value.fingerprint)) throw new RecoveryStoreError("invalid-input");
+  return { recordId: id(value.recordId), fingerprint: value.fingerprint };
+}
+
 /** Local source snapshots only. Origins are metadata, never read/write/activation destinations. */
 export class ProjectRecoveryStore {
   private readonly root: string;
@@ -236,10 +256,18 @@ export class ProjectRecoveryStore {
       throw fsFailure(error);
     }
   }
+  /**
+   * Record names hold the record-count slots. Bytes count records plus owned temporaries still present (real disk use by a
+   * write in flight); unrelated entries count toward neither and are never touched. Stale owned temporaries are swept here.
+   * Limited when the scan bound or one record past the record limit is reached: the store then cannot vouch for its usage.
+   */
   private async entries(withSizes = false): Promise<{ names: string[]; bytes: number; limited: boolean }> {
-    const names: string[] = []; let bytes = 0, limited = false;
+    const names: string[] = []; let bytes = 0, limited = false, scanned = 0;
     try {
       for await (const entry of await fs.opendir(this.root)) {
+        if (++scanned > MAX_RECOVERY_SCAN_ENTRIES) { limited = true; break; }
+        if (TEMPORARY_NAME.test(entry.name)) { const kept = await this.sweepTemporary(entry.name); if (withSizes) bytes += kept; continue; }
+        if (!RECORD_NAME.test(entry.name)) continue;
         if (names.length === MAX_RECOVERY_RECORDS) { limited = true; break; }
         names.push(entry.name);
         if (withSizes) {
@@ -249,6 +277,29 @@ export class ProjectRecoveryStore {
       }
     } catch (error) { throw fsFailure(error); }
     return { names: names.sort(), bytes, limited };
+  }
+  /** Removes an abandoned owned temporary (a regular file, not being written, untouched for the stale age); returns the bytes it still holds. */
+  private async sweepTemporary(name: string): Promise<number> {
+    const filename = path.join(this.root, name);
+    let stat: Stats;
+    try { stat = await fs.lstat(filename); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0; throw fsFailure(error); }
+    // A symlink or directory with an owned-looking name is not ours: neither counted nor removed.
+    if (!stat.isFile() || stat.isSymbolicLink()) return 0;
+    if (writingTemporaries.has(name) || !(Date.now() - stat.mtimeMs >= STALE_RECOVERY_TEMPORARY_MS)) return stat.size;
+    try { await fs.unlink(filename); return 0; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? 0 : stat.size; }
+  }
+  /** Exact identity of a regular record file without reading it; null for anything else. */
+  private async fingerprint(recordId: string): Promise<string | null> {
+    try {
+      const stat = await fs.lstat(this.file(recordId), { bigint: true });
+      return stat.isFile() && !stat.isSymbolicLink() ? hash([stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":")) : null;
+    } catch { return null; }
+  }
+  private async temporaryWrite(temporary: string, contents: string): Promise<void> {
+    writingTemporaries.add(path.basename(temporary));
+    await fs.writeFile(temporary, contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
   }
   private async readRecord(recordId: string): Promise<Capture> {
     let meta: RecoveryMetadata | undefined;
@@ -303,12 +354,12 @@ export class ProjectRecoveryStore {
     const temporary = path.join(this.root, `.${recordId}.${randomUUID()}.tmp`);
     try {
       assertCurrent();
-      await fs.writeFile(temporary, snapshot.contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      await this.temporaryWrite(temporary, snapshot.contents);
       assertCurrent();
       await fs.rename(temporary, this.file(recordId));
       return { ...snapshot.receipt, capturedAt, stored: true, written: true };
     } catch (error) { throw fsFailure(error); }
-    finally { await fs.rm(temporary, { force: true }).catch(() => undefined); }
+    finally { await fs.rm(temporary, { force: true }).catch(() => undefined); writingTemporaries.delete(path.basename(temporary)); }
   }
   private async persistBranch(snapshot: Capture, branch: RecoveryBranch | undefined, isCurrent: () => boolean): Promise<RecoveryWriteReceipt> {
     const current = () => { if (!isCurrent()) throw new RecoveryStoreError("revision-conflict"); };
@@ -322,7 +373,7 @@ export class ProjectRecoveryStore {
       let reusable: Capture | undefined;
       if (await this.rootExists()) {
         for (const name of (await this.entries()).names) {
-          if (!UUID.test(name.slice(0, -5)) || !name.endsWith(".json") || claimedRecords.has(pathKey(path.join(this.root, name)))) continue;
+          if (claimedRecords.has(pathKey(path.join(this.root, name)))) continue;
           try {
             const candidate = await this.readRecord(name.slice(0, -5));
             if (candidate.envelope.resolved && sameOriginIdentity(candidate.envelope.resolved.sourceIdentity, snapshot.originIdentity)
@@ -383,15 +434,16 @@ export class ProjectRecoveryStore {
       if (!await this.rootExists()) return { entries: [], limited: false, capacity: { recordCount: 0, recordLimit: MAX_RECOVERY_RECORDS, bytes: 0, byteLimit: MAX_RECOVERY_TOTAL_BYTES, full: false } };
       const found = await this.entries(true), entries: RecoverySummary[] = [];
       for (const name of found.names) {
-        const stem = name.endsWith(".json") ? name.slice(0, -5) : "", recordId = UUID.test(stem) ? stem.toLowerCase() : null;
-        const base = { entryId: hash(name), recordId, active: claimedRecords.has(pathKey(path.join(this.root, name))) };
-        if (!recordId || name !== recordId + ".json") { entries.push({ ...base, status: "unavailable", code: "invalid-record", detail: DETAILS["invalid-record"] }); continue; }
+        const recordId = name.slice(0, -5), base = { entryId: hash(name), recordId, active: claimedRecords.has(pathKey(path.join(this.root, name))) };
+        const before = await this.fingerprint(recordId);
         try {
           const stored = await this.readRecord(recordId);
           entries.push({ ...base, status: "available", metadata: stored.envelope.metadata, receipt: stored.receipt, ...(stored.envelope.resolved ? { resolved: stored.envelope.resolved } : {}) });
         } catch (error) {
           const failure = fsFailure(error);
-          entries.push({ ...base, status: "unavailable", metadata: failure.metadata, code: failure.code, detail: failure.message });
+          // Only the exact file judged damaged is identified; one replaced meanwhile gets no fingerprint (no discard).
+          const fingerprint = DAMAGED.has(failure.code) && before && before === await this.fingerprint(recordId) ? before : undefined;
+          entries.push({ ...base, status: "unavailable", metadata: failure.metadata, code: failure.code, detail: failure.message, ...(fingerprint ? { fingerprint } : {}) });
         }
       }
       return { entries, limited: found.limited, capacity: { recordCount: found.names.length, recordLimit: MAX_RECOVERY_RECORDS, bytes: found.bytes, byteLimit: MAX_RECOVERY_TOTAL_BYTES, full: found.limited || found.names.length >= MAX_RECOVERY_RECORDS || found.bytes >= MAX_RECOVERY_TOTAL_BYTES } };
@@ -415,21 +467,21 @@ export class ProjectRecoveryStore {
       if (!isCurrent()) return false;
       const temporary = path.join(this.root, `.${recordId}.${randomUUID()}.tmp`);
       try {
-        await fs.writeFile(temporary, contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
+        await this.temporaryWrite(temporary, contents);
         if (!isCurrent()) return false;
         await fs.rename(temporary, this.file(recordId));
         if (!isCurrent()) {
           // Rename is not cancellable. Keep the root queue/physical claim through rollback.
           // Even if rollback fails, this process must keep the exact record visible and non-reusable.
           uncertainResolutions.set(pathKey(this.file(recordId)), expected);
-          await fs.writeFile(temporary, serialize(current.envelope), { encoding: "utf8", flag: "wx", mode: 0o600 });
+          await this.temporaryWrite(temporary, serialize(current.envelope));
           await fs.rename(temporary, this.file(recordId));
           uncertainResolutions.delete(pathKey(this.file(recordId))); return false;
         }
         uncertainResolutions.delete(pathKey(this.file(recordId)));
         return true;
       } catch (error) { throw fsFailure(error); }
-      finally { await fs.rm(temporary, { force: true }).catch(() => undefined); }
+      finally { await fs.rm(temporary, { force: true }).catch(() => undefined); writingTemporaries.delete(path.basename(temporary)); }
     }).finally(() => { if (branch && state) { state.pending--; releaseClaim(branch); } });
   }
   /** Explicit user discard only; an old receipt cannot delete a newer or changed source. */
@@ -444,6 +496,25 @@ export class ProjectRecoveryStore {
       catch (error) { if (error instanceof RecoveryStoreError && error.code === "missing") return false; throw error; }
       if (!isCurrent() || current.receipt.revision !== receipt.revision || current.receipt.digest !== receipt.digest) return false;
       try { await fs.unlink(this.file(recordId)); uncertainResolutions.delete(pathKey(this.file(recordId))); return true; } catch (error) { throw fsFailure(error); }
+    });
+  }
+  /** Unclaimed, the same regular file as listed, and still failing to read as damaged. Runs inside the root queue. */
+  private async stillDamaged(recordId: string, fingerprint: string): Promise<boolean> {
+    if (!await this.rootExists() || claimedRecords.has(pathKey(this.file(recordId))) || await this.fingerprint(recordId) !== fingerprint) return false;
+    try { await this.readRecord(recordId); return false; }
+    catch (error) { return error instanceof RecoveryStoreError && DAMAGED.has(error.code) && await this.fingerprint(recordId) === fingerprint; }
+  }
+  async verifyDamagedSnapshot(target: RecoveryDamagedTarget): Promise<boolean> {
+    const { recordId, fingerprint } = damagedTarget(target);
+    return serial(this.root, () => this.stillDamaged(recordId, fingerprint));
+  }
+  /** Explicit user discard of a damaged record only; a changed, repaired, claimed or non-regular entry is never removed. */
+  async removeDamagedSnapshot(target: RecoveryDamagedTarget, isCurrent: () => boolean = () => true): Promise<boolean> {
+    const { recordId, fingerprint } = damagedTarget(target);
+    return serial(this.root, async () => {
+      if (!isCurrent() || !await this.stillDamaged(recordId, fingerprint) || !isCurrent()) return false;
+      try { await fs.unlink(this.file(recordId)); uncertainResolutions.delete(pathKey(this.file(recordId))); return true; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw fsFailure(error); }
     });
   }
 }

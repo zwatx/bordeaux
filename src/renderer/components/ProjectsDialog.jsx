@@ -63,7 +63,8 @@ const progressWord = (pending, queued) => (pending.phase === 'saving' ? 'Savingâ
 // - open: unsaved edits (restore or discard);
 // - current: this window's own copy, only when it is exactly the session's current record (Manage lists it);
 // - busy: any other copy main won't let go of now (a retired branch still writing), so nothing claims it is this window's;
-// - saved: its edits were saved (Manage only); unavailable: unreadable, shown in the file manager.
+// - saved: its edits were saved (Manage only); unavailable: unreadable, shown in the file manager, and discardable only
+//   when main identified that exact damaged file (so it stops holding a slot).
 // A row without `discardable` (an older main) restores but is never inferred to be in use or discardable.
 // Queued catalog work whose owner let go (closed sheet, newer listing, ended reservation) never reaches main.
 const RETIRED = Symbol('retired');
@@ -75,7 +76,7 @@ export function recoveryKind(entry, currentRecordId = null) {
   if (entry.discardable === false) return 'busy';
   return entry.resolved ? 'saved' : 'open';
 }
-// Recovered edits come first. Healthy copies restore; unreadable ones can only be shown in the file manager.
+// Recovered edits come first. Healthy copies restore; unreadable ones are shown in the file manager (or discarded).
 // Several copies of one origin sit together newest first; minutes gain seconds only when two share a minute. Manage groups
 // copies by kind (unsaved first), newest first within each.
 export function recoveryRows(listing, { manage = false, currentRecordId = null } = {}) {
@@ -87,7 +88,7 @@ export function recoveryRows(listing, { manage = false, currentRecordId = null }
   return entries.map(({ entry, kind }, index) => {
     const origin = originLocation(entry.origin);
     return { id: 'recovery:' + entry.id, entry, kind, recovery: true, name: entry.name, status: entry.available ? 'available' : 'invalid',
-      discardable: kind !== 'current' && entry.available && entry.discardable === true,
+      discardable: kind !== 'current' && entry.discardable === true,
       // An unreadable record may carry no origin; it then shows no location rather than a wrong one.
       hint: !entry.origin ? '' : entry.origin.kind === 'untitled' ? 'Not in a folder' : locationHint(origin) + (entry.originStatus === 'missing' ? ' Â· missing' : ''),
       time: receiptTime(entry.updatedAt, { seconds: minutes.filter((value) => value === minutes[index]).length > 1 }), updatedAt: entry.updatedAt };
