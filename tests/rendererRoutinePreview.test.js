@@ -112,6 +112,53 @@ describe("routine planning", () => {
     expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ path: renamed[0], field: project.field }), { deadline: "common", failureNote: "Routine preview is unavailable." });
   });
 
+  it("reuses ready plans when returning to Routines and replans only a changed path", async () => {
+    const project = createDemoProject();
+    const first = project.paths[0], second = { ...first, id: "second", name: "Second" };
+    const routine = { id: "routine", name: "Routine", nodes: [{ id: "a", type: "path", ref: first.id }, { id: "b", type: "path", ref: second.id }] };
+    const paths = [first, second];
+    render(true, routine, paths, project.robot, project.field, "profiledSpline");
+    await settle();
+    expect(planning.request).toHaveBeenCalledTimes(2);
+
+    render(false, routine, paths, project.robot, project.field, "profiledSpline");
+    expect(render(true, routine, paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "ready", values: { [first.id]: { pathId: first.id }, second: { pathId: "second" } } });
+    await settle();
+    expect(planning.request).toHaveBeenCalledTimes(2);
+
+    const edited = [first, { ...second, waypoints: second.waypoints.map((waypoint) => ({ ...waypoint })) }];
+    render(true, routine, edited, project.robot, project.field, "profiledSpline");
+    expect(render(true, routine, edited, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "pending", values: { [first.id]: { pathId: first.id } } });
+    await settle();
+    expect(render(true, routine, edited, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "ready" });
+    expect(planning.request).toHaveBeenCalledTimes(3);
+    expect(planning.request).toHaveBeenLastCalledWith(expect.objectContaining({ path: edited[1] }), expect.anything());
+
+    const robot = { ...project.robot };
+    render(true, routine, edited, robot, project.field, "profiledSpline");
+    expect(render(true, routine, edited, robot, project.field, "profiledSpline")).toMatchObject({ status: "pending", values: {} });
+    await settle();
+    expect(planning.request).toHaveBeenCalledTimes(5);
+  });
+
+  it("retries a failed path instead of reusing its failure", async () => {
+    const project = createDemoProject();
+    const routine = routineFor(project.paths[0]);
+    const succeed = planning.request;
+    planning.request = vi.fn(() => ({ promise: Promise.resolve({ status: "timeout", fallbackReason: "Deadline." }), cancel: vi.fn() }));
+    render(true, routine, project.paths, project.robot, project.field, "profiledSpline");
+    await settle();
+    expect(render(true, routine, project.paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "error" });
+
+    planning.request = succeed;
+    render(false, routine, project.paths, project.robot, project.field, "profiledSpline");
+    render(true, routine, project.paths, project.robot, project.field, "profiledSpline");
+    expect(render(true, routine, project.paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "pending" });
+    await settle();
+    expect(render(true, routine, project.paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "ready" });
+    expect(succeed).toHaveBeenCalledOnce();
+  });
+
   it("replans for a new field and treats the prior field's plans as stale", async () => {
     const project = createDemoProject();
     const routine = routineFor(project.paths[0]);
