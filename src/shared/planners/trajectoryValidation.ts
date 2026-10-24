@@ -220,7 +220,7 @@ export function validateOptimizedTrajectory(
         );
         refinableIntervals.add(Math.max(0, sampleIndex - 1));
       }
-      if (module.requiredMotorForceN > module.motorForceLimitN + tolerance(module.motorForceLimitN, 0.05, 0.06)) {
+      if (module.requiredMotorForceN > module.motorForceLimitN + tolerance(module.motorForceScaleN, 0.05, 0.06)) {
         pushViolation(
           violations,
           "drivetrain-acceleration",

@@ -61,6 +61,7 @@ jobs:
               scripts/verify-optimizer-ui.mjs
               scripts/verify-interface-ui.mjs
               scripts/verify-interface-workflows.mjs
+              scripts/verify-robot-electrical-ui.mjs
           - group: workflows
             checks: |
               scripts/verify-command-branches-ui.mjs
@@ -78,6 +79,7 @@ jobs:
       BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library
       BORDEAUX_INTERFACE_UI_OUTPUT: .ui-artifacts/interface
       BORDEAUX_INTERFACE_WORKFLOWS_OUTPUT: .ui-artifacts/interface-workflows
+      BORDEAUX_ROBOT_ELECTRICAL_UI_OUTPUT: .ui-artifacts/robot-electrical
       BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
       BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer

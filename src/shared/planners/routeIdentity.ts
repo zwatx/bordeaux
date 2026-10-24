@@ -6,7 +6,7 @@ import { optimizationIntentKey, physicalPath, stable } from "./acceptedTrajector
 export function routeIntentKey(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): string {
   const { planning: _planning, footprintPreset: _preset, ...physicalRobot } = robot;
   const task = { ...path, waypoints: path.waypoints.map(({ linked: _linked, corner: _corner, ...waypoint }) => ({ ...waypoint, linked: true })) };
-  return stable({ version: "route-selection/2", path: optimizationIntentKey(task), robot: physicalRobot, field });
+  return stable({ version: "route-selection/3", path: optimizationIntentKey(task), robot: physicalRobot, field });
 }
 
 /** In-flight work always retires on seed changes, even if an applied route remains valid. */

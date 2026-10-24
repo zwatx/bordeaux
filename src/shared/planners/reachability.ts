@@ -21,6 +21,11 @@ export interface AffineScalarAccelerationConstraint {
   velocityCoefficient?: number;
   freeSpeed?: number;
   motorAcceleration?: number;
+  /**
+   * Apply the torque-speed line to motoring only (u*s'' + x*s'^2 >= 0). Braking
+   * is not back-EMF limited, so it is bounded by `minimum` alone.
+   */
+  motoringOnly?: boolean;
 }
 
 export interface ReachabilityInput {
@@ -132,7 +137,7 @@ function accelerationBounds(
     const motorLimit = applyMotorEnvelope && constraint.freeSpeed && constraint.motorAcceleration
       ? constraint.motorAcceleration * Math.max(0, 1 - moduleSpeed / constraint.freeSpeed)
       : Number.POSITIVE_INFINITY;
-    const constraintMinimum = Math.max(constraint.minimum, -motorLimit);
+    const constraintMinimum = constraint.motoringOnly ? constraint.minimum : Math.max(constraint.minimum, -motorLimit);
     const constraintMaximum = Math.min(constraint.maximum, motorLimit);
     const u = constraint.u + constraint.x * distance;
     if (Math.abs(u) <= EPSILON) {
@@ -183,7 +188,8 @@ function tightenForModuleMotorEnvelope(
       const moduleSpeed = constraint.velocityCoefficient! * envelopeSpeed;
       const limit = constraint.motorAcceleration!
         * Math.max(0, 1 - moduleSpeed / constraint.freeSpeed!);
-      const measured = Math.abs(constraint.u * acceleration + constraint.x * midpointSpeedSquared);
+      const force = constraint.u * acceleration + constraint.x * midpointSpeedSquared;
+      const measured = constraint.motoringOnly ? force : Math.abs(force);
       return Math.max(maximum, measured - limit);
     }, Number.NEGATIVE_INFINITY);
   };

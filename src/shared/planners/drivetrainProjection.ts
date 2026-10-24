@@ -39,6 +39,8 @@ export interface DrivetrainForceValue {
   requiredMotorForceN: number;
   tractionForceLimitN: number;
   motorForceLimitN: number;
+  /** Force scale for the motor check's tolerance: the flat motor cap, not the local, speed-dependent limit. */
+  motorForceScaleN: number;
 }
 
 interface ModuleOffset {
@@ -112,6 +114,15 @@ export function projectDrivetrainAtPoint(
   const stallForceLimitN = hardLimits && model
     ? hardLimits.motorAccelMps2 * model.massKg! / moduleCount * forceSafety
     : 0;
+  // With an electrical model the motor line bounds only motoring force along the
+  // wheel's rolling direction; current caps motoring and braking separately.
+  const electrical = Boolean(hardLimits?.electrical);
+  const motorCapForceN = hardLimits && model
+    ? hardLimits.motorCapAccelMps2 * model.massKg! / moduleCount * forceSafety
+    : 0;
+  const brakingCapForceN = hardLimits && model
+    ? hardLimits.brakingCapAccelMps2 * model.massKg! / moduleCount * forceSafety
+    : 0;
 
   for (const module of offsets) {
     const offsetX = cosHeading * module.x - sinHeading * module.y;
@@ -151,11 +162,12 @@ export function projectDrivetrainAtPoint(
         scalarAccelerationConstraints.push({
           u: forceUX * velocityDirectionX + forceUY * velocityDirectionY,
           x: forceXX * velocityDirectionX + forceXY * velocityDirectionY,
-          minimum: -stallForceLimitN,
-          maximum: stallForceLimitN,
+          minimum: electrical ? -brakingCapForceN : -stallForceLimitN,
+          maximum: electrical ? motorCapForceN : stallForceLimitN,
           velocityCoefficient,
           freeSpeed: hardLimits.maxSpeedMps,
           motorAcceleration: stallForceLimitN,
+          ...(electrical ? { motoringOnly: true } : {}),
           label: `${module.label}-motor-force`,
         });
       }
@@ -220,7 +232,7 @@ export function evaluateDrivetrainForces(
   robot: RobotConfig,
   velocityMps: number,
   accelerationMps2: number,
-  _angularVelocityRadps: number,
+  angularVelocityRadps: number,
   angularAccelerationRadps2: number,
 ): DrivetrainForceValue[] {
   const model = robot.driveModel;
@@ -245,6 +257,9 @@ export function evaluateDrivetrainForces(
   const yawForceScale = moiKgM2 * angularAccelerationRadps2 / radiusSquaredSum;
   const tractionForceLimitN = hardLimits.tractionAccelMps2 * massKg / moduleCount;
   const stallForceLimitN = hardLimits.motorAccelMps2 * massKg / moduleCount;
+  const electrical = Boolean(hardLimits.electrical);
+  const motorCapForceN = hardLimits.motorCapAccelMps2 * massKg / moduleCount;
+  const brakingCapForceN = hardLimits.brakingCapAccelMps2 * massKg / moduleCount;
   const rotatedOffsets = offsets.map((module) => {
     const offsetX = cosHeading * module.x - sinHeading * module.y;
     const offsetY = sinHeading * module.x + cosHeading * module.y;
@@ -256,7 +271,9 @@ export function evaluateDrivetrainForces(
     x: translationForceX + yawForceScale * module.perpendicularX,
     y: translationForceY + yawForceScale * module.perpendicularY,
   }));
-  const forceLimitN = Math.min(tractionForceLimitN, stallForceLimitN);
+  // Allocation clips the whole contact force. With an electrical model only traction
+  // bounds it; the motor limits apply to the rolling-direction part, checked below.
+  const forceLimitN = electrical ? tractionForceLimitN : Math.min(tractionForceLimitN, stallForceLimitN);
   for (let iteration = 0; iteration < 12; iteration += 1) {
     forces.forEach((force) => {
       const magnitude = Math.hypot(force.x, force.y);
@@ -282,6 +299,31 @@ export function evaluateDrivetrainForces(
 
   return rotatedOffsets.map((module, index) => {
     const requiredForceN = Math.hypot(forces[index].x, forces[index].y);
+    if (electrical) {
+      // The drive motor supplies only the force along the wheel's rolling direction;
+      // the lateral part is tire friction and counts toward traction alone.
+      const velocityX = point.tangentX * velocityMps + angularVelocityRadps * module.perpendicularX;
+      const velocityY = point.tangentY * velocityMps + angularVelocityRadps * module.perpendicularY;
+      const speedMps = Math.hypot(velocityX, velocityY);
+      const alongForceN = speedMps > EPSILON
+        ? (forces[index].x * velocityX + forces[index].y * velocityY) / speedMps
+        : requiredForceN;
+      const motoringLimitN = Math.min(
+        motorCapForceN,
+        stallForceLimitN * Math.max(0, 1 - speedMps / hardLimits.maxSpeedMps),
+      );
+      return {
+        label: module.label,
+        requiredForceN,
+        requiredMotorForceN: Math.abs(alongForceN),
+        tractionForceLimitN,
+        motorForceLimitN: alongForceN >= 0 ? motoringLimitN : brakingCapForceN,
+        // Near the zero-torque speed the local limit tends to zero, so scale the tolerance
+        // by the flat cap: newton-level differences between the solver's interval
+        // geometry and the dense validation grid are not violations.
+        motorForceScaleN: alongForceN >= 0 ? motorCapForceN : brakingCapForceN,
+      };
+    }
     return {
       label: module.label,
       requiredForceN,
@@ -292,6 +334,7 @@ export function evaluateDrivetrainForces(
       // to the entire allocated force vector double-counts the wheel-speed
       // constraint and produces severe false slowdowns during combined motion.
       motorForceLimitN: stallForceLimitN,
+      motorForceScaleN: stallForceLimitN,
     };
   });
 }

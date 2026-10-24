@@ -4,6 +4,8 @@ import { committedDraftValue } from "../lib/numericDraft";
 import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { UI } from "./ui";
+import { DRIVE_MOTOR_PRESETS } from "../../shared/motorPresets";
+import { resolveElectricalDriveInputs } from "../../shared/robotLimits";
 import "../styles/settings.css";
 
 // Bordeaux Robot config page (project-global).
@@ -11,14 +13,16 @@ import "../styles/settings.css";
   const h = React.createElement;
   const { Dropdown, Icon } = UI;
 
-  // Published 12 V free speeds from the manufacturers' product documentation.
   const DRIVE_MOTORS = [
-    { value: 'custom', label: 'Custom motor', meta: 'Enter its published free speed' },
-    { value: 'rev-neo', label: 'REV NEO V1.1', meta: '5,676 RPM', rpm: 5676, torque: 2.6 },
-    { value: 'rev-vortex', label: 'REV NEO Vortex', meta: '6,784 RPM', rpm: 6784, torque: 3.6 },
-    { value: 'ctre-kraken-x60', label: 'CTRE Kraken X60', meta: '6,000 RPM', rpm: 6000, torque: 7.09 },
-    { value: 'ctre-falcon-500', label: 'CTRE Falcon 500', meta: '6,380 RPM', rpm: 6380, torque: 4.69 },
+    { value: 'custom', label: 'Custom motor', meta: 'Enter its published 12 V figures' },
+    ...DRIVE_MOTOR_PRESETS.map((preset) => ({
+      value: preset.id, label: preset.label, meta: preset.freeRpm.toLocaleString('en-US') + ' RPM · ' + preset.stallCurrentA + ' A stall',
+      rpm: preset.freeRpm, torque: preset.stallTorqueNm, stallCurrent: preset.stallCurrentA, freeCurrent: preset.freeCurrentA,
+    })),
   ];
+  // Electrical values a project may leave to the shared planning defaults.
+  const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve'];
+  const presetFigures = (preset) => preset && preset.rpm ? { motorFreeRpm: preset.rpm, motorMaxTorqueNm: preset.torque } : {};
 
   const footprintFor = (shape, w, l, preset) => {
     if (shape === 'rectangle') return undefined;
@@ -45,7 +49,7 @@ import "../styles/settings.css";
   };
 
   // Numeric settings use explicit input; dragging units or errors must not edit robot configuration.
-  function BigNum({ label, value, onChange, unit, imperialUnit = unit === 'm' ? 'in' : undefined, step = 0.01, min, max, precision = 2, disabled = false }) {
+  function BigNum({ label, value, onChange, unit, imperialUnit = unit === 'm' ? 'in' : undefined, step = 0.01, min, max, precision = 2, disabled = false, placeholder }) {
     const errorId = React.useId();
     const cancelEdit = useRef(false);
     const [edit, setEdit] = useState(null);
@@ -70,7 +74,7 @@ import "../styles/settings.css";
     const display = edit != null ? edit : (typeof displayValue === 'number' ? displayValue.toFixed(precision) : '');
     return h('div', { className: 'rp-big' + (disabled ? ' is-disabled' : '') },
       h('input', {
-        value: display, disabled, inputMode: 'decimal', 'aria-label': label, min, max, step,
+        value: display, disabled, placeholder, inputMode: 'decimal', 'aria-label': label, min, max, step,
         'data-project-draft': true, 'aria-invalid': !!error, 'aria-describedby': error ? errorId : undefined,
         onChange: (e) => { cancelEdit.current = false; setEdit(e.target.value); if (error) setError(''); },
         onFocus: (e) => { cancelEdit.current = false; if (edit == null) setEdit(typeof displayValue === 'number' ? String(displayValue) : ''); requestAnimationFrame(() => { if (document.activeElement === e.target) e.target.select(); }); },
@@ -142,16 +146,20 @@ import "../styles/settings.css";
     const driveModel = { ...fallbackDriveModel, ...(robot.driveModel || {}) };
     const chassisFreeSpeed = (model) => model.motorFreeRpm / 60 * Math.PI * model.wheelDiameterM / model.gearRatio;
     const hardLimits = PM.robotHardLimits(robot);
-    const setDriveModel = (patch) => {
+    const preset = DRIVE_MOTORS.find((motor) => motor.value === driveModel.motorId && motor.rpm);
+    const motorPresetSelected = Boolean(preset);
+    const electrical = resolveElectricalDriveInputs(driveModel);
+    const setDriveModel = (patch, removeKeys = []) => {
       const next = { ...driveModel, ...patch };
+      removeKeys.forEach((key) => { delete next[key]; });
       if (![next.motorFreeRpm, next.gearRatio, next.wheelDiameterM].every((value) => Number.isFinite(value) && value > 0)) return;
-      const maxSpeed = chassisFreeSpeed(next);
+      const nextLimits = PM.robotHardLimits({ ...robot, driveModel: next });
+      const maxSpeed = nextLimits ? nextLimits.maxSpeed : chassisFreeSpeed(next);
       const nextPlanning = planning.intake && planning.intake.maxCollectSpeedMps > maxSpeed
         ? { ...planning, intake: { ...planning.intake, maxCollectSpeedMps: maxSpeed } }
         : planning;
       setRobot({ driveModel: next, maxSpeed, ...(nextPlanning !== planning ? { planning: nextPlanning } : {}) });
     };
-    const motorPresetSelected = DRIVE_MOTORS.some((motor) => motor.value === driveModel.motorId && motor.rpm);
     const driveFields = [
       { label: 'Motor free speed', disabled: motorPresetSelected, value: driveModel.motorFreeRpm, unit: 'RPM', min: 100, max: 30000, precision: 0, step: 25, onChange: (value) => setDriveModel({ motorFreeRpm: value }) },
       { label: 'Motor torque limit', disabled: motorPresetSelected, value: driveModel.motorMaxTorqueNm, unit: 'N·m', min: 0.1, max: 20, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ motorMaxTorqueNm: value }) },
@@ -164,6 +172,34 @@ import "../styles/settings.css";
       { label: 'Trackwidth', value: driveModel.trackwidthM, unit: 'm', imperialUnit: 'in', min: 0.1, max: robot.w, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ trackwidthM: value }) },
       { label: 'Wheel friction', value: driveModel.wheelFrictionCoefficient, unit: 'μ', min: 0.1, max: 3, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ wheelFrictionCoefficient: value }) },
     ];
+    // Unset values show the effective default as a placeholder; typing stores an explicit value.
+    const isDefault = (key) => Boolean(electrical && electrical.defaulted.includes(key));
+    const effective = (key, scale = 1) => {
+      if (typeof driveModel[key] === 'number') return { value: driveModel[key] * scale };
+      return electrical ? { value: undefined, placeholder: String(+(electrical.values[key] * scale).toFixed(3)) } : { value: undefined };
+    };
+    const electricalFields = [
+      { key: 'motorStallCurrentA', label: 'Motor stall current', disabled: motorPresetSelected, ...(motorPresetSelected ? { value: preset.stallCurrent } : effective('motorStallCurrentA')), unit: 'A', min: 1, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ motorStallCurrentA: value }) },
+      { key: 'motorFreeCurrentA', label: 'Motor free current', disabled: motorPresetSelected, ...(motorPresetSelected ? { value: preset.freeCurrent } : effective('motorFreeCurrentA')), unit: 'A', min: 0, max: 50, precision: 1, step: 0.1, onChange: (value) => setDriveModel({ motorFreeCurrentA: value }) },
+      { key: 'driveCurrentLimitA', label: 'Drive current limit', note: 'stator, per motor', ...effective('driveCurrentLimitA'), unit: 'A', min: 5, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveCurrentLimitA: value }) },
+      { key: 'batteryVoltageV', label: 'Battery voltage', ...effective('batteryVoltageV'), unit: 'V', min: 8, max: 14, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ batteryVoltageV: value }) },
+      { key: 'batteryResistanceOhm', label: 'Battery resistance', note: 'battery and wiring', ...effective('batteryResistanceOhm', 1000), unit: 'mΩ', min: 0, max: 100, precision: 1, step: 0.5, onChange: (value) => setDriveModel({ batteryResistanceOhm: value / 1000 }) },
+      { key: 'otherLoadA', label: 'Other mechanisms', note: 'current while driving', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
+      { key: 'driveEfficiency', label: 'Drive efficiency', ...effective('driveEfficiency', 100), unit: '%', min: 50, max: 100, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveEfficiency: value / 100 }) },
+      { key: 'controlReserve', label: 'Control reserve', note: 'kept for correction', ...effective('controlReserve', 100), unit: '%', min: 0, max: 50, precision: 0, step: 1, onChange: (value) => setDriveModel({ controlReserve: value / 100 }) },
+    ];
+    const fieldNote = (field) => (isDefault(field.key) && !field.disabled
+      ? (field.note ? 'Default · ' + field.note : 'Default')
+      : field.note);
+    const hasAuthoredElectrical = ELECTRICAL_DEFAULT_KEYS.some((key) => typeof driveModel[key] === 'number');
+    // A preset supplies stall and free current; a custom motor keeps the last known figures as editable values.
+    const chooseMotor = (motorId) => {
+      const next = DRIVE_MOTORS.find((motor) => motor.value === motorId);
+      if (next && next.rpm) setDriveModel({ motorId, ...presetFigures(next) }, ['motorStallCurrentA', 'motorFreeCurrentA']);
+      else setDriveModel({ motorId, ...(electrical ? { motorStallCurrentA: electrical.values.motorStallCurrentA, motorFreeCurrentA: electrical.values.motorFreeCurrentA } : {}) });
+    };
+    // Straight-line motoring limit at a fraction of top speed: the flat cap meets the falling torque-speed line.
+    const accelAt = (fraction) => hardLimits && Math.max(0, Math.min(hardLimits.maxAccel, hardLimits.motorAccel * (1 - fraction)));
     const intake = planning.intake;
     const shooter = planning.shooter;
     const setPlanning = (patch) => setRobot({ planning: { ...planning, ...patch } });
@@ -330,12 +366,17 @@ import "../styles/settings.css";
             h('div', { className: 'rp-sec' },
               h('div', { className: 'rp-sech' }, 'Performance'),
               h(Dropdown, { id: 'robot-drive-motor', label: 'Drive motor', value: driveModel.motorId, items: DRIVE_MOTORS,
-                onChange: (motorId) => { const preset = DRIVE_MOTORS.find((motor) => motor.value === motorId); setDriveModel({ motorId, ...(preset && preset.rpm ? { motorFreeRpm: preset.rpm, motorMaxTorqueNm: preset.torque } : {}) }); } }),
+                onChange: chooseMotor }),
               h('div', { className: 'rp-two rp-drive-model' },
                 driveFields.map((field) => h('div', { className: 'rp-field', key: field.label }, h('div', { className: 'rp-flabel' }, field.label), h(BigNum, field)))),
+              h('div', { className: 'rp-subh' }, 'Electrical model'),
+              !electrical && h('div', { className: 'rp-note' }, h(Icon, { name: 'info', size: 14 }), "Enter the motor's stall and free current to plan with its current limit and battery sag. Until then, limits assume full stall torque below free speed."),
+              h('div', { className: 'rp-two rp-drive-model' },
+                electricalFields.map((field) => h('div', { className: 'rp-field', key: field.key }, h('div', { className: 'rp-flabel' }, field.label, fieldNote(field) && h('small', null, fieldNote(field))), h(BigNum, field)))),
+              hasAuthoredElectrical && h('button', { className: 'qbtn quiet rp-use-physical', type: 'button', onClick: () => setDriveModel({}, ELECTRICAL_DEFAULT_KEYS) }, 'Use default electrical values'),
               !hardLimits && h('button', { className: 'qbtn rp-use-physical', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits'),
               hardLimits && h('div', { className: 'rp-hard-limits' },
-                [['Top speed', hardLimits.maxSpeed, 'm/s', 2], ['Max acceleration', hardLimits.maxAccel, 'm/s²', 2], ['Corner acceleration', hardLimits.maxCornerAccel, 'm/s²', 2], ['Angular speed', hardLimits.maxAngVel, '°/s', 0]].map(([label, value, unit, precision]) =>
+                [['Top speed', hardLimits.maxSpeed, 'm/s', 2], ['Max acceleration', hardLimits.maxAccel, 'm/s²', 2], ['Acceleration at 3/4 speed', accelAt(0.75), 'm/s²', 2], ['Braking', hardLimits.maxDecel, 'm/s²', 2], ['Corner acceleration', hardLimits.maxCornerAccel, 'm/s²', 2], ['Angular speed', hardLimits.maxAngVel, '°/s', 0]].map(([label, value, unit, precision]) =>
                   h('div', { className: 'rp-drive-result', key: label }, h('span', null, label), h('strong', null, UnitPrefs.fromCanonical(value, unit).toFixed(precision), h('small', null, ' ' + UnitPrefs.label(unit)))))),
               h('div', { className: 'rp-note' }, h(Icon, { name: 'info', size: 14 }), 'Paths and zones can only tighten these limits.'))),
 

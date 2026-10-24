@@ -308,6 +308,7 @@ export function buildReachabilityInput(
     trackedHeadingIntervals,
     DRIVETRAIN_SAFETY,
   );
+  const electricalDrive = Boolean(robotHardLimits(input.robot)?.electrical);
   const curvatureVelocityLimits = state.points.map((point, index) => {
     const lateralLimit = input.path.constraints.maxCentripetalAccel ?? Math.min(
       profile.intervals[index - 1]?.acceleration ?? Number.POSITIVE_INFINITY,
@@ -402,7 +403,15 @@ export function buildReachabilityInput(
     freeSpeeds: profile.intervals.map((limits) => limits.freeSpeed),
     motorAccelerationLimits: profile.intervals.map((limits) => limits.motorAcceleration),
     accelerationConstraints: drivetrain.intervalAccelerationConstraints,
-    scalarAccelerationConstraints: angularAccelerationConstraints,
+    // Per-module motor lines are timed with the electrical drive model, whose line
+    // bounds motoring alone. A custom motor without stall and free current keeps the
+    // symmetric stall line, which also bounds braking, so it stays chassis-level.
+    scalarAccelerationConstraints: electricalDrive
+      ? angularAccelerationConstraints.map((constraints, index) => [
+        ...constraints,
+        ...drivetrain.intervalScalarAccelerationConstraints[index],
+      ])
+      : angularAccelerationConstraints,
     startVelocity,
     goalVelocity,
   };

@@ -16,6 +16,7 @@ export type CorridorEstimate =
 const EPSILON = 1e-9;
 const positive = (value: number) => Number.isFinite(value) && value > 0;
 const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
+const ZERO_ALLOWED_DRIVE_FIELDS = new Set(["motorFreeCurrentA", "batteryResistanceOhm", "otherLoadA", "controlReserve"]);
 
 // The seed/constraint helpers deliberately tolerate legacy numeric defaults. A private score
 // must not silently replace malformed authored limits or geometry with those defaults.
@@ -28,7 +29,8 @@ function validInput(input: PlannerInput): boolean {
   const required = [path.constraints.maxVel, path.constraints.maxAccel, path.constraints.maxDecel, path.constraints.maxAngVel, path.constraints.maxAngAccel];
   if (!required.every(positive) || !Object.entries(path.constraints).every(([key, value]) => value === undefined
     || (key === "maxJerk" || key === "maxAngJerk" ? nonnegative(value) : positive(value)))) return false;
-  if (robot.driveModel && !Object.values(robot.driveModel).every(value => typeof value !== "number" || positive(value))) return false;
+  if (robot.driveModel && !Object.entries(robot.driveModel).every(([key, value]) => typeof value !== "number"
+    || (ZERO_ALLOWED_DRIVE_FIELDS.has(key) ? nonnegative(value) : positive(value)))) return false;
   if (!path.waypoints.every(waypoint => waypoint && [waypoint.x, waypoint.y, waypoint.theta].every(Number.isFinite)
     && [waypoint.prevC, waypoint.nextC, waypoint.segmentLookAt].every(point => !point || [point.x, point.y].every(Number.isFinite))
     && (waypoint.wait === undefined || (nonnegative(waypoint.wait) && (waypoint.wait === 0 || waypoint.stop)))

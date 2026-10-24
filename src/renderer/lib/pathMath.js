@@ -1,4 +1,5 @@
 import { indexIntervalPolicies } from "../../shared/planners/intervalPolicies";
+import { robotHardLimits as sharedRobotHardLimits } from "../../shared/robotLimits";
 import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../shared/math/geometry";
 import { headingAt, buildAnchors } from "../../shared/math/headingAnchors";
 import { waypointFracs, effectiveRanges, featureFraction, insertHeadingTargetSamples, remapWaypointRange } from "../../shared/math/pathRanges";
@@ -68,25 +69,19 @@ import { headingTransitionWindows, headingTransitionGoals, smoothHeadingTransiti
     });
     return best;
   }
+  // The shared drive model owns the physics; this keeps the preview's field names.
   function robotHardLimits(robot) {
-    const m = robot && robot.driveModel;
-    if (!m) return null;
-    const values = [m.motorFreeRpm, m.motorMaxTorqueNm, m.motorCount, m.gearRatio, m.wheelDiameterM, m.massKg, m.moiKgM2, m.wheelbaseM, m.trackwidthM, m.wheelFrictionCoefficient];
-    if (!values.every((value) => Number.isFinite(value) && value > 0)) return null;
-    const radius = m.wheelDiameterM / 2;
-    const maxSpeed = m.motorFreeRpm / 60 * Math.PI * m.wheelDiameterM / m.gearRatio;
-    const motorAccel = m.motorCount * m.motorMaxTorqueNm * m.gearRatio / (radius * m.massKg);
-    const tractionAccel = m.wheelFrictionCoefficient * 9.80665;
-    const maxAccel = Math.min(motorAccel, tractionAccel);
-    const moduleRadius = robot.drive === 'tank' ? m.trackwidthM / 2 : Math.hypot(m.wheelbaseM / 2, m.trackwidthM / 2);
-    return {
-      maxSpeed,
-      maxAccel,
-      maxCornerAccel: tractionAccel,
-      maxAngVel: maxSpeed / moduleRadius * R2D,
-      maxAngAccel: maxAccel * m.massKg * moduleRadius / m.moiKgM2 * R2D,
-      motorAccel,
-      tractionAccel,
+    const limits = robot ? sharedRobotHardLimits(robot) : null;
+    return limits && {
+      maxSpeed: limits.maxSpeedMps,
+      maxAccel: limits.maxAccelMps2,
+      maxDecel: limits.maxDecelMps2,
+      maxCornerAccel: limits.maxCornerAccelMps2,
+      maxAngVel: limits.maxAngularSpeedDegps,
+      maxAngAccel: limits.maxAngularAccelDegps2,
+      motorAccel: limits.motorAccelMps2,
+      tractionAccel: limits.tractionAccelMps2,
+      electrical: limits.electrical,
     };
   }
   function effectiveConstraints(constraints, robot) {
@@ -95,7 +90,7 @@ import { headingTransitionWindows, headingTransitionGoals, smoothHeadingTransiti
       ...constraints,
       maxVel: Math.min(constraints.maxVel, limits.maxSpeed),
       maxAccel: Math.min(constraints.maxAccel, limits.maxAccel),
-      maxDecel: Math.min(constraints.maxDecel ?? constraints.maxAccel, limits.maxAccel),
+      maxDecel: Math.min(constraints.maxDecel ?? constraints.maxAccel, limits.maxDecel),
       maxCentripetalAccel: Math.min(constraints.maxCentripetalAccel ?? constraints.maxAccel, limits.maxCornerAccel),
       maxAngVel: Math.min(constraints.maxAngVel, limits.maxAngVel),
       maxAngAccel: Math.min(constraints.maxAngAccel, limits.maxAngAccel),

@@ -298,7 +298,8 @@ describe("drawn curve grazing the field wall", () => {
     expect(candidate, JSON.stringify(result.statistics)).toBeDefined();
     expect(candidate.totalTimeS).toBeLessThan(normal.totalTimeS);
     expect(candidate.optimization!.seedIssue).toBe(result.seedIssue);
-    const interior = candidate.samples.slice(5, -5);
+    // Exclude the stopped launch and arrival by distance; sample density follows refinement.
+    const interior = candidate.samples.filter((sample) => sample.f > 0.05 && sample.f < 0.95);
     expect(Math.min(...interior.map((s) => Math.abs(s.velocityMps)))).toBeGreaterThan(1);
     expect(routeCandidateFailure({ path: grazingPath, robot: grazingRobot }, candidate)).toBeUndefined();
   }, 60_000);
