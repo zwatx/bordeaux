@@ -21,7 +21,12 @@ try {
   const { writeRecentProjectFiles } = require('../dist-electron/electron/recentProjectFiles.js');
   const folder = path.join(await fs.realpath(output), 'Project'); await fs.mkdir(folder);
   await fs.mkdir(path.join(output, 'Documents'));
-  const project = createDemoProject(); project.editor = { ...project.editor, unitSystem: "metric" }; await autosaveProjectFolder(folder, project, null); await writeRecentProjectFiles(path.join(output, 'recent-projects.json'), [folder]);
+  const project = createDemoProject();
+  // Explicit Save exports BDX 1.1 forces, so this lifecycle fixture needs physical inputs.
+  // These values are synthetic test data, not configuration for the team's robot.
+  project.robot.driveModel = { motorId: 'test-force-export', motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4,
+    gearRatio: 6.75, wheelDiameterM: 0.1016, massKg: 50, moiKgM2: 5, wheelbaseM: 0.6, trackwidthM: 0.6, wheelFrictionCoefficient: 1.2 };
+  project.editor = { ...project.editor, unitSystem: "metric" }; await autosaveProjectFolder(folder, project, null); await writeRecentProjectFiles(path.join(output, 'recent-projects.json'), [folder]);
   const firstX = Math.round((project.paths[0].waypoints[0].x + 0.125) * 1000) / 1000, secondX = firstX + 0.125;
   await fs.writeFile(path.join(output, 'fixture.json'), JSON.stringify({ folder, workspace: projectWorkspacePath(folder), firstX, secondX }));
   async function tree(directory) {
