@@ -540,6 +540,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .rp-sec{padding:16px 0;border-top:1px solid var(--line)}
 .rp-sec:first-child{border-top:none;padding-top:4px}
 .rp-sech{margin-bottom:12px;color:var(--txt);font-size:13px;font-weight:600}
+.rp-subh{margin:18px 0 2px;color:var(--txt-2);font-size:12px;font-weight:600}
 .rp-drive{display:flex;gap:10px}
 /* Drivetrain cards follow the current-object rule: accent line and soft fill. */
 .rp-drivebtn{flex:1;padding:11px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);text-align:left}
@@ -598,6 +599,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 /* Each field spans a shared label track and input track, so a wrapped preset note keeps row labels and inputs aligned. */
 .rp-drive-model{margin-top:12px;row-gap:12px}.rp-drive-model .rp-field{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0;margin-bottom:0}
 .rp-drive-model .rp-flabel{flex-wrap:wrap;row-gap:2px}
+.rp-drive-model .rp-flabel small,.rp-drive-model .rp-flabel::after{flex-basis:100%}
 /* Derived limits: label above, value and unit on one line. */
 .rp-hard-limits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
 .rp-drive-result{display:flex;flex-direction:column;justify-content:center;gap:4px;min-height:58px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-1)}
