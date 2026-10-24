@@ -1,4 +1,4 @@
-# BDX 1.0 binary contract for direct LabVIEW robot code
+# BDX 1.1 binary contract for direct LabVIEW robot code
 
 This is the BDXLV1 writer/reader contract for ordinary VIs and typedefs inside the Apprentice robot project. BDX only: no AQU, CBOR, serialized NI Variant, new shared library, CLFN, native session or runtime binding manifest. MCP is authoring tooling, not a runtime dependency. The app writer and its production local export workflow have passed focused checks. Actual NI reader and execution verification remain in progress; these bytes do not assert runtime readiness. The earlier native/CBOR design is superseded.
 
@@ -26,7 +26,7 @@ eventId, runtime command VI basename and argumentKey are nonblank, valid UTF-8, 
 |---:|---|---|
 | 0 | U8[8] | ASCII `BDXLV1\r\n`, hex `42 44 58 4c 56 31 0d 0a` |
 | 8 | U16 | major 1 |
-| 10 | U16 | minor 0 |
+| 10 | U16 | minor 1 (rolling-direction module forces) |
 | 12 | U32 | headerBytes 32 |
 | 16 | U32 | payloadBytes |
 | 20 | U32 | payload CRC-32/ISO-HDLC |
@@ -34,6 +34,8 @@ eventId, runtime command VI basename and argumentKey are nonblank, valid UTF-8, 
 | 28 | U32 | reserved 0 |
 
 Require exact file length `32+payloadBytes`. CRC reflected polynomial 0xEDB88320, initial 0xffffffff, final XOR 0xffffffff; `123456789` → 0xcbf43926. Implement as a small pure-VI U32 shift/XOR loop/table; it detects corruption, not trusted origin. This magic deliberately differs from the abandoned `BDXBIN` CBOR prototype. Reject that prototype, AQUBIN, and unsupported versions at the new reader. Do not guess format from `.bdx` alone.
+
+The writer now emits **1.1 only**. A 1.0 reader must reject minor 1 before parsing: sample stride has changed. A reader supporting both minors must select 88-byte records for 1.0 and 120-byte records for 1.1 explicitly; reject other minors. Version 1.0 has no force feedforward. Do not relabel an old file as 1.1 or synthesize force values from it. Re-export source projects to obtain forces. If retaining 1.0 loading for migration, expose force availability separately and use an explicitly selected legacy controller or reject motion when force feedforward is required. The legacy 4.x file route remains separate.
 
 ## Payload — four sections in this order
 
@@ -58,9 +60,30 @@ Units are fixed by major version: field x/y/distance meters, time seconds, headi
 
 ### 2. Samples
 
-U32 `sampleCount`, then exactly `sampleCount` records of **88 bytes**, each eleven DBLs in order:
+U32 `sampleCount`, then exactly `sampleCount` records of **120 bytes**, each fifteen DBLs in order:
 
-`t, s, f, x, y, headingRad, travelHeadingRad, velocityMps, accelerationMps2, angularVelocityRadps, curvatureInvM`.
+`t, s, f, x, y, headingRad, travelHeadingRad, velocityMps, accelerationMps2, angularVelocityRadps, curvatureInvM, forceLFN, forceLBN, forceRFN, forceRBN`.
+
+The first eleven DBLs retain their 1.0 meanings and offsets. The four appended finite, signed DBLs are wheel rolling-direction forces in **newtons**, in the robot's **LF, LB, RF, RB** order (left front, left back, right front, right back). Their record offsets are 88, 96, 104 and 112 bytes. They are neither field X/Y forces nor wheel torques, volts or amps. The format does not carry a motor model or robot-side physics instructions.
+
+#### Force generation and caller integration
+
+Bordeaux uses the final selected trajectory, including accepted optimization and stationary actions. Densification and follow-section remapping finish first. At each sample, linear acceleration is the right-hand velocity slope `(next.velocityMps-velocityMps)/(next.t-t)` and yaw acceleration is the corresponding angular-velocity slope. `next` means the first strictly later timestamp; equivalent equal-time knots use the same derivative. The terminal timestamp has no outgoing motion and exports four zeros. These slopes intentionally describe the actual exported velocity interpolation; the existing `accelerationMps2` field remains unchanged for compatibility.
+
+The shared planner force-contact allocator requests chassis force `mass * (tangent * linearAcceleration + normal * curvature * speed²)` and yaw torque `moi * yawAcceleration`, using the configured wheelbase and trackwidth (robot-local +X forward, +Y left). Force generation uses the canonical **signed** curvature used by validation, linearly interpolated during densification; the legacy `curvatureInvM` sample field retains its magnitude convention. It redistributes contact forces subject to its existing traction/motor model while preserving the requested chassis wrench. Each exported value is the allocated contact force projected onto that module's planned velocity direction. Lateral tire force is excluded from drive feedforward. Wheel-point centripetal acceleration is not treated as another independent mass. Do not clip the exported drive forces independently; this would change the requested wrench. This export does not add a new feasibility certificate beyond the selected planner's validation.
+
+For module offset `(rx,ry)` rotated into field coordinates by `headingRad`, planned module velocity is `(speed*cos(travelHeadingRad) - omega*ry, speed*sin(travelHeadingRad) + omega*rx)`. Positive force assists this velocity and negative force brakes it, including reverse translation and either spin direction. At module speed <=1e-9 m/s the rolling direction is undefined, so its exported force is **zero**, including exact launch/stop and waits. Moving samples immediately after launch carry feedforward; the robot does not need to infer a wheel angle from a zero velocity.
+
+Force export requires a complete valid swerve drivetrain model; missing mass, yaw moment of inertia, module geometry or drive-limit inputs reject export with an actionable error. No guessed physical defaults or missing-model zero arrays are written. Verify these project settings against the robot. Re-export after physical/model changes; even though newtons are independent of motor units, motor, gearing and electrical settings can change planned timing and force allocation.
+
+Robot integration remains a one-time reader and drive-command change:
+
+- In the LabVIEW IDE, append four DBL controls named `forceLFN`, `forceLBN`, `forceRFN`, `forceRBN` to `BDX Sample.ctl`, after `curvatureInvM`, in that order. Update the version check and bounded 120-byte read, and Bundle By Name into those fields. These binary typedef edits and reader wiring are manual robot-project work; Bordeaux does not modify the `.ctl` or robot code.
+- Carry the four values through timestamp interpolation and setpoint output in the same module order. Interpolate signed forces with the same time ratio as the sample. On natural end, disable, abort or load failure, clear force output with the drive setpoint; never hold terminal or stale forces. Test direction changes and exact zero-speed boundaries with the actual reader/controller.
+- Convert newtons to the team's drive feedforward units using its calibrated gain and add that term to the drive command. If shortest-turn module optimization chooses the direction 180 degrees opposite the planned module velocity, **negate that module's force**, exactly as it negates wheel speed. Preserve that sign decision through interpolation. Do not use the sign of chassis speed (always nonnegative) to decide this.
+- Keep feedback corrections, teleop discretization and steer feedforward. Do not also apply robot-side planned-acceleration/yaw-inertia feedforward to 1.1 samples: it would double-count the exported physics. Leave the existing robot path intact until the new reader and force route have been verified; removing robot-side physics is a separate integration task.
+
+`BuiltRobotBinary.moduleForcesN` exposes the four values for every final binary sample, parallel to `travelHeadings` and `document.paths[0].samples`. This is a BDXLV1 binary minor change; generic project/JSON trajectory schemas and planner sample identities are unchanged. New test-only 1.1 fixtures live under `labview/tests/fixtures/binary/forces-v1.1/`; existing 1.0 fixtures are retained for reader migration.
 
 The array index supplies `i`; do not write an extra index. Preserve `f` from the planner; it is not `s/totalDistance` (jiggle advances distance while f stays fixed). `headingRad` is robot orientation; `travelHeadingRad` is translation direction. `velocityMps` is nonnegative magnitude; reverse translation is encoded in travel heading, not by changing robot orientation. Field velocity is `speed*cos(travelHeading), speed*sin(travelHeading)`. At zero speed both components are exactly zero.
 
@@ -133,7 +156,7 @@ On a natural end, evaluate eligible endpoint events once at the terminal path ti
 
 ## Intended NI typedefs (not yet authored)
 
-Under `integration-source/Robot Code/Support Code/Bordeaux/`: `BDX Header.ctl` (header scalar cluster), `BDX Metadata.ctl` (ordered metadata cluster), `BDX Sample.ctl` (11 named DBLs), `BDX Follow Section.ctl` (three U32s + U16 mode), `BDX Argument.ctl` (key String, typeTag U16, raw value U8[]), `BDX Event.ctl` (four Strings, four DBLs, U16 trigger enum, Boolean cancel, arguments[]), `BDX Path.ctl` (metadata, samples[], followSections[], events[]). Reserved/count fields are parser concerns, not repeated in every in-memory typedef.
+Under `integration-source/Robot Code/Support Code/Bordeaux/`: `BDX Header.ctl` (header scalar cluster), `BDX Metadata.ctl` (ordered metadata cluster), `BDX Sample.ctl` (15 named DBLs for 1.1; append the four force fields manually as described above), `BDX Follow Section.ctl` (three U32s + U16 mode), `BDX Argument.ctl` (key String, typeTag U16, raw value U8[]), `BDX Event.ctl` (four Strings, four DBLs, U16 trigger enum, Boolean cancel, arguments[]), `BDX Path.ctl` (metadata, samples[], followSections[], events[]). Reserved/count fields are parser concerns, not repeated in every in-memory typedef.
 
 Under `Drive/Implementation/Command Sequencer Infrastructure/`: `BDX Event State.ctl` (due/fired/repeat/completion fields), `BDX Owned Command.ctl` (generation U64, event/occurrence ID, actual team Command Status Info.ctl, prepared wrapper/ref state), plus a small persistent owner VI. In-memory VI refs/Variants remain ordinary existing NI infrastructure; none is read from disk.
 

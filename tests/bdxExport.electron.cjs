@@ -12,6 +12,8 @@ const { createDemoProject, blankPath } = require('../dist-electron/shared/projec
 const { buildRobotBinary } = require('../dist-electron/shared/export/robotBinary');
 const { bdxBindingsFromCatalog } = require('../dist-electron/electron/bdxBindings');
 const fixture = createDemoProject(), route = blankPath('A long selected path name for local BDX export verification');
+fixture.robot.driveModel = { motorId: 'test-force-export', motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4,
+  gearRatio: 6.75, wheelDiameterM: 0.1016, massKg: 50, moiKgM2: 5, wheelbaseM: 0.6, trackwidthM: 0.6, wheelFrictionCoefficient: 1.2 };
 route.id = 'bdx-ui-selected'; fixture.paths = [route, { ...blankPath('Unselected path'), id: 'bdx-ui-unselected' }];
 fixture.editor = { activePathId: route.id }; fixture.routines = [{ id: 'local', name: 'Unrelated routine draft', nodes: [] }]; fixture.activeRoutineId = 'local';
 const projectFile = path.join(output, 'fixture.bordeaux.json'); fs.writeFileSync(projectFile, JSON.stringify(fixture));

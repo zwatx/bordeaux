@@ -4,6 +4,7 @@ import { blankPath, createDemoProject } from "../src/shared/project/defaults";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "../src/electron/bdxWorkerClient";
 import type { BdxBatchJob, BdxJob } from "../src/electron/bdxProtocol";
+import { forceExportRobot } from "./fixtures/forceExportRobot";
 
 const port = vi.hoisted(() => ({ once: vi.fn(), postMessage: vi.fn() }));
 const runWorkerTask = vi.hoisted(() => vi.fn());
@@ -15,6 +16,7 @@ const receive = port.once.mock.calls[0][1] as (job: BdxJob | BdxBatchJob) => voi
 const bindings = bdxBindingsFromCatalog(null);
 function fixture(): BdxBatchJob {
   const project = createDemoProject();
+  project.robot = forceExportRobot();
   project.paths = ["first", "second", "unselected"].map(id => ({ ...blankPath(id), id }));
   project.paths[2].exportable = false;
   return { project, selections: [{ kind: "path", id: "second" }, { kind: "path", id: "first" }], bindings };

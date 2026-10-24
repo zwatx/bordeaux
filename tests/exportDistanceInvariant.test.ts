@@ -8,7 +8,7 @@ function samplesFromBytes(bytes: Uint8Array) {
   let cursor = 32;
   const metadataLength = buffer.readUInt32BE(cursor); cursor += 4 + metadataLength;
   const count = buffer.readUInt32BE(cursor); cursor += 4;
-  return Array.from({ length: count }, () => Array.from({ length: 11 }, () => {
+  return Array.from({ length: count }, () => Array.from({ length: 15 }, () => {
     const value = buffer.readDoubleBE(cursor); cursor += 8; return value;
   }));
 }

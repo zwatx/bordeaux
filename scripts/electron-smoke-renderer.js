@@ -277,6 +277,9 @@
   catch (error) { missingTypeEvidenceRejected = /has no inspected original VI filename/.test(String(error && error.message || error)); }
   if (!missingTypeEvidenceRejected) throw new Error('Commanded export must reject missing inspected VI evidence');
   const eventless = structuredClone(persistedProject);
+  // BDX 1.1 forces require physical inputs; this fixture is synthetic, not team configuration.
+  eventless.robot.driveModel = { motorId: 'test-force-export', motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4,
+    gearRatio: 6.75, wheelDiameterM: 0.1016, massKg: 50, moiKgM2: 5, wheelbaseM: 0.6, trackwidthM: 0.6, wheelFrictionCoefficient: 1.2 };
   for (const path of eventless.paths) path.markers = [];
   const exportedBdx = await window.bordeauxAPI.exportBdx(eventless, eventless.paths[0].id);
   // Repeated Save keeps the source admitted. New would detach main while leaving App on its old document.

@@ -7,6 +7,7 @@ import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
 import { blankPath, createDemoProject } from "../src/shared/project/defaults";
 import { buildRobotBinary, type BuiltRobotBinary } from "../src/shared/export/robotBinary";
 import { autosaveProjectFolder, projectWorkspacePath, writeProjectFolderBdx } from "../src/electron/projectFiles";
+import { forceExportRobot } from "./fixtures/forceExportRobot";
 let root: string, worker: string;
 beforeAll(async () => {
   root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-real-bdx-")));
@@ -19,6 +20,7 @@ beforeAll(async () => {
 afterAll(async () => { await fs.rm(root, { recursive: true, force: true }); });
 it("builds 65 real paths in existing 64+1 batches with exact bytes and selected order, then writes Git-shareable local BDX", async () => {
   const project = createDemoProject(); project.paths = Array.from({ length: 65 }, (_, index) => ({ ...blankPath(`Path ${index}`), id: `path-${index}` }));
+  project.robot = forceExportRobot();
   project.editor!.activePathId = project.paths[0].id;
   const bindings = bdxBindingsFromCatalog(null), selections = [...project.paths].reverse().map(item => ({ kind: "path" as const, id: item.id }));
   const result: BuiltRobotBinary[] = [], signal = new AbortController().signal;

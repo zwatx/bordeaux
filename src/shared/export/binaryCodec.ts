@@ -57,6 +57,7 @@ export function encodeBinaryEnvelope(payload: Uint8Array): Uint8Array {
   if (payload.length > MAX_BINARY_PAYLOAD_BYTES) throw new Error("BDX payload exceeds 16 MiB");
   const header = Buffer.alloc(32);
   header.write("BDXLV1\r\n", 0, "ascii"); header.writeUInt16BE(1, 8); header.writeUInt32BE(32, 12);
+  header.writeUInt16BE(1, 10);
   header.writeUInt32BE(payload.length, 16); header.writeUInt32BE(crc32(payload), 20);
   return Buffer.concat([header, payload]);
 }
