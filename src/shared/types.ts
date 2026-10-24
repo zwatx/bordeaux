@@ -44,6 +44,27 @@ export interface RobotConfig {
     wheelbaseM?: number;
     trackwidthM?: number;
     wheelFrictionCoefficient?: number;
+    /**
+     * Electrical drive model inputs. Planning always uses the electrical model when
+     * the stall and free current are known, from these fields or the motorId preset;
+     * unset fields take the defaults in ELECTRICAL_DRIVE_DEFAULTS (robotLimits.ts).
+     * A custom motor without them keeps the 12 V stall-torque line, with
+     * motorMaxTorqueNm as the datasheet stall torque.
+     */
+    motorStallCurrentA?: number;
+    motorFreeCurrentA?: number;
+    /** Stator (phase) current limit per drive motor. Defaults to the preset controller default. */
+    driveCurrentLimitA?: number;
+    /** Battery voltage at the start of the path. Defaults to 12 V. */
+    batteryVoltageV?: number;
+    /** Battery internal plus wiring resistance. Defaults to 0.02 ohm. */
+    batteryResistanceOhm?: number;
+    /** Current drawn by other mechanisms while driving paths. Defaults to 0 A. */
+    otherLoadA?: number;
+    /** Drive gearing and wheel efficiency, 0 to 1. Defaults to 0.9. */
+    driveEfficiency?: number;
+    /** Fraction of drive voltage and current kept for path-following correction, 0 to 0.5. Defaults to 0.1. */
+    controlReserve?: number;
   };
   maxSpeed: number;
 }

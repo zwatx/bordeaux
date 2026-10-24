@@ -5,7 +5,8 @@ import { routeIntentKey } from "./routeIdentity";
 import { routeGeometryShapeError } from "./routeGeometry";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
 
-const PLANNER_VERSION = "corridor-selection/1";
+// 2: drive models use the electrical motor envelope (current limit, battery sag) by default.
+const PLANNER_VERSION = "corridor-selection/2";
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 

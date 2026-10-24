@@ -404,6 +404,20 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         validateOptionalFinite(issues, project.robot.driveModel.wheelbaseM, `${modelPath}.wheelbaseM`, "Wheelbase", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.trackwidthM, `${modelPath}.trackwidthM`, "Trackwidth", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.wheelFrictionCoefficient, `${modelPath}.wheelFrictionCoefficient`, "Wheel friction coefficient", { positive: true });
+        validateOptionalFinite(issues, project.robot.driveModel.motorStallCurrentA, `${modelPath}.motorStallCurrentA`, "Motor stall current", { positive: true });
+        validateOptionalFinite(issues, project.robot.driveModel.motorFreeCurrentA, `${modelPath}.motorFreeCurrentA`, "Motor free current", { nonnegative: true });
+        validateOptionalFinite(issues, project.robot.driveModel.driveCurrentLimitA, `${modelPath}.driveCurrentLimitA`, "Drive current limit", { positive: true });
+        validateOptionalFinite(issues, project.robot.driveModel.batteryVoltageV, `${modelPath}.batteryVoltageV`, "Battery voltage", { positive: true });
+        validateOptionalFinite(issues, project.robot.driveModel.batteryResistanceOhm, `${modelPath}.batteryResistanceOhm`, "Battery resistance", { nonnegative: true });
+        validateOptionalFinite(issues, project.robot.driveModel.otherLoadA, `${modelPath}.otherLoadA`, "Other mechanism current", { nonnegative: true });
+        validateOptionalFinite(issues, project.robot.driveModel.driveEfficiency, `${modelPath}.driveEfficiency`, "Drive efficiency", { positive: true });
+        if (typeof project.robot.driveModel.driveEfficiency === "number" && project.robot.driveModel.driveEfficiency > 1) {
+          issues.push(issue(`${modelPath}.driveEfficiency`, "Drive efficiency must be at most 1"));
+        }
+        validateOptionalFinite(issues, project.robot.driveModel.controlReserve, `${modelPath}.controlReserve`, "Control reserve", { nonnegative: true });
+        if (typeof project.robot.driveModel.controlReserve === "number" && project.robot.driveModel.controlReserve > 0.5) {
+          issues.push(issue(`${modelPath}.controlReserve`, "Control reserve must be at most 0.5"));
+        }
         if (project.robot.driveModel.motorCount !== undefined && !Number.isInteger(project.robot.driveModel.motorCount)) {
           issues.push(issue(`${modelPath}.motorCount`, "Drive motor count must be an integer"));
         }
