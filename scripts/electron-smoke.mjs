@@ -107,6 +107,15 @@ try {
   const resultLine = output.split(/\r?\n/).find((line) => line.startsWith("BORDEAUX_SMOKE_RESULT "));
   assert.ok(resultLine, "Electron smoke process did not return results");
   const result = JSON.parse(resultLine.slice("BORDEAUX_SMOKE_RESULT ".length));
+  const { robotHardLimits } = require("../dist-electron/shared/robotLimits.js");
+  const presetLimits = robotHardLimits(result.motorPresetRobot);
+  assert.ok(presetLimits?.electrical, "Preset autosave must use the electrical drive model");
+  assert.ok(Math.abs(result.motorPresetRobot.maxSpeed - presetLimits.maxSpeedMps) <= 1e-9,
+    "Preset autosave speed must match the shared electrical model");
+  const presetModel = result.motorPresetRobot.driveModel;
+  const unloadedSpeed = presetModel.motorFreeRpm / 60 * Math.PI * presetModel.wheelDiameterM / presetModel.gearRatio;
+  assert.ok(result.motorPresetRobot.maxSpeed < unloadedSpeed,
+    "Default voltage reserve and losses must reduce the unloaded preset speed");
   assert.deepEqual(result.unnamed, [], "All controls must have accessible names");
   assert.ok(result.main > 0, "Main landmark must exist");
   assert.ok(result.nav > 0, "Navigation landmark must exist");
