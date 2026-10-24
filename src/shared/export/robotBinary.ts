@@ -6,6 +6,7 @@ import { BinaryWriter, encodeBinaryEnvelope, utf8, type BinaryKind } from "./bin
 import { densifyRobotSamples } from "./robotSamples";
 import { portableFileStem } from "../portableFileName";
 import { robotSchemaValueError } from "../robotCommands";
+import { buildModuleForces, type ModuleForcesN } from "./moduleForces";
 
 export interface BinarySelection { kind: BinaryKind; id: string }
 export interface BdxParameterType { niType: string; choices?: string[] }
@@ -13,6 +14,7 @@ export interface BdxParameterType { niType: string; choices?: string[] }
 export interface BinaryBindings { catalog: RobotCommandCatalog; parameterTypes: Record<string, Record<string, BdxParameterType>>; definitionJson: string }
 export interface BuiltRobotBinary {
   bytes: Uint8Array; sha256: string; document: RobotTrajectoryDocument; travelHeadings: number[];
+  moduleForcesN: ModuleForcesN[];
   name: string; fileName: string; pathCount: number; eventCount: number; sampleCount: number;
 }
 const bounded = (value: number, min: number, max: number, label: string) => {
@@ -99,12 +101,14 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
   document.routine = null;
   const path = document.paths[0];
   if (path.followSections.some((section) => section.mode !== "time")) throw new Error(`Path ${path.name}: position-follow sections are not supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
-  const sampled = densifyRobotSamples(path.samples, buildCanonicalPathState(selected, path.samples).points.map((point) => point.tangentRad));
+  const canonical = buildCanonicalPathState(selected, path.samples);
+  const sampled = densifyRobotSamples(path.samples, canonical.points.map((point) => point.tangentRad), canonical.points.map((point) => point.curvatureInvM));
   path.samples = sampled.samples;
   path.followSections = path.followSections.map((section) => ({ ...section,
     startSample: sampled.sourceIndices[section.startSample], endSample: sampled.sourceIndices[section.endSample],
   }));
   const travelHeadings = sampled.travelHeadings;
+  const moduleForcesN = buildModuleForces(project.robot, path.samples, travelHeadings, sampled.curvatures);
   count(path.samples.length, 2, 100000, "Sample count"); count(path.events.length, 0, 2000, "Event count"); count(path.followSections.length, 1, 4096, "Follow section count");
   bounded(path.totalTimeS, 0, Number.MAX_VALUE, "Path duration"); bounded(path.totalDistanceM, 0, Number.MAX_VALUE, "Path distance");
   for (const value of [document.robot.widthM, document.robot.lengthM, document.robot.maxSpeedMps]) if (!(value > 0 && Number.isFinite(value))) throw new Error("BDX robot dimensions and maximum speed must be positive and finite");
@@ -124,6 +128,7 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     if (before && sample.t === before.t && sampleFields.some((key) => key !== "t" && !close(sample[key], before[key]))) throw new Error("Equal-time BDX samples must have equivalent pose, distance, fraction and dynamics");
     if (path.totalTimeS === 0 && (sample.velocityMps !== 0 || sample.angularVelocityRadps !== 0 || !close(sample.s, 0) || !close(sample.x, path.samples[0].x) || !close(sample.y, path.samples[0].y) || !close(sample.headingRad, path.samples[0].headingRad))) throw new Error("A zero-duration BDX must be stationary");
     for (const value of [sample.t, sample.s, sample.f, sample.x, sample.y, sample.headingRad, travelHeadings[index], sample.velocityMps, sample.accelerationMps2, sample.angularVelocityRadps, sample.curvatureInvM]) payload.dbl(value);
+    for (const force of moduleForcesN[index]) payload.dbl(force);
   });
   const last = path.samples.at(-1)!;
   if (!close(last.t, path.totalTimeS) || !close(last.s, path.totalDistanceM)) throw new Error("BDX totals do not match the last sample");
@@ -156,6 +161,6 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     payload.section(output);
   }
   const bytes = encodeBinaryEnvelope(payload.finish());
-  return { bytes, document, travelHeadings, sha256: createHash("sha256").update(bytes).digest("hex"), name: selected.name,
+  return { bytes, document, travelHeadings, moduleForcesN, sha256: createHash("sha256").update(bytes).digest("hex"), name: selected.name,
     fileName: binaryFileName(selected.name), pathCount: 1, eventCount: path.events.length, sampleCount: path.samples.length };
 }

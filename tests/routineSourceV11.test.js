@@ -11,6 +11,7 @@ import { validateProjectSource } from '../src/shared/validation';
 import * as commands from '../src/shared/robotCommands';
 import { buildRobotTrajectory } from '../src/shared/export/robotTrajectory';
 import { buildRobotBinary } from '../src/shared/export/robotBinary';
+import { forceExportRobot } from './fixtures/forceExportRobot';
 import { bdxBindingsFromCatalog } from '../src/electron/bdxBindings';
 import { autosaveProjectFolder, openProjectFolder } from '../src/electron/projectFiles';
 import { ProjectRecoveryStore } from '../src/electron/projectRecoveryStore';
@@ -108,6 +109,7 @@ describe('hard routine boundary and independent path binary', () => {
   });
   it('builds byte-identical selected path BDX with an incomplete 1.1 loop and actual worker scoped planning', async () => {
     const project = createDemoProject(), bindings = bdxBindingsFromCatalog(null), selection = { kind: 'path', id: project.paths[0].id };
+    project.robot = forceExportRobot();
     const expected = buildRobotBinary(project, selection, bindings);
     project.routines[0].nodes = [repeat()]; project.schemaVersion = '1.1';
     const actual = buildRobotBinary(project, selection, bindings); expect(actual.bytes).toEqual(expected.bytes); expect(actual.document.paths).toEqual(expected.document.paths);

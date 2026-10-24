@@ -15,6 +15,7 @@ import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/file
 import { validateProject } from "../src/shared/validation";
 import type { BordeauxProject, CommandArgumentValue, PlannerResult, PathDoc } from "../src/shared/types";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
+import { forceExportRobot } from "./fixtures/forceExportRobot";
 
 const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v2/corpus.bordeaux.json", "utf8")).project;
 let path: PathDoc;
@@ -196,6 +197,7 @@ describe("explicit accepted optimization", () => {
 
 describe("applied optimization across export targets and agent analysis", () => {
   const fixture = binaryWriterFixture();
+  const physicalProject = { ...project, robot: forceExportRobot() };
   let applied: BordeauxProject;
   let accepted: PlannerResult;
   let normal: PlannerResult;
@@ -206,10 +208,10 @@ describe("applied optimization across export targets and agent analysis", () => 
     delete event.invocation!.arguments.enabled;
     const authored = structuredClone(project.paths.find((candidate) => candidate.name.toLowerCase().includes("slalom"))!);
     authored.markers = [{ ...event, f: 0.4 }];
-    const output = optimizeCorridorFinal({ path: authored, robot: project.robot });
-    const optimized = { ...authored, optimization: { corridorM: 0.15, accepted: createAcceptedTrajectory(authored, project.robot, output) } };
+    const output = optimizeCorridorFinal({ path: authored, robot: physicalProject.robot });
+    const optimized = { ...authored, optimization: { corridorM: 0.15, accepted: createAcceptedTrajectory(authored, physicalProject.robot, output) } };
     applied = {
-      ...structuredClone(project), paths: [optimized], pathLinks: [],
+      ...structuredClone(physicalProject), paths: [optimized], pathLinks: [],
       routines: [{ id: "path-only", name: "Path only", nodes: [] }], activeRoutineId: "path-only", editor: { activePathId: optimized.id },
     };
     accepted = getAcceptedTrajectory(optimized, applied.robot, applied.field)!;

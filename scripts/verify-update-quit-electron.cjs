@@ -101,7 +101,9 @@ updater.quitAndInstall = () => {
     save.click(save, win, {});
     await wait(() => result.events.filter(item => item.kind === 'project:saveWithCheckpoint:returned').length > savesBefore, 'actual native Save result');
     const saved = result.events.filter(item => item.kind === 'project:saveWithCheckpoint:returned').at(-1).value.result;
-    assert.equal(saved.saved, true); assert.ok(saved.bdxCount > 0); assert.equal(saved.exportError, undefined);
+    assert.equal(saved.saved, true);
+    assert.equal(saved.exportError, undefined, 'Explicit Save must export BDX: ' + saved.exportError);
+    assert.ok(saved.bdxCount > 0, 'Explicit Save must produce at least one BDX path');
     result.bdxAfterExplicitSave = bdxHashes(); assert.ok(Object.keys(result.bdxAfterExplicitSave).length > 0); result.saveAvailable = true;
     await type(await inputSelector(), fixture.secondX);
     let entered; const atWrite = new Promise(resolve => entered = resolve), gate = new Promise(resolve => releaseWrite = resolve); const rename = fsp.rename; let held = false;

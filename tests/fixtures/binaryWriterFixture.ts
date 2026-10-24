@@ -1,10 +1,12 @@
 import { compileLabviewCatalog } from "../../src/electron/labviewProject";
 import { bdxBindingsFromCatalog } from "../../src/electron/bdxBindings";
 import { blankPath, buildWaypoints, createDemoProject } from "../../src/shared/project/defaults";
+import { forceExportRobot } from "./forceExportRobot";
 
 /** Synthetic type evidence for byte tests, never a claim of inspected or runnable team VIs. */
 export function binaryWriterFixture(curved = false, withEvents = true) {
   const project = createDemoProject(), path = blankPath(curved ? "Curve and typed events" : "Straight path");
+  project.robot = forceExportRobot();
   path.id = curved ? "fixture-curve" : "fixture-straight";
   if (curved) {
     path.waypoints = buildWaypoints([{ x: 2.2, y: 4, theta: 90, segType: "bezier" }, { x: 3.5, y: 5, theta: 0, segType: "bezier" }, { x: 5, y: 4, theta: -90 }]);

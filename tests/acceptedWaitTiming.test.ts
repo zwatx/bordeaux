@@ -7,12 +7,14 @@ import { getPlanner } from "../src/shared/planners";
 import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
 import type { PlannerResult } from "../src/shared/types";
+import { forceExportRobot } from "./fixtures/forceExportRobot";
 // @ts-expect-error The production planning worker is an intentional JavaScript module.
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 
 describe("exact waypoint wait timing", () => {
   it("keeps a worker optimization with a fractional wait usable after application and reopening", () => {
     const project = createDemoProject(), path = project.paths[0];
+    project.robot = forceExportRobot();
     path.constraints.maxVel = 0.2;
     path.waypoints = buildWaypoints([
       { x: 7, y: 1, theta: 0, nextC: { x: 7, y: 2 } },
