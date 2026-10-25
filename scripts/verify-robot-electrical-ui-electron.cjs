@@ -71,7 +71,9 @@ app.whenReady().then(async () => {
       motorId: 'rev-vortex', motorFreeRpm: 6784, motorMaxTorqueNm: 3.6, motorCount: 4, gearRatio: 5.5, wheelDiameterM: 0.0762,
       massKg: 54.4310844, moiKgM2: 4, wheelbaseM: 0.521, trackwidthM: 0.618, wheelFrictionCoefficient: 1.1,
     };
-    saved = { ...corpus, robot: { ...corpus.robot, w: 0.84, l: 0.84, maxSpeed: 4.92, driveModel }, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, robot: { ...corpus.robot, w: 0.84, l: 0.84, maxSpeed: 4.92, driveModel }, paths: [first], pathLinks: [], routines: [{ id: 'power-routine', name: 'Power routine with repeated driving and a cooling wait', nodes: [
+      { id: 'power-path-1', type: 'path', ref: first.id }, { id: 'power-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } }, { id: 'power-path-2', type: 'path', ref: first.id },
+    ] }], activeRoutineId: 'power-routine', editor: { activePathId: first.id, unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
@@ -182,6 +184,65 @@ app.whenReady().then(async () => {
     assert.equal(await placeholder('Drive current limit'), '211');
     await snapshot('custom-motor-1440', 'Electrical model');
     console.log('PASS Choosing a custom motor keeps editable stall and free current');
+
+    // Electrical configuration uses the existing numeric drafts and commits exact canonical values.
+    await typeInto('Minimum bus voltage', '8');
+    await click('button', 'Add load burst');
+    await typeInto('Load burst 1 start', '0.5');
+    await typeInto('Load burst 1 end', '2');
+    await typeInto('Load burst 1 additional current', '15');
+    await click('button', 'Use REV 40 A ATO drive breakers');
+    await click('button', 'Use Bussmann 185120F main breaker');
+    await click('button', 'Edit main breaker');
+    await typeInto('Main breaker initial heat', '25');
+    await click('button', 'Use main breaker curve');
+    await save();
+    assert.equal(saved.robot.driveModel.minimumBusVoltageV, 8);
+    assert.deepEqual(saved.robot.driveModel.loadBursts, [{ startTimeS: 0.5, endTimeS: 2, currentA: 15 }]);
+    assert.deepEqual(saved.robot.driveModel.driveBreaker, { ratedCurrentA: 40, tripTimeAt2xS: 5, initialHeat: 0 });
+    assert.deepEqual(saved.robot.driveModel.mainBreaker, { ratedCurrentA: 120, tripTimeAt2xS: 10, initialHeat: 0.25 });
+    await win.reload();
+    await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'power restored places');
+    await click('.places .place', 'Settings');
+    await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Minimum bus voltage"]')), 'power settings restored');
+    await wait(async () => await fieldText('Minimum bus voltage') === '8.00', 'restored voltage floor');
+    assert.equal(await fieldText('Minimum bus voltage'), '8.00');
+    assert.equal(await fieldText('Load burst 1 additional current'), '15.00');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await snapshot(`power-loads-${width}`, 'Mechanism load bursts');
+      await snapshot(`power-breakers-${width}`, 'Breaker estimates');
+      await click('button', 'Edit main breaker');
+      await typeInto('Main breaker cold trip at 2×', '99', 'Escape');
+      await click('button', 'Cancel');
+    }
+    console.log('PASS Voltage floor, load schedule and breaker curves survive save/reload; Escape cancels drafts');
+    await click('.places .place', 'Paths');
+    await wait(() => evaluate(() => !!document.querySelector('.pp-head-actions button') && [...document.querySelectorAll('.pp-head-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'current power report');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('.pp-head-actions button', 'Power');
+      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'path power results');
+      assert.equal(await evaluate(() => !!document.querySelector('.power-dialog [role="alert"]')), false);
+      await fs.writeFile(path.join(output, `power-path-${width}.png`), (await capture()).toPNG());
+      await key('Escape');
+      assert.equal(await evaluate(() => document.activeElement?.textContent), 'Power');
+      await key('Enter');
+      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'keyboard reopened power');
+      await key('Escape');
+    }
+    await click('.places .place', 'Routines');
+    await wait(() => evaluate(() => [...document.querySelectorAll('.routine-workspace-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'routine planned');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('.routine-workspace-actions button', 'Power');
+      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'routine power results');
+      await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await delay(600);
+      await fs.writeFile(path.join(output, `power-routine-${width}.png`), (await capture()).toPNG());
+      await key('Escape');
+    }
+    console.log('PASS Real pointer and Enter/Escape report controls; path/routine results at both supported sizes');
 
     assert.deepEqual(errors, []);
     app.exit(0);

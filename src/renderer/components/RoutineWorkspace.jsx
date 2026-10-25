@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { UI } from './ui';
+import { PowerAnalysis } from './PowerAnalysis';
 
 const h = React.createElement;
 
 /** The preview boundary, said once. Per-step choices and untimed time live in the inspector and transport. */
 export const PREVIEW_HELP = 'Preview only; commands and conditions do not run. Robot routine playback is unavailable.';
 
-export function RoutineWorkspace({ routine, flow, field, transport, status }) {
+export function RoutineWorkspace({ routine, flow, field, transport, status, run, robot }) {
   const [view, setView] = React.useState('flow');
   const [help, setHelp] = React.useState(false);
   const trigger = React.useRef(null), popover = React.useRef(null);
@@ -38,6 +39,7 @@ export function RoutineWorkspace({ routine, flow, field, transport, status }) {
     h('header', { className: 'routine-workspace-head' },
       h('div', { className: 'routine-workspace-title' }, h('strong', null, routine.name)),
       h('div', { className: 'routine-workspace-actions' },
+        robot && h(PowerAnalysis, { robot, run }),
         h('button', { ref: trigger, type: 'button', className: 'routine-workspace-about', popovertarget: 'routine-preview-notes',
           'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
           // Tabbing on closes it, so it never covers the control that takes focus next.

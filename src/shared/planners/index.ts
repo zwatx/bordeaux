@@ -9,7 +9,7 @@ import { addJerkDiagnostics } from "./jerkDiagnostics";
 import { addAngularLimitDiagnostics } from "./angularConstraints";
 import { applyStationaryActions } from "./stationaryActions";
 import { applyRotationPriority, headingTransitionIntervalMask } from "./rotationPriority";
-import { physicalPlannerInput } from "../robotLimits";
+import { physicalPlannerInput, electricalConfigurationError } from "../robotLimits";
 import { validateOptimizedTrajectory } from "./trajectoryValidation";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "./limits";
 
@@ -52,7 +52,7 @@ function localVelocityLimitsForViolations(
   for (const violation of validation.violations) {
     const sample = checked.samples[violation.sampleIndex];
     if (!sample || violation.measured <= violation.limit + EPSILON) continue;
-    if (!["drivetrain-velocity", "drivetrain-acceleration", "angular-velocity", "angular-acceleration"].includes(violation.kind)) continue;
+    if (!["drivetrain-velocity", "drivetrain-acceleration", "electrical-power", "angular-velocity", "angular-acceleration"].includes(violation.kind)) continue;
     const center = nearestFractionIndex(base.samples, sample.f);
     const exponent = violation.kind === "angular-acceleration" ? 0.5 : 1;
     const safetyFactor = violation.kind === "angular-acceleration" ? 0.95 : 0.99;
@@ -60,7 +60,7 @@ function localVelocityLimitsForViolations(
       (violation.limit / violation.measured) ** exponent * safetyFactor,
     ));
     const centerLimit = Math.abs(base.samples[center].velocityMps) * ratio;
-    const radius = violation.kind === "drivetrain-acceleration" || violation.kind === "angular-acceleration"
+    const radius = violation.kind === "drivetrain-acceleration" || violation.kind === "angular-acceleration" || violation.kind === "electrical-power"
       ? 8
       : 3;
     for (let offset = -radius; offset <= radius; offset += 1) {
@@ -137,6 +137,8 @@ export function getPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
   return {
     id: planner.id,
     generate(input) {
+      const electricalError = electricalConfigurationError(input.robot);
+      if (electricalError) throw new Error(electricalError);
       const maxAngDecel = input.path.constraints.maxAngDecel;
       if (maxAngDecel !== undefined && !Number.isFinite(maxAngDecel)) throw new Error("maxAngDecel must be a finite number");
       if (maxAngDecel !== undefined && maxAngDecel <= 0) throw new Error("maxAngDecel must be greater than zero");

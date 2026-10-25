@@ -6,6 +6,7 @@ import { optimizeRouteFinal } from "../../shared/planners/routeFinal";
 import { getPlanner } from "../../shared/planners";
 import { authoredPath, getAcceptedTrajectory } from "../../shared/planners/acceptedTrajectory";
 import { flipProjectPaths } from "../../shared/project/flipField";
+import { analyzeRoutinePower, analyzeTrajectoryPower } from '../../shared/planners/trajectoryPower';
 
 const FINAL_POSITION_TOLERANCE_M = 1e-4;
 const FINAL_INTERPOLATION_POSITION_TOLERANCE_M = 1e-3;
@@ -296,6 +297,12 @@ export function processPathPreviewJob(
 ) {
   const startedAt = performance.now();
   try {
+    if (job.mode === 'power') {
+      const value = job.segments
+        ? analyzeRoutinePower(job.robot, job.segments, job.totalTimeS)
+        : analyzeTrajectoryPower(job.robot, job.trajectory.optimizedPath || job.path, job.trajectory.samples);
+      return { id: job.id, value, durationMs: performance.now() - startedAt };
+    }
     if (job.mode === 'flip') {
       const value = flipProjectPaths(job.project, path => Boolean(getAcceptedTrajectory(path, job.project.robot, job.project.field)));
       for (let index = 0; index < value.paths.length; index++) {

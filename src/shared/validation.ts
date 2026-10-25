@@ -414,6 +414,28 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         validateOptionalFinite(issues, project.robot.driveModel.batteryVoltageV, `${modelPath}.batteryVoltageV`, "Battery voltage", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.batteryResistanceOhm, `${modelPath}.batteryResistanceOhm`, "Battery resistance", { nonnegative: true });
         validateOptionalFinite(issues, project.robot.driveModel.otherLoadA, `${modelPath}.otherLoadA`, "Other mechanism current", { nonnegative: true });
+        validateOptionalFinite(issues, project.robot.driveModel.minimumBusVoltageV, `${modelPath}.minimumBusVoltageV`, "Minimum bus voltage", { positive: true });
+        if ((project.robot.driveModel.minimumBusVoltageV ?? 7.25) >= (project.robot.driveModel.batteryVoltageV ?? 12)) {
+          issues.push(issue(`${modelPath}.minimumBusVoltageV`, "Minimum bus voltage must be below the battery voltage"));
+        }
+        const bursts = project.robot.driveModel.loadBursts;
+        if (bursts !== undefined) {
+          if (!Array.isArray(bursts) || bursts.length > 128) issues.push(issue(`${modelPath}.loadBursts`, "Use at most 128 mechanism load bursts"));
+          else bursts.forEach((burst, index) => {
+            const p = `${modelPath}.loadBursts[${index}]`;
+            if (!burst || ![burst.startTimeS, burst.endTimeS, burst.currentA].every(Number.isFinite)
+              || burst.startTimeS < 0 || burst.endTimeS <= burst.startTimeS || burst.currentA < 0) {
+              issues.push(issue(p, "Load burst requires nonnegative start/current and an end after its start"));
+            }
+          });
+        }
+        for (const key of ['driveBreaker', 'mainBreaker'] as const) {
+          const breaker = project.robot.driveModel[key];
+          if (breaker !== undefined && (!isRecord(breaker) || !finite(breaker.ratedCurrentA) || !finite(breaker.tripTimeAt2xS) || !finite(breaker.initialHeat)
+            || breaker.ratedCurrentA <= 0 || breaker.tripTimeAt2xS <= 0 || breaker.initialHeat < 0 || breaker.initialHeat > 1)) {
+            issues.push(issue(`${modelPath}.${key}`, "Breaker requires positive rating/trip time and initial heat from 0 to 1"));
+          }
+        }
         validateOptionalFinite(issues, project.robot.driveModel.driveEfficiency, `${modelPath}.driveEfficiency`, "Drive efficiency", { positive: true });
         if (typeof project.robot.driveModel.driveEfficiency === "number" && project.robot.driveModel.driveEfficiency > 1) {
           issues.push(issue(`${modelPath}.driveEfficiency`, "Drive efficiency must be at most 1"));

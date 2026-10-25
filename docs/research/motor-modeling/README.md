@@ -1,6 +1,7 @@
 # Motor modeling for feasible paths
 
 Current extension: [weight transfer, CG height, and load-dependent exported forces](weight-transfer.md).
+Latest extension: [shared battery prediction, brownout checks, mechanism loads and breaker heating](electrical-power.md). The research conclusions below describe the pre-implementation baseline; use the implementation sections and extension documents for current behavior.
 
 Research date: 2026-10-24. Sources: Greg McKaskle's LabVIEW motor-sim (`C:\Users\zwatx\Developer\LabView\motor-sim`, last commit 1f24177, 2021-11-20) and the Bordeaux planner on `main` at 027098c. Nothing here has been run against robot logs yet. The numbers below come from the reference script in this folder, not from robot measurements.
 

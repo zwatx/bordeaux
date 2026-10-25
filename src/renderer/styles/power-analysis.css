@@ -1,0 +1,13 @@
+.power-dialog { width: min(600px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow: auto; padding: 24px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-1); color: var(--txt); }
+.power-dialog::backdrop { background: #0009; }
+.power-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.power-dialog h2 { margin: 0; font-size: 18px; }
+.power-dialog p { line-height: 1.55; font-size: 13px; }
+.power-results { margin: 20px 0; }
+.power-results > div { display: flex; justify-content: space-between; gap: 24px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.power-results dt { font-size: 13px; }
+.power-results dd { margin: 0; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.power-limit-note { color: var(--txt-2); }
+.power-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.power-burst, .power-breaker { margin: 16px 0; }
+.power-minimum { margin-top: 16px; }

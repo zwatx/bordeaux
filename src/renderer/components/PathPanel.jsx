@@ -10,6 +10,7 @@ import { fAtT, featureFraction, featurePositionPatch, tAtF, zoneFractions } from
 import { plainProblem } from './planProblems';
 import { UI } from './ui';
 import { ProblemsMenu } from './ProblemsMenu';
+import { PowerAnalysis } from './PowerAnalysis';
 
 // Docked properties under the field: the selection's everyday values, editable in place.
 // Rarer options stay in the full inspector behind More. Labels are a word or two.
@@ -33,7 +34,7 @@ function Note({ children }) {
   return h('div', { className: 'pp-note' }, children);
 }
 
-export function PathPanel({ doc, sel, derived, tl, robot, drive, project, actions, robotProject, issue, issueStale, onFixIssue, onClearIssue, onMore, moreOpen, playbackStore, problems, commandPickFor, documentKey }) {
+export function PathPanel({ doc, sel, derived, tl, robot, drive, project, actions, robotProject, issue, issueStale, onFixIssue, onClearIssue, onMore, moreOpen, playbackStore, problems, commandPickFor, documentKey, stale = false }) {
   const heading = React.useRef(null);
   const bodyRef = React.useRef(null), live = React.useRef(null), pendingFocus = React.useRef(null);
   React.useEffect(() => () => pendingFocus.current?.(), []);
@@ -264,6 +265,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
         h('span', { className: 'pp-title', title }, title),
         sub && h('span', { className: 'pp-sub' }, sub)),
       h('span', { className: 'pp-head-actions' },
+        h(PowerAnalysis, { robot, path: doc, trajectory: derived?.finalTrajectory, stale: stale || issueStale }),
         !issue && h('button', { type: 'button', className: 'pp-more', 'aria-expanded': Boolean(moreOpen), onClick: onMore }, 'More'),
         selected && h('button', { type: 'button', className: 'pp-mini', 'aria-label': 'Clear selection', title: 'Clear selection  (Esc)', onClick: () => (issue && onClearIssue ? onClearIssue() : actions.select(null, -1)) }, h(Icon, { name: 'x', size: 12 })))),
     problems && h(ProblemsMenu, { problems, waypointCount: n, heading }),

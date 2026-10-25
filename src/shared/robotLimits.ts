@@ -108,6 +108,40 @@ export function hasElectricalDriveModel(model: DriveModel | undefined): boolean 
   return resolveElectricalDriveInputs(model) !== null;
 }
 
+/** Timing must remain feasible even when command timing differs from the local preview. */
+export function peakMechanismCurrent(model: DriveModel): number {
+  const bursts = model.loadBursts ?? [];
+  const events = bursts.flatMap(burst => [{ t: burst.startTimeS, change: burst.currentA }, { t: burst.endTimeS, change: -burst.currentA }])
+    .sort((a, b) => a.t - b.t || a.change - b.change);
+  let current = model.otherLoadA ?? 0, peak = current;
+  for (const event of events) { current += event.change; peak = Math.max(peak, current); }
+  return peak;
+}
+
+/** Distinguish an electrically impossible configuration from an absent/custom model. */
+export function electricalConfigurationError(robot: RobotConfig): string | null {
+  const model = robot.driveModel, resolved = resolveElectricalDriveInputs(model);
+  if (!model || !resolved) return null;
+  const p = resolved.values;
+  const windingR = 12 / p.motorStallCurrentA;
+  if (p.motorFreeCurrentA * windingR >= 12) return 'Motor free current must be below stall current; review the motor data.';
+  if (p.batteryVoltageV - p.batteryResistanceOhm * peakMechanismCurrent(model) <= (model.minimumBusVoltageV ?? 7.25)) {
+    return 'Mechanism loads alone reach the minimum bus voltage; reduce their peak load or review the battery settings.';
+  }
+  if (p.driveCurrentLimitA * (1 - p.controlReserve) <= p.motorFreeCurrentA) {
+    return 'The planning current budget does not cover motor loss current; review the current limit and control reserve.';
+  }
+  const cap = p.batteryResistanceOhm > 0
+    ? ((p.batteryVoltageV - (model.minimumBusVoltageV ?? 7.25)) / p.batteryResistanceOhm - peakMechanismCurrent(model)) / (model.motorCount ?? 4)
+    : Infinity;
+  if (cap <= p.motorFreeCurrentA) return 'The minimum bus voltage leaves no drive current budget; review the battery and mechanism loads.';
+  if ((p.batteryVoltageV - p.batteryResistanceOhm * peakMechanismCurrent(model)) * (1 - p.controlReserve)
+    <= p.motorFreeCurrentA * (windingR + (model.motorCount ?? 4) * p.batteryResistanceOhm)) {
+    return 'Battery resistance and control reserve leave no usable motor voltage; review the electrical settings.';
+  }
+  return null;
+}
+
 // DC motor model from the datasheet stall/free figures at 12 V (as in the LabVIEW
 // motor-sim): R = 12/I_stall, Kt = tau_stall/I_stall, Kv = w_free/(12 - I_free*R).
 // At full duty the battery sag Vbus = V0 - R_bat*(N*I_supply + I_other) acts as N*R_bat
@@ -124,13 +158,21 @@ function electricalModel(model: DriveModel): DriveElectricalModel | null {
   if (!(backEmfAtFreeV > 0)) return null;
   const reserve = Math.min(0.5, inputs.controlReserve);
   const efficiency = Math.min(1, inputs.driveEfficiency);
+  const otherLoad = peakMechanismCurrent(model);
+  const minimumBus = model.minimumBusVoltageV ?? 7.25;
+  // Supply current never exceeds stator current in a feasible motoring state.
+  // This conservative cap gives the timing solver a brownout constraint before
+  // the shared-bus, unequal-module check in dense validation.
+  const brownoutCap = inputs.batteryResistanceOhm > 0
+    ? Math.max(0, ((inputs.batteryVoltageV - minimumBus) / inputs.batteryResistanceOhm - otherLoad) / model.motorCount!)
+    : Infinity;
   return {
     resistanceOhm,
     effectiveResistanceOhm: resistanceOhm + model.motorCount! * inputs.batteryResistanceOhm,
     torqueConstantNmPerA: model.motorMaxTorqueNm! / stallCurrentA,
     velocityConstantRadpsPerV: freeSpeedRadps / backEmfAtFreeV,
-    availableVoltageV: (inputs.batteryVoltageV - inputs.batteryResistanceOhm * inputs.otherLoadA) * (1 - reserve),
-    currentCapA: inputs.driveCurrentLimitA * (1 - reserve),
+    availableVoltageV: (inputs.batteryVoltageV - inputs.batteryResistanceOhm * otherLoad) * (1 - reserve),
+    currentCapA: Math.max(0, Math.min(inputs.driveCurrentLimitA * (1 - reserve), brownoutCap) - freeCurrentA),
     freeCurrentA,
     efficiency,
   };

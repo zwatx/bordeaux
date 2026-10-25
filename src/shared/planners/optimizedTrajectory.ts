@@ -486,7 +486,7 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
         const repairTractionFirst = Boolean(input.robot.driveModel)
           && resolveCgHeightM(input.robot.driveModel).value > 0
           && validation.violations.every((violation) =>
-          violation.refinable && violation.kind === "drivetrain-acceleration");
+          violation.refinable && (violation.kind === "drivetrain-acceleration" || violation.kind === "electrical-power"));
         const canRefine = allRefinable && refinementPasses < MAX_REFINEMENT_PASSES && withinSampleLimit;
         if (canRefine && !repairTractionFirst) {
           samplesPerSegment = nextSamplesPerSegment;
@@ -544,6 +544,7 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
             "centripetal-acceleration",
             "drivetrain-velocity",
             "drivetrain-acceleration",
+            "electrical-power",
           ].includes(violation.kind)
         ));
         if (uniformlyRetimable) {

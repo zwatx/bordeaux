@@ -18,6 +18,7 @@ const BY_CODE = {
   'angular-velocity': 'Turning too fast',
   'angular-acceleration': 'Turning too abruptly',
   'drivetrain-velocity': 'Wheels too fast',
+  'electrical-power': 'Battery or motor current overloaded',
   planner: 'Couldn’t time this path',
   'planner-error': 'Couldn’t time this path',
   'planner-fallback': 'Couldn’t time this path',

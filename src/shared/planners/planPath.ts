@@ -91,6 +91,7 @@ const ACCELERATION_KINDS = new Set<TrajectoryViolationKind>([
   "centripetal-acceleration",
   "angular-acceleration",
   "drivetrain-acceleration",
+  "electrical-power",
 ]);
 const ANGULAR_CODES = new Set<PlanIssueCode>(["angular-velocity", "angular-acceleration"]);
 const NON_CONSTRAINT_CODES = new Set<PlanIssueCode>(["planner-error", "planner-fallback"]);
@@ -412,6 +413,7 @@ const VALIDATION_LABELS: Record<TrajectoryViolationKind, string> = {
   "angular-acceleration": "Turn accel",
   "drivetrain-velocity": "Module speed",
   "drivetrain-acceleration": "Drive accel",
+  "electrical-power": "Electrical demand",
 };
 
 function validationConstraint(violation: TrajectoryConstraintViolation): string {
@@ -420,6 +422,7 @@ function validationConstraint(violation: TrajectoryConstraintViolation): string 
 }
 
 function validationValue(violation: TrajectoryConstraintViolation): { measured: number; limit: number; unit: string; label: string } {
+  if (violation.kind === 'electrical-power') return { measured: violation.measured * 100, limit: 100, unit: '%', label: 'Electrical demand' };
   const constraint = validationConstraint(violation);
   if (violation.kind === "angular-velocity") {
     return { measured: violation.measured * DEG, limit: violation.limit * DEG, unit: "deg/s", label: "Turn rate" };

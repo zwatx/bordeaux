@@ -7,6 +7,7 @@ import { UI } from "./ui";
 import { DRIVE_MOTOR_PRESETS } from "../../shared/motorPresets";
 import { resolveElectricalDriveInputs } from "../../shared/robotLimits";
 import { resolveCgHeightM } from "../../shared/loadTransfer";
+import { PowerSettings } from './PowerSettings';
 import "../styles/settings.css";
 
 // Bordeaux Robot config page (project-global).
@@ -382,6 +383,7 @@ import "../styles/settings.css";
               h('div', { className: 'rp-two rp-drive-model' },
                 electricalFields.map((field) => h('div', { className: 'rp-field', key: field.key }, h('div', { className: 'rp-flabel' }, field.label, fieldNote(field) && h('small', null, fieldNote(field))), h(BigNum, field)))),
               hasAuthoredElectrical && h('button', { className: 'qbtn quiet rp-use-physical', type: 'button', onClick: () => setDriveModel({}, ELECTRICAL_DEFAULT_KEYS) }, 'Use default electrical values'),
+              h(PowerSettings, { model: driveModel, setModel: setDriveModel, BigNum }),
               !hardLimits && h('button', { className: 'qbtn rp-use-physical', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits'),
               hardLimits && h('div', { className: 'rp-hard-limits' },
                 [['Top speed', hardLimits.maxSpeed, 'm/s', 2], ['Max acceleration', hardLimits.maxAccel, 'm/s²', 2], ['Acceleration at 3/4 speed', accelAt(0.75), 'm/s²', 2], ['Braking', hardLimits.maxDecel, 'm/s²', 2], ['Corner acceleration', hardLimits.maxCornerAccel, 'm/s²', 2], ['Angular speed', hardLimits.maxAngVel, '°/s', 0]].map(([label, value, unit, precision]) =>

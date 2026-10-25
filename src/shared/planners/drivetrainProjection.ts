@@ -1,5 +1,6 @@
 import type { RobotConfig } from "../types";
 import { robotHardLimits, type RobotHardLimits } from "../robotLimits";
+import { predictBus } from "../electricalPower";
 import {
   contactLoads,
   directionalAccelerationLimit,
@@ -57,6 +58,19 @@ export interface DrivetrainForceValue {
 }
 
 const moduleOffsets = driveContacts;
+
+/** Shared-bus prediction for the same wrench allocation used by validation and force export. */
+export function evaluateDrivetrainPower(
+  point: Parameters<typeof evaluateDrivetrainForces>[0], robot: RobotConfig,
+  velocity: number, acceleration: number, omega: number, alpha: number, otherCurrentA: number,
+  forces = evaluateDrivetrainForces(point, robot, velocity, acceleration, omega, alpha),
+) {
+  const kinematics = evaluateDrivetrainKinematics(point, robot, velocity, acceleration, omega, alpha);
+  return predictBus(robot, forces.map((force, index) => ({
+    label: force.label, speedMps: kinematics[index].speedMps,
+    forceN: kinematics[index].speedMps > EPSILON ? force.rollingForceN : force.requiredMotorForceN,
+  })), otherCurrentA);
+}
 
 /** Planner-wide traction inputs for one point, or null when wheel loads stay equal. */
 interface LoadTransferContext {
@@ -320,7 +334,7 @@ export function projectDrivetrainAtPoint(
 }
 
 export function evaluateDrivetrainKinematics(
-  point: CanonicalPathPoint,
+  point: Pick<CanonicalPathPoint, "headingRad" | "tangentX" | "tangentY" | "normalX" | "normalY" | "curvatureInvM">,
   robot: RobotConfig,
   velocityMps: number,
   accelerationMps2: number,

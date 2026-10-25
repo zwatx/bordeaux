@@ -71,8 +71,23 @@ export interface RobotConfig {
     driveEfficiency?: number;
     /** Fraction of drive voltage and current kept for path-following correction, 0 to 0.5. Defaults to 0.1. */
     controlReserve?: number;
+    /** Minimum planned bus voltage, including margin above the configured brownout threshold. Default 7.25 V. */
+    minimumBusVoltageV?: number;
+    /** Additional supply-current bursts, seconds from the start of the analyzed path or routine. Overlaps add. */
+    loadBursts?: { startTimeS: number; endTimeS: number; currentA: number }[];
+    /** Optional thermal estimates, one breaker per drive motor and one main breaker. No assumed hardware curve. */
+    driveBreaker?: BreakerModel;
+    mainBreaker?: BreakerModel;
   };
   maxSpeed: number;
+}
+
+export interface BreakerModel {
+  ratedCurrentA: number;
+  /** Cold trip time at twice rated current, taken from the actual breaker's curve. */
+  tripTimeAt2xS: number;
+  /** Fraction of modeled trip temperature at the beginning, 0 (cold) through 1. */
+  initialHeat: number;
 }
 
 export interface RobotIntakeProfile {

@@ -23,7 +23,9 @@ import path from "node:path";
 // shared hard-limit physics bring the total to 747,485 bytes; keep every chunk counted
 // with a 730 KiB cap. Combined CG load transfer, live robot reachability and the
 // nonmodal update popover use a 736 KiB cap, with every chunk counted.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 736 * 1024;
+// Power settings/report controls add ~10 KiB; trajectory/routine analysis runs in the shared worker.
+// Every application chunk remains counted.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 746 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -31,9 +33,10 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 736 * 1024;
 // The default electrical drive model (motor presets, planning defaults and motoring-only
 // module limits) measures 215,130 worker bytes.
 // Load-dependent traction and force allocation bring the worker to 226,971 bytes.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 222 * 1024;
+// Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
-const CSS_BUDGET_BYTES = 148 * 1024;
+const CSS_BUDGET_BYTES = 149 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

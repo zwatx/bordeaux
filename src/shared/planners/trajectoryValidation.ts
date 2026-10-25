@@ -10,9 +10,12 @@ import {
   buildDrivetrainProjection,
   evaluateDrivetrainForces,
   evaluateDrivetrainKinematics,
+  evaluateDrivetrainPower,
   projectDrivetrainAtPoint,
 } from "./drivetrainProjection";
 import { accelerationBoundsForSpeedSquared } from "./reachability";
+import { minimumBusVoltage } from "../electricalPower";
+import { peakMechanismCurrent, electricalConfigurationError } from "../robotLimits";
 
 const EPSILON = 1e-9;
 const DEG = Math.PI / 180;
@@ -26,7 +29,8 @@ export type TrajectoryViolationKind =
   | "angular-velocity"
   | "angular-acceleration"
   | "drivetrain-velocity"
-  | "drivetrain-acceleration";
+  | "drivetrain-acceleration"
+  | "electrical-power";
 
 export interface TrajectoryConstraintViolation {
   kind: TrajectoryViolationKind;
@@ -112,6 +116,8 @@ export function validateOptimizedTrajectory(
   const violations: TrajectoryConstraintViolation[] = [];
   const refinableIntervals = new Set<number>();
   const activeConstraints = new Set<string>();
+  const electricalError = electricalConfigurationError(input.robot);
+  if (electricalError) violations.push({ kind: 'electrical-power', sampleIndex: 0, measured: 2, limit: 1, refinable: false, message: electricalError });
   if (samples.length < 2) {
     return {
       violations,
@@ -197,14 +203,26 @@ export function validateOptimizedTrajectory(
     angularVelocity: number,
     angularAcceleration: number,
   ) => {
-    for (const module of evaluateDrivetrainForces(
+    const forces = evaluateDrivetrainForces(
       point,
       input.robot,
       speed,
       acceleration,
       angularVelocity,
       angularAcceleration,
-    )) {
+    );
+    const power = evaluateDrivetrainPower(point, input.robot, speed, acceleration, angularVelocity, angularAcceleration,
+      input.robot.driveModel ? peakMechanismCurrent(input.robot.driveModel) : 0, forces);
+    if (power) {
+      // All ratios grow above 1 when infeasible, matching the existing local timing repair.
+      const utilization = Math.max(power.voltageUtilization, power.currentUtilization,
+        minimumBusVoltage(input.robot) / Math.max(0.01, power.busVoltageV));
+      if (utilization > 1.01) {
+        pushViolation(violations, "electrical-power", sampleIndex, utilization, 1, true, "Shared battery voltage/current demand");
+        refinableIntervals.add(Math.max(0, sampleIndex - 1));
+      }
+    }
+    for (const module of forces) {
       // The closed-form allocation is deliberately conservative; a small
       // margin represents force redistribution available to the four modules
       // without masking material wrench infeasibility.

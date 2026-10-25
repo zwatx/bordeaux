@@ -64,18 +64,19 @@ describe("electrical drive model", () => {
     expect(limits.electrical!.resistanceOhm).toBeCloseTo(resistance, 12);
     expect(limits.electrical!.torqueConstantNmPerA).toBeCloseTo(kt, 12);
     expect(limits.electrical!.velocityConstantRadpsPerV).toBeCloseTo(kv, 9);
-    expect(limits.motorCapAccelMps2).toBeCloseTo(perTorque * 0.9 * kt * 55, 9);
+    expect(limits.motorCapAccelMps2).toBeCloseTo(perTorque * 0.9 * kt * (55 - 3.6), 9);
     expect(limits.motorAccelMps2).toBeCloseTo(perTorque * 0.9 * kt * (12.5 / effectiveResistance - 3.6), 9);
     expect(limits.maxSpeedMps).toBeCloseTo((12.5 - 3.6 * effectiveResistance) * kv * WHEEL_RADIUS_M / 5.5, 9);
     expect(limits.maxAccelMps2).toBeCloseTo(limits.motorCapAccelMps2, 9);
     expect(limits.maxDecelMps2).toBeCloseTo(limits.motorCapAccelMps2, 9);
   });
 
-  it("matches the time-stepped battery-sag reference in docs/research/motor-modeling", () => {
+  it("matches the sag reference off the cap and accounts for loss current inside the stator cap", () => {
     const limits = robotHardLimits(maxSwerveProject().robot)!;
     // motor-envelope.mjs, 12.5 V / 0.02 ohm / 55 A / 90% scenario.
-    expect(straightLineAccel(limits, 0)).toBeCloseTo(8.96, 2);
-    expect(straightLineAccel(limits, 2)).toBeCloseTo(8.59, 2);
+    // The historical reference capped torque current at 55 A, excluding 3.6 A loss current.
+    expect(straightLineAccel(limits, 0)).toBeCloseTo(8.37, 2);
+    expect(straightLineAccel(limits, 2)).toBeCloseTo(8.37, 2);
     expect(straightLineAccel(limits, 3)).toBeCloseTo(5.73, 2);
     expect(straightLineAccel(limits, 4)).toBeCloseTo(2.88, 2);
   });
@@ -112,7 +113,7 @@ describe("electrical drive model", () => {
       controlReserve: 0.1,
     });
     expect(vortex.defaulted).toHaveLength(8);
-    expect(robotHardLimits(project.robot)!.electrical!.currentCapA).toBeCloseTo(80 * 0.9, 12);
+    expect(robotHardLimits(project.robot)!.electrical!.currentCapA).toBeCloseTo((12 - 7.25) / 0.02 / 4 - 3.6, 12);
     // Authored values win over defaults and are not reported as defaulted.
     expect(resolveElectricalDriveInputs({ ...model, driveCurrentLimitA: 55 })!.defaulted).not.toContain("driveCurrentLimitA");
     // Phoenix 6 TalonFX defaults to a 120 A stator limit.
@@ -125,7 +126,7 @@ describe("electrical drive model", () => {
     project.robot.driveModel!.controlReserve = 0.1;
     const reserved = robotHardLimits(project.robot)!;
     expect(reserved.electrical!.availableVoltageV).toBeCloseTo(12.5 * 0.9, 12);
-    expect(reserved.motorCapAccelMps2).toBeCloseTo(base.motorCapAccelMps2 * 0.9, 9);
+    expect(reserved.motorCapAccelMps2 / base.motorCapAccelMps2).toBeCloseTo((55 * 0.9 - 3.6) / (55 - 3.6), 9);
     expect(reserved.maxSpeedMps).toBeLessThan(base.maxSpeedMps);
   });
 
