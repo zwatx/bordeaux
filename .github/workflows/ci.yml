@@ -80,6 +80,7 @@ jobs:
       BORDEAUX_LIBRARY_UI_OUTPUT: .ui-artifacts/library
       BORDEAUX_INTERFACE_UI_OUTPUT: .ui-artifacts/interface
       BORDEAUX_INTERFACE_WORKFLOWS_OUTPUT: .ui-artifacts/interface-workflows
+      BORDEAUX_EDITOR_INTERACTIONS_OUTPUT: .ui-artifacts/editor-interactions
       BORDEAUX_ROBOT_ELECTRICAL_UI_OUTPUT: .ui-artifacts/robot-electrical
       BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
       BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
