@@ -22,6 +22,12 @@ async function click(selector, text) {
   for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...point });
   await delay(100);
 }
+// Choosing returns focus to the dropdown a frame later; wait so the next click is not undone.
+async function choose(id, value) {
+  await click('#' + id);
+  await click(`[role="option"][data-value="${value}"]`);
+  await wait(() => evaluate((id) => document.activeElement?.id === id, id), id + ' focus');
+}
 async function key(keyCode, modifiers = []) {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
   if (keyCode === 'Enter') win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
@@ -35,7 +41,8 @@ async function typeInto(label, text, finish = 'Enter') {
   await key(finish);
 }
 const placeholder = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.placeholder ?? null, label);
-const labelNote = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.closest('.rp-field')?.querySelector('.rp-flabel small')?.textContent ?? null, label);
+// Row explanations are the label's hover tooltip.
+const labelNote = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.closest('.settings-row')?.querySelector('.settings-hint')?.title ?? null, label);
 const fieldText = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.value ?? null, label);
 const resultText = (label) => evaluate((label) => [...document.querySelectorAll('.rp-drive-result')].find((el) => el.querySelector('span')?.textContent === label)?.querySelector('strong')?.textContent ?? null, label);
 async function capture() {
@@ -46,15 +53,15 @@ async function capture() {
   }
 }
 async function snapshot(name, anchorText) {
-  await evaluate((anchorText) => [...document.querySelectorAll('.rp-subh')].find((el) => el.textContent === anchorText)?.scrollIntoView({ block: 'start' }), anchorText);
+  await evaluate((anchorText) => [...document.querySelectorAll('.settings-section h2, .rp-subh, .settings-label strong')].find((el) => el.textContent === anchorText)?.scrollIntoView({ block: 'start' }), anchorText);
   await delay(120);
   await fs.writeFile(path.join(output, name + '.png'), (await capture()).toPNG());
 }
 async function snapshotBothSizes(name) {
   for (const [width, height] of [[1440, 900], [1100, 720]]) {
     win.setContentSize(width, height); await delay(150);
-    await snapshot(`${name}-${width}`, 'Electrical model');
-    const clipped = await evaluate(() => [...document.querySelectorAll('.rp-drive-model .rp-field, .rp-drive-result')].some((el) => el.scrollWidth > el.clientWidth + 1));
+    await snapshot(`${name}-${width}`, 'Electrical');
+    const clipped = await evaluate(() => [...document.querySelectorAll('.settings-row, .rp-drive-result')].some((el) => el.scrollWidth > el.clientWidth + 1));
     assert.equal(clipped, false, `${name} at ${width}: a drive field or result is clipped horizontally`);
   }
   win.setContentSize(1440, 900); await delay(120);
@@ -87,7 +94,7 @@ app.whenReady().then(async () => {
     assert.equal(await placeholder('Drive current limit'), '80');
     assert.equal(await placeholder('Battery resistance'), '20');
     assert.equal(await placeholder('Control reserve'), '10');
-    assert.equal(await labelNote('Drive current limit'), 'Default · stator, per motor');
+    assert.equal(await labelNote('Drive current limit'), 'Using the default. Stator current limit for each drive motor.');
     assert.equal(await fieldText('Motor stall current'), '211');
     assert.equal(await evaluate(() => document.querySelector('input[aria-label="Motor stall current"]').disabled), true, 'preset stall current is read-only');
     const defaultTopSpeed = await resultText('Top speed');
@@ -96,7 +103,7 @@ app.whenReady().then(async () => {
     await snapshotBothSizes('defaults');
     assert.equal(await fieldText('CG height'), '');
     assert.equal(await placeholder('CG height'), '0.25');
-    assert.match(await labelNote('CG height'), /Default/);
+    assert.match(await labelNote('CG height'), /Using the default/);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await click('input[aria-label="CG height"]'); await key('Tab');
@@ -154,8 +161,8 @@ app.whenReady().then(async () => {
     assert.equal('otherLoadA' in saved.robot.driveModel, false, 'Escape keeps the default unset');
     assert.equal('motorStallCurrentA' in saved.robot.driveModel, false, 'the preset supplies stall current');
     assert.equal(await fieldText('Battery resistance'), '25.0');
-    assert.equal(await labelNote('Drive current limit'), 'stator, per motor');
-    assert.equal(await labelNote('Other mechanisms'), 'Default · current while driving');
+    assert.equal(await labelNote('Drive current limit'), 'Stator current limit for each drive motor.');
+    assert.equal(await labelNote('Other mechanisms'), 'Using the default. Current other mechanisms draw while driving.');
     assert.ok(saved.robot.maxSpeed < 4.9);
     await snapshotBothSizes('edited-metric');
     console.log('PASS Keyboard edits store exact canonical values (A, mΩ to Ω, % to fraction); Escape keeps the default');
@@ -182,7 +189,7 @@ app.whenReady().then(async () => {
     assert.equal(saved.robot.driveModel.motorFreeCurrentA, 3.6);
     assert.equal(await evaluate(() => document.querySelector('input[aria-label="Motor stall current"]').disabled), false);
     assert.equal(await placeholder('Drive current limit'), '211');
-    await snapshot('custom-motor-1440', 'Electrical model');
+    await snapshot('custom-motor-1440', 'Electrical');
     console.log('PASS Choosing a custom motor keeps editable stall and free current');
 
     // Electrical configuration uses the existing numeric drafts and commits exact canonical values.
@@ -191,11 +198,11 @@ app.whenReady().then(async () => {
     await typeInto('Load burst 1 start', '0.5');
     await typeInto('Load burst 1 end', '2');
     await typeInto('Load burst 1 additional current', '15');
-    await click('button', 'Use REV 40 A ATO drive breakers');
-    await click('button', 'Use Bussmann 185120F main breaker');
-    await click('button', 'Edit main breaker');
+    await choose('robot-driveBreaker', 'preset');
+    await choose('robot-mainBreaker', 'custom');
+    await typeInto('Main breaker rating', '120');
+    await typeInto('Main breaker cold trip at 2×', '10');
     await typeInto('Main breaker initial heat', '25');
-    await click('button', 'Use main breaker curve');
     await save();
     assert.equal(saved.robot.driveModel.minimumBusVoltageV, 8);
     assert.deepEqual(saved.robot.driveModel.loadBursts, [{ startTimeS: 0.5, endTimeS: 2, currentA: 15 }]);
@@ -210,11 +217,10 @@ app.whenReady().then(async () => {
     assert.equal(await fieldText('Load burst 1 additional current'), '15.00');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
-      await snapshot(`power-loads-${width}`, 'Mechanism load bursts');
-      await snapshot(`power-breakers-${width}`, 'Breaker estimates');
-      await click('button', 'Edit main breaker');
+      await snapshot(`power-loads-${width}`, 'Loads and breakers');
+      await snapshot(`power-breakers-${width}`, 'Drive breaker');
       await typeInto('Main breaker cold trip at 2×', '99', 'Escape');
-      await click('button', 'Cancel');
+      assert.equal(await fieldText('Main breaker cold trip at 2×'), '10.00');
     }
     console.log('PASS Voltage floor, load schedule and breaker curves survive save/reload; Escape cancels drafts');
     await click('.places .place', 'Paths');
