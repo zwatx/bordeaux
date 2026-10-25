@@ -39,6 +39,7 @@ import { UI } from "../components/ui";
 import { PM } from "../lib/pathMath";
 import { agentProposalMatchesPublishedContext } from "../lib/agentProposalContext";
 import { PathLinks } from "../lib/pathLinks";
+import { PointLinksDialog } from '../components/PointLinksDialog';
 import {
   PROJECT_SCOPE, ROUTINE_SCOPE, applyProjectEntry, captureProjectChange, createUndoHistory, deleteFolder, linkedPathIds,
   pathScope, undoScopes, withLibraryFields,
@@ -153,9 +154,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
    * A draft the worker has solved shows exactly its release value; until then the live draft geometry
    * is timed by the newest solved trace, so the edited point follows the pointer.
    */
-  function useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request }) {
+  function useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request, timingPending }) {
     const draft = useSyncExternalStore(editStore.subscribe, editStore.getSnapshot, editStore.getSnapshot);
     const editBase = useRef(null);
+    const timed = useRef(null);
+    if (!timingPending) timed.current = derived.prof?.totalTime > 0 ? { path: derivedPath || doc, value: derived } : null;
+    if (timed.current?.path.id !== doc.id) timed.current = null;
     const [preview, setPreview] = useState(() => previewer.getSnapshot());
     useEffect(() => previewer.subscribe(() => setPreview(previewer.getSnapshot())), [previewer]);
     useEffect(() => {
@@ -166,10 +170,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const bridgeFinishedEdit = finished && editBase.current && (editBase.current === doc || derivedPath !== doc);
     if (!draft && (!finished || (derivedPath === doc && editBase.current !== doc))) editBase.current = null;
     const solved = preview.value?.derived;
-    const target = draft || (bridgeFinishedEdit ? doc : null);
+    const target = draft || (bridgeFinishedEdit || timingPending ? doc : null);
     // Before this edit's first solve, the committed release timing seeds the live geometry.
-    const source = target && solved?.planner === plannerId && preview.path?.id === target.id ? { path: preview.path, value: solved }
-      : draft && derived?.planner === plannerId ? { path: derivedPath || doc, value: derived } : null;
+    const source = (draft || bridgeFinishedEdit) && solved?.planner === plannerId && preview.path?.id === target.id ? { path: preview.path, value: solved }
+      : draft && derived?.prof?.totalTime > 0 ? { path: derivedPath || doc, value: derived } : timingPending ? timed.current : null;
     const sourcePath = source?.path, sourceValue = source?.value;
     const value = useMemo(() => target && sourceValue ? liveEditingPreview(target, robot, sourcePath, sourceValue) : null,
       [target, robot, sourcePath, sourceValue]);
@@ -183,7 +187,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   /** One displayed result owns the field, timeline and transient problem selection. */
   function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, actions, sel, playbackStore,
     issues = [], timingPending = false, stale = false, flushDraft }) {
-    const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request: true });
+    const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request: true, timingPending });
     // Authored values follow the live draft; timing follows what the field shows for it.
     const source = draft || doc;
     const value = displayed.value || derived;
@@ -197,6 +201,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     if (!timingPending) held.current = { ...held.current, id: doc.id, issues };
     const keepTiming = fresh.empty && timingPending && held.current.id === doc.id && held.current.tl;
     const tl = keepTiming ? held.current.tl : fresh;
+    // One clock follows the same timing as the field and timeline, including pending edit previews.
+    useEffect(() => playbackStore.setTotal(tl.empty ? 0 : tl.total), [playbackStore, tl.empty, tl.total]);
     const hoverStore = useMemo(() => createPathHoverStore(), []);
     const hoverPresses = useRef(new Set());
     const hoverContext = useMemo(() => ({
@@ -540,6 +546,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       } catch (error) { return { ok: false, fact: firstFact(error) }; }
     }, []);
     const [projectsDialog, setProjectsDialog] = useState(null);
+    const [pointLinks, setPointLinks] = useState(null);
+    useEffect(() => setPointLinks(null), [projectKey]);
     const [unitSystem, setUnitSystemState] = useState(() => UnitPrefs.current());
     const setUnitSystem = useCallback((next) => {
       const units = UnitPrefs.set(next);
@@ -551,7 +559,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [project.editor?.unitSystem]);
     const robotRestoreGeneration = useRef(0);
     const skipDirty = useRef(true);
-    const keyboardNavigation = useRef(false);
     const editStore = useMemo(() => PathEdit.create(), []);
     const playbackStore = useMemo(() => createPlaybackStore(), []);
     const routinePlaybackStore = useMemo(() => createPlaybackStore(), []);
@@ -971,11 +978,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       return () => { active = false; unsubscribe(); };
     }, [agentSessionId, agentSync, editStore]);
     useEffect(() => {
-      const onPointerDown = () => { keyboardNavigation.current = false; };
-      window.addEventListener('pointerdown', onPointerDown, true);
-      return () => window.removeEventListener('pointerdown', onPointerDown, true);
-    }, []);
-    useEffect(() => {
       const pauseHiddenPlayback = () => {
         if (document.hidden) { playbackStore.pause(); routinePlaybackStore.pause(); }
       };
@@ -1369,6 +1371,25 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (target && next !== before) next = PathLinks.nameNewSharedPoint(next, doc.id, index);
       return commitWaypointProject(before, next) ? 'applied' : 'unchanged';
     };
+    const openPointLinks = (pathId, index) => {
+      if (!flushProjectDraft()) return;
+      finishEdit();
+      const path = projectRef.current.paths.find(path => path.id === pathId);
+      if (path) setPointLinks({ pathId, index: index ?? Math.max(0, path.waypoints.length - 1), origin: document.activeElement });
+    };
+    const closePointLinks = () => {
+      const origin = pointLinks?.origin;
+      flushSync(() => setPointLinks(null));
+      if (origin?.isConnected) focusIfAvailable(origin);
+      else focusIfAvailable([...document.querySelectorAll('[data-library-item]')].find(row => row.dataset.libraryItem === pointLinks?.pathId));
+    };
+    const applyPointLink = (pathId, index, target) => {
+      const before = materializeProject();
+      let next = target ? PathLinks.linkPosition(before, pathId, index, target.pathId, target.index, pathLinkId())
+        : PathLinks.unlinkPosition(before, pathId, index);
+      if (target && next !== before) next = PathLinks.nameNewSharedPoint(next, pathId, index);
+      return commitProjectChange(before, next, pathId === docRef.current.id ? pathScope(pathId) : PROJECT_SCOPE) ? 'applied' : 'unchanged';
+    };
     // Shared-position edits belong to the active path; deletions, library links, and applied
     // proposals are project-wide. Both restore only what they changed.
     const commitProjectChange = (before, next, scope = PROJECT_SCOPE) => {
@@ -1682,23 +1703,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setProject((pr) => ({ ...pr, paths: [...pr.paths, path], pathLinks: [...(pr.pathLinks || []).filter((item) => item.fromPathId !== source.id), link] }));
       resetForPath(index); return { index, name, id: path.id, folderId: path.folderId };
     };
-    const setPathLink = (fromPathId, toPathId) => {
-      const pr = materializeProject(); finishEdit();
-      let pathLinks = (pr.pathLinks || []).filter((link) => link.fromPathId !== fromPathId);
-      // Library links can join paths other than the active one, so they are project-wide history.
-      if (!toPathId || fromPathId === toPathId) {
-        if (pathLinks.length !== (pr.pathLinks || []).length) commitProjectChange(pr, { ...pr, pathLinks });
-        return;
-      }
-      pathLinks = pathLinks.filter((link) => link.toPathId !== toPathId);
-      const paths = pr.paths.slice(), source = paths.find((path) => path.id === fromPathId), targetIndex = paths.findIndex((path) => path.id === toPathId);
-      if (!source || targetIndex < 0) return;
-      const target = editablePath(paths[targetIndex]), end = source.waypoints[source.waypoints.length - 1];
-      if (!end || !target.waypoints[0]) return;
-      target.waypoints[0] = PathLinks.copyPose(target.waypoints[0], end); paths[targetIndex] = target;
-      const next = { ...pr, paths, pathLinks: [...pathLinks, { id: pathLinkId(), fromPathId, toPathId }] };
-      commitProjectChange(pr, PathLinks.sync(next, target.id, pr.paths[targetIndex]));
-    };
     const dupPath = (i) => {
       const source = materializeProject().paths[i]; if (!source) return null;
       finishEdit();
@@ -1845,9 +1849,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       agentProposalRef.current = applied;
       setAgentProposal(applied);
     }, [agentProposal, agentCandidate, agentProposalCanApplyCandidate, project, activeIdx, agentSessionId, agentSync, editStore, robotProjectState.operation, updateDirty]);
-
-    const total = derived.prof.totalTime || 0;
-    useEffect(() => playbackStore.setTotal(total), [playbackStore, total]);
 
     const routinePlans = useRoutinePlanning(page === 'auto', routine, project.paths, robot, project.field, plannerId);
     const lastRun = useRef({ steps: [], total: 0 });
@@ -2810,15 +2811,15 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     useEffect(() => {
       const onKey = (e) => {
         if (e.defaultPrevented || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
-        if (e.target.closest && e.target.closest('.editor-library,.library-divider,[role="menu"]')) return;
+        if (e.isComposing || e.keyCode === 229 || e.target.closest?.('[role="menu"],[role="listbox"]')) return;
         const matches = e.target.matches && e.target.matches.bind(e.target);
-        if (e.key === 'Tab') { keyboardNavigation.current = true; return; }
-        const nativeKeyboardControl = e.target.closest?.('[data-role="issue"],[data-problems-control]') || keyboardNavigation.current && matches && matches('button,summary,select,input[type="range"]');
+        const nativeKeyboardControl = e.target.closest?.('button,summary,[role="separator"],[data-role="issue"],[data-problems-control],input[type="range"]');
         // A focused timeline control for the selected object takes the field's nudge, Delete and Escape;
         // Enter and Space still press it, and other buttons keep their native keys.
         const selectionControl = nativeKeyboardControl && sel.kind && e.target.dataset?.selection === sel.kind + ':' + sel.idx
           && (e.key.indexOf('Arrow') === 0 || e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape');
-        const textEditing = nativeKeyboardControl || e.target.isContentEditable || (matches && matches('textarea,input:not([type="range"])'));
+        const textEditing = e.target.isContentEditable || (matches && matches('select,textarea,input:not([type="range"])'));
+        if (textEditing) return;
         const k = e.key.toLowerCase();
         const toolShortcut = !e.metaKey && !e.ctrlKey && !e.altKey && !textEditing && TOOL_SHORTCUTS[k];
         if (page === 'plan' && toolShortcut) {
@@ -2827,12 +2828,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           setTool(toolShortcut);
           return;
         }
-        const formControl = matches && matches('input,select,textarea,[contenteditable="true"]');
-        if (formControl) return;
+        if (page === 'plan' && !e.metaKey && !e.ctrlKey && !e.altKey && (k === 'g' || k === 'f')) {
+          e.preventDefault(); k === 'g' ? setShowGrid(s => !s) : setView(FIT); return;
+        }
+        if (e.target.closest?.('.editor-library,.library-divider')) return;
         if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
         if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); redo(); return; }
         // Native controls own navigation and deletion keys during keyboard use.
-        if (nativeKeyboardControl && !selectionControl) return;
+        if (nativeKeyboardControl && !selectionControl && e.key !== 'Escape') return;
         if (page !== 'plan') return;
         if (!derivationCurrent) return;
         if (e.key.indexOf('Arrow') === 0 && sel.kind) {
@@ -2847,9 +2850,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           }
           return;
         }
-        if (k === 'g') setShowGrid((s) => !s);
-        else if (k === 'f') setView(FIT);
-        else if (e.key === 'Escape') escapeSelection();
+        if (e.key === 'Escape') escapeSelection();
         else if ((e.key === 'Backspace' || e.key === 'Delete') && sel.kind) {
           e.preventDefault();
           if (sel.kind === 'wp') delWp(sel.idx); else if (sel.kind === 'rt') delTarget(sel.idx); else if (sel.kind === 'em') delMarker(sel.idx); else if (sel.kind === 'cr') delRange(sel.idx);
@@ -2904,10 +2905,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       actions: { preflight: preflightDeletion, addPath, appendPath, addRoutine, duplicateRoutine, deleteRoutine, renameRoutine, exportPath: onExportBdx,
         duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: delPath, renamePath: (id, name) => renamePath(pathIndex(id), name),
         addFolder: addPathFolder, renameFolder: renamePathFolder, deleteFolder: deletePathFolder,
-        movePath: (id, folderId) => movePathToFolder(pathIndex(id), folderId), linkPath: setPathLink },
+        movePath: (id, folderId) => movePathToFolder(pathIndex(id), folderId), openPointLinks },
     }, structure);
 
-    const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink };
+    const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink, openPointLinks };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
       bdxNotice && { id: 'bdx-export', label: 'BDX exported', detail: bdxNotice.detail, autoDismissMs: 5000, dismissKey: bdxNotice,
@@ -2930,6 +2931,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
     return h('div', { className: 'app' },
       h(AppUpdateDialog, { state: appUpdates.state, ownsDeparture: updatePanelOwnsDeparture, ...appUpdates.actions, onEditingResumed: resumeEditingAfterInstall }),
+      pointLinks && h(PointLinksDialog, { project, request: pointLinks, onApply: applyPointLink, onClose: closePointLinks }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
@@ -3026,7 +3028,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
                 onClose: closeOptimization,
               }) : inspectorOpen
-                ? h(ContextInspector, { project, setWaypointPositionLink, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
+                ? h(ContextInspector, { project, setWaypointPositionLink, openPointLinks, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
                 : null),
             headMenu && h(UI.ContextMenu, { x: headMenu.x, y: headMenu.y, items: headMenu.items, returnFocus: headMenu.returnFocus, onClose: () => setHeadMenu(null) })));
   }
@@ -3034,7 +3036,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   function toolHint(tool, waypoints = 2) {
     if (waypoints < 2) return tool === 'waypoint' ? 'Click the field to place the <b>' + (waypoints ? 'next waypoint' : 'first waypoint') + '</b>'
       : 'Press <b>W</b>, then click the field to ' + (waypoints ? 'continue' : 'start') + ' this path';
-    if (tool === 'waypoint') return 'Click the field to place the <b>next endpoint</b>';
+    if (tool === 'waypoint') return '';
     if (tool === 'rotation') return 'Click the path to set a <b>rotation target</b>';
     if (tool === 'marker') return 'Click the path to place a <b>command</b>';
     if (tool === 'range') return 'Drag along the path to add a <b>zone</b>, then set its limits';

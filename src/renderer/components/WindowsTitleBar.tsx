@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { WindowAction, WindowMenu, WindowState } from "../../shared/windowChrome";
 import "../styles/windows-title-bar.css";
+import { WindowsApplicationMenu } from './WindowsApplicationMenu';
 
 const shortcuts: Record<string, WindowMenu> = { f: "file", r: "robot", a: "agents", v: "view", h: "help" };
 
@@ -16,7 +17,7 @@ function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
   const [error, setError] = useState("");
   const [host, setHost] = useState<HTMLElement>(document.body);
   const root = useRef<HTMLDivElement>(null), menuButton = useRef<HTMLButtonElement>(null);
-  const previousFocus = useRef<HTMLElement | null>(null), opening = useRef(false);
+  const previousFocus = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
     // A modal's top layer makes outside controls inert. Keep the same chrome owner, but
@@ -46,19 +47,10 @@ function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
     if (!root.current?.contains(document.activeElement)) previousFocus.current = document.activeElement as HTMLElement;
   }
   async function open(id: WindowMenu = "application") {
-    if (opening.current) return;
     const button = menuButton.current;
     if (!button) return;
     rememberFocus(); button.focus();
-    const rect = button.getBoundingClientRect();
-    opening.current = true; setActive(id); setError("");
-    try { await api.openWindowMenu(id, { x: rect.left, y: rect.bottom }); }
-    catch { setError("Menu unavailable. Try again."); }
-    finally {
-      opening.current = false; setActive(null);
-      // A command may have opened a dialog or moved focus into the editor.
-      if (document.activeElement === document.body) menuButton.current?.focus();
-    }
+    setActive(active === id ? null : id); setError('');
   }
   function action(value: WindowAction) {
     setError("");
@@ -71,6 +63,7 @@ function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
       if (id) { event.preventDefault(); event.stopImmediatePropagation(); void open(id); return; }
       if (event.key === "F10" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
         event.preventDefault(); event.stopImmediatePropagation();
+        if (active) { setActive(null); menuButton.current?.focus(); return; }
         if (root.current?.contains(document.activeElement)) previousFocus.current?.focus();
         else { rememberFocus(); menuButton.current?.focus(); }
       }
@@ -79,7 +72,7 @@ function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
     return () => window.removeEventListener("keydown", keyboard, true);
   });
 
-  return createPortal(<div ref={root} className="windows-title-bar" data-native-chrome="" data-focused={state.focused} role="group" aria-label="Window"
+  return createPortal(<><div ref={root} className="windows-title-bar" data-native-chrome="" data-focused={state.focused} role="group" aria-label="Window"
     onKeyDown={event => event.stopPropagation()}>
     <button ref={menuButton} className="windows-title-menu" type="button" aria-label="Application menu" title="Application menu (F10)"
       aria-haspopup="menu" aria-expanded={active !== null} aria-keyshortcuts="F10 Alt+F Alt+R Alt+A Alt+V Alt+H"
@@ -101,5 +94,6 @@ function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
       </button>
       <button type="button" className="windows-title-close" aria-label="Close window" title="Close" onClick={() => action("close")}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m1.5 1.5 9 9m0-9-9 9" /></svg></button>
     </div>
-  </div>, host);
+  </div>{active && menuButton.current && <WindowsApplicationMenu key={active} api={api} initial={active} anchor={menuButton.current}
+    onClose={restore => { setActive(null); if (restore) menuButton.current?.focus(); }} />}</>, host);
 }

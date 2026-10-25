@@ -21,6 +21,24 @@ function fixture(platform = "win32") {
 }
 
 describe("Windows chrome capability", () => {
+  it('executes only enabled commands from the latest main-owned menu snapshot', () => {
+    const f = fixture(), click = vi.fn();
+    const command = { id: 'save', label: 'Save', type: 'normal', enabled: true, visible: true, accelerator: 'CmdOrCtrl+S', click };
+    const parent = { id: 'chrome-file', label: 'File', type: 'submenu', enabled: true, visible: true, submenu: { items: [command] } };
+    Object.assign(f.menu, { items: [parent] });
+    const first = f.call('window:menuItems');
+    expect(first[0].children[0]).toMatchObject({ label: 'Save', accelerator: 'Ctrl+S' });
+    const token = first[0].children[0].token;
+    for (const invalid of ['save', 'constructor', {}, first[0].token]) expect(() => f.call('window:menuActivate', invalid)).toThrow('Menu changed');
+    parent.enabled = false; expect(() => f.call('window:menuActivate', token)).toThrow('Menu changed'); parent.enabled = true;
+    command.visible = false; expect(() => f.call('window:menuActivate', token)).toThrow('Menu changed'); command.visible = true;
+    const second = f.call('window:menuItems');
+    expect(() => f.call('window:menuActivate', token)).toThrow('Menu changed');
+    f.call('window:menuActivate', second[0].children[0].token);
+    expect(click).toHaveBeenCalledWith(command, f.window, { triggeredByAccelerator: false });
+    expect(() => f.call('window:menuActivate', second[0].children[0].token)).toThrow('Menu changed');
+    f.retire(); expect(() => f.call('window:menuItems')).toThrow('Unauthorized');
+  });
   it("rejects foreign windows, child frames, retired windows, destroyed windows and other platforms", () => {
     const f = fixture();
     expect(() => chromeWindow({ ...f.event, sender: {} }, f.window as any, "win32")).toThrow("Unauthorized");

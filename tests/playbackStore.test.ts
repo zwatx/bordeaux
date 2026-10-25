@@ -15,6 +15,16 @@ function playback() {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("editor playback store", () => {
+  it('keeps elapsed time and one animation frame when an edited plan arrives; never resumes a manual pause', () => {
+    const { store, frames, tick } = playback();
+    store.setTotal(5); store.toggle(); tick(1000);
+    store.setTotal(7); tick(1500);
+    expect(store.getSnapshot()).toEqual({ time: 1.5, total: 7, playing: true });
+    expect(frames.size).toBe(1);
+    store.pause(); store.setTotal(6);
+    expect(store.getSnapshot()).toEqual({ time: 1.5, total: 6, playing: false });
+    expect(frames.size).toBe(0);
+  });
   it("advances one frame at a time, stops at the duration, and restarts from the beginning", () => {
     const { store, frames, tick } = playback();
     store.setTotal(2); store.toggle();

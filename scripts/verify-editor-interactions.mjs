@@ -1,0 +1,13 @@
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import electron from 'electron';
+const output = process.env.BORDEAUX_EDITOR_INTERACTIONS_OUTPUT ? path.resolve(process.env.BORDEAUX_EDITOR_INTERACTIONS_OUTPUT) : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-editor-interactions-'));
+await fs.mkdir(output, { recursive: true });
+const env = { ...process.env, BORDEAUX_BRANCH_UI_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' };
+delete env.ELECTRON_RUN_AS_NODE;
+console.log(`Editor interaction artifacts: ${output}`);
+const child = spawn(electron, ['scripts/verify-editor-interactions-electron.cjs'], { env, stdio: 'inherit' });
+const timer = setTimeout(() => child.kill('SIGKILL'), 120000);
+child.on('exit', (code) => { clearTimeout(timer); process.exitCode = code === 0 ? 0 : 1; });

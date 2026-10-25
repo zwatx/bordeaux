@@ -24,7 +24,9 @@ import path from "node:path";
 // with a 730 KiB cap.
 // Live robot reachability and the nonmodal update popover measure 749,566 bytes;
 // count every chunk with a 732 KiB cap. Worker, CSS and package limits stay unchanged.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 732 * 1024;
+// Continuous edit playback, point-link review, and the main-backed Windows menu add ~6.5 KB.
+// Count both dialogs and every application chunk under the reviewed 740 KiB bound.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 740 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -33,7 +35,8 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 732 * 1024;
 // module limits) measures 215,130 worker bytes.
 const WORKER_JAVASCRIPT_BUDGET_BYTES = 211 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
-const CSS_BUDGET_BYTES = 148 * 1024;
+// The point-link dialog and consistently inset Windows menu add ~3.4 KB of styles.
+const CSS_BUDGET_BYTES = 152 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

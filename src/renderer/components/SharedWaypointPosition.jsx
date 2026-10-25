@@ -25,7 +25,7 @@ export function sharedPositionChoices(project, pathId, index) {
   return { candidates, members };
 }
 
-export function SharedWaypointPosition({ project, doc, index, onLink, onName }) {
+export function SharedWaypointPosition({ project, doc, index, onLink, onName, onOpen }) {
   const waypoint = doc.waypoints[index];
   const [name, setName] = React.useState(waypoint.positionName || '');
   React.useEffect(() => setName(waypoint.positionName || ''), [doc.id, index, waypoint.positionName]);
@@ -37,14 +37,14 @@ export function SharedWaypointPosition({ project, doc, index, onLink, onName }) 
   };
   return h('div', { className: 'shared-waypoint-position' },
     h('div', { className: 'inrow first' },
-      h('span', { className: 'inrow-l' }, 'Share position', h('small', null, 'Move linked points together')),
-      h(UI.Toggle, { on: !!waypoint.positionName, ariaLabel: 'Linkable waypoint', onChange: (on) => onName(index, on ? waypointName(index, doc.waypoints.length) : undefined) })),
+      h('span', { className: 'inrow-l' }, 'Name this point'),
+      h(UI.Toggle, { on: !!waypoint.positionName, ariaLabel: 'Name this point', onChange: (on) => onName(index, on ? waypointName(index, doc.waypoints.length) : undefined) })),
     waypoint.positionName && h('label', { className: 'linkable-name' }, 'Point name',
       h('input', { className: 'textinput', 'aria-label': 'Linkable point name', maxLength: 80, value: name,
         onChange: (event) => setName(event.target.value), onBlur: saveName,
         onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { event.stopPropagation(); setName(waypoint.positionName); } } })),
 
-    h(UI.ChoiceBrowser, { id: 'waypoint-position-link', label: 'Linked position', value: members[0]?.value || '', resetKey: doc.id + ':' + index,
+    onOpen ? h('button', { type: 'button', className: 'qbtn', onClick: () => onOpen(doc.id, index) }, members.length ? 'Manage linked points…' : 'Link points…') : h(UI.ChoiceBrowser, { id: 'waypoint-position-link', label: 'Linked position', value: members[0]?.value || '', resetKey: doc.id + ':' + index,
       placeholder: 'Search named points', emptyText: 'Name a shared point in another path to link it here.',
       items: [...members.slice(0, 1), ...candidates],
       onChange: (value) => { const target = candidates.find((item) => item.value === value); if (target) onLink(index, target); } }),

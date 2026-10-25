@@ -65,10 +65,9 @@ app.on('browser-window-created', (_event, window) => {
     await wait(() => evaluate(() => Boolean(document.querySelector('.editor-startup') && document.querySelector('.windows-title-bar'))), 'startup chrome before project readiness');
     assert.equal(await evaluate(() => document.querySelector('.editor-startup-toolbar').getBoundingClientRect().height), 44);
     await capture('startup-chrome');
-    const startupMenu = Menu.getApplicationMenu();
-    let startupOpened = false; startupMenu.once('menu-will-show', () => { startupOpened = true; });
-    await pointer('[aria-label="Application menu"]'); await wait(() => startupOpened, 'Application reachable during startup');
-    startupMenu.closePopup(win); await wait(() => evaluate(() => document.querySelector('[aria-label="Application menu"]').getAttribute('aria-expanded') === 'false'), 'startup popup closed');
+    await pointer('[aria-label="Application menu"]');
+    await wait(() => evaluate(() => !!document.querySelector('.windows-app-menu [role="menuitem"]')), 'Application reachable during startup');
+    key('Escape'); await wait(() => evaluate(() => !document.querySelector('.windows-app-menu')), 'startup menu dismissed');
     await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize during startup');
     await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Restore window"]'))), 'startup state synchronized');
     await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore during startup');
@@ -130,37 +129,41 @@ app.on('browser-window-created', (_event, window) => {
     win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'native foreground');
     const menuSelector = '[aria-label="Application menu"]', popup = Menu.getApplicationMenu();
     assert.deepEqual(popup.items.map(item => item.label), ['File', 'Robot', 'Agents', 'View', 'Help']);
-    let opened = 0, observed;
-    const application = () => {
-      const current = Menu.getApplicationMenu();
-      if (observed !== current) { observed = current; current.on('menu-will-show', () => opened++); }
-      return current;
-    };
-    application();
-    const dismiss = async () => { application().closePopup(win); await wait(() => evaluate(selector => document.querySelector(selector).getAttribute('aria-expanded') === 'false', menuSelector), 'popup closed'); };
+    const shown = () => evaluate(() => !!document.querySelector('.windows-app-menu [role="menuitem"]'));
+    const dismiss = async () => { key('Escape'); await wait(() => evaluate(() => !document.querySelector('.windows-app-menu')), 'menu closed'); };
     await evaluate(() => document.querySelector('.place[aria-current="page"]').focus()); key('F10');
     await wait(() => evaluate(selector => document.activeElement === document.querySelector(selector), menuSelector), 'F10 focuses Application');
     key('Tab'); await wait(() => evaluate(() => document.activeElement.getAttribute('aria-label') === 'Minimize window'), 'Tab reaches caption controls');
-    key('Tab', ['shift']); key('ArrowDown'); await wait(() => opened === 1, 'native application popup from keyboard');
-    // Chromium input does not drive OS popup keyboard tracking. Keep input scoped to our process.
-    result.limitations = ['Native popup Escape/selection, OS accelerators, drag/snap and Alt+Space require manual foreground checks; this harness does not send global input.'];
+    key('Tab', ['shift']); key('ArrowDown'); await wait(shown, 'application menu from keyboard');
+    key('ArrowRight'); await wait(() => evaluate(() => document.querySelector('.windows-app-menu').getAttribute('aria-label') === 'File'), 'keyboard submenu');
+    key('ArrowLeft'); await wait(() => evaluate(() => document.querySelector('.windows-app-menu').getAttribute('aria-label') === 'Application'), 'keyboard back');
     await dismiss();
-    await pointer(menuSelector); await wait(() => opened === 2, 'native application popup from pointer'); await dismiss();
-    for (const keyCode of ['Space', 'Enter']) {
-      await evaluate(selector => document.querySelector(selector).focus(), menuSelector); key(keyCode);
-      await wait(() => opened === (keyCode === 'Space' ? 3 : 4), keyCode + ' opens Application'); await dismiss();
+    for (const [w,h] of [[1440,900],[1100,720]]) {
+      win.setContentSize(w,h); await delay(120); await pointer(menuSelector); await wait(shown,'pointer menu');
+      const geometry = await evaluate(() => {
+        const menu=document.querySelector('.windows-app-menu'), row=menu.querySelector('button');
+        const m=menu.getBoundingClientRect(), r=row.getBoundingClientRect(), slot=document.querySelector('.tb-project').getBoundingClientRect(), chip=document.querySelector('.project-chip').getBoundingClientRect();
+        return {rowInset:[r.left-m.left,m.right-r.right], chipInset:[chip.left-slot.left,slot.right-chip.right-1,chip.top-slot.top,slot.bottom-chip.bottom], radius:getComputedStyle(row).borderRadius};
+      });
+      assert.ok(geometry.rowInset.every(v=>v>=4&&v<=6)); assert.notEqual(geometry.radius,'0px');
+      assert.ok(Math.max(...geometry.chipInset)-Math.min(...geometry.chipInset)<1,JSON.stringify(geometry));
+      await capture('application-menu-'+w);
+      key('End'); key('Enter'); await wait(() => evaluate(() => document.querySelector('.windows-app-menu').getAttribute('aria-label') === 'Help'), 'Help');
+      await capture('application-help-'+w); await dismiss();
     }
-    key('Escape'); await wait(() => evaluate(() => document.activeElement.matches('.place[aria-current="page"]')), 'Escape returns to editor');
-    result.checks.push('application-menu-pointer-f10-tab-arrows-space-enter-escape');
-    for (const [id, letter] of [['file', 'f'], ['robot', 'r'], ['agents', 'a'], ['view', 'v'], ['help', 'h']]) {
-      // Background source saves can rebuild main's menus after navigation.
-      const submenu = application().getMenuItemById('chrome-' + id).submenu;
-      win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'focus after programmatic popup dismissal');
-      let shown = false; submenu.once('menu-will-show', () => { shown = true; });
-      key(letter, ['alt']); await wait(() => shown, 'Alt+' + letter + ' opens native ' + id);
-      submenu.closePopup(win); await wait(() => evaluate(selector => document.querySelector(selector).getAttribute('aria-expanded') === 'false', menuSelector), 'Alt menu closed');
+    for (const code of ['Space','Enter']) { await evaluate(selector => document.querySelector(selector).focus(), menuSelector); key(code); await wait(shown,code+' opens Application'); await dismiss(); }
+    key('Escape');
+    result.limitations = ['OS accelerators, drag/snap and Alt+Space remain manual; native renderer keyboard/pointer menu interaction is verified.'];
+    result.checks.push('application-menu-pointer-f10-tab-arrows-space-enter-escape','consistent-menu-hover-and-project-insets');
+    for (const [id, letter] of [['File','f'],['Robot','r'],['Agents','a'],['View','v'],['Help','h']]) {
+      key(letter,['alt']); await wait(() => evaluate(id => document.querySelector('.windows-app-menu')?.getAttribute('aria-label') === id,id),'Alt+'+letter);
+      await dismiss();
     }
-    result.checks.push('direct-native-alt-submenus-preserved');
+    // Execute the actual rendered Save item through the main-owned menu command capability.
+    const priorSave = saveCount; key('f',['alt']); await wait(shown,'File menu');
+    const saveToken = await evaluate(() => [...document.querySelectorAll('.windows-app-menu button')].find(button => button.firstElementChild?.textContent === 'Save').dataset.menuToken);
+    await pointer('[data-menu-token="'+saveToken+'"]'); await wait(()=>saveCount>priorSave,'rendered Save command');
+    result.checks.push('direct-alt-sections-and-rendered-save-offline');
     win.focus(); win.webContents.focus(); await wait(() => evaluate(() => document.hasFocus()), 'focus after menus');
     const before = saveCount; key('S', ['control']); await delay(300);
     result.acceleratorDeliveredByRendererInput = saveCount > before;
@@ -183,12 +186,10 @@ app.on('browser-window-created', (_event, window) => {
     await pointer('[aria-label="Keyboard shortcuts"]');
     await wait(() => evaluate(() => Boolean(document.querySelector('dialog:modal>.windows-title-bar'))), 'chrome in modal top layer');
     await capture('keyboard-help-chrome');
-    application(); // A source Save can rebuild main's recent-project menus.
-    const beforeModalMenu = opened;
-    await pointer(menuSelector); await wait(() => opened > beforeModalMenu, 'Application reachable over modal'); await dismiss();
+    await pointer(menuSelector); await wait(shown, 'Application reachable over modal'); await dismiss();
     await evaluate(() => document.querySelector('.keyboard-help [aria-label="Close keyboard shortcuts"]').focus()); key('F10');
     await wait(() => evaluate(selector => document.activeElement === document.querySelector(selector), menuSelector), 'F10 reaches Application from modal');
-    key('Enter'); await wait(() => opened > beforeModalMenu + 1, 'keyboard Application from modal'); await dismiss();
+    key('Enter'); await wait(shown, 'keyboard Application from modal'); await dismiss();
     await pointer('[aria-label="Minimize window"]'); await wait(() => win.isMinimized(), 'minimize with modal open'); win.restore(); win.focus(); win.webContents.focus();
     await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize with modal open');
     await wait(() => evaluate(() => Boolean(document.querySelector('dialog:modal [aria-label="Restore window"]'))), 'modal chrome state synchronized');
@@ -198,9 +199,7 @@ app.on('browser-window-created', (_event, window) => {
     result.checks.push('real-modal-pointer-keyboard-menu-and-window-controls');
     await evaluate(() => { document.querySelector('.windows-desktop').inert = true; });
     try {
-      application();
-      const beforeInertMenu = opened;
-      await pointer(menuSelector); await wait(() => opened > beforeInertMenu, 'Application outside inert editor'); await dismiss();
+      await pointer(menuSelector); await wait(shown, 'Application outside inert editor'); await dismiss();
       await pointer('[aria-label="Maximize window"]'); await wait(() => win.isMaximized(), 'maximize outside inert editor');
       await pointer('[aria-label="Restore window"]'); await wait(() => !win.isMaximized(), 'restore outside inert editor');
     } finally { await evaluate(() => { document.querySelector('.windows-desktop').inert = false; }); }

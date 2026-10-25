@@ -64,6 +64,7 @@ jobs:
               scripts/verify-robot-electrical-ui.mjs
           - group: workflows
             checks: |
+              scripts/verify-editor-interactions.mjs
               scripts/verify-command-branches-ui.mjs
               scripts/verify-project-folder-ui.mjs
               scripts/verify-routine-workspace-ui.mjs

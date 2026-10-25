@@ -4,7 +4,7 @@ import { processPathPreviewJob } from '../src/renderer/assets/path-preview-worke
 // @ts-expect-error Intentional renderer JS API.
 import { PathPreview } from '../src/renderer/assets/path-preview';
 // @ts-expect-error Intentional renderer JS API.
-import { liveEditingPreview } from '../src/renderer/assets/editing-planning';
+import { liveEditingPreview, editingGeometry } from '../src/renderer/assets/editing-planning';
 // @ts-expect-error Intentional renderer JS API.
 import { buildTimeline } from '../src/renderer/components/pathTimelineModel';
 import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
@@ -32,6 +32,21 @@ function moved(path: any, index: number, dx: number, dy: number) {
   return { ...path, waypoints: path.waypoints.map((waypoint: any, i: number) => i !== index ? waypoint
     : { ...waypoint, ...shift(waypoint), prevC: shift(waypoint.prevC), nextC: shift(waypoint.nextC) }) };
 }
+
+it('projects pending tank orientation and keeps stationary-turn offsets when a path rotates', () => {
+  const wp = (x: number, y: number) => ({ x, y, prevC: {x,y}, nextC: {x,y}, segType: 'line' });
+  const before = { id: 'a', waypoints: [wp(1,1),wp(5,1)] }, after = { ...before, waypoints: [wp(1,1),wp(1,5)] };
+  const robot = { drive: 'tank' };
+  const geometry = editingGeometry(before,14,robot);
+  const samples = [0,1,2].map(t => ({t,f:.5,x:3,y:1,headingRad:t*Math.PI/4,velocityMps:0}));
+  const solved = {...geometry,trajectorySamples:samples,prof:{...geometry.prof,totalTime:2}};
+  const shown = liveEditingPreview(after,robot,before,solved);
+  shown.trajectorySamples.forEach((sample: any, i: number) => {
+    expect(sample.x).toBeCloseTo(1); expect(sample.y).toBeCloseTo(3);
+    expect(sample.headingRad).toBeCloseTo(Math.PI/2+samples[i].headingRad);
+    expect(sample.t).toBe(samples[i].t);
+  });
+});
 
 /** The exact message the field's drag previewer posts to the planning worker. */
 function dragMessage(path: any, robot: any, field: any) {
@@ -114,6 +129,9 @@ describe('drag preview parity with the release profile', () => {
     expect(Math.hypot(drawn.x - waypoint.x, drawn.y - waypoint.y)).toBeLessThan(1e-9);
     // Timing comes from the newest solve of the same planner, with the stop kept on its waypoint.
     expect(shown.prof.totalTime).toBeCloseTo(solved.prof.totalTime, 9);
+    expect(shown.trajectorySamples.map((s: any) => s.t)).toEqual(solved.trajectorySamples.map((s: any) => s.t));
+    const atWaypoint = shown.trajectorySamples.reduce((best: any, s: any) => Math.abs(s.f - shown.wpFrac[1]) < Math.abs(best.f - shown.wpFrac[1]) ? s : best);
+    expect(Math.hypot(atWaypoint.x - waypoint.x, atWaypoint.y - waypoint.y)).toBeLessThan(0.03);
     expect(velocityAt(shown, shown.wpFrac[2])).toBeLessThan(0.01);
     const release = releaseValue(draft, project.robot, project.field);
     expect(Math.abs(shown.prof.totalTime - release.prof.totalTime)).toBeLessThan(0.1);
