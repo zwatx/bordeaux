@@ -1,7 +1,6 @@
+import { directionalAccelerationLimit, GRAVITY_MPS2, resolveCgHeightM, robotLoadModel } from "./loadTransfer";
 import { driveMotorPreset } from "./motorPresets";
 import type { PathConstraints, PlannerInput, RobotConfig } from "./types";
-
-const GRAVITY_MPS2 = 9.80665;
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 const DATASHEET_VOLTAGE_V = 12;
@@ -36,7 +35,10 @@ export interface RobotHardLimits {
   motorCapAccelMps2: number;
   /** Flat braking cap from torque or current, before traction. Braking is not back-EMF limited. */
   brakingCapAccelMps2: number;
+  /** Friction alone, mu g: the CG acceleration limit with equal wheel loads. */
   tractionAccelMps2: number;
+  /** Center-of-gravity height used for load transfer; 0 means equal wheel loads. */
+  cgHeightM: number;
   electrical: DriveElectricalModel | null;
 }
 
@@ -106,6 +108,40 @@ export function hasElectricalDriveModel(model: DriveModel | undefined): boolean 
   return resolveElectricalDriveInputs(model) !== null;
 }
 
+/** Timing must remain feasible even when command timing differs from the local preview. */
+export function peakMechanismCurrent(model: DriveModel): number {
+  const bursts = model.loadBursts ?? [];
+  const events = bursts.flatMap(burst => [{ t: burst.startTimeS, change: burst.currentA }, { t: burst.endTimeS, change: -burst.currentA }])
+    .sort((a, b) => a.t - b.t || a.change - b.change);
+  let current = model.otherLoadA ?? 0, peak = current;
+  for (const event of events) { current += event.change; peak = Math.max(peak, current); }
+  return peak;
+}
+
+/** Distinguish an electrically impossible configuration from an absent/custom model. */
+export function electricalConfigurationError(robot: RobotConfig): string | null {
+  const model = robot.driveModel, resolved = resolveElectricalDriveInputs(model);
+  if (!model || !resolved) return null;
+  const p = resolved.values;
+  const windingR = 12 / p.motorStallCurrentA;
+  if (p.motorFreeCurrentA * windingR >= 12) return 'Motor free current must be below stall current; review the motor data.';
+  if (p.batteryVoltageV - p.batteryResistanceOhm * peakMechanismCurrent(model) <= (model.minimumBusVoltageV ?? 7.25)) {
+    return 'Mechanism loads alone reach the minimum bus voltage; reduce their peak load or review the battery settings.';
+  }
+  if (p.driveCurrentLimitA * (1 - p.controlReserve) <= p.motorFreeCurrentA) {
+    return 'The planning current budget does not cover motor loss current; review the current limit and control reserve.';
+  }
+  const cap = p.batteryResistanceOhm > 0
+    ? ((p.batteryVoltageV - (model.minimumBusVoltageV ?? 7.25)) / p.batteryResistanceOhm - peakMechanismCurrent(model)) / (model.motorCount ?? 4)
+    : Infinity;
+  if (cap <= p.motorFreeCurrentA) return 'The minimum bus voltage leaves no drive current budget; review the battery and mechanism loads.';
+  if ((p.batteryVoltageV - p.batteryResistanceOhm * peakMechanismCurrent(model)) * (1 - p.controlReserve)
+    <= p.motorFreeCurrentA * (windingR + (model.motorCount ?? 4) * p.batteryResistanceOhm)) {
+    return 'Battery resistance and control reserve leave no usable motor voltage; review the electrical settings.';
+  }
+  return null;
+}
+
 // DC motor model from the datasheet stall/free figures at 12 V (as in the LabVIEW
 // motor-sim): R = 12/I_stall, Kt = tau_stall/I_stall, Kv = w_free/(12 - I_free*R).
 // At full duty the battery sag Vbus = V0 - R_bat*(N*I_supply + I_other) acts as N*R_bat
@@ -122,13 +158,21 @@ function electricalModel(model: DriveModel): DriveElectricalModel | null {
   if (!(backEmfAtFreeV > 0)) return null;
   const reserve = Math.min(0.5, inputs.controlReserve);
   const efficiency = Math.min(1, inputs.driveEfficiency);
+  const otherLoad = peakMechanismCurrent(model);
+  const minimumBus = model.minimumBusVoltageV ?? 7.25;
+  // Supply current never exceeds stator current in a feasible motoring state.
+  // This conservative cap gives the timing solver a brownout constraint before
+  // the shared-bus, unequal-module check in dense validation.
+  const brownoutCap = inputs.batteryResistanceOhm > 0
+    ? Math.max(0, ((inputs.batteryVoltageV - minimumBus) / inputs.batteryResistanceOhm - otherLoad) / model.motorCount!)
+    : Infinity;
   return {
     resistanceOhm,
     effectiveResistanceOhm: resistanceOhm + model.motorCount! * inputs.batteryResistanceOhm,
     torqueConstantNmPerA: model.motorMaxTorqueNm! / stallCurrentA,
     velocityConstantRadpsPerV: freeSpeedRadps / backEmfAtFreeV,
-    availableVoltageV: (inputs.batteryVoltageV - inputs.batteryResistanceOhm * inputs.otherLoadA) * (1 - reserve),
-    currentCapA: inputs.driveCurrentLimitA * (1 - reserve),
+    availableVoltageV: (inputs.batteryVoltageV - inputs.batteryResistanceOhm * otherLoad) * (1 - reserve),
+    currentCapA: Math.max(0, Math.min(inputs.driveCurrentLimitA * (1 - reserve), brownoutCap) - freeCurrentA),
     freeCurrentA,
     efficiency,
   };
@@ -182,28 +226,79 @@ export function robotHardLimits(robot: RobotConfig): RobotHardLimits | null {
     brakingCapAccelMps2 = motorAccelMps2;
   }
   const tractionAccelMps2 = model.wheelFrictionCoefficient! * GRAVITY_MPS2;
-  const maxAccelMps2 = Math.min(motorCapAccelMps2, motorAccelMps2, tractionAccelMps2);
-  const maxDecelMps2 = Math.min(brakingCapAccelMps2, tractionAccelMps2);
+  const equalLoadAccelMps2 = Math.min(motorCapAccelMps2, motorAccelMps2, tractionAccelMps2);
+  const cgHeightM = resolveCgHeightM(model).value;
+  let maxAccelMps2 = equalLoadAccelMps2;
+  let maxDecelMps2 = Math.min(brakingCapAccelMps2, tractionAccelMps2);
+  let maxCornerAccelMps2 = tractionAccelMps2;
+  if (cgHeightM > 0) {
+    // Hard launches unload the leading wheels. Each envelope is the better of the
+    // robot's two axes; the planner's per-module limits handle every other direction.
+    const transfer = loadTransferEnvelope(robot, model, cgHeightM, Math.min(motorCapAccelMps2, motorAccelMps2), brakingCapAccelMps2);
+    maxAccelMps2 = Math.min(maxAccelMps2, transfer.accelMps2);
+    maxDecelMps2 = Math.min(maxDecelMps2, transfer.decelMps2);
+    maxCornerAccelMps2 = Math.min(maxCornerAccelMps2, transfer.cornerMps2);
+  }
   const moduleRadiusM = robot.drive === "tank"
     ? model.trackwidthM! / 2
     : Math.hypot(model.wheelbaseM! / 2, model.trackwidthM! / 2);
   const maxAngularSpeedDegps = maxSpeedMps / moduleRadiusM * RADIANS_TO_DEGREES;
-  const maxAngularAccelDegps2 = maxAccelMps2 * model.massKg! * moduleRadiusM
+  // Pure rotation does not accelerate the CG, so it transfers no load.
+  const maxAngularAccelDegps2 = equalLoadAccelMps2 * model.massKg! * moduleRadiusM
     / model.moiKgM2! * RADIANS_TO_DEGREES;
   return {
     maxSpeedMps,
     maxAccelMps2,
     maxDecelMps2,
-    maxCornerAccelMps2: tractionAccelMps2,
+    maxCornerAccelMps2,
     maxAngularSpeedDegps,
     maxAngularAccelDegps2,
     motorAccelMps2,
     motorCapAccelMps2,
     brakingCapAccelMps2,
     tractionAccelMps2,
+    cgHeightM,
     electrical,
   };
 }
+
+/**
+ * Straight-line launch, braking and cornering limits with load transfer, along
+ * the robot's better axis. Drive force per wheel is capped by its share of the
+ * motor limit; the lightly loaded wheels are capped by friction on their load.
+ */
+function loadTransferEnvelope(
+  robot: RobotConfig,
+  model: DriveModel,
+  cgHeightM: number,
+  motoringAccelMps2: number,
+  brakingAccelMps2: number,
+): { accelMps2: number; decelMps2: number; cornerMps2: number } {
+  const massKg = model.massKg!;
+  const mu = model.wheelFrictionCoefficient!;
+  // Planning asks for the same robot's limits at every path point.
+  const inputs = [robot.drive === "tank" ? 1 : 0, model.wheelbaseM!, model.trackwidthM!, massKg, cgHeightM, mu, motoringAccelMps2, brakingAccelMps2];
+  const cached = loadTransferEnvelopeCache.get(model);
+  if (cached && cached.inputs.every((value, index) => value === inputs[index])) return cached.envelope;
+  const { contacts, loads } = robotLoadModel(robot, massKg, cgHeightM);
+  const share = massKg / Math.max(1, contacts.length);
+  const best = (capN: number) => Math.max(
+    directionalAccelerationLimit(loads.static, loads.perAccelX, mu, capN, massKg),
+    directionalAccelerationLimit(loads.static, loads.perAccelY, mu, capN, massKg),
+  );
+  const envelope = {
+    accelMps2: best(motoringAccelMps2 * share),
+    decelMps2: best(brakingAccelMps2 * share),
+    cornerMps2: best(Number.POSITIVE_INFINITY),
+  };
+  loadTransferEnvelopeCache.set(model, { inputs, envelope });
+  return envelope;
+}
+
+const loadTransferEnvelopeCache = new WeakMap<object, {
+  inputs: number[];
+  envelope: { accelMps2: number; decelMps2: number; cornerMps2: number };
+}>();
 
 // Use the robot envelope when creating a path. Existing numeric constraints
 // remain authored caps, including in older files without default provenance.

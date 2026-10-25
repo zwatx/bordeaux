@@ -3,12 +3,21 @@ const CONTROLLABLE_TOLERANCE = 1e-9;
 
 export type ReachabilityStatus = "optimal" | "invalid-input" | "infeasible";
 
+/**
+ * |(uX, uY) s'' + (xX, xY) s'^2| <= limit + limitU s'' + limitX s'^2.
+ * The optional affine terms let a limit follow the state, such as friction on
+ * a wheel load that shifts with acceleration; the set stays convex in s''.
+ */
 export interface AffineAccelerationConstraint {
   uX: number;
   uY: number;
   xX: number;
   xY: number;
   limit: number;
+  limitU?: number;
+  limitX?: number;
+  /** See AffineScalarAccelerationConstraint.allocation. */
+  allocation?: number;
   label?: string;
 }
 
@@ -26,6 +35,14 @@ export interface AffineScalarAccelerationConstraint {
    * is not back-EMF limited, so it is bounded by `minimum` alone.
    */
   motoringOnly?: boolean;
+  /**
+   * Constraints sharing an allocation id describe one way to split the chassis
+   * wrench across the wheels. Each allocation alone is sufficient, so the
+   * feasible accelerations are the hull of the allocations' feasible sets
+   * (sound because the true contact-force set is convex). Constraints without
+   * an id apply to every allocation.
+   */
+  allocation?: number;
 }
 
 export interface ReachabilityInput {
@@ -93,13 +110,144 @@ function isFiniteNonnegative(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
 }
 
+type AccelerationInterval = { minimum: number; maximum: number };
+
+const allocationIdCache = new WeakMap<readonly object[], readonly number[]>();
+
+function allocationIds(constraints: readonly { allocation?: number }[]): readonly number[] {
+  let ids = allocationIdCache.get(constraints);
+  if (!ids) {
+    const found = new Set<number>();
+    for (const constraint of constraints) if (constraint.allocation !== undefined) found.add(constraint.allocation);
+    ids = [...found].sort((left, right) => left - right);
+    allocationIdCache.set(constraints, ids);
+  }
+  return ids;
+}
+
+/** Distinct allocation ids in either list; empty when every constraint is shared. */
+function allocationGroups(
+  constraints: readonly AffineAccelerationConstraint[],
+  scalarConstraints: readonly AffineScalarAccelerationConstraint[],
+): readonly number[] {
+  const vector = allocationIds(constraints);
+  const scalar = allocationIds(scalarConstraints);
+  if (scalar.length === 0) return vector;
+  if (vector.length === 0) return scalar;
+  const cached = allocationUnionCache.get(constraints);
+  if (cached && cached.scalarConstraints === scalarConstraints) return cached.groups;
+  const groups = [...new Set([...vector, ...scalar])].sort((left, right) => left - right);
+  allocationUnionCache.set(constraints, { scalarConstraints, groups });
+  return groups;
+}
+
+const allocationUnionCache = new WeakMap<readonly object[], { scalarConstraints: readonly object[]; groups: readonly number[] }>();
+
+const allocationViewCache = new WeakMap<readonly object[], Map<number, readonly object[]>>();
+
+/** The constraints one allocation must satisfy: the shared ones plus its own, in input order. */
+function constraintsFor<T extends { allocation?: number }>(constraints: readonly T[], allocation: number | undefined): readonly T[] {
+  if (allocation === undefined) return constraints;
+  let views = allocationViewCache.get(constraints);
+  if (!views) {
+    views = new Map();
+    allocationViewCache.set(constraints, views);
+  }
+  let view = views.get(allocation) as readonly T[] | undefined;
+  if (!view) {
+    view = constraints.filter((constraint) => constraint.allocation === undefined || constraint.allocation === allocation);
+    views.set(allocation, view);
+  }
+  return view;
+}
+
+/** Allocation id that matches only the shared constraints. */
+const SHARED_ONLY = -1;
+
+/**
+ * Hull of the allocations' bounds. No allocation can exceed the shared
+ * constraints' bounds, so the search stops once the hull reaches them.
+ */
+function hullOf(
+  allocations: readonly number[],
+  bounds: (allocation: number) => AccelerationInterval | null,
+): AccelerationInterval | null {
+  const outer = bounds(SHARED_ONLY);
+  if (!outer) return null;
+  const tolerance = (value: number) => 1e-12 * Math.max(1, Math.abs(value));
+  let hull: AccelerationInterval | null = null;
+  for (const allocation of allocations) {
+    const candidate = bounds(allocation);
+    if (!candidate) continue;
+    hull = hull
+      ? { minimum: Math.min(hull.minimum, candidate.minimum), maximum: Math.max(hull.maximum, candidate.maximum) }
+      : candidate;
+    if (hull.minimum <= outer.minimum + tolerance(outer.minimum)
+      && hull.maximum >= outer.maximum - tolerance(outer.maximum)) break;
+  }
+  return hull;
+}
+
 export function accelerationBoundsForSpeedSquared(
   constraints: readonly AffineAccelerationConstraint[],
   speedSquared: number,
   scalarConstraints: readonly AffineScalarAccelerationConstraint[] = [],
   envelopeSpeedSquared = speedSquared,
 ): { minimum: number; maximum: number } | null {
-  return accelerationBounds(constraints, speedSquared, scalarConstraints, envelopeSpeedSquared, 0, true);
+  const groups = allocationGroups(constraints, scalarConstraints);
+  if (groups.length === 0) return accelerationBounds(constraints, speedSquared, scalarConstraints, envelopeSpeedSquared, 0, true);
+  return hullOf(groups, (allocation) => (
+    accelerationBounds(constraints, speedSquared, scalarConstraints, envelopeSpeedSquared, 0, true, allocation)
+  ));
+}
+
+/**
+ * Accelerations a with |U a + X s| <= P + Q a, where U = u + x * ds is the
+ * midpoint-substituted coefficient. The set is convex in a; squaring adds a
+ * mirror branch with P + Q a < 0, which the half-line P + Q a >= 0 removes.
+ */
+function affineLimitBounds(
+  uX: number,
+  uY: number,
+  xX: number,
+  xY: number,
+  speedSquared: number,
+  limitBase: number,
+  limitSlope: number,
+): AccelerationInterval | null {
+  let minimum = Number.NEGATIVE_INFINITY;
+  let maximum = Number.POSITIVE_INFINITY;
+  if (Math.abs(limitSlope) <= EPSILON) {
+    if (limitBase < -EPSILON) return null;
+  } else if (limitSlope > 0) minimum = -limitBase / limitSlope;
+  else maximum = -limitBase / limitSlope;
+  const forceSquared = uX ** 2 + uY ** 2;
+  const a = forceSquared - limitSlope ** 2;
+  const b = 2 * (speedSquared * (uX * xX + uY * xY) - limitBase * limitSlope);
+  const c = speedSquared ** 2 * (xX ** 2 + xY ** 2) - limitBase ** 2;
+  const scale = Math.max(1, forceSquared, limitSlope ** 2);
+  if (Math.abs(a) <= EPSILON * scale) {
+    if (Math.abs(b) <= EPSILON * scale) {
+      if (c > EPSILON * scale) return null;
+    } else if (b > 0) maximum = Math.min(maximum, -c / b);
+    else minimum = Math.max(minimum, -c / b);
+  } else {
+    const discriminant = b ** 2 - 4 * a * c;
+    if (a > 0) {
+      if (discriminant < -EPSILON * scale ** 2) return null;
+      const root = Math.sqrt(Math.max(0, discriminant));
+      minimum = Math.max(minimum, (-b - root) / (2 * a));
+      maximum = Math.min(maximum, (-b + root) / (2 * a));
+    } else if (discriminant > 0) {
+      // The limit grows faster than the force: a ray in the slope's direction.
+      const root = Math.sqrt(discriminant);
+      const first = (-b - root) / (2 * a);
+      const second = (-b + root) / (2 * a);
+      if (limitSlope > 0) minimum = Math.max(minimum, first, second);
+      else maximum = Math.min(maximum, first, second);
+    }
+  }
+  return minimum > maximum + EPSILON ? null : { minimum, maximum };
 }
 
 function accelerationBounds(
@@ -109,14 +257,28 @@ function accelerationBounds(
   envelopeSpeedSquared: number,
   distance: number,
   applyMotorEnvelope: boolean,
+  allocation?: number,
 ): { minimum: number; maximum: number } | null {
   let minimum = Number.NEGATIVE_INFINITY;
   let maximum = Number.POSITIVE_INFINITY;
-  for (const constraint of constraints) {
+  for (const constraint of constraintsFor(constraints, allocation)) {
     // x_mid = x_start + u * ds. Substitute in registers instead of
     // cloning every constraint for each reachability search probe.
     const uX = constraint.uX + constraint.xX * distance;
     const uY = constraint.uY + constraint.xY * distance;
+    if (constraint.limitU !== undefined || constraint.limitX !== undefined) {
+      const limitX = constraint.limitX ?? 0;
+      const bounds = affineLimitBounds(
+        uX, uY, constraint.xX, constraint.xY, speedSquared,
+        constraint.limit + limitX * speedSquared,
+        (constraint.limitU ?? 0) + limitX * distance,
+      );
+      if (!bounds) return null;
+      minimum = Math.max(minimum, bounds.minimum);
+      maximum = Math.min(maximum, bounds.maximum);
+      if (minimum > maximum + EPSILON) return null;
+      continue;
+    }
     const a = uX ** 2 + uY ** 2;
     const b = 2 * speedSquared * (uX * constraint.xX + uY * constraint.xY);
     const c = speedSquared ** 2 * (constraint.xX ** 2 + constraint.xY ** 2) - constraint.limit ** 2;
@@ -131,7 +293,7 @@ function accelerationBounds(
     maximum = Math.min(maximum, (-b + root) / (2 * a));
     if (minimum > maximum + EPSILON) return null;
   }
-  for (const constraint of scalarConstraints) {
+  for (const constraint of constraintsFor(scalarConstraints, allocation)) {
     const offset = constraint.x * speedSquared;
     const moduleSpeed = (constraint.velocityCoefficient ?? 0) * Math.sqrt(Math.max(0, envelopeSpeedSquared));
     const motorLimit = applyMotorEnvelope && constraint.freeSpeed && constraint.motorAcceleration
@@ -159,25 +321,36 @@ function accelerationBoundsForInterval(
   distance: number,
   scalarConstraints: readonly AffineScalarAccelerationConstraint[] = [],
   envelopeSpeedSquared?: number,
+  allocation?: number,
 ): { minimum: number; maximum: number } | null {
-  if (distance <= EPSILON) return accelerationBoundsForSpeedSquared(constraints, startSpeedSquared, scalarConstraints);
+  if (distance <= EPSILON) {
+    return accelerationBounds(constraints, startSpeedSquared, scalarConstraints, startSpeedSquared, 0, true, allocation);
+  }
   return accelerationBounds(
     constraints, startSpeedSquared, scalarConstraints,
-    envelopeSpeedSquared ?? startSpeedSquared, distance, envelopeSpeedSquared !== undefined,
+    envelopeSpeedSquared ?? startSpeedSquared, distance, envelopeSpeedSquared !== undefined, allocation,
   );
 }
+
+const dynamicConstraintCache = new WeakMap<readonly AffineScalarAccelerationConstraint[], readonly AffineScalarAccelerationConstraint[]>();
 
 function tightenForModuleMotorEnvelope(
   constraints: readonly AffineScalarAccelerationConstraint[],
   startSpeedSquared: number,
   distance: number,
   bounds: ControllableInterval,
+  allocation?: number,
 ): ControllableInterval | null {
-  const dynamic = constraints.filter((constraint) => (
-    (constraint.velocityCoefficient ?? 0) > 0
-    && (constraint.freeSpeed ?? 0) > 0
-    && (constraint.motorAcceleration ?? 0) > 0
-  ));
+  const view = constraintsFor(constraints, allocation);
+  let dynamic = dynamicConstraintCache.get(view);
+  if (!dynamic) {
+    dynamic = view.filter((constraint) => (
+      (constraint.velocityCoefficient ?? 0) > 0
+      && (constraint.freeSpeed ?? 0) > 0
+      && (constraint.motorAcceleration ?? 0) > 0
+    ));
+    dynamicConstraintCache.set(view, dynamic);
+  }
   if (dynamic.length === 0) return bounds;
 
   const gap = (acceleration: number) => {
@@ -338,11 +511,65 @@ function controlBoundsForInterval(
   speedSquared: number,
   distance: number,
 ): ControllableInterval | null {
+  const groups = allocationGroups(
+    input.accelerationConstraints?.[index] ?? [],
+    input.scalarAccelerationConstraints?.[index] ?? [],
+  );
+  const tighten = (bounds: ControllableInterval, allocation?: number) => tightenForModuleMotorEnvelope(
+    input.scalarAccelerationConstraints?.[index] ?? [],
+    speedSquared,
+    distance,
+    bounds,
+    allocation,
+  );
+  if (groups.length === 0) {
+    const bounds = untightenedControlBounds(input, index, speedSquared, distance);
+    return bounds && tighten(bounds);
+  }
+  // Every allocation's bounds lie inside the shared constraints' bounds, and the
+  // motor-envelope tightening only shrinks an interval, so an allocation whose
+  // untightened bounds are already inside the hull cannot widen it.
+  const outer = untightenedControlBounds(input, index, speedSquared, distance, SHARED_ONLY);
+  if (!outer) return null;
+  const tolerance = (value: number) => 1e-12 * Math.max(1, Math.abs(value));
+  const candidates: { allocation: number; bounds: ControllableInterval }[] = [];
+  for (const allocation of groups) {
+    const bounds = untightenedControlBounds(input, index, speedSquared, distance, allocation);
+    if (bounds) candidates.push({ allocation, bounds });
+  }
+  // Tighten the widest-reaching allocations first so the rest are usually pruned.
+  candidates.sort((left, right) => (
+    (right.bounds.maximum - right.bounds.minimum) - (left.bounds.maximum - left.bounds.minimum)
+  ));
+  let hull: ControllableInterval | null = null;
+  for (const { allocation, bounds: untightened } of candidates) {
+    if (hull && untightened.minimum >= hull.minimum && untightened.maximum <= hull.maximum) continue;
+    const bounds = tighten(untightened, allocation);
+    if (!bounds) continue;
+    hull = hull
+      ? { minimum: Math.min(hull.minimum, bounds.minimum), maximum: Math.max(hull.maximum, bounds.maximum) }
+      : bounds;
+    if (hull.minimum <= outer.minimum + tolerance(outer.minimum)
+      && hull.maximum >= outer.maximum - tolerance(outer.maximum)) break;
+  }
+  return hull;
+}
+
+/** Drivetrain, linear and chassis motor bounds, before the per-module motor envelope. */
+function untightenedControlBounds(
+  input: ReachabilityInput,
+  index: number,
+  speedSquared: number,
+  distance: number,
+  allocation?: number,
+): ControllableInterval | null {
   const drivetrain = accelerationBoundsForInterval(
     input.accelerationConstraints?.[index] ?? [],
     speedSquared,
     distance,
     input.scalarAccelerationConstraints?.[index] ?? [],
+    undefined,
+    allocation,
   );
   if (!drivetrain) return null;
   const minimum = Math.max(-input.decelerationLimits[index], drivetrain.minimum);
@@ -360,12 +587,7 @@ function controlBoundsForInterval(
     maximum = Math.min(maximum, Math.max(0, motorLimitedAcceleration));
   }
   if (minimum > maximum + EPSILON) return null;
-  return tightenForModuleMotorEnvelope(
-    input.scalarAccelerationConstraints?.[index] ?? [],
-    speedSquared,
-    distance,
-    { minimum, maximum },
-  );
+  return { minimum, maximum };
 }
 
 function controllablePredecessor(
@@ -392,6 +614,7 @@ function controllablePredecessor(
     : motorAcceleration * Math.max(0, Math.min(1, 1 - Math.sqrt(Math.max(pointLimit, next.maximum)) / freeSpeed));
   if (accelerationConstraints.length === 0
     && !hasModuleMotorEnvelope
+    && allocationIds(input.scalarAccelerationConstraints?.[index] ?? []).length === 0
     && motorLimitAtPointCap >= input.accelerationLimits[index] - EPSILON) {
     return linearControllablePredecessor(input, index, pointLimit, next, distance);
   }
@@ -529,11 +752,11 @@ function bindingConstraintLabel(
   const constraintBounds = [
     ...(input.accelerationConstraints?.[index] ?? []).map((constraint) => ({
       label: constraint.label ?? "drivetrain",
-      bounds: accelerationBoundsForInterval([constraint], speedSquared, distance),
+      bounds: accelerationBoundsForInterval([constraint], speedSquared, distance, [], undefined, constraint.allocation),
     })),
     ...(input.scalarAccelerationConstraints?.[index] ?? []).map((constraint) => ({
       label: constraint.label ?? "drivetrain",
-      bounds: accelerationBoundsForInterval([], speedSquared, distance, [constraint]),
+      bounds: accelerationBoundsForInterval([], speedSquared, distance, [constraint], undefined, constraint.allocation),
     })),
   ];
   const empty = constraintBounds.find((entry) => entry.bounds === null);
@@ -674,7 +897,7 @@ export function solveReachabilityProfile(
       return invalid(`Motor acceleration limit ${index} must be finite and positive.`);
     }
     for (const constraint of input.accelerationConstraints?.[index] ?? []) {
-      if (![constraint.uX, constraint.uY, constraint.xX, constraint.xY].every(Number.isFinite)
+      if (![constraint.uX, constraint.uY, constraint.xX, constraint.xY, constraint.limitU ?? 0, constraint.limitX ?? 0].every(Number.isFinite)
         || !(constraint.limit > 0) || !Number.isFinite(constraint.limit)) {
         return invalid(`Affine acceleration constraint ${index} must contain finite coefficients and a positive limit.`);
       }

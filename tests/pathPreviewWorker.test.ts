@@ -188,7 +188,8 @@ describe("path preview worker final optimization", () => {
 
     const fixed = optimizeFixedGeometryFinal({ path, robot: project.robot, samplesPerSegment: 56 });
     expect(fixed.optimization).toMatchObject({
-      status: expect.stringMatching(/^(optimal|equivalent)$/),
+      // Load-dependent traction may require a validated timing repair.
+      status: expect.stringMatching(/^(optimal|feasible|equivalent)$/),
       constraintViolations: 0,
       fallback: false,
     });

@@ -205,5 +205,5 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
   }
   commands.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   return { commands, cacheable, dependencyPaths: [...dependencyPaths].sort(), inspection: { status: "available", applicationContext: "My Computer", inspectedAt, commandCount: commands.length, unsupported,
-    ...(!cacheable ? { reason: `Live inspection only; no saved-source cache: ${[...cacheBlockers].join("; ")}.` } : {}) } };
+    ...(!cacheable ? { liveOnly: true, reason: `Live inspection only; saved sources unconfirmed: ${[...cacheBlockers].join("; ")}.` } : {}) } };
 }

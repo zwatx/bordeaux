@@ -4,6 +4,7 @@ import { committedDraftValue, parseFiniteDraftNumber } from "../src/renderer/lib
 import { formatAngularLimit } from "../src/renderer/lib/unitPreferences";
 import { DRIVE_MOTOR_PRESETS } from "../src/shared/motorPresets";
 import { resolveElectricalDriveInputs } from "../src/shared/robotLimits";
+import { resolveCgHeightM } from "../src/shared/loadTransfer";
 
 type ElementNode = { type: unknown; props: Record<string, unknown>; children: unknown[] };
 
@@ -63,6 +64,7 @@ function numericDraftHarness(kind: "Num" | "BigNum", overrides: Record<string, u
     committedDraftValue,
     DRIVE_MOTOR_PRESETS,
     resolveElectricalDriveInputs,
+    resolveCgHeightM,
     PM: {},
     PointerDrag: { useController: () => ({
       start: (_event: unknown, handlers: typeof scrubHandlers) => { scrubHandlers = handlers; },
@@ -157,6 +159,8 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
         committedDraftValue,
         DRIVE_MOTOR_PRESETS,
         resolveElectricalDriveInputs,
+        resolveCgHeightM,
+        PowerSettings: () => null,
         PM: { robotHardLimits: () => null },
         PointerDrag: { useController: () => ({ start: () => undefined }) },
         UnitPrefs: { current: () => "metric", fromCanonical: (value: number) => value, toCanonical: (value: number) => value, label: () => "", format: () => "" },

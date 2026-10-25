@@ -293,7 +293,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: robot.maxSpeed, onChange: (v) => actions.setConstraint({ maxVel: v }) }),
       h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
     return h('section', { className: 'path-band', 'aria-label': 'Path details' },
-      h(PathPanel, { ...props, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
+      h(PathPanel, { ...props, stale: props.stale || timingHeld, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
         onFixIssue: problems.onFix, onClearIssue: problems.onClear }),
       h(PathTimeline, { doc, derived, tl, robot, sel: props.sel, select: actions.select, edit, actions, playbackStore: props.playbackStore,
         catalog: props.robotProject?.catalog, metric: props.metric, stale: props.stale || timingHeld, header: limits,
@@ -2950,7 +2950,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),
             h(RoutineWorkspace, {
-              routine, run,
+              routine, run, robot,
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),

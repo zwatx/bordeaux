@@ -21,22 +21,24 @@ import path from "node:path";
 // Custom Windows chrome, dynamic-repeat controls and focused Space admission measure
 // 742,860 application bytes together. The Robot page electrical drive model and its
 // shared hard-limit physics bring the total to 747,485 bytes; keep every chunk counted
-// with a 730 KiB cap.
-// Live robot reachability and the nonmodal update popover measure 749,566 bytes;
-// count every chunk with a 732 KiB cap. Worker, CSS and package limits stay unchanged.
-// Continuous edit playback, point-link review, and the main-backed Windows menu add ~6.5 KB.
-// Count both dialogs and every application chunk under the reviewed 740 KiB bound.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 740 * 1024;
+// with a 730 KiB cap. Combined CG load transfer, live robot reachability and the
+// nonmodal update popover use a 736 KiB cap, with every chunk counted.
+// Power settings/report controls add ~10 KiB; trajectory/routine analysis runs in the shared worker.
+// Every application chunk remains counted.
+// Point-link review, continuous playback and the Windows menu add the separately reviewed 8 KiB allowance.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 754 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
 // Blue-origin Flip qualifies and rotates applied routes in the worker, outside the UI bundle.
 // The default electrical drive model (motor presets, planning defaults and motoring-only
 // module limits) measures 215,130 worker bytes.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 211 * 1024;
+// Load-dependent traction and force allocation bring the worker to 226,971 bytes.
+// Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
-// The point-link dialog and consistently inset Windows menu add ~3.4 KB of styles.
-const CSS_BUDGET_BYTES = 152 * 1024;
+// Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
+const CSS_BUDGET_BYTES = 153 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

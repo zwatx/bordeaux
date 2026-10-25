@@ -178,13 +178,16 @@ export async function withCachedLabviewCommands(selection: string, catalog: Robo
     return unavailable(catalog, "stale", `Cached NI metadata could not be read: ${errorMessage(error)} Inspect commands again.`);
   }
   try {
-    const value = raw as { schemaVersion?: unknown; fingerprint?: unknown; report?: unknown; dependencies?: unknown };
+    const value = raw as { schemaVersion?: unknown; fingerprint?: unknown; report?: unknown; dependencies?: unknown; liveOnly?: unknown };
     const current = await snapshot(selection, catalog);
     if (value?.schemaVersion !== SCHEMA_VERSION || value.fingerprint !== current.fingerprint) throw new Error("Project or VI sources changed since NI inspection.");
     const decoded = decodeLabviewNiInspection(value.report, current.projectFile, current.sources);
     if (!preInspectedDependencies(current, decoded.dependencyPaths)) throw new Error("NI typedef dependencies were not covered by the project's source fingerprint.");
-    if (!decoded.cacheable || JSON.stringify(value.dependencies) !== JSON.stringify(await dependencySnapshot(decoded.dependencyPaths))) throw new Error("NI type definitions changed or the inspection cannot be bound to saved sources.");
-    return merge(catalog, decoded.commands, { ...decoded.inspection, status: "cached" });
+    // A live entry carries the same byte binding as a session snapshot, so it survives restart until sources change.
+    const liveOnly = !decoded.cacheable && value.liveOnly === true;
+    if ((!decoded.cacheable && !liveOnly) || JSON.stringify(value.dependencies) !== JSON.stringify(await dependencySnapshot(decoded.dependencyPaths))) throw new Error("NI type definitions changed or the inspection cannot be bound to saved sources.");
+    return merge(catalog, decoded.commands, { ...decoded.inspection, status: "cached",
+      ...(liveOnly ? { reason: "Restored from the last live NI inspection; LabVIEW could not confirm its VIs were saved. Refresh commands to inspect again." } : {}) });
   } catch (error) { return unavailable(catalog, "stale", `${errorMessage(error)} Inspect commands again.`); }
 }
 
@@ -251,10 +254,12 @@ export async function inspectLabviewCommands(selection: string, cacheDirectory: 
       decoded.inspection.reason = [decoded.inspection.reason,
         "Live inspection only: some typedefs were discovered during NI inspection and were not fingerprinted beforehand; their saved-source identity cannot be verified."].filter(Boolean).join(" ");
     }
-    if (decoded.cacheable && dependencies) {
-      if (JSON.stringify(dependencies) !== JSON.stringify(await dependencySnapshot(decoded.dependencyPaths))) throw new Error("NI type definitions changed during inspection. Inspect commands again.");
-      await writeJsonAtomically(cachePath(cacheDirectory, before.projectFile), { schemaVersion: SCHEMA_VERSION, fingerprint: before.fingerprint, dependencies, report });
-    } else await fs.rm(cachePath(cacheDirectory, before.projectFile), { force: true });
+    const stable = dependencies && JSON.stringify(dependencies) === JSON.stringify(await dependencySnapshot(decoded.dependencyPaths));
+    if (decoded.cacheable && dependencies && !stable) throw new Error("NI type definitions changed during inspection. Inspect commands again.");
+    // Live-only evidence is persisted so commands survive restart; restore still requires unchanged source bytes.
+    if (stable) await writeJsonAtomically(cachePath(cacheDirectory, before.projectFile), { schemaVersion: SCHEMA_VERSION, fingerprint: before.fingerprint, dependencies, report,
+      ...(decoded.cacheable ? {} : { liveOnly: true }) });
+    else await fs.rm(cachePath(cacheDirectory, before.projectFile), { force: true });
     const result = merge(refreshed, decoded.commands, decoded.inspection);
     activeInspections.set(result.commands, { projectFile: after.projectFile, fingerprint: after.fingerprint, declarationHash: after.declarationHash,
       dependencies: await dependencySnapshot(decoded.dependencyPaths) });
