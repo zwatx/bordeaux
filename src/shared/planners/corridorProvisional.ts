@@ -16,7 +16,7 @@ export type CorridorEstimate =
 const EPSILON = 1e-9;
 const positive = (value: number) => Number.isFinite(value) && value > 0;
 const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
-const ZERO_ALLOWED_DRIVE_FIELDS = new Set(["motorFreeCurrentA", "batteryResistanceOhm", "otherLoadA", "controlReserve"]);
+const ZERO_ALLOWED_DRIVE_FIELDS = new Set(["motorFreeCurrentA", "batteryResistanceOhm", "otherLoadA", "controlReserve", "cgHeightM"]);
 
 // The seed/constraint helpers deliberately tolerate legacy numeric defaults. A private score
 // must not silently replace malformed authored limits or geometry with those defaults.

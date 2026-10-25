@@ -31,6 +31,9 @@ function maxSwerveProject(electrical = true) {
     wheelbaseM: 0.55,
     trackwidthM: 0.55,
     wheelFrictionCoefficient: 1.2,
+    // Isolate the electrical envelope and its equal-load closed forms.
+    // Nonzero/default CG and exported load-dependent splits have separate tests.
+    cgHeightM: 0,
     ...(electrical ? {
       motorStallCurrentA: 211,
       motorFreeCurrentA: 3.6,

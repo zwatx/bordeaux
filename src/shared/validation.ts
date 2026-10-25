@@ -404,6 +404,10 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         validateOptionalFinite(issues, project.robot.driveModel.wheelbaseM, `${modelPath}.wheelbaseM`, "Wheelbase", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.trackwidthM, `${modelPath}.trackwidthM`, "Trackwidth", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.wheelFrictionCoefficient, `${modelPath}.wheelFrictionCoefficient`, "Wheel friction coefficient", { positive: true });
+        validateOptionalFinite(issues, project.robot.driveModel.cgHeightM, `${modelPath}.cgHeightM`, "Center of gravity height", { nonnegative: true });
+        if (typeof project.robot.driveModel.cgHeightM === "number" && project.robot.driveModel.cgHeightM > 2) {
+          issues.push(issue(`${modelPath}.cgHeightM`, "Center of gravity height must be at most 2 m"));
+        }
         validateOptionalFinite(issues, project.robot.driveModel.motorStallCurrentA, `${modelPath}.motorStallCurrentA`, "Motor stall current", { positive: true });
         validateOptionalFinite(issues, project.robot.driveModel.motorFreeCurrentA, `${modelPath}.motorFreeCurrentA`, "Motor free current", { nonnegative: true });
         validateOptionalFinite(issues, project.robot.driveModel.driveCurrentLimitA, `${modelPath}.driveCurrentLimitA`, "Drive current limit", { positive: true });

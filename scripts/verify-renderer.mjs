@@ -21,15 +21,17 @@ import path from "node:path";
 // Custom Windows chrome, dynamic-repeat controls and focused Space admission measure
 // 742,860 application bytes together. The Robot page electrical drive model and its
 // shared hard-limit physics bring the total to 747,485 bytes; keep every chunk counted
-// with a 730 KiB cap.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 730 * 1024;
+// with a 730 KiB cap. CG load transfer adds 3,590 bytes to the shared hard-limit
+// calculation and Robot page (751,075 total); allow 734 KiB with all chunks counted.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 734 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
 // Blue-origin Flip qualifies and rotates applied routes in the worker, outside the UI bundle.
 // The default electrical drive model (motor presets, planning defaults and motoring-only
 // module limits) measures 215,130 worker bytes.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 211 * 1024;
+// Load-dependent traction and force allocation bring the worker to 226,971 bytes.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 222 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 const CSS_BUDGET_BYTES = 148 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");

@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+app.disableHardwareAcceleration();
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -37,10 +38,17 @@ const placeholder = (label) => evaluate((label) => document.querySelector(`input
 const labelNote = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.closest('.rp-field')?.querySelector('.rp-flabel small')?.textContent ?? null, label);
 const fieldText = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.value ?? null, label);
 const resultText = (label) => evaluate((label) => [...document.querySelectorAll('.rp-drive-result')].find((el) => el.querySelector('span')?.textContent === label)?.querySelector('strong')?.textContent ?? null, label);
+async function capture() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await delay(250);
+    try { return await win.webContents.capturePage(); }
+    catch (error) { if (attempt === 2 || !String(error).includes('UnknownVizError')) throw error; }
+  }
+}
 async function snapshot(name, anchorText) {
   await evaluate((anchorText) => [...document.querySelectorAll('.rp-subh')].find((el) => el.textContent === anchorText)?.scrollIntoView({ block: 'start' }), anchorText);
   await delay(120);
-  await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
+  await fs.writeFile(path.join(output, name + '.png'), (await capture()).toPNG());
 }
 async function snapshotBothSizes(name) {
   for (const [width, height] of [[1440, 900], [1100, 720]]) {
@@ -84,6 +92,53 @@ app.whenReady().then(async () => {
     assert.ok(parseFloat(defaultTopSpeed) < 4.9, 'top speed follows the electrical line, not the 12 V free speed: ' + defaultTopSpeed);
     assert.equal(await evaluate(() => [...document.querySelectorAll('button')].some((el) => el.textContent.trim() === 'Use default electrical values')), false);
     await snapshotBothSizes('defaults');
+    assert.equal(await fieldText('CG height'), '');
+    assert.equal(await placeholder('CG height'), '0.25');
+    assert.match(await labelNote('CG height'), /Default/);
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('input[aria-label="CG height"]'); await key('Tab');
+      await fs.writeFile(path.join(output, `cg-default-${width}.png`), (await capture()).toPNG());
+    }
+    await typeInto('CG height', '0.9', 'Escape');
+    await save();
+    assert.equal('cgHeightM' in saved.robot.driveModel, false);
+    await typeInto('CG height', '0.31');
+    await save();
+    assert.equal(saved.robot.driveModel.cgHeightM, 0.31);
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('input[aria-label="CG height"]'); await key('Tab');
+      await fs.writeFile(path.join(output, `cg-metric-${width}.png`), (await capture()).toPNG());
+    }
+    await click('button', 'Imperial');
+    await typeInto('CG height', '12');
+    await save();
+    assert.ok(Math.abs(saved.robot.driveModel.cgHeightM - 0.3048) < 1e-12);
+    await win.reload();
+    await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'restored places');
+    await click('.places .place', 'Settings');
+    await wait(() => evaluate(() => !!document.querySelector('input[aria-label="CG height"]')), 'restored CG height');
+    await wait(async () => Math.abs(Number(await fieldText('CG height')) - 12) < 0.001, 'restored imperial CG value');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('input[aria-label="CG height"]'); await key('Tab');
+      await fs.writeFile(path.join(output, `cg-imperial-${width}.png`), (await capture()).toPNG());
+    }
+    await click('button', 'Metric');
+    await typeInto('CG height', '0');
+    await save();
+    assert.equal(saved.robot.driveModel.cgHeightM, 0);
+    await click('input[aria-label="CG height"]'); await key('Tab');
+    assert.equal(await evaluate(() => document.activeElement?.textContent.trim()), 'Use default CG height');
+    await key('Space');
+    await save();
+    assert.equal('cgHeightM' in saved.robot.driveModel, false);
+    assert.equal(await placeholder('CG height'), '0.25');
+    await click('input[aria-label="CG height"]'); await key('Tab');
+    await fs.writeFile(path.join(output, 'cg-reset-1100.png'), (await capture()).toPNG());
+    win.setContentSize(1440, 900);
+    console.log('PASS CG height default, Escape, metric/imperial edits, restore, zero, and reset');
     console.log('PASS A preset robot shows its electrical model with marked defaults and electrical limits');
 
     await typeInto('Drive current limit', '55');
@@ -132,7 +187,7 @@ app.whenReady().then(async () => {
     app.exit(0);
   } catch (error) {
     console.error(error);
-    try { await fs.writeFile(path.join(output, 'failure.png'), (await win.webContents.capturePage()).toPNG()); } catch (_) {}
+    try { await fs.writeFile(path.join(output, 'failure.png'), (await capture()).toPNG()); } catch (_) {}
     app.exit(1);
   }
 });

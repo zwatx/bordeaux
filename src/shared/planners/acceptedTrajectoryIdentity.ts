@@ -6,7 +6,8 @@ import { routeGeometryShapeError } from "./routeGeometry";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
 
 // 2: drive models use the electrical motor envelope (current limit, battery sag) by default.
-const PLANNER_VERSION = "corridor-selection/2";
+// 3: per-wheel traction follows quasi-static load transfer from the CG height (default 0.25 m).
+const PLANNER_VERSION = "corridor-selection/3";
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 

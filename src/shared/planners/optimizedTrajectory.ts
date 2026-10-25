@@ -13,6 +13,7 @@ import { solveReachabilityProfile, type ReachabilityInput, type ReachabilityStat
 import { validateOptimizedTrajectory, type TrajectoryValidationResult } from "./trajectoryValidation";
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
 import { effectiveRanges } from "./rotationPriority";
+import { resolveCgHeightM } from "../loadTransfer";
 
 const R = (value: number, places = 4) => Number(value.toFixed(places));
 const MAX_REFINEMENT_PASSES = 2;
@@ -480,7 +481,14 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
         const allRefinable = validation.violations.every((violation) => violation.refinable);
         const nextSamplesPerSegment = samplesPerSegment * 2;
         const withinSampleLimit = segmentCount <= Math.floor((MAX_TRAJECTORY_SAMPLES - 1) / nextSamplesPerSegment);
-        if (allRefinable && refinementPasses < MAX_REFINEMENT_PASSES && withinSampleLimit) {
+        // Load-dependent traction can fail at a heading-law seam even on a
+        // denser grid. Try a local timing repair before multiplying that grid.
+        const repairTractionFirst = Boolean(input.robot.driveModel)
+          && resolveCgHeightM(input.robot.driveModel).value > 0
+          && validation.violations.every((violation) =>
+          violation.refinable && violation.kind === "drivetrain-acceleration");
+        const canRefine = allRefinable && refinementPasses < MAX_REFINEMENT_PASSES && withinSampleLimit;
+        if (canRefine && !repairTractionFirst) {
           samplesPerSegment = nextSamplesPerSegment;
           candidateBase = profiledSplineOptimizationSeed({ ...input, samplesPerSegment });
           continue;
@@ -521,6 +529,12 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
               refinementPasses,
             ),
           };
+        }
+
+        if (canRefine && repairTractionFirst) {
+          samplesPerSegment = nextSamplesPerSegment;
+          candidateBase = profiledSplineOptimizationSeed({ ...input, samplesPerSegment });
+          continue;
         }
 
         const uniformlyRetimable = validation.violations.every((violation) => (

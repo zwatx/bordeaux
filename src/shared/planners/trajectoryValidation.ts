@@ -450,7 +450,12 @@ export function validateOptimizedTrajectory(
           constraint.uX * acceleration + constraint.xX * speedSquared,
           constraint.uY * acceleration + constraint.xY * speedSquared,
         );
-        if (constraint.label && measured >= constraint.limit * 0.94) activeConstraints.add(constraint.label);
+        const limit = constraint.limit
+          + (constraint.limitU ?? 0) * acceleration
+          + (constraint.limitX ?? 0) * speedSquared;
+        // An unused wheel-force split may exceed its own limit; only a near-binding one is active.
+        if (constraint.label && measured >= limit * 0.94
+          && (constraint.allocation === undefined || measured <= limit * 1.001)) activeConstraints.add(constraint.label);
       }
     }
     if (usesSampleAngularKinematics) {

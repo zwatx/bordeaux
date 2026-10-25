@@ -1,7 +1,6 @@
+import { directionalAccelerationLimit, GRAVITY_MPS2, resolveCgHeightM, robotLoadModel } from "./loadTransfer";
 import { driveMotorPreset } from "./motorPresets";
 import type { PathConstraints, PlannerInput, RobotConfig } from "./types";
-
-const GRAVITY_MPS2 = 9.80665;
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 const DATASHEET_VOLTAGE_V = 12;
@@ -36,7 +35,10 @@ export interface RobotHardLimits {
   motorCapAccelMps2: number;
   /** Flat braking cap from torque or current, before traction. Braking is not back-EMF limited. */
   brakingCapAccelMps2: number;
+  /** Friction alone, mu g: the CG acceleration limit with equal wheel loads. */
   tractionAccelMps2: number;
+  /** Center-of-gravity height used for load transfer; 0 means equal wheel loads. */
+  cgHeightM: number;
   electrical: DriveElectricalModel | null;
 }
 
@@ -182,28 +184,79 @@ export function robotHardLimits(robot: RobotConfig): RobotHardLimits | null {
     brakingCapAccelMps2 = motorAccelMps2;
   }
   const tractionAccelMps2 = model.wheelFrictionCoefficient! * GRAVITY_MPS2;
-  const maxAccelMps2 = Math.min(motorCapAccelMps2, motorAccelMps2, tractionAccelMps2);
-  const maxDecelMps2 = Math.min(brakingCapAccelMps2, tractionAccelMps2);
+  const equalLoadAccelMps2 = Math.min(motorCapAccelMps2, motorAccelMps2, tractionAccelMps2);
+  const cgHeightM = resolveCgHeightM(model).value;
+  let maxAccelMps2 = equalLoadAccelMps2;
+  let maxDecelMps2 = Math.min(brakingCapAccelMps2, tractionAccelMps2);
+  let maxCornerAccelMps2 = tractionAccelMps2;
+  if (cgHeightM > 0) {
+    // Hard launches unload the leading wheels. Each envelope is the better of the
+    // robot's two axes; the planner's per-module limits handle every other direction.
+    const transfer = loadTransferEnvelope(robot, model, cgHeightM, Math.min(motorCapAccelMps2, motorAccelMps2), brakingCapAccelMps2);
+    maxAccelMps2 = Math.min(maxAccelMps2, transfer.accelMps2);
+    maxDecelMps2 = Math.min(maxDecelMps2, transfer.decelMps2);
+    maxCornerAccelMps2 = Math.min(maxCornerAccelMps2, transfer.cornerMps2);
+  }
   const moduleRadiusM = robot.drive === "tank"
     ? model.trackwidthM! / 2
     : Math.hypot(model.wheelbaseM! / 2, model.trackwidthM! / 2);
   const maxAngularSpeedDegps = maxSpeedMps / moduleRadiusM * RADIANS_TO_DEGREES;
-  const maxAngularAccelDegps2 = maxAccelMps2 * model.massKg! * moduleRadiusM
+  // Pure rotation does not accelerate the CG, so it transfers no load.
+  const maxAngularAccelDegps2 = equalLoadAccelMps2 * model.massKg! * moduleRadiusM
     / model.moiKgM2! * RADIANS_TO_DEGREES;
   return {
     maxSpeedMps,
     maxAccelMps2,
     maxDecelMps2,
-    maxCornerAccelMps2: tractionAccelMps2,
+    maxCornerAccelMps2,
     maxAngularSpeedDegps,
     maxAngularAccelDegps2,
     motorAccelMps2,
     motorCapAccelMps2,
     brakingCapAccelMps2,
     tractionAccelMps2,
+    cgHeightM,
     electrical,
   };
 }
+
+/**
+ * Straight-line launch, braking and cornering limits with load transfer, along
+ * the robot's better axis. Drive force per wheel is capped by its share of the
+ * motor limit; the lightly loaded wheels are capped by friction on their load.
+ */
+function loadTransferEnvelope(
+  robot: RobotConfig,
+  model: DriveModel,
+  cgHeightM: number,
+  motoringAccelMps2: number,
+  brakingAccelMps2: number,
+): { accelMps2: number; decelMps2: number; cornerMps2: number } {
+  const massKg = model.massKg!;
+  const mu = model.wheelFrictionCoefficient!;
+  // Planning asks for the same robot's limits at every path point.
+  const inputs = [robot.drive === "tank" ? 1 : 0, model.wheelbaseM!, model.trackwidthM!, massKg, cgHeightM, mu, motoringAccelMps2, brakingAccelMps2];
+  const cached = loadTransferEnvelopeCache.get(model);
+  if (cached && cached.inputs.every((value, index) => value === inputs[index])) return cached.envelope;
+  const { contacts, loads } = robotLoadModel(robot, massKg, cgHeightM);
+  const share = massKg / Math.max(1, contacts.length);
+  const best = (capN: number) => Math.max(
+    directionalAccelerationLimit(loads.static, loads.perAccelX, mu, capN, massKg),
+    directionalAccelerationLimit(loads.static, loads.perAccelY, mu, capN, massKg),
+  );
+  const envelope = {
+    accelMps2: best(motoringAccelMps2 * share),
+    decelMps2: best(brakingAccelMps2 * share),
+    cornerMps2: best(Number.POSITIVE_INFINITY),
+  };
+  loadTransferEnvelopeCache.set(model, { inputs, envelope });
+  return envelope;
+}
+
+const loadTransferEnvelopeCache = new WeakMap<object, {
+  inputs: number[];
+  envelope: { accelMps2: number; decelMps2: number; cornerMps2: number };
+}>();
 
 // Use the robot envelope when creating a path. Existing numeric constraints
 // remain authored caps, including in older files without default provenance.

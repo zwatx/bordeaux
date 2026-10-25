@@ -45,6 +45,12 @@ export interface RobotConfig {
     trackwidthM?: number;
     wheelFrictionCoefficient?: number;
     /**
+     * Center-of-gravity height above the floor, meters. Planning shifts wheel load
+     * toward the trailing and outside wheels when the robot accelerates, brakes or
+     * corners. Unset uses DRIVE_CG_HEIGHT_DEFAULT_M (loadTransfer.ts); 0 keeps equal loads.
+     */
+    cgHeightM?: number;
+    /**
      * Electrical drive model inputs. Planning always uses the electrical model when
      * the stall and free current are known, from these fields or the motorId preset;
      * unset fields take the defaults in ELECTRICAL_DRIVE_DEFAULTS (robotLimits.ts).

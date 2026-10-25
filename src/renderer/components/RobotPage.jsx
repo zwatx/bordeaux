@@ -6,6 +6,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { UI } from "./ui";
 import { DRIVE_MOTOR_PRESETS } from "../../shared/motorPresets";
 import { resolveElectricalDriveInputs } from "../../shared/robotLimits";
+import { resolveCgHeightM } from "../../shared/loadTransfer";
 import "../styles/settings.css";
 
 // Bordeaux Robot config page (project-global).
@@ -149,6 +150,7 @@ import "../styles/settings.css";
     const preset = DRIVE_MOTORS.find((motor) => motor.value === driveModel.motorId && motor.rpm);
     const motorPresetSelected = Boolean(preset);
     const electrical = resolveElectricalDriveInputs(driveModel);
+    const cgHeight = resolveCgHeightM(driveModel);
     const setDriveModel = (patch, removeKeys = []) => {
       const next = { ...driveModel, ...patch };
       removeKeys.forEach((key) => { delete next[key]; });
@@ -171,6 +173,10 @@ import "../styles/settings.css";
       { label: 'Wheelbase', value: driveModel.wheelbaseM, unit: 'm', imperialUnit: 'in', min: 0.1, max: robot.l, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ wheelbaseM: value }) },
       { label: 'Trackwidth', value: driveModel.trackwidthM, unit: 'm', imperialUnit: 'in', min: 0.1, max: robot.w, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ trackwidthM: value }) },
       { label: 'Wheel friction', value: driveModel.wheelFrictionCoefficient, unit: 'μ', min: 0.1, max: 3, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ wheelFrictionCoefficient: value }) },
+      // Unset uses the shared default; 0 plans with equal wheel loads.
+      { label: 'CG height', note: cgHeight.defaulted ? 'Default · above floor' : 'above floor',
+        ...(cgHeight.defaulted ? { value: undefined, placeholder: String(+UnitPrefs.fromCanonical(cgHeight.value, 'm', 'in').toFixed(unitSystem === 'imperial' ? 2 : 3)) } : { value: cgHeight.value }),
+        unit: 'm', imperialUnit: 'in', min: 0, max: 2, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ cgHeightM: value }) },
     ];
     // Unset values show the effective default as a placeholder; typing stores an explicit value.
     const isDefault = (key) => Boolean(electrical && electrical.defaulted.includes(key));
@@ -368,7 +374,9 @@ import "../styles/settings.css";
               h(Dropdown, { id: 'robot-drive-motor', label: 'Drive motor', value: driveModel.motorId, items: DRIVE_MOTORS,
                 onChange: chooseMotor }),
               h('div', { className: 'rp-two rp-drive-model' },
-                driveFields.map((field) => h('div', { className: 'rp-field', key: field.label }, h('div', { className: 'rp-flabel' }, field.label), h(BigNum, field)))),
+                driveFields.map((field) => h('div', { className: 'rp-field', key: field.label }, h('div', { className: 'rp-flabel' }, field.label, field.note && h('small', null, field.note)), h(BigNum, field)))),
+              !cgHeight.defaulted && h('button', { className: 'qbtn quiet rp-use-physical', type: 'button', onClick: () => setDriveModel({}, ['cgHeightM']) }, 'Use default CG height'),
+              h('div', { className: 'rp-note' }, 'CG height is the center of gravity above the floor. The default is an estimate; 0 uses equal wheel loads.'),
               h('div', { className: 'rp-subh' }, 'Electrical model'),
               !electrical && h('div', { className: 'rp-note' }, h(Icon, { name: 'info', size: 14 }), "Enter the motor's stall and free current to plan with its current limit and battery sag. Until then, limits assume full stall torque below free speed."),
               h('div', { className: 'rp-two rp-drive-model' },

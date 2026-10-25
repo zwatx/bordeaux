@@ -8,6 +8,9 @@ export function forceExportRobot(): RobotConfig {
       motorId: "test-force-export", motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4,
       gearRatio: 6.75, wheelDiameterM: 0.1016, massKg: 50, moiKgM2: 5,
       wheelbaseM: 0.6, trackwidthM: 0.6, wheelFrictionCoefficient: 1.2,
+      // These binary/projection fixtures assert the equal-load closed form.
+      // Default/nonzero CG behavior is exercised in weightTransferPlanning.
+      cgHeightM: 0,
     },
   };
 }
