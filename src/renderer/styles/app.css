@@ -270,7 +270,7 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .tb-push{display:flex;flex:0 1 auto;align-items:center;min-width:0;margin-left:10px;padding-left:12px;border-left:1px solid var(--line-2)}
 .tb-push:empty{display:none}
 .toolbar>.update-chip,.toolbar>.keyboard-help-trigger{flex:none;margin-left:6px}
-.toolbar .keyboard-help-trigger{display:grid;place-items:center;width:36px;min-width:36px;height:40px;min-height:40px;padding:0;border-color:transparent;background:transparent;color:var(--txt-3);font-size:13px}
+.toolbar .keyboard-help-trigger{display:grid;place-items:center;width:32px;min-width:32px;height:32px;min-height:32px;padding:0;border-color:transparent;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:13px}
 .toolbar .update-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 9px;border:1px solid var(--line-2);border-radius:999px;color:var(--txt);font-size:12px;white-space:nowrap}
 .update-chip-dot{width:6px;height:6px;border-radius:50%;background:var(--txt-3)}
 .update-chip.available .update-chip-dot,.update-chip.downloaded .update-chip-dot{background:var(--good)}

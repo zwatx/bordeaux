@@ -61,6 +61,13 @@ app.whenReady().then(async () => {
     console.log('PASS Nonmodal updates allow the actual field first press and editor tool shortcuts');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(120);
+      for (const selector of ['.optimizer-toggle', '.keyboard-help-trigger']) {
+        const target = await evaluate(selector => { const r = document.querySelector(selector).getBoundingClientRect(), bar = document.querySelector('.toolbar').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), top: r.top - bar.top, bottom: bar.bottom - r.bottom, right: bar.right - r.right }; }, selector);
+        assert.ok(target.top >= 5 && target.bottom >= 5, 'Toolbar hover surfaces have vertical clearance');
+        if (selector.includes('help')) assert.ok(target.right >= 8, 'Help clears the window edge');
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: target.x, y: target.y }); await delay(180);
+        await snapshot((selector.includes('help') ? 'help' : 'optimize') + '-hover-' + width);
+      }
       const rect = () => evaluate(() => { const r = document.querySelector('.pp-more').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
       const beforePress = await rect();
       const point = { x: Math.round(beforePress.x + beforePress.width / 2), y: Math.round(beforePress.y + beforePress.height / 2) };

@@ -34,7 +34,7 @@ import { deletionInput } from "./DeletionNotice";
   }
 
   // Update status lives quietly in the toolbar instead of interrupting work with a dialog.
-  // A ready update restarts in one click; every other state opens the update panel.
+  // A ready update opens the restart confirmation; other states open the update notes.
   function UpdateChip({ state, onOpen, onInstall }) {
     const phase = state?.phase;
     const percent = Number.isFinite(state?.progress?.percent) ? Math.round(state.progress.percent) : null;

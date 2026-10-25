@@ -66,7 +66,19 @@ app.whenReady().then(async () => {
       assert.equal(await chip(), 'Restart to update');
       await capture(`${platform}-${width}-chip-ready`);
       await click('.update-chip');
-      await waitFor(() => evaluate(() => window.__updateFixture.calls.join() === 'install'), 'Restart to update installs in one click');
+      assert.equal(await evaluate(() => window.__updateFixture.calls.includes('install')), false, 'The chip must request confirmation before restarting');
+      assert.equal(await evaluate(() => document.querySelector('.app-update-confirm').matches(':modal')), true);
+      await capture(`${platform}-${width}-confirmation`);
+      await key('Escape');
+      assert.equal(await evaluate(() => window.__updateFixture.calls.includes('install')), false);
+      await click('.update-chip');
+      await set({ version: '0.2.0-beta.12' });
+      assert.equal(await evaluate(() => Boolean(document.querySelector('.app-update-confirm'))), false, 'A changed target invalidates confirmation');
+      await set({ version: '0.2.0-beta.11' });
+      assert.equal(await evaluate(() => Boolean(document.querySelector('.app-update-confirm'))), false, 'An old confirmation cannot return');
+      await click('dialog.app-update-dialog button', 'Restart and install');
+      await click('.app-update-confirm button', 'Update');
+      await waitFor(() => evaluate(() => window.__updateFixture.calls.join() === 'install'), 'Confirmed restart installs once');
       await set({ phase: 'idle', visible: false, version: null, releaseNotes: '', progress: null });
       await evaluate(() => { window.__updateFixture.calls.length = 0; });
       await click('#update-trigger');
@@ -101,12 +113,20 @@ app.whenReady().then(async () => {
       await set({ phase: 'downloaded', projectDirty: true });
       assert.equal(await evaluate(() => [...document.querySelectorAll('dialog.app-update-dialog button')].find(b => b.textContent === 'Restart and install').disabled), false);
       await capture(`${platform}-${width}-dirty`);
-      assert.deepEqual(await rect(), initial, 'Phase changes must not move or resize the dialog');
+      assert.equal((await rect()).width, initial.width, 'Popover width stays consistent');
+      assert.ok((await rect()).height <= 540, 'Notes stay in a compact popover');
       await capture(`${platform}-${width}-ready`);
       await evaluate(() => document.querySelector('.app-update-secondary button').focus());
       await key('Tab');
       assert.equal(await evaluate(() => document.activeElement.textContent), 'Restart and install');
       await key('Return');
+      assert.equal(await evaluate(() => document.querySelector('.app-update-confirm').matches(':modal')), true);
+      assert.ok(await evaluate(() => document.querySelector('.app-update-confirm').textContent.includes('Unsaved changes will be lost')));
+      await capture(`${platform}-${width}-confirmation-dirty`);
+      await click('.app-update-confirm button', 'Cancel');
+      await click('#update-trigger');
+      await click('dialog.app-update-dialog button', 'Restart and install');
+      await click('.app-update-confirm button', 'Update');
       assert.ok(await evaluate(() => window.__updateFixture.calls.includes('install')));
       await key('Escape');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), true, 'Installation must keep the editor blocked until quit or failure');
@@ -123,7 +143,7 @@ app.whenReady().then(async () => {
       await click('#update-trigger');
       await set({ installStalled: false });
       await set({ phase: 'upToDate', version: null, currentVersion: '0.2.0-beta.11', releaseNotes, projectDirty: false });
-      assert.deepEqual(await rect(), initial);
+      assert.equal((await rect()).width, initial.width);
       assert.ok(await evaluate(() => document.querySelectorAll('.app-update-notes ul li').length >= 7));
       assert.equal(await evaluate(() => document.querySelector('.app-update-notes code').textContent), '/home/lvuser/natinst/bin/Paths');
       assert.ok(await evaluate(() => {
@@ -134,7 +154,7 @@ app.whenReady().then(async () => {
         const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
         return alpha === 255 && Math.max(r, g, b) - Math.min(r, g, b) < 16;
       }), 'Primary action should use a neutral surface');
-      assert.ok(await evaluate(() => document.querySelector('.app-update-notes').clientHeight > 340), 'Notes must have useful reading space');
+      assert.ok(await evaluate(() => document.querySelector('.app-update-notes').clientHeight >= 300), 'Notes must have useful reading space');
       await capture(`${platform}-${width}-up-to-date`);
       await evaluate(() => [...document.querySelectorAll('.app-update-secondary button')].at(-1).focus());
       await key('Tab');
@@ -142,7 +162,7 @@ app.whenReady().then(async () => {
       await key('Return');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), false);
       assert.equal(await evaluate(() => document.activeElement.id), 'update-trigger');
-      pass(`${platform} ${width}×${height}: toolbar chip, safe notes, fixed layout, retry, progress, cancel, unsaved install, modal keyboard and focus`);
+      pass(`${platform} ${width}×${height}: toolbar chip, safe notes, compact layout, retry, progress, cancel, confirmed unsaved install, modal keyboard and focus`);
     }
     assert.deepEqual(errors, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, checks, errors }, null, 2));

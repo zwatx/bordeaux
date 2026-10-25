@@ -24,3 +24,13 @@ The parent inspected representative final link states and Windows menu captures.
 ## Limits
 
 This is not a full Windows suite pass. Existing Windows failures involving CRLF-sensitive VM imports and platform filesystem assumptions were reproduced in an untouched baseline; no tests were disabled to conceal them. Other native platforms, OS drag/snap, Alt+Space, physical robot behavior, and native installers remain unverified. The Lab CLI is unavailable on this host, preventing publication of the review there.
+
+## Beta 24 toolbar and update refinements
+
+The release branch incorporates main through `e6aa362`, including load transfer, shared battery/breaker analysis, and NI inspection persistence. Merge resolution preserves the new shortcut ownership, playback projection, and linking history behavior. The combined bundle allowances are 754 KiB application JS, 230 KiB worker JS, and 153 KiB CSS; every chunk remains counted. The final build measures 771,697 / 233,717 / 156,293 bytes respectively.
+
+Optimize and Help use 32 px surfaces within the 44 px toolbar, leaving at least five pixels above and below. Help also clears the right edge by eight pixels and uses the shared inset radius. The macOS traffic-light position remains `{ x: 14, y: 15 }`, placing its 14 px controls on the toolbar's 22 px centerline; this Windows host cannot visually certify native AppKit controls.
+
+Update notes now use an anchored, content-sized 380 px popover with scrollable notes. Ready toolbar chips and restart/retry actions open a separate centered confirmation with installed/target versions, Cancel/Update, and an unsaved-work warning when relevant. Cancel/Escape preserve editing; a changed target invalidates confirmation. Confirmed installation retains the pending main-process handoff and stalled-restart recovery safeguards.
+
+Verification: build, typecheck, 158 focused integration/physics/updater tests plus the seven-test final dialog run, and production smoke passed. All four updater platform/size fixture combinations passed, including cancellation, stale-version invalidation, unsaved confirmation, progress, retries, and stalled restart. Evidence: `.ui-artifacts/updates-20261025-t3-final/`. The actual-App workflow passed with native Optimize/Help hover captures at both sizes, first-field-press behavior, and keyboard isolation: `.ui-artifacts/toolbar-refinements-20261025/`. The parent inspected the final popover, confirmation, and toolbar hover captures. Native installers and macOS window controls remain outside this local verification.
