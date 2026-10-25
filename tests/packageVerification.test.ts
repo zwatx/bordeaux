@@ -22,6 +22,10 @@ it("verifies canonical packaged update metadata and rejects the former owner", a
       "dist-renderer/index.css": "",
       "node_modules/js-yaml/index.js": "",
       "node_modules/js-yaml/lib/loader.js": "",
+      "node_modules/zod/index.cjs": "",
+      "node_modules/zod/v4/index.cjs": "",
+      "node_modules/zod/v4/classic/external.cjs": "",
+      "node_modules/zod/v4/core/index.cjs": "",
     };
     for (const name of ["@modelcontextprotocol/server", "electron-updater", "ssh2", "zod"]) entries[`node_modules/${name}/package.json`] = "{}";
     for (const [entry, contents] of Object.entries(entries)) {
@@ -51,6 +55,14 @@ it("verifies canonical packaged update metadata and rejects the former owner", a
     await fs.writeFile(path.join(source, "node_modules/js-yaml/dist/js-yaml.mjs"), "");
     await createPackage(source, path.join(resources, "app.asar"));
     await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("unused YAML browser/ESM bundle") });
+    await fs.rm(path.join(source, "node_modules/js-yaml/dist"), { recursive: true });
+    await fs.rm(path.join(source, "node_modules/zod/v4/core/index.cjs"));
+    await createPackage(source, path.join(resources, "app.asar"));
+    await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("missing required entry: node_modules/zod/v4/core/index.cjs") });
+    await fs.writeFile(path.join(source, "node_modules/zod/v4/core/index.cjs"), "");
+    await fs.writeFile(path.join(source, "node_modules/zod/v4/core/index.js"), "");
+    await createPackage(source, path.join(resources, "app.asar"));
+    await expect(verify()).rejects.toMatchObject({ stderr: expect.stringContaining("unused Zod ESM dependency variant") });
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
   }

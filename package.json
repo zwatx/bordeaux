@@ -96,6 +96,7 @@
       "!node_modules/ssh2/install.js",
       "!node_modules/ssh2/util/**/*",
       "!node_modules/js-yaml/dist/**/*",
+      "!node_modules/zod/**/*.js",
       "!node_modules/@modelcontextprotocol/core/**/*.mjs",
       "!node_modules/@modelcontextprotocol/server/**/*.mjs"
     ],

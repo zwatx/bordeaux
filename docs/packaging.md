@@ -32,6 +32,8 @@ Run `npm run package:win` on Windows to produce both an installable NSIS setup e
 
 The packaged updater loads `js-yaml` through its CommonJS entry. Keep `index.js` and `lib/`, and omit the unused browser/ESM bundles in `dist/`; package verification checks this layout and retains the 8 MiB archive limit. Set `BORDEAUX_SMOKE_EXECUTABLE` to the packaged executable when checking the actual packaged runtime with `npm run test:smoke:built`.
 
+The Electron main process, MCP server and agent schemas load Zod through CommonJS. Keep its `.cjs` files and package metadata; omit the parallel ESM `.js` files. Package verification requires the CommonJS entry points and rejects the unused ESM copies to retain the same archive budget.
+
 Do not advertise project file associations until main-process startup handles OS open-file events and command-line paths.
 
 ## Automatic update channels

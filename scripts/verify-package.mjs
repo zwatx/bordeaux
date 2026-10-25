@@ -20,6 +20,10 @@ const requiredEntries = [
   "node_modules/js-yaml/lib/loader.js",
   "node_modules/ssh2/package.json",
   "node_modules/zod/package.json",
+  "node_modules/zod/index.cjs",
+  "node_modules/zod/v4/index.cjs",
+  "node_modules/zod/v4/classic/external.cjs",
+  "node_modules/zod/v4/core/index.cjs",
 ];
 const requiredResources = [
   "LICENSE",
@@ -84,6 +88,10 @@ for (const archive of archives) {
   const unusedYamlBundle = entries.find((entry) => entry.startsWith("node_modules/js-yaml/dist/"));
   if (unusedYamlBundle) {
     throw new Error(`${archive} contains an unused YAML browser/ESM bundle: ${unusedYamlBundle}`);
+  }
+  const unusedZodEsmEntry = entries.find((entry) => entry.startsWith("node_modules/zod/") && entry.endsWith(".js"));
+  if (unusedZodEsmEntry) {
+    throw new Error(`${archive} contains an unused Zod ESM dependency variant: ${unusedZodEsmEntry}`);
   }
 
   const forbidden = entries.find((entry) =>
