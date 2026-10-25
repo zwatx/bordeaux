@@ -52,6 +52,12 @@ describe("automatic LabVIEW command sync", () => {
     expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), inspect, cached, discover: vi.fn() })).toBe(saved);
     expect(inspect).not.toHaveBeenCalled();
   });
+  it("re-inspects on refresh when the saved cache holds live-only evidence", async () => {
+    const saved = catalog(); saved.labviewDiscovery!.inspection!.liveOnly = true;
+    const live = catalog("available"), inspect = vi.fn(async () => live), cached = vi.fn(async () => saved);
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), inspect, cached, discover: vi.fn() })).toBe(live);
+    expect(inspect).toHaveBeenCalledOnce();
+  });
   it("inspects on Windows and returns fresh evidence without loading the cache", async () => {
     const source = catalog(); const live = catalog("available");
     const inspect = vi.fn(async () => live); const cached = vi.fn(async () => source);

@@ -376,6 +376,29 @@ describe("NI legacy connector discovery", () => {
     expect(restored.labviewDiscovery?.inspection?.status).toBe("cached");
   });
 
+  it("persists live-only evidence across restart until the saved sources change", async () => {
+    const fixture = await cacheFixture();
+    const live = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
+      await fixture.adapter(request, response);
+      const raw = JSON.parse(await fs.readFile(response, "utf8"));
+      raw.dirtyContext = true;
+      await fs.writeFile(response, JSON.stringify(raw));
+    });
+    expect(live.labviewDiscovery?.inspection).toMatchObject({ status: "available", liveOnly: true });
+    const restore = async () => withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    const restored = await restore();
+    expect(restored.labviewDiscovery?.inspection).toMatchObject({ status: "cached", liveOnly: true });
+    expect(restored.labviewDiscovery?.inspection?.reason).toContain("Refresh commands");
+    expect(restored.commands.map(command => command.labviewConnector?.file)).toEqual([source.file]);
+    expect((await prepareBdxBindings({ projectFile: fixture.project, inspectionCacheDirectory: fixture.cache })).catalog.commands).toHaveLength(1);
+    await fs.writeFile(fixture.typedef, "typedef saved after the live inspection");
+    expect((await restore()).labviewDiscovery?.inspection?.status).toBe("stale");
+    await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    expect((await restore()).labviewDiscovery?.inspection?.liveOnly).toBeUndefined();
+    await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
+    expect((await restore()).commands).toEqual([]);
+  });
+
   it("rejects concurrent source changes and propagates explicit adapter failures", async () => {
     const fixture = await cacheFixture();
     await expect(inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {

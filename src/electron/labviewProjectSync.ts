@@ -30,7 +30,8 @@ export async function syncLabviewCommands(selection: string, cacheDirectory: str
   if (dependencies.platform !== "win32") return dependencies.cached(selection, catalog, cacheDirectory);
   if (dependencies.session) {
     const saved = await dependencies.cached(selection, catalog, cacheDirectory);
-    if (saved.labviewDiscovery?.inspection?.status === "cached") return saved;
+    // Restored live-only evidence fills the list after restart; an explicit refresh still asks NI again.
+    if (saved.labviewDiscovery?.inspection?.status === "cached" && !saved.labviewDiscovery.inspection.liveOnly) return saved;
   }
   try {
     return await dependencies.inspect(selection, cacheDirectory);

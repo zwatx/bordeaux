@@ -374,6 +374,8 @@ export interface LabviewProjectDiscovery {
     commandCount: number;
     unsupported: Array<{ file: string; target: string; reason: string }>;
     reason?: string;
+    /** NI could not confirm saved state; evidence is bound to source bytes only. Refresh re-inspects. */
+    liveOnly?: boolean;
   };
 }
 
