@@ -204,7 +204,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       // Push can own an unmoved press without a draft to finish. Retire on
       // opening, even if its dialog closes before the next pointer movement.
       const observer = new MutationObserver(() => {
-        if (drag.current && document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) pointerDrag.cancel({ flush: false });
+        if (drag.current && document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) pointerDrag.cancel({ flush: false });
       });
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'role'] });
       return () => observer.disconnect();
@@ -323,7 +323,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
     useEffect(() => {
       const onVisitKey = (event) => {
-        if (event.defaultPrevented || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+        if (event.defaultPrevented || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
         const target = event.target;
         if (target && (target.closest?.('input, textarea, select, button, summary, [data-role="issue"], a[href], [role="menu"], [role="listbox"], .editor-library') || target.isContentEditable)) return;
         if (event.key === 'Escape' && visitFocusRef.current) { updateVisitFocus(null); return; }
@@ -380,7 +380,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     const onDown = (e) => {
       if (e.button !== 0 && e.button !== 1) return;
       if (!interactionReady) return;
-      if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+      if (document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
       e.preventDefault();
       pointerDrag.cancel();
       const t = e.target.closest?.('[data-role]') || e.target;
@@ -507,7 +507,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
     const applyMove = (e) => {
       const d = drag.current; if (!d) return;
-      if (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) { pointerDrag.cancel({ flush: false }); return; }
+      if (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) { pointerDrag.cancel({ flush: false }); return; }
       const world = clientToWorld(e.clientX, e.clientY, d.role !== 'ct');
       if (d.role === 'inspect') {
         const dx = e.clientX - d.start.cx, dy = e.clientY - d.start.cy;
@@ -564,7 +564,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
     const onUp = (e) => {
       const d = drag.current;
-      if (d && (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]'))) { onInterrupted(); return; }
+      if (d && (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]'))) { onInterrupted(); return; }
       drag.current = null; d?.owner.dispose();
       setSnap(null);
       if (!d) return;
@@ -685,7 +685,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       if (!['Enter', ' ', 'Escape', 'Delete', 'Backspace'].includes(event.key)) return;
       event.preventDefault(); event.stopPropagation();
       if (event.isComposing || event.nativeEvent?.isComposing || event.repeat || !interactiveProblems
-        || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+        || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
       if (event.key === 'Escape') problems.onClear();
       else if (event.key === 'Enter' || event.key === ' ') problems.onSelect(index);
     };

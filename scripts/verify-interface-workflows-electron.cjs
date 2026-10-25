@@ -27,17 +27,38 @@ async function snapshot(name) { await fs.writeFile(path.join(output, name + '.pn
 ipcMain.handle('branches:restore', () => ({ project: saved }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
+let updateState = { phase: 'available', visible: false, currentVersion: '0.2.0-beta.23', version: '0.2.0-beta.24', releaseNotes: '- Compact updates keep the editor available.' };
+ipcMain.handle('updates:state', () => updateState);
+ipcMain.handle('updates:visible', (_event, visible) => { updateState = { ...updateState, visible }; win.webContents.send('updates:changed', updateState); });
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save'); }
 app.whenReady().then(async () => {
   try {
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     saved = { ...corpus, robot: { ...corpus.robot, w: 0.8128 }, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Keyboard flow', nodes: [{ id: 'path-a', type: 'path', ref: first.id }, { id: 'path-b', type: 'path', ref: first.id }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, unitSystem: 'metric' } };
-    win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
+    win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false, additionalArguments: ['--updates-ui-fixture'] } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     win.focus(); win.webContents.focus();
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
+    // A nonmodal update must allow the actual field's first press and ordinary editor shortcuts.
+    await click('.update-chip');
+    await wait(() => evaluate(() => document.querySelector('.app-update-dialog')?.open), 'update popover');
+    assert.equal(await evaluate(() => document.querySelector('.app-update-dialog').matches(':modal')), false);
+    const waypoint = await evaluate(() => {
+      const node = document.querySelector('.fieldsvg [data-role="wp"][data-idx="0"]');
+      const r = node.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    });
+    for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...waypoint });
+    await wait(() => evaluate(() => document.querySelector('#band-waypoint-link') || document.querySelector('.pp-head .pp-title')?.textContent !== 'Path'), 'first field press selects waypoint');
+    await wait(() => evaluate(() => !document.querySelector('.app-update-dialog').open), 'field press dismisses update');
+    await click('.update-chip');
+    await evaluate(() => document.querySelector('.band-divider').focus());
+    await key('2');
+    assert.equal(await evaluate(() => document.querySelector('button[aria-label="Place waypoint"]').getAttribute('aria-pressed')), 'true', 'Tool shortcuts work while a nonmodal update is open');
+    await key('Escape'); await key('1');
+    await snapshot('updates-nonmodal-editor-1440');
+    console.log('PASS Nonmodal updates allow the actual field first press and editor tool shortcuts');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(120);
       const rect = () => evaluate(() => { const r = document.querySelector('.pp-more').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
@@ -106,7 +127,7 @@ app.whenReady().then(async () => {
     };
     await click('[data-id="path-a"] .rt-step-body'); await key('Delete');
     await assertStepNotice();
-    assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-b');
+    await wait(() => evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id === 'path-b'), 'focus follows deletion to next step');
     await key('Delete');
     await assertStepNotice();
     assert.equal(await evaluate(() => document.activeElement.classList.contains('rt-add')), true);

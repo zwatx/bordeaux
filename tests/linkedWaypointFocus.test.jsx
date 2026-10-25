@@ -51,7 +51,7 @@ function setup({ linked = false, status = 'applied' } = {}) {
       expect([type, capture]).toEqual(['focusin', true]); focusListeners.delete(listener);
     }),
     querySelector: vi.fn((selector) => {
-      expect(selector).toBe('dialog[open],[role="dialog"][aria-modal="true"]'); return modal;
+      expect(selector).toBe('dialog:modal,[role="dialog"][aria-modal="true"]'); return modal;
     }),
   };
   vi.stubGlobal('document', documentFixture);

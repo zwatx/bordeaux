@@ -22,10 +22,12 @@ export function robotStatus(controller, resultAt) {
     return { tone: 'busy', text: controller.phase === 'uploading' ? 'Uploading…' : controller.phase === 'saving' ? 'Saving…' : 'Preparing…' };
   }
   if (controller.phase === 'transferred' && controller.result) {
-    return { tone: 'good', text: 'Pushed ' + (controller.result.files?.length || 0) + ' · ' + timeOfDay(resultAt || new Date()), title: 'Verified in ' + controller.result.directory };
+    if (controller.reachability !== 'offline') return { tone: controller.reachability === 'online' ? 'good' : undefined, text: 'Pushed ' + (controller.result.files?.length || 0) + ' · ' + timeOfDay(resultAt || new Date()), title: 'Verified in ' + controller.result.directory };
   }
   if (controller.phase === 'failed' && controller.error) return { tone: 'bad', text: 'Not sent · ' + shortFact(controller.error), title: controller.error };
   if (!endpoint) return { tone: 'unset', text: 'Robot not set up', title: 'Push opens robot setup' };
+  if (controller.reachability === 'offline') return { tone: 'unset', text: endpoint.host + ' · Disconnected' };
+  if (controller.reachability === 'online') return { tone: 'good', text: endpoint.host + ' · Connected' };
   return { tone: undefined, text: endpoint.host + ' · ' + folderName(endpoint.directory), title: endpoint.host + ':' + endpoint.directory };
 }
 
@@ -121,7 +123,7 @@ export function PushControl({ place, paths, selection, activeRoutine, controller
   useEffect(() => {
     const onKey = (event) => {
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== 'p') return;
-      if (event.isComposing || event.defaultPrevented || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+      if (event.isComposing || event.defaultPrevented || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
       event.preventDefault();
       shortcut.current?.();
     };

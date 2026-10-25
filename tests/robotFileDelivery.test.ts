@@ -12,6 +12,30 @@ function setup(initial: RobotFileConnection | null = connection) {
   return { delivery: new RobotFileDelivery(initial, persist, transport), persist, transport };
 }
 describe("reviewed robot file delivery", () => {
+  it("checks the pinned robot without invalidating a reviewed upload or changing trust", async () => {
+    const { delivery, transport, persist } = setup();
+    const preview = delivery.prepare([file()], async () => undefined);
+    expect(await delivery.checkConnection()).toEqual(connection);
+    expect(transport.probe).toHaveBeenCalledWith(connection.endpoint, 5_000);
+    transport.probe.mockRejectedValueOnce(new Error("unplugged"));
+    expect(await delivery.checkConnection()).toBeNull();
+    transport.probe.mockResolvedValueOnce({ ...connection, hostKeyFingerprint: "SHA256:anotherabcdefghijklmnopqr" });
+    expect(await delivery.checkConnection()).toBeNull();
+    expect(delivery.current()).toEqual(connection);
+    expect(persist).not.toHaveBeenCalled();
+    await expect(delivery.confirm(preview.operationId)).resolves.toMatchObject({ state: "transferred" });
+  });
+  it("discards a liveness reply from a previous destination or stopped session", async () => {
+    const { delivery, transport } = setup();
+    let finish!: (value: RobotFileConnection) => void;
+    transport.probe.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const checking = delivery.checkConnection();
+    await delivery.saveSettings({ ...connection.endpoint, host: "other.local" });
+    finish(connection);
+    expect(await checking).toBeNull();
+    expect(await delivery.checkConnection()).toBeNull();
+    expect(transport.probe).toHaveBeenCalledTimes(1);
+  });
   it("saves directory edits locally, preserves host trust and invalidates old file reviews", async () => {
     const { delivery, transport, persist } = setup();
     const preview = delivery.prepare([file()], async () => undefined);

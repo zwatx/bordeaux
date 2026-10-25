@@ -42,10 +42,55 @@ beforeEach(() => {
   vi.stubGlobal('window', { bordeauxAPI: bridge }); vi.stubGlobal('document', { activeElement: null });
   vi.stubGlobal('requestAnimationFrame', (callback) => callback());
 });
-afterEach(() => { for (const cleanup of hooks.cleanups) cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { for (const cleanup of hooks.cleanups) cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const ready = async () => { render(); await Promise.resolve(); return render(); };
 const prepare = async () => { const c = await ready(); await c.requestPush({ kind: 'paths', pathIds: ['A'] }); return render(); };
 describe('SFTP file push controller', () => {
+  it('monitors only after explicit connection or upload, clears stale green, and recovers without losing the receipt', async () => {
+    vi.useFakeTimers();
+    bridge.checkRobotFileConnection = vi.fn(async () => connection);
+    await ready();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(bridge.checkRobotFileConnection).not.toHaveBeenCalled();
+    expect(render().reachability).toBe('unknown');
+    await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    await render().confirmPush();
+    const receipt = render().result;
+    expect(render().reachability).toBe('online');
+    bridge.checkRobotFileConnection.mockResolvedValueOnce(null);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(render()).toMatchObject({ reachability: 'offline', phase: 'transferred', result: receipt, connection });
+    expect(render().connectionLabel).toContain('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(render().reachability).toBe('online');
+    expect(bridge.confirmRobotFiles).toHaveBeenCalledTimes(1);
+    await render().chooseAnotherRobot(); render();
+    const checks = bridge.checkRobotFileConnection.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(bridge.checkRobotFileConnection).toHaveBeenCalledTimes(checks);
+  });
+  it('ignores a late liveness reply after editing the destination', async () => {
+    vi.useFakeTimers();
+    const pending = deferred();
+    bridge.checkRobotFileConnection = vi.fn(() => pending.promise);
+    await prepare(); await render().confirmPush(); render();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await render().chooseAnotherRobot(); render();
+    pending.resolve(connection); await Promise.resolve();
+    expect(render()).toMatchObject({ reachability: 'unknown', connection: null, editing: true });
+  });
+  it('does not let an older liveness failure overwrite a newer successful upload', async () => {
+    vi.useFakeTimers();
+    const pending = deferred();
+    bridge.checkRobotFileConnection = vi.fn(() => pending.promise);
+    await prepare(); await render().confirmPush(); render();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    await render().confirmPush();
+    pending.resolve(null); await Promise.resolve();
+    expect(render()).toMatchObject({ reachability: 'online', phase: 'transferred' });
+    expect(bridge.confirmRobotFiles).toHaveBeenCalledTimes(2);
+  });
   it('saves edited settings without probing, trusting, preparing or transmitting', async () => {
     await ready(); await render().chooseAnotherRobot();
     render().setHost('other.local'); render().setPort('2222'); render().setDirectory('/home/lvuser/practice');

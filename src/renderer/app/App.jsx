@@ -204,7 +204,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         && displayed.path === doc && displayed.value === derived && tl === fresh && !tl.empty
         && value.sample?.pts?.length > 1 && Number.isFinite(tl.total) && tl.total > 0,
       total: tl.total,
-      ready: () => hoverPresses.current.size === 0 && !document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]'),
+      ready: () => hoverPresses.current.size === 0 && !document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]'),
     }), [draft, timingPending, stale, keepTiming, interactionReady, displayed.path, displayed.value, doc, derived, tl, fresh, value]);
     React.useLayoutEffect(() => {
       hoverStore.activate(hoverContext);
@@ -213,7 +213,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     React.useLayoutEffect(() => {
       const release = event => { hoverPresses.current.delete(event.pointerId); };
       const blur = () => { hoverPresses.current.clear(); hoverStore.clear(); };
-      const modalSelector = 'dialog[open], [role="dialog"][aria-modal="true"]';
+      const modalSelector = 'dialog:modal, [role="dialog"][aria-modal="true"]';
       const containsModal = node => node.matches?.(modalSelector) || node.querySelector?.(modalSelector);
       const observer = new MutationObserver(records => {
         // Also retire a modal opened and closed in the same task before this observer runs.
@@ -293,7 +293,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         catalog: props.robotProject?.catalog, metric: props.metric, stale: props.stale || timingHeld, header: limits,
         hoverStore: props.hoverStore, hoverContext: props.hoverContext, issues: problems.issues, issuesStale: problems.stale, selectedIssue: problems.selected }));
   }
-  const BAND_MIN = 236;
+  // Fit the path summary, its 32px shared action button, and bottom breathing room.
+  const BAND_MIN = 252;
   /** The band height that fits the whole field above it at the current width. */
   function balancedBand(size) {
     if (!size) return 280;
@@ -369,7 +370,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (deletionAction.current) deletionAction.current.active = false;
       deletionAction.current = null;
       if (beforeHide && document.activeElement?.closest('.deletion-notice')
-        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) {
+        && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) {
         // Places survive workspace replacement and navigation to Settings; the field does not.
         (document.querySelector('.toolbar .place[aria-current="page"]') || document.querySelector('.toolbar .place'))?.focus();
       }
@@ -1081,11 +1082,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     deletionContext.current = { page, projectKey };
     const preflightDeletion = useCallback(() => {
       if (deletionEpoch !== documentEpoch.current || projectTransitionRef.current
-        || document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) return false;
+        || document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) return false;
       if (!flushProjectDraft()) return false;
       flushSync(() => finishEdit());
       return deletionEpoch === documentEpoch.current && !projectTransitionRef.current
-        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]');
+        && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]');
     }, [deletionEpoch, flushProjectDraft, finishEdit]);
     const announceDeletion = (entry, message, detail) => {
       if (!entry) return;
@@ -1963,7 +1964,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         requestAnimationFrame(() => {
           if (epoch !== documentEpoch.current || deletionContext.current.page !== 'auto' || currentRoutine() !== after
             || (document.activeElement !== focusOwner && document.activeElement !== document.body)
-            || projectTransitionRef.current || document.querySelector('dialog[open],[aria-modal="true"]')) return;
+            || projectTransitionRef.current || document.querySelector('dialog:modal,[aria-modal="true"]')) return;
           const step = [...document.querySelectorAll('.rt-step')].find((element) => element.dataset.id === next?.id);
           const add = [...document.querySelectorAll('.rt-panel .rt-addwrap')].find((element) => element.dataset.list === listKey)?.querySelector('.rt-add');
           (step?.querySelector('.rt-step-body') || add || document.querySelector('.rt-panel .rt-empty-add'))?.focus();
@@ -2262,7 +2263,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // The latest request wins, a notice is kept, and a request from a replaced document is dropped. An open Projects sheet
     // still switches between Projects and New in place.
     // Another sheet is presented (or the update panel is due): the one-sheet rule's single test.
-    const otherSheetUp = () => appUpdateStateRef.current?.visible || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]');
+    const otherSheetUp = () => appUpdateStateRef.current?.visible && appUpdateStateRef.current.phase === 'installing' || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]');
     const showProjects = useCallback((mode, notice, focusRecordId) => {
       if (projectTransitionRef.current) return;
       // Every new request consumes the one held before it, whether it waits or presents now, so an older held request can
@@ -2280,7 +2281,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // Manage… from the chip or a departure: the copies on their own, and Back returns to what opened them. Never over
     // another sheet or dialog (a departure that began meanwhile keeps the window).
     const manageRecoveries = useCallback(() => {
-      if (projectTransitionRef.current || document.querySelector('dialog[open]') || !flushProjectDraft()) return;
+      if (projectTransitionRef.current || document.querySelector('dialog:modal') || !flushProjectDraft()) return;
       flushSync(() => finishEdit());
       setProjectsDialog((current) => current || { mode: 'recoveries', returnFocus: document.activeElement });
     }, [finishEdit, flushProjectDraft]);
@@ -2302,7 +2303,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const afterClose = document.activeElement;
       if (reason === 'skip') setTool('waypoint');
       requestAnimationFrame(() => {
-        if (epoch !== documentEpoch.current || projectTransitionRef.current || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+        if (epoch !== documentEpoch.current || projectTransitionRef.current || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
         if (document.activeElement !== afterClose && document.activeElement && document.activeElement !== document.body) return;
         if (reason === 'skip' && focusIfAvailable(document.querySelector('.fieldsvg'))) return;
         if (target !== document.body && !target?.closest('dialog') && focusIfAvailable(target)) return;
@@ -2703,14 +2704,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         if (page === 'plan' && event.key === '\\' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
           && !event.repeat && !event.isComposing && !event.defaultPrevented && !event.target.isContentEditable
           && !event.target.closest?.('textarea,select,input:not([type="range"]),[role="textbox"]')
-          && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"],[role="menu"],[popover]:popover-open')) {
+          && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"],[role="menu"],[popover]:popover-open')) {
           event.preventDefault();
           toggleFieldFocus();
           return;
         }
         if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.isComposing || event.defaultPrevented) return;
         const key = event.key.toLowerCase();
-        if ((key !== 'o' && key !== 'n') || document.querySelector('dialog[open]')) return;
+        if ((key !== 'o' && key !== 'n') || document.querySelector('dialog:modal')) return;
         event.preventDefault();
         showProjects(key === 'n' ? 'new' : 'list');
       };
@@ -2808,7 +2809,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     useEffect(() => {
       const onKey = (e) => {
-        if (e.defaultPrevented || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+        if (e.defaultPrevented || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
         if (e.target.closest && e.target.closest('.editor-library,.library-divider,[role="menu"]')) return;
         const matches = e.target.matches && e.target.matches.bind(e.target);
         if (e.key === 'Tab') { keyboardNavigation.current = true; return; }

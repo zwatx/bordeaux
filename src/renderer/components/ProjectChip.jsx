@@ -71,7 +71,7 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
   useEffect(() => {
     if (!sources || sources === robotCode.catalog) return undefined;
     setSources(null);
-    if ((!document.activeElement || document.activeElement === document.body) && !document.querySelector('dialog[open]')) trigger.current?.focus();
+    if ((!document.activeElement || document.activeElement === document.body) && !document.querySelector('dialog:modal')) trigger.current?.focus();
     return undefined;
   }, [sources, robotCode.catalog]);
   const inspection = robotCode.catalog?.labviewDiscovery?.inspection;
@@ -175,7 +175,7 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
       linked && actions.rescanCode && item('Rescan command inputs', actions.rescanCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
-      linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog[open]')) setSources(robotCode.catalog); }),
+      linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog:modal')) setSources(robotCode.catalog); }),
       robotCode.recentProjects?.length > 0 && h('button', { type: 'button', role: 'menuitem', tabIndex: -1, 'aria-expanded': showRecentCode,
         onClick: () => setShowRecentCode(!showRecentCode) }, 'Recent robot code'),
       // Clones share a project name, so each recent shows its file and when it was last linked, visibly and in its name.

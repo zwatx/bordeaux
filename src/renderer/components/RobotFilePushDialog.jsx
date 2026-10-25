@@ -79,12 +79,12 @@ export function RobotFilePushDialog({ controller: c }) {
   } else if (summary) {
     view = 'summary';
     // The endpoint shown is the stored one, so "Saved" is a fact about this computer, never about the robot.
-    body = [alert, h(Destination, { key: 'dest', endpoint, status: c.connection ? 'Verified' : 'Saved · not verified' }),
+    body = [alert, h(Destination, { key: 'dest', endpoint, status: c.reachability === 'offline' ? 'Disconnected' : c.connection ? 'Verified' : 'Saved · not verified' }),
       c.connection && h('p', { key: 'note', className: 'rfp-note' }, 'Select paths in the library, then choose Push.')];
     const done = (!c.connection && waiting) ? null : button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true });
     actions = [
       button('Edit', c.chooseAnotherRobot, { key: 'edit', disabled: c.busy }),
-      !c.connection && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
+      (!c.connection || c.reachability === 'offline') && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
       done,
     ];
   } else if (identity) {
@@ -121,7 +121,7 @@ export function RobotFilePushDialog({ controller: c }) {
       h('div', { key: 'text' }, h('strong', null, plural(c.result.files.length) + ' uploaded'),
         // Only an acknowledged creation of this exact folder is reported; an existing folder needs no mention.
         h('p', null, (c.result.directoryCreated === true ? 'Folder created. ' : '') + 'Verified in ' + c.result.directory + '. Nothing started.'))];
-    actions = [button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true })];
+    actions = [c.reachability === 'offline' && button('Connect', c.probeRobot, { key: 'connect' }), button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true })];
   } else {
     // Failures without a reviewed file list, unsupported requests, and any unexpected state.
     const failed = c.phase === 'failed';

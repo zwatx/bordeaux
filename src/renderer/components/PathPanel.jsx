@@ -54,7 +54,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
       done();
       if (!claimed && body?.isConnected && bodyRef.current === body && now.documentKey === pin.documentKey && now.docId === pin.docId && now.kind === 'wp'
         && now.idx === pin.idx && now.linked === expectLinked && (!active || active === document.body || active === from)
-        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) focusIfAvailable(body.querySelector(selector));
+        && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) focusIfAvailable(body.querySelector(selector));
     });
     pendingFocus.current = done;
     return done;

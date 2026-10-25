@@ -46,21 +46,24 @@ export const updateBytes = (bytes) => Number.isFinite(bytes) && bytes >= 0 ? `${
 const RESUME_BOUND_MS = 10_000;
 
 export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResumed, onCheck, onDownload, onCancel, onInstall, onOpenReleases, onCopyDetails }) {
-  const dialog = React.useRef(null), returnFocus = React.useRef(null);
+  const dialog = React.useRef(null), returnFocus = React.useRef(null), restoreOnClose = React.useRef(true);
   const [copied, setCopied] = React.useState(false);
   // Closing a stalled install: { attempt, waiting } while main decides, or { attempt, fact } after a refusal.
   const [resuming, setResuming] = React.useState(null);
   const shownAttempt = React.useRef(null);
+  const modal = state?.phase === 'installing';
   // One modal at a time. A panel that becomes visible while another sheet is up (Projects, a departure) waits for it to
   // close and then appears; nothing is hidden or answered on its behalf. A panel already shown is never hidden here:
   // only main's state hides it (for a stalled install, after its accepted return to editing).
   const present = React.useCallback(() => {
     const node = dialog.current;
-    if (node.open) return true;
-    if ([...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].some((other) => other !== node)) return false;
-    returnFocus.current = document.activeElement; setCopied(false); setResuming(null); node.showModal();
+    if (node.open && node.matches(':modal') === modal) return true;
+    if ([...document.querySelectorAll('dialog:modal, [role="dialog"][aria-modal="true"]')].some((other) => other !== node)) return false;
+    if (node.open) node.close();
+    else { returnFocus.current = document.activeElement; restoreOnClose.current = true; setCopied(false); setResuming(null); }
+    if (modal) node.showModal(); else node.show();
     return true;
-  }, []);
+  }, [modal]);
   // When App hands this panel an approved install's departure, the pending sheet unmounts in the same commit; open
   // before paint so no frame or queued key reaches the editor between the two modals. Other panels keep the wait below.
   React.useLayoutEffect(() => {
@@ -70,7 +73,7 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     const node = dialog.current;
     if (!node) return undefined;
     if (!state?.visible) {
-      if (node.open) { node.close(); const back = returnFocus.current; (back?.isConnected && back !== document.body ? back : document.querySelector('.project-chip'))?.focus(); }
+      if (node.open) { node.close(); const back = returnFocus.current; if (restoreOnClose.current) (back?.isConnected && back !== document.body ? back : document.querySelector('.project-chip'))?.focus(); }
       return undefined;
     }
     if (present()) return undefined;
@@ -80,6 +83,18 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] });
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [state?.visible, present]);
+  React.useEffect(() => {
+    if (!state?.visible || modal) return;
+    const outside = (event) => {
+      if (!dialog.current?.contains(event.target) && !returnFocus.current?.contains(event.target)) { restoreOnClose.current = false; onClose?.(); }
+    };
+    const escape = (event) => {
+      if (event.key === 'Escape' && !document.querySelector('dialog:modal')) { event.preventDefault(); event.stopPropagation(); onClose?.(); }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
+  }, [state?.visible, modal, onClose]);
   if (!state) return null;
   const { phase, version, currentVersion, progress, error } = state;
   const stalled = phase === 'installing' && state.installStalled;
@@ -88,7 +103,7 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
   shownAttempt.current = attempt;
   const resume = resuming?.attempt === attempt ? resuming : null, waiting = Boolean(resume?.waiting);
   const busy = !stalled && ['checking', 'downloading', 'installing'].includes(phase);
-  const title = stalled ? 'Restart delayed' : ({ available: 'Update available', downloading: 'Downloading update', downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates' })[phase] || 'Software updates';
+  const title = stalled ? 'Restart delayed' : ({ available: 'Update ready to download', downloading: 'Downloading update', downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates' })[phase] || 'Software updates';
   const subtitle = resume?.fact ? 'Couldn’t return to editing · ' + resume.fact : waiting ? 'Returning to editing…'
     : stalled ? 'Keep working, or install manually from All releases.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? 'Get the installer from All releases.' : '';
   const notes = releaseNoteBlocks(state.releaseNotes);
@@ -125,8 +140,8 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     : !busy ? { label: 'Check for updates', onClick: onCheck } : null;
   // Escape is handled before the native close request (whose prevention the browser can ignore). An install panel that
   // closes natively anyway while main still shows it is reopened: only main's answer may hide it.
-  return h('dialog', { ref: dialog, className: 'app-update-dialog', 'aria-labelledby': 'app-update-title', 'aria-busy': waiting || undefined,
-    onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); close(); } },
+  return h('dialog', { ref: dialog, className: 'app-update-dialog', 'aria-modal': modal, 'aria-labelledby': 'app-update-title', 'aria-busy': waiting || undefined,
+    onKeyDown: (event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); close(); } },
     onCancel: (event) => { event.preventDefault(); close(); },
     onClose: () => { if (state.visible && phase === 'installing' && !dialog.current.open) dialog.current.showModal(); } },
     // The status is the title; the versions and any explanation sit directly beneath it.
@@ -134,13 +149,13 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
       h('h2', { id: 'app-update-title', 'aria-live': phase === 'error' ? undefined : 'polite' }, title),
       h('button', { type: 'button', className: 'app-update-close', 'aria-label': 'Close updates', disabled: phase === 'installing' && !stalled, 'aria-disabled': waiting || undefined, onClick: close }, '×')),
     h('div', { className: 'app-update-summary' },
-      h('p', { className: 'app-update-versions' }, `Installed ${currentVersion || '—'}`, version && version !== currentVersion ? ` → ${version}` : ''),
+      h('p', { className: 'app-update-versions', title: `Installed ${currentVersion || '—'}` }, version && version !== currentVersion ? version : `Installed ${currentVersion || '—'}`),
       !busy && subtitle && h('p', { className: 'app-update-description', role: phase === 'error' || resume?.fact ? 'alert' : waiting ? 'status' : undefined }, subtitle),
       busy && h('div', { className: 'app-update-transfer', 'aria-busy': true },
         h('progress', { max: 100, value: phase === 'downloading' && percent != null ? percent : undefined, 'aria-label': phase === 'downloading' ? 'Update download' : phase === 'checking' ? 'Checking for updates' : 'Installing update' }),
         phase === 'downloading' && h('div', { className: 'app-update-transfer-values' }, h('span', null, `${updateBytes(progress?.transferred)} of ${updateBytes(progress?.total)}`), h('span', null, percent == null ? '' : `${Math.round(percent)}%`), h('span', null, progress?.bytesPerSecond > 0 ? `${updateBytes(progress.bytesPerSecond)}/s` : '')))),
     h('section', { className: 'app-update-notes', 'aria-label': 'Release notes', tabIndex: 0 },
-      notes.length ? noteContent(notes) : phase !== 'checking' && h('p', { className: 'app-update-empty' }, 'No release notes available.')),
+      notes.length ? [h('h3', { key: 'label' }, 'What’s changed'), ...noteContent(notes)] : phase !== 'checking' && h('p', { className: 'app-update-empty' }, 'No release notes available.')),
     h('footer', { className: 'app-update-footer' },
       h('div', { className: 'app-update-secondary' }, h('button', { type: 'button', 'aria-disabled': waiting || undefined, onClick: hold(onOpenReleases) }, 'All releases'),
         phase === 'upToDate' && h('button', { type: 'button', onClick: onCheck }, 'Check again'),

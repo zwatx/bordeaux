@@ -65,7 +65,7 @@ export function DeletionNotice({ notice, onUndo, onDismiss }) {
   }, [shown]);
   const usable = shown?.active && shown === notice;
   const restoreFocus = () => {
-    if (document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) return;
+    if (document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) return;
     const target = document.querySelector('.library-pick[aria-current="true"]') || document.querySelector('.library-search') || document.querySelector('.toolbar .place[aria-current="page"]');
     target?.focus();
   };

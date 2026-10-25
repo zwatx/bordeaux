@@ -5,6 +5,7 @@ import '../src/renderer/styles/robot-push.css';
 import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/RobotPushDialog';
 import { DiagnosticBundleDialog } from '../src/renderer/components/DiagnosticBundleDialog';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/shared/robotFileDelivery';
+import { PushControl } from '../src/renderer/components/PushControl';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const results = [], root = createRoot(document.getElementById('root'));
@@ -21,15 +22,16 @@ const reject = async (request, message) => act(async () => request.reject(new Er
 async function native(request) { await new Promise((resolve) => { window.__pushUiRequest = request; window.__finishPushUiRequest = () => { window.__pushUiRequest = null; resolve(); }; }); }
 const button = (label) => [...document.querySelectorAll('button')].find((button) => button.textContent === label || button.getAttribute('aria-label') === label);
 async function pointer(label) { const rect = button(label).getBoundingClientRect(); await act(async () => native({ pointer: { x: Math.round(rect.x + rect.width/2), y: Math.round(rect.y + rect.height/2) } })); }
-function Harness() { controller = useRobotPushController(props); return <><button id="origin" onClick={() => controller.requestPush({ kind: 'paths', pathIds: ['A','B'] })}>Push selection</button><button id="connection-origin" onClick={() => controller.openConnection()}>Manage connection</button><RobotPushDialog controller={controller} /><DiagnosticBundleDialog getProject={props.getProject} targetSelector=".robot-connection-diagnostics" onOpen={controller.close} onClose={() => controller.returnFocus()} renderKey={controller.open + ":" + controller.phase} /></>; }
+function Harness() { controller = useRobotPushController(props); return <><button id="origin" onClick={() => controller.requestPush({ kind: 'paths', pathIds: ['A','B'] })}>Push selection</button><button id="connection-origin" onClick={() => controller.openConnection()}>Manage connection</button><PushControl place="paths" paths={files.map(f => ({ ...f, id: f.pathId, waypoints: [{}, {}] }))} selection={{ selected: ['A', 'B'] }} controller={controller} /><RobotPushDialog controller={controller} /><DiagnosticBundleDialog getProject={props.getProject} targetSelector=".robot-connection-diagnostics" onOpen={controller.close} onClose={() => controller.returnFocus()} renderKey={controller.open + ":" + controller.phase} /></>; }
 async function mount(saved = connection) {
   await act(async () => root.render(null));
   props = { getProject: () => ({ paths: files.map((f) => ({ id: f.pathId, name: f.name })), routines: [] }), projectKey: 'project-1', catalogKey: 'catalog-1' };
-  mock = { probes: [], trusts: [], prepares: [], confirms: [], canceled: [], saves: [] };
+  mock = { probes: [], trusts: [], prepares: [], confirms: [], canceled: [], saves: [], checks: [] };
   const enqueue = (name,args) => { const request = { args: structuredClone(args), ...deferred() }; mock[name].push(request); return request.promise; };
   window.bordeauxAPI = { robotDeliveryCapabilities: { fileTransfer: true, pathPush: true, routinePush: false },
     previewBetaDiagnostic: async () => ({ previewId: 'diagnostic', contents: '{}' }),
     getRobotFileConnection: async () => saved,
+    checkRobotFileConnection: (...args) => enqueue('checks', args),
     saveRobotFileSettings: (...args) => enqueue('saves',args),
     probeRobotFiles: (...args) => enqueue('probes',args), trustRobotFiles: (...args) => enqueue('trusts',args),
     prepareRobotFiles: (...args) => enqueue('prepares',args), confirmRobotFiles: (...args) => enqueue('confirms',args),
@@ -239,6 +241,22 @@ await test('Long filename and destination remain readable at supported sizes', a
   await native({ capture: 'long-review' });
   const dialog = document.querySelector('dialog');
   assert(dialog.scrollWidth <= dialog.clientWidth + 1, 'Long metadata cannot cause horizontal clipping');
+});
+await test('A disconnected robot clears the live green indicator while preserving the verified push receipt', async () => {
+  assert(!mock.checks.length, 'Restoring saved trust must not connect');
+  await prepare(); await pointer('Upload 2 paths');
+  await resolve(mock.confirms[0], { state: 'transferred', files, directory: endpoint.directory });
+  await pointer('Done');
+  assert(document.querySelector('.push-menu-trigger').dataset.tone === 'good', 'Successful upload is live evidence');
+  for (let i = 0; i < 70 && !mock.checks.length; i++) await act(async () => new Promise(resolve => setTimeout(resolve, 100)));
+  assert(mock.checks.length === 1, 'Explicit upload starts bounded liveness checks');
+  await resolve(mock.checks[0], null);
+  assert(document.querySelector('.push-menu-trigger').dataset.tone === 'unset', 'Disconnected robot must not remain green');
+  assert(document.querySelector('.push-menu-trigger').getAttribute('aria-label').includes('Disconnected'), 'Disconnect is announced');
+  assert(controller.result?.files.length === 2, 'Past receipt remains available');
+  await pointer('Manage connection');
+  assert(button('Connect'), 'Disconnected state offers reconnect');
+  await native({ capture: 'disconnected' });
 });
 await act(async () => root.render(null));
 const report = document.createElement('pre'); report.id = 'verification-report'; report.textContent = JSON.stringify(results, null, 2); document.body.append(report);

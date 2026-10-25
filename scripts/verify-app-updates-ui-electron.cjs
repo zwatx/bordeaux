@@ -26,10 +26,14 @@ async function click(selector, text) {
 async function key(keyCode, modifiers = []) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); if (keyCode === 'Return') win.webContents.sendInputEvent({ type: 'char', keyCode: String.fromCharCode(13) }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); await delay(70); }
 async function set(patch) { await evaluate(patch => window.__updateFixture.set(patch), patch); await delay(70); }
 const rect = () => evaluate(() => { const b = document.querySelector('dialog.app-update-dialog').getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; });
-async function capture(name) { await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
+async function capture(name) {
+  await evaluate(() => document.fonts.ready);
+  await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
+}
 function pass(name) { checks.push(name); console.log('PASS ' + name); }
 app.whenReady().then(async () => {
-  win = new BrowserWindow({ show: false, width: 1440, height: 900, useContentSize: true, webPreferences: { sandbox: true, contextIsolation: true } });
+  win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
   try {
     await win.loadFile(path.join(output, 'dist/index.html'));
@@ -46,6 +50,13 @@ app.whenReady().then(async () => {
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), false);
       await click('.update-chip');
       await waitFor(() => evaluate(() => document.querySelector('dialog.app-update-dialog').open), 'chip opens the update panel');
+      assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').matches(':modal')), false, 'Available updates must not block editing');
+      await click('#editor-action');
+      await waitFor(() => evaluate(() => !document.querySelector('dialog.app-update-dialog').open), 'outside click dismisses popover');
+      assert.equal(await evaluate(() => document.activeElement.id), 'editor-action', 'Dismissal must not steal the editor click');
+      assert.ok(await evaluate(() => window.__updateFixture.calls.includes('editor')));
+      await evaluate(() => { window.__updateFixture.calls.length = 0; });
+      await click('.update-chip');
       await key('Escape');
       await waitFor(() => evaluate(() => !document.querySelector('dialog.app-update-dialog').open && document.activeElement.classList.contains('update-chip')), 'Escape returns focus to the chip');
       await set({ phase: 'downloading', progress: { percent: 43.4, transferred: 45 * 1048576, total: 100 * 1048576, bytesPerSecond: 0 } });
@@ -92,13 +103,14 @@ app.whenReady().then(async () => {
       await capture(`${platform}-${width}-dirty`);
       assert.deepEqual(await rect(), initial, 'Phase changes must not move or resize the dialog');
       await capture(`${platform}-${width}-ready`);
-      await evaluate(() => document.querySelector('.app-update-close').focus());
-      await key('Tab', ['shift']);
+      await evaluate(() => document.querySelector('.app-update-secondary button').focus());
+      await key('Tab');
       assert.equal(await evaluate(() => document.activeElement.textContent), 'Restart and install');
       await key('Return');
       assert.ok(await evaluate(() => window.__updateFixture.calls.includes('install')));
       await key('Escape');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), true, 'Installation must keep the editor blocked until quit or failure');
+      assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').matches(':modal')), true, 'The install handoff must remain modal');
       await set({ phase: 'installing', installStalled: true });
       assert.equal(await evaluate(() => document.querySelector('progress')), null);
       assert.equal(await evaluate(() => [...document.querySelectorAll('dialog.app-update-dialog button')].some(b => b.textContent === 'Retry install')), false);
@@ -124,8 +136,8 @@ app.whenReady().then(async () => {
       }), 'Primary action should use a neutral surface');
       assert.ok(await evaluate(() => document.querySelector('.app-update-notes').clientHeight > 340), 'Notes must have useful reading space');
       await capture(`${platform}-${width}-up-to-date`);
-      await evaluate(() => document.querySelector('.app-update-close').focus());
-      await key('Tab', ['shift']);
+      await evaluate(() => [...document.querySelectorAll('.app-update-secondary button')].at(-1).focus());
+      await key('Tab');
       assert.equal(await evaluate(() => document.activeElement.textContent), 'Done');
       await key('Return');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), false);

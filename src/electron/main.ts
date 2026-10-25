@@ -570,7 +570,7 @@ function createWindow() {
     title: "Bordeaux",
     ...(process.platform === "darwin" ? {
       titleBarStyle: "hiddenInset" as const,
-      trafficLightPosition: { x: 14, y: 18 },
+      trafficLightPosition: { x: 14, y: 15 },
     } : {}),
     ...(process.platform === "win32" ? {
       titleBarStyle: "hidden" as const,
@@ -1538,6 +1538,7 @@ handle("robot:inspect", async () => {
   return robotTransport.inspect(robotPairing, { password: "" });
 });
 handle("robotFiles:connection", () => robotFileDelivery.settings());
+handle("robotFiles:check", () => robotFileDelivery.checkConnection());
 handle("robotFiles:save", (_event, endpoint) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint));
 handle("robotFiles:probe", (_event, endpoint) => robotFileDelivery.probe(endpoint as RobotFileEndpoint));
 handle("robotFiles:trust", (_event, fingerprint) => {

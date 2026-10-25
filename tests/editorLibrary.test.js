@@ -72,7 +72,7 @@ describe('push control scope', () => {
     expect(render(['A'], { busy: true })).toMatch(/class="push-button" disabled=""/);
     expect(render(['A'], { phase: 'uploading' })).toContain('>Uploading…<');
     expect(render(['A'], { phase: 'failed', error: 'Readback did not match' })).toMatch(/data-tone="bad"[^]*Not sent · Readback did not match/);
-    expect(render(['A'], { phase: 'transferred', result: { files: [{}, {}], directory: '/home/lvuser/Paths' } })).toMatch(/data-tone="good"[^]*Pushed 2 · /);
+    expect(render(['A'], { phase: 'transferred', reachability: 'online', result: { files: [{}, {}], directory: '/home/lvuser/Paths' } })).toMatch(/data-tone="good"[^]*Pushed 2 · /);
   });
 });
 

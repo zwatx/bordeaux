@@ -307,7 +307,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       move: (next) => {
         // Push can open a review before an unmoved press has begun an edit.
         // Retire that capture rather than start editing behind the dialog.
-        if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) {
+        if (document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) {
           pointerDrag.cancel({ flush: false }); return;
         }
         if (!started) {

@@ -22,7 +22,9 @@ import path from "node:path";
 // 742,860 application bytes together. The Robot page electrical drive model and its
 // shared hard-limit physics bring the total to 747,485 bytes; keep every chunk counted
 // with a 730 KiB cap.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 730 * 1024;
+// Live robot reachability and the nonmodal update popover measure 749,566 bytes;
+// count every chunk with a 732 KiB cap. Worker, CSS and package limits stay unchanged.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 732 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
