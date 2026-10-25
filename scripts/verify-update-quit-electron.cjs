@@ -74,7 +74,7 @@ updater.quitAndInstall = () => {
     const state = await evaluate(() => window.bordeauxAPI.getAppUpdateState()); assert.ok(state.installAttemptId); result.installAttemptId = state.installAttemptId;
     const file = Menu.getApplicationMenu().items.find(item => item.label === 'File'); const save = file.submenu.items.find(item => item.label === 'Save'); assert.ok(save.enabled);
     // The approved start-install sheet yields to the panel: exactly one modal, the panel, fencing the editor and holding focus.
-    const modals = () => evaluate(() => [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(node => node.className || node.tagName));
+    const modals = () => evaluate(() => [...document.querySelectorAll('dialog:modal, [role="dialog"][aria-modal="true"]')].map(node => node.matches('.app-update-install') ? 'app-update-dialog' : node.className || node.tagName));
     await wait(async () => JSON.stringify(await modals()) === '["app-update-dialog"]', 'stalled update panel as the only modal');
     const owner = await evaluate(() => { const panel = document.querySelector('.app-update-dialog'); return { modal: panel.matches(':modal'), focus: panel.contains(document.activeElement), pending: Boolean(document.querySelector('.pj-pending')), title: panel.querySelector('#app-update-title')?.textContent }; });
     assert.deepEqual(owner, { modal: true, focus: true, pending: false, title: 'Restart delayed' }); result.stalledOwner = owner;
@@ -119,6 +119,7 @@ updater.quitAndInstall = () => {
 const updaterModule = require.resolve('electron-updater'); require(updaterModule); require.cache[updaterModule].exports = { autoUpdater: updater };
 app.on('browser-window-created', (_event, window) => {
   if (started) return; started = true; win = window;
+  window.webContents.on('console-message', details => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) console.error('Renderer:', details.message); });
   const send = window.webContents.send.bind(window.webContents); window.webContents.send = (channel, payload) => { if (channel === 'project:departure' || channel === 'project:checkpointUpdate') record(channel, payload); return send(channel, payload); };
   window.once('closed', () => { result.closed = true; result.diskAtClosed = source(); result.sourceHashAtClosed = sourceHash(); write(); });
   window.webContents.once('did-finish-load', () => void (async () => {
@@ -132,7 +133,7 @@ app.on('browser-window-created', (_event, window) => {
     await evaluate(() => {
       const probe = window.__updateHandoff = { pending: false, panel: false, gaps: [] };
       const check = () => {
-        const open = [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(node => node.className || node.tagName);
+        const open = [...document.querySelectorAll('dialog:modal, [role="dialog"][aria-modal="true"]')].map(node => node.matches('.app-update-install') ? 'app-update-dialog' : node.className || node.tagName);
         if (open.includes('pj-sheet pj-pending')) probe.pending = true;
         if (open.includes('app-update-dialog')) probe.panel = true;
         else if (probe.pending && !open.length) probe.gaps.push(performance.now());
@@ -141,7 +142,11 @@ app.on('browser-window-created', (_event, window) => {
       const observer = new MutationObserver(check);
       observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] }); check();
     });
-    await evaluate(() => window.bordeauxAPI.installAppUpdate());
+    await wait(() => evaluate(() => Boolean(document.querySelector('.update-chip.downloaded'))), 'downloaded update chip');
+    await pointer('.update-chip');
+    await wait(() => evaluate(() => document.querySelector('.app-update-confirm')?.matches(':modal')), 'native restart confirmation');
+    assert.equal(result.installerCalls, 0, 'Opening confirmation must not install');
+    await pointer('.app-update-confirm button', 'Update');
   })().catch(fail));
 });
 require('../dist-electron/electron/main.js');

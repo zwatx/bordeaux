@@ -73,7 +73,8 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
   // When App hands this panel an approved install's departure, the pending sheet unmounts in the same commit; open
   // before paint so no frame or queued key reaches the editor between the two modals. Other panels keep the wait below.
   React.useLayoutEffect(() => {
-    if (ownsDeparture && state?.visible && dialog.current) present();
+    if (ownsDeparture && state?.visible && dialog.current && present() && !dialog.current.contains(document.activeElement))
+      dialog.current.querySelector('button:not(:disabled)')?.focus();
   }, [ownsDeparture, state?.visible, present]);
   React.useEffect(() => {
     const node = dialog.current;
