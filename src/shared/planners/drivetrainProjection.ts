@@ -35,6 +35,8 @@ export interface DrivetrainKinematicValue {
 
 export interface DrivetrainForceValue {
   label: string;
+  /** Signed drive force along the positive module velocity; zero at rest (no rolling direction). */
+  rollingForceN: number;
   requiredForceN: number;
   requiredMotorForceN: number;
   tractionForceLimitN: number;
@@ -228,7 +230,7 @@ export function evaluateDrivetrainKinematics(
  * feasibility model used by Choreo without adding an optimization dependency.
  */
 export function evaluateDrivetrainForces(
-  point: CanonicalPathPoint,
+  point: Pick<CanonicalPathPoint, "headingRad" | "tangentX" | "tangentY" | "normalX" | "normalY" | "curvatureInvM">,
   robot: RobotConfig,
   velocityMps: number,
   accelerationMps2: number,
@@ -299,14 +301,17 @@ export function evaluateDrivetrainForces(
 
   return rotatedOffsets.map((module, index) => {
     const requiredForceN = Math.hypot(forces[index].x, forces[index].y);
+    const velocityX = point.tangentX * velocityMps + angularVelocityRadps * module.perpendicularX;
+    const velocityY = point.tangentY * velocityMps + angularVelocityRadps * module.perpendicularY;
+    const speedMps = Math.hypot(velocityX, velocityY);
+    const rollingForceN = speedMps > EPSILON
+      ? (forces[index].x * velocityX + forces[index].y * velocityY) / speedMps
+      : 0;
     if (electrical) {
       // The drive motor supplies only the force along the wheel's rolling direction;
       // the lateral part is tire friction and counts toward traction alone.
-      const velocityX = point.tangentX * velocityMps + angularVelocityRadps * module.perpendicularX;
-      const velocityY = point.tangentY * velocityMps + angularVelocityRadps * module.perpendicularY;
-      const speedMps = Math.hypot(velocityX, velocityY);
       const alongForceN = speedMps > EPSILON
-        ? (forces[index].x * velocityX + forces[index].y * velocityY) / speedMps
+        ? rollingForceN
         : requiredForceN;
       const motoringLimitN = Math.min(
         motorCapForceN,
@@ -314,6 +319,7 @@ export function evaluateDrivetrainForces(
       );
       return {
         label: module.label,
+        rollingForceN,
         requiredForceN,
         requiredMotorForceN: Math.abs(alongForceN),
         tractionForceLimitN,
@@ -326,6 +332,7 @@ export function evaluateDrivetrainForces(
     }
     return {
       label: module.label,
+      rollingForceN,
       requiredForceN,
       requiredMotorForceN: requiredForceN,
       tractionForceLimitN,

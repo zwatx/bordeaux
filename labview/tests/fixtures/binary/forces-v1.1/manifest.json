@@ -1,0 +1,21 @@
+{
+  "format": "BDXLV1",
+  "testOnly": true,
+  "fixtures": [
+    {
+      "name": "straight-empty",
+      "sha256": "5f31cb2f4713c0085163ab12ca95405bd8b703cac6b751a058583e1dbdf95b3b",
+      "bytes": 10932
+    },
+    {
+      "name": "straight-events",
+      "sha256": "ad65f5c5c7516478d26dfc6df74953ed98c651cad1923ff0312f64e413b54f52",
+      "bytes": 11498
+    },
+    {
+      "name": "curve-events",
+      "sha256": "7e5133241d3a1fe41cc9df7482d14fbfbe489549ad1165ced0bd6e702ad4f9f6",
+      "bytes": 17160
+    }
+  ]
+}

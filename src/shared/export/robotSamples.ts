@@ -7,13 +7,13 @@ const angleBetween = (before: number, after: number, ratio: number) => before
   + Math.atan2(Math.sin(after - before), Math.cos(after - before)) * ratio;
 
 /** Subdivide timestamp intervals without removing velocity corners or authored boundaries. */
-export function densifyRobotSamples(samples: readonly TrajectorySample[], headings: readonly number[]) {
-  if (samples.length < 2 || samples.length > MAX_SAMPLES || headings.length !== samples.length) {
+export function densifyRobotSamples(samples: readonly TrajectorySample[], headings: readonly number[], curvatures: readonly number[] = samples.map(sample => sample.curvatureInvM)) {
+  if (samples.length < 2 || samples.length > MAX_SAMPLES || headings.length !== samples.length || curvatures.length !== samples.length) {
     throw new Error("BDX sample count or travel headings are invalid");
   }
   // Check the complete allocation first, including pathological low-speed paths.
   const divisions = samples.map((sample, index) => {
-    if (sample.i !== index || fields.some((field) => !Number.isFinite(sample[field])) || !Number.isFinite(headings[index])) {
+    if (sample.i !== index || fields.some((field) => !Number.isFinite(sample[field])) || !Number.isFinite(headings[index]) || !Number.isFinite(curvatures[index])) {
       throw new Error("BDX sample values/indexes are invalid");
     }
     const duration = index ? sample.t - samples[index - 1].t : 0;
@@ -25,6 +25,7 @@ export function densifyRobotSamples(samples: readonly TrajectorySample[], headin
 
   const output: TrajectorySample[] = [{ ...samples[0], i: 0 }];
   const travelHeadings = [headings[0]];
+  const outputCurvatures = [curvatures[0]];
   const sourceIndices = [0];
   for (let index = 1; index < samples.length; index += 1) {
     const before = samples[index - 1], after = samples[index];
@@ -37,10 +38,12 @@ export function densifyRobotSamples(samples: readonly TrajectorySample[], headin
       sample.headingRad = angleBetween(before.headingRad, after.headingRad, ratio);
       output.push(sample);
       travelHeadings.push(angleBetween(headings[index - 1], headings[index], ratio));
+      outputCurvatures.push(curvatures[index - 1] + (curvatures[index] - curvatures[index - 1]) * ratio);
     }
     sourceIndices.push(output.length);
     output.push({ ...after, i: output.length });
     travelHeadings.push(headings[index]);
+    outputCurvatures.push(curvatures[index]);
   }
-  return { samples: output, travelHeadings, sourceIndices };
+  return { samples: output, travelHeadings, sourceIndices, curvatures: outputCurvatures };
 }

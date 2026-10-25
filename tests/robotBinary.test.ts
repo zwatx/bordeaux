@@ -9,6 +9,9 @@ import { buildWaypoints } from "../src/shared/project/defaults";
 import { buildCanonicalPathState } from "../src/shared/planners/pathState";
 import * as pathState from "../src/shared/planners/pathState";
 import * as trajectory from "../src/shared/export/robotTrajectory";
+import * as moduleForces from "../src/shared/export/moduleForces";
+import { densifyRobotSamples } from "../src/shared/export/robotSamples";
+import { createDemoProject } from "../src/shared/project/defaults";
 import { robotSchemaValueError, validateProjectRobotInvocations } from "../src/shared/robotCommands";
 
 const build = (fixture = binaryWriterFixture()) => buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
@@ -23,7 +26,7 @@ function inspect(bytes: Uint8Array) {
   const metadataLength = u32(), metadataEnd = offset + metadataLength;
   const strings = Array.from({ length: 8 }, text); expect(u16()).toBe(0); expect(u16()).toBe(0);
   const totals = Array.from({ length: 5 }, dbl); expect(offset).toBe(metadataEnd);
-  const samples = Array.from({ length: u32() }, () => Array.from({ length: 11 }, dbl));
+  const samples = Array.from({ length: u32() }, () => Array.from({ length: b.readUInt16BE(10) === 0 ? 11 : 15 }, dbl));
   const follow = Array.from({ length: u32() }, () => [u32(), u32(), u32(), u16(), u16()]);
   const events = Array.from({ length: u32() }, () => {
     const end = u32() + offset, ids = Array.from({ length: 4 }, text), schedule = Array.from({ length: 4 }, dbl);
@@ -39,7 +42,7 @@ describe("direct VI binary path", () => {
     expect(crc32(Buffer.from("123456789"))).toBe(0xcbf43926);
     const bytes = Buffer.from(encodeBinaryEnvelope(Buffer.from([1, 2, 3])));
     expect(bytes.subarray(0, 8).toString()).toBe("BDXLV1\r\n"); expect(bytes.readUInt16BE(8)).toBe(1);
-    expect(bytes.readUInt16BE(10)).toBe(0); expect(bytes.readUInt32BE(12)).toBe(32); expect(bytes.readUInt32BE(16)).toBe(3);
+    expect(bytes.readUInt16BE(10)).toBe(1); expect(bytes.readUInt32BE(12)).toBe(32); expect(bytes.readUInt32BE(16)).toBe(3);
     expect(bytes.readUInt32BE(20)).toBe(crc32(bytes.subarray(32))); expect(bytes.subarray(24, 32)).toEqual(Buffer.alloc(8));
     expect(() => new BinaryWriter(2).bytes(Buffer.alloc(3))).toThrow(/exceeds/);
   });
@@ -59,7 +62,9 @@ describe("direct VI binary path", () => {
     expect(bytes.readUInt32BE(16)).toBe(bytes.length - 32);
     expect(bytes.readUInt32BE(20)).toBe(crc32(bytes.subarray(32)));
     const tangents = built.travelHeadings;
-    expect(decoded.samples).toEqual(path.samples.map((s, i) => [s.t, s.s, s.f, s.x, s.y, s.headingRad, tangents[i], s.velocityMps, s.accelerationMps2, s.angularVelocityRadps, s.curvatureInvM]));
+    expect(decoded.samples).toEqual(path.samples.map((s, i) => [s.t, s.s, s.f, s.x, s.y, s.headingRad, tangents[i], s.velocityMps, s.accelerationMps2, s.angularVelocityRadps, s.curvatureInvM, ...built.moduleForcesN[i]]));
+    expect(built.moduleForcesN.some(forces => forces.some(force => force > 0))).toBe(true);
+    expect(built.moduleForcesN.some(forces => forces.some(force => force < 0))).toBe(true);
     expect(decoded.follow).toEqual(path.followSections.map((s) => [s.segmentIndex, s.startSample, s.endSample, s.mode === "time" ? 0 : 1, 0]));
     expect(decoded.events[1].schedule).toEqual([path.events[1].timeS, 0.6, 0.2, -1]); expect(decoded.events[1].trigger).toBe(0);
     expect(decoded.events.map(event => [event.ids[2], event.ids[3], event.cancel])).toEqual([["TestOnly.vi", "", 0], ["TestOnly.vi", "", 0]]);
@@ -237,6 +242,12 @@ function buildAgainstGolden(fixture: ReturnType<typeof binaryWriterFixture>, gol
   selected.totalTimeS = agree(selected.totalTimeS, expected.totals[0]);
   selected.totalDistanceM = agree(selected.totalDistanceM, expected.totals[1]);
   const canonical = buildCanonicalPathState(fixture.path, selected.samples);
+  const canonicalForces = built.moduleForcesN.map((forces, index) => forces.map((force, module) => {
+    const reference = expected.samples[index][11 + module];
+    // Differentiating timestamps magnifies platform-level planner rounding.
+    expect(force).toBeCloseTo(reference, 7);
+    return reference;
+  }) as moduleForces.ModuleForcesN);
   const sampleKeys = ["t", "s", "f", "x", "y", "headingRad", null, "velocityMps", "accelerationMps2", "angularVelocityRadps", "curvatureInvM"] as const;
   selected.samples.forEach((sample, index) => {
     sampleKeys.forEach((key, column) => {
@@ -251,13 +262,14 @@ function buildAgainstGolden(fixture: ReturnType<typeof binaryWriterFixture>, gol
   });
   const trajectorySpy = vi.spyOn(trajectory, "buildRobotTrajectory").mockReturnValue({ ...built, document });
   const canonicalSpy = vi.spyOn(pathState, "buildCanonicalPathState").mockReturnValue(canonical);
+  const forcesSpy = vi.spyOn(moduleForces, "buildModuleForces").mockReturnValue(canonicalForces);
   try { return build(fixture); }
-  finally { trajectorySpy.mockRestore(); canonicalSpy.mockRestore(); }
+  finally { trajectorySpy.mockRestore(); canonicalSpy.mockRestore(); forcesSpy.mockRestore(); }
 }
 
 it("tolerates planner rounding while rejecting meaningful changes to golden sample values", () => {
   const fixture = binaryWriterFixture(false, false), golden = Buffer.from(build(fixture).bytes);
-  const secondSampleTime = 32 + 4 + golden.readUInt32BE(32) + 4 + 11 * 8;
+  const secondSampleTime = 32 + 4 + golden.readUInt32BE(32) + 4 + 15 * 8;
   golden.writeBigUInt64BE(golden.readBigUInt64BE(secondSampleTime) + 1n, secondSampleTime);
   golden.writeUInt32BE(crc32(golden.subarray(32)), 20);
   expect(Buffer.from(buildAgainstGolden(fixture, golden).bytes)).toEqual(golden);
@@ -277,8 +289,8 @@ it("keeps golden header, CRC and non-planner metadata comparisons exact", () => 
 });
 
 // Deliberate regeneration: BORDEAUX_UPDATE_BDX_FIXTURES=1 npx vitest run tests/robotBinary.test.ts
-it("matches frozen blue-origin binary files and independent decoded fixture evidence", () => {
-  const directory = path.resolve("labview/tests/fixtures/binary/blue-origin");
+it("matches frozen 1.1 force binary files and independent decoded fixture evidence", () => {
+  const directory = path.resolve("labview/tests/fixtures/binary/forces-v1.1");
   if (process.env.BORDEAUX_UPDATE_BDX_FIXTURES === "1") fs.mkdirSync(directory, { recursive: true });
   const manifest: unknown[] = [];
   for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
@@ -300,5 +312,28 @@ it("matches frozen blue-origin binary files and independent decoded fixture evid
     fs.writeFileSync(path.join(directory, "TEST-ONLY.command-types.json"), binaryWriterFixture().bindings.definitionJson + "\n");
   } else {
     expect(JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"))).toEqual({ format: "BDXLV1", testOnly: true, fixtures: manifest });
+  }
+});
+
+it("retains the historical 1.0 fixture layout and trajectory values for reader migration", () => {
+  const directory = path.resolve("labview/tests/fixtures/binary/blue-origin");
+  for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
+    const bytes = fs.readFileSync(path.join(directory, name + ".bdx"));
+    expect(bytes.readUInt16BE(10)).toBe(0);
+    expect(bytes.readUInt32BE(16)).toBe(bytes.length - 32);
+    expect(bytes.readUInt32BE(20)).toBe(crc32(bytes.subarray(32)));
+    const old = inspect(bytes), fixture = binaryWriterFixture(curved, events);
+    // Historical fixtures deliberately had no physical drivetrain model.
+    fixture.project.robot = createDemoProject().robot;
+    const result = trajectory.buildRobotTrajectory(fixture.project, fixture.bindings.catalog).document.paths[0];
+    const dense = densifyRobotSamples(result.samples, buildCanonicalPathState(fixture.path, result.samples).points.map(point => point.tangentRad));
+    expect(old.samples).toHaveLength(dense.samples.length);
+    old.samples.forEach((values, index) => {
+      const sample = dense.samples[index];
+      const expected = [sample.t, sample.s, sample.f, sample.x, sample.y, sample.headingRad, dense.travelHeadings[index],
+        sample.velocityMps, sample.accelerationMps2, sample.angularVelocityRadps, sample.curvatureInvM];
+      expect(values).toHaveLength(11);
+      values.forEach((value, column) => expect(value).toBeCloseTo(expected[column], 12));
+    });
   }
 });
