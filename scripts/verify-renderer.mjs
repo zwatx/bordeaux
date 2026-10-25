@@ -21,9 +21,9 @@ import path from "node:path";
 // Custom Windows chrome, dynamic-repeat controls and focused Space admission measure
 // 742,860 application bytes together. The Robot page electrical drive model and its
 // shared hard-limit physics bring the total to 747,485 bytes; keep every chunk counted
-// with a 730 KiB cap. CG load transfer adds 3,590 bytes to the shared hard-limit
-// calculation and Robot page (751,075 total); allow 734 KiB with all chunks counted.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 734 * 1024;
+// with a 730 KiB cap. Combined CG load transfer, live robot reachability and the
+// nonmodal update popover use a 736 KiB cap, with every chunk counted.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 736 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

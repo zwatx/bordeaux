@@ -24,10 +24,11 @@ function requireDirectories(session: RobotSftpSession) {
 export async function probeRobotFiles(
   endpoint: RobotFileEndpoint,
   factory: RobotSftpSessionFactory = connectRobotSftp,
+  timeoutMs = TIMEOUT_MS,
 ): Promise<RobotFileConnection> {
   const validated = validateRobotFileEndpoint(endpoint);
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
-  const session = await factory({ endpoint: validated, credentials: { username: "admin", password: "" }, signal, timeoutMs: TIMEOUT_MS });
+  const signal = AbortSignal.timeout(timeoutMs);
+  const session = await factory({ endpoint: validated, credentials: { username: "admin", password: "" }, signal, timeoutMs });
   try {
     await requireDirectories(session)(validated.directory, false, signal);
     return { endpoint: validated, hostKeyFingerprint: session.hostKeyFingerprint };

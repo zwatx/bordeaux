@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const noop = () => () => undefined;
 const forbidden = (name) => (...args) => ipcRenderer.invoke('branches:robot-call', name, args);
 contextBridge.exposeInMainWorld('bordeauxAPI', {
+  ...(process.argv.includes('--updates-ui-fixture') ? {
+    getAppUpdateState: () => ipcRenderer.invoke('updates:state'),
+    setAppUpdatesVisible: visible => ipcRenderer.invoke('updates:visible', visible),
+    onAppUpdateState: handler => { const listener = (_event, state) => handler(state); ipcRenderer.on('updates:changed', listener); return () => ipcRenderer.removeListener('updates:changed', listener); },
+  } : {}),
   platform: 'darwin', restoreLastProject: () => ipcRenderer.invoke('branches:restore'),
   openRecentRobotProject: () => ipcRenderer.invoke('branches:catalog'), // Local mocked catalog, no NI/robot connection.
   linkRobotProject: () => ipcRenderer.invoke('branches:catalog'), // Placement mode's late link; the same local mock.

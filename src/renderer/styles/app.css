@@ -891,6 +891,8 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 :is(.keyboard-help,.library-properties,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics){border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);box-shadow:0 24px 80px rgb(0 0 0/.55)}
 :is(.keyboard-help,.library-properties,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics)::backdrop{background:rgb(0 0 0/.55)}
 :is(.keyboard-help h2,.library-properties header strong,.app-update-header h2,.robot-push-dialog h2){margin:0;font-size:16px;font-weight:600;line-height:1.35}
+.app-update-header h2{font-size:14px;font-weight:550}
+.app-update-dialog::backdrop{background:transparent}
 :is(.keyboard-help header button,.library-properties header button,.app-update-dialog .app-update-close,.robot-push-close){display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;margin-left:auto;padding:0;border:0;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:20px;line-height:1}
 :is(.keyboard-help header button,.library-properties header button,.app-update-dialog .app-update-close,.robot-push-close):hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
 .keyboard-help{width:460px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);margin:auto;padding:20px 22px 22px;overflow:auto}

@@ -27,6 +27,7 @@ function Harness() {
     h('main', { style: { height: 'calc(100vh - 56px)', padding: 48, background: 'var(--bg-0)' } },
     h('h1', { style: { fontSize: 20 } }, 'Bordeaux'), h('p', null, 'Editor workspace'),
     h('button', { id: 'update-trigger', className: 'qbtn', onClick: () => window.bordeauxAPI.setAppUpdatesVisible(true) }, 'Software updates'),
+    h('button', { id: 'editor-action', className: 'qbtn', onClick: () => calls.push('editor') }, 'Editor action'),
     h(AppUpdateDialog, { state, ...actions })));
 }
 createRoot(document.getElementById('root')).render(h(Harness));

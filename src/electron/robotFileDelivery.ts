@@ -44,12 +44,23 @@ export class RobotFileDelivery {
   private pending: { preview: RobotFilePreview; files: PreparedRobotFile[]; validate: () => Promise<void> } | null = null;
   private active: { id: string; controller: AbortController; done: Promise<RobotFileResult> } | null = null;
   constructor(initial: RobotFileSettings | null, private readonly persist: (value: RobotFileSettings) => Promise<void>,
-    private readonly transport = { probe: probeRobotFiles, upload: uploadRobotFiles }) {
+    private readonly transport = { probe: (endpoint: RobotFileEndpoint, timeoutMs?: number) => probeRobotFiles(endpoint, undefined, timeoutMs), upload: uploadRobotFiles }) {
     this.saved = initial ? settings(initial) : null;
     this.trusted = this.saved?.hostKeyFingerprint ? connection(this.saved) : null;
   }
   current(): RobotFileConnection | null { return structuredClone(this.trusted); }
   settings(): RobotFileSettings | null { return structuredClone(this.saved); }
+  /** Read-only liveness check: never changes SSH trust, a file review, or an upload. */
+  async checkConnection(): Promise<RobotFileConnection | null> {
+    const trusted = this.trusted, generation = this.generation;
+    if (!trusted || this.trusting) return null;
+    try {
+      const observed = connection(await this.transport.probe(trusted.endpoint, 5_000));
+      if (generation !== this.generation || trusted !== this.trusted || observed.hostKeyFingerprint !== trusted.hostKeyFingerprint
+        || observed.endpoint.host !== trusted.endpoint.host || observed.endpoint.port !== trusted.endpoint.port) return null;
+      return structuredClone(trusted);
+    } catch { return null; }
+  }
   async saveSettings(endpoint: RobotFileEndpoint): Promise<RobotFileSettings> {
     if (this.active || this.trusting) throw new Error("Finish the current robot operation before editing settings");
     const normalized = validateRobotFileEndpoint(endpoint);

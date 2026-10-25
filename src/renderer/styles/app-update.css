@@ -1,15 +1,16 @@
-/* Fixed panel dimensions: progress and notes never resize the dialog. Shell and buttons come from app.css. */
-.app-update-dialog{width:min(620px,calc(100vw - 64px));height:min(600px,calc(100vh - 64px));padding:0;overflow:hidden;font:13px var(--ui)}
+/* A quiet toolbar popover; only the approved install blocks editing. */
+.app-update-dialog{position:fixed;inset:52px 12px auto auto;margin:0;width:min(420px,calc(100vw - 24px));height:min(520px,calc(100vh - 76px));padding:0;overflow:hidden;font:13px var(--ui);z-index:60}
 .app-update-dialog[open]{display:flex;flex-direction:column}
-.app-update-header{display:flex;flex:none;align-items:center;gap:16px;padding:16px 14px 0 24px}
+.app-update-header{display:flex;flex:none;align-items:center;gap:12px;padding:10px 8px 0 14px}
 .app-update-header h2{display:flex;align-items:center;gap:9px}
-.app-update-summary{box-sizing:border-box;flex:none;padding:4px 24px 16px}
+.app-update-summary{box-sizing:border-box;flex:none;padding:0 14px 12px}
 .app-update-versions{margin:0;color:var(--txt-3);font:12px/1.5 var(--mono)}
 .app-update-description{max-height:42px;margin:6px 0 0;overflow:auto;color:var(--txt-2);font-size:12.5px;line-height:1.5}
 /* An interrupted update carries the error tone, and its retry is the primary action. */
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-header h2::before{content:'';flex:none;width:8px;height:8px;border-radius:50%;background:var(--bad)}
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action{border-color:var(--accent-surface);background:var(--accent-surface);color:var(--on-accent)}
-.app-update-notes{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:18px 24px 24px;border-top:1px solid var(--line);background:var(--bg);line-height:1.65;overflow-wrap:anywhere}
+.app-update-notes{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 14px 14px;line-height:1.65;overflow-wrap:anywhere;scrollbar-width:thin}
+.app-update-notes h3{margin:0 0 10px;font-size:12.5px;font-weight:600}
 .app-update-notes:focus-visible{outline:2px solid var(--focus);outline-offset:-3px}
 .app-update-notes h4{margin:20px 0 8px;font-size:13px;font-weight:600;line-height:1.4}
 .app-update-notes>h4:first-child{margin-top:0}
@@ -27,8 +28,8 @@
 .app-update-transfer progress[value]::-webkit-progress-bar{background:var(--bg-3)}
 .app-update-transfer progress[value]::-webkit-progress-value{background:var(--accent)}
 .app-update-transfer-values{display:flex;justify-content:space-between;margin-top:8px;color:var(--txt-3);font:11px var(--mono)}
-.app-update-footer{box-sizing:border-box;display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:14px 24px;border-top:1px solid var(--line)}
-.app-update-secondary{display:flex;gap:8px}
+.app-update-footer{box-sizing:border-box;display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;min-height:54px;padding:10px 12px;border-top:1px solid var(--line)}
+.app-update-secondary{display:flex;flex-wrap:wrap;gap:4px}
 .app-update-dialog .app-update-action{min-width:96px;min-height:32px;border-color:var(--line-3);background:var(--bg-3)}
 .app-update-dialog .app-update-footer button{min-height:32px}
 @media (hover:hover){.app-update-dialog .app-update-action:hover:not(:disabled){background:var(--bg-4)}.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action:hover:not(:disabled){border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:var(--on-accent)}}

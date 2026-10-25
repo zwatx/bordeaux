@@ -18,7 +18,7 @@ const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'prepari
 
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
   const api = window.bordeauxAPI;
-  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, probe: null, preview: null, result: null, error: '' });
+  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, reachability: 'unknown', monitoring: false, probe: null, preview: null, result: null, error: '' });
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [directory, setDirectory] = useState(DEFAULT_ROBOT_PATH_DIRECTORY);
@@ -56,6 +56,28 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     }).catch((error) => { if (live && request === generation.current) update({ phase: 'idle', error: message(error) }); });
     return () => { live = false; generation.current += 1; };
   }, []);
+  useEffect(() => {
+    // Remembered SSH trust is not evidence of a live robot. Start only after explicit Connect or Upload,
+    // never when restoring an address or saving locally. Checks do not invalidate immutable file reviews.
+    if (!view.monitoring || !view.connection || !api.checkRobotFileConnection) return;
+    let live = true, timer;
+    const checkedConnection = view.connection;
+    const check = async () => {
+      if (!live || !state.current.monitoring || state.current.connection !== checkedConnection) return;
+      if (!working(state.current.phase)) {
+        const request = generation.current;
+        let observed = null;
+        try { observed = await api.checkRobotFileConnection(); } catch { /* Offline is an ordinary state. */ }
+        if (!live || !state.current.monitoring || state.current.connection !== checkedConnection) return;
+        const matches = observed?.endpoint.host === checkedConnection.endpoint.host && observed?.endpoint.port === checkedConnection.endpoint.port
+          && observed?.hostKeyFingerprint === checkedConnection.hostKeyFingerprint;
+        if (request === generation.current) update({ reachability: matches ? 'online' : 'offline' });
+      }
+      if (live) timer = setTimeout(check, 5_000);
+    };
+    timer = setTimeout(check, 5_000);
+    return () => { live = false; clearTimeout(timer); };
+  }, [view.monitoring, view.connection]);
   useEffect(() => {
     const previous = context.current;
     context.current = { projectKey, catalogKey, bookmarkKey };
@@ -96,7 +118,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const probeRobot = async () => {
     if (working(state.current.phase)) return;
     const request = ++generation.current;
-    update({ phase: 'probing', probe: null, error: '' });
+    update({ phase: 'probing', probe: null, error: '', monitoring: false, reachability: 'unknown' });
     try {
       const probe = await api.probeRobotFiles({ host: host.trim(), port: Number(port), directory: directory.trim() });
       if (request !== generation.current) return;
@@ -117,7 +139,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       trusted.current = connection;
       intent.current = null;
       setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
-      update({ settings, connection, editing: false, probe: null, preview: null, result: null, phase: 'idle' });
+      update({ settings, connection, editing: false, probe: null, preview: null, result: null, phase: 'idle', monitoring: false, reachability: 'unknown' });
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
   };
   const acceptPairing = async (probe, request) => {
@@ -126,7 +148,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       const connection = await api.trustRobotFiles(probe.hostKeyFingerprint);
       if (request !== generation.current) return;
       trusted.current = connection;
-      update({ settings: connection, connection, editing: false, probe: null, phase: 'idle' });
+      update({ settings: connection, connection, editing: false, probe: null, phase: 'idle', monitoring: true, reachability: 'online' });
       if (intent.current) await prepare();
     } catch (error) { if (request === generation.current) update({ phase: 'identity', error: message(error) }); }
   };
@@ -137,13 +159,14 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const confirmPush = async () => {
     if (state.current.phase !== 'review' || !state.current.preview) return;
     const operationId = state.current.preview.operationId;
+    generation.current += 1; // Older liveness evidence cannot override this transfer's result.
     update({ phase: 'uploading', error: '' });
     try {
       const result = await api.confirmRobotFiles(operationId);
       intent.current = null;
-      update({ result, preview: null, phase: 'transferred' });
+      update({ result, preview: null, phase: 'transferred', monitoring: true, reachability: 'online' });
     }
-    catch (error) { update({ phase: 'failed', error: message(error) }); }
+    catch (error) { update({ phase: 'failed', error: message(error), reachability: 'offline' }); }
   };
   const cancel = async () => {
     const preview = state.current.preview;
@@ -183,7 +206,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     const previous = state.current;
     update({ phase: 'preparing' });
-    try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, preview: null, result: null, phase: 'idle', error: '' }); }
+    try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, preview: null, result: null, phase: 'idle', error: '', monitoring: false, reachability: 'unknown' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
   const connectionHome = async () => {
@@ -198,7 +221,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   return { ...view, fileTransfer: true, host, setHost, port, setPort, directory, setDirectory,
     busy: working(view.phase), canRetry: Boolean(intent.current), desktopAvailable: true, deliveryAvailable: true,
     pairing: view.settings,
-    connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.connection ? ' · verified' : ' · not verified') : 'Not set up',
+    connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.reachability === 'online' ? ' · connected' : view.reachability === 'offline' ? ' · disconnected' : ' · not connected') : 'Not set up',
     itemStatus: (kind, id) => kind === 'path' && working(view.phase) && intent.current?.projectKey === projectKey && intent.current.pathIds.includes(id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads selected path files over SFTP.', tone: 'muted' },

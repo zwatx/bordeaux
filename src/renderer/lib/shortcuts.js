@@ -21,6 +21,7 @@ export function isPlaybackSpace(event, page, doc = document) {
     || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
   const target = event.target;
   if (target?.isContentEditable || target?.closest?.('[data-native-chrome],[data-role="issue"],[data-problems-control],details>summary,.choice-change[aria-expanded][aria-controls],input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="listbox"],[role="menu"],[aria-haspopup],[popovertarget],.seg,.toggle,[role="radio"],[role="checkbox"],[role="switch"]')) return false;
-  return ![...doc.querySelectorAll('dialog[open],[role="dialog"],[role="menu"],[role="listbox"],[popover]:popover-open')]
+  if (target?.closest?.('[role="dialog"],dialog')) return false;
+  return ![...doc.querySelectorAll('dialog:modal,[role="dialog"]:not([aria-modal="false"]),[role="menu"],[role="listbox"],[popover]:popover-open')]
     .some(element => element.getClientRects().length > 0);
 }

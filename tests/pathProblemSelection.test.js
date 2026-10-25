@@ -211,7 +211,7 @@ describe('workspace hover modal subtree lifecycle', () => {
     store.queueField(context, produce);
     return { store, pending, produce, deliver: records => callback(records), forceFrame: () => retained.forEach(fn => fn(0)) };
   }
-  const selector = 'dialog[open], [role="dialog"][aria-modal="true"]';
+  const selector = 'dialog:modal, [role="dialog"][aria-modal="true"]';
   const modal = (kind, subtree) => {
     const element = { matches: query => query === selector && (kind === 'dialog' || kind === 'aria-modal'), querySelector: () => null };
     return subtree ? { matches: () => false, querySelector: query => query === selector ? element : null } : element;

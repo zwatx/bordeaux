@@ -75,7 +75,7 @@ describe('Push split button', () => {
     expect(state({ phase: 'uploading', busy: true })).toEqual(['busy', 'Push options · Uploading…', 'Uploading…']);
     expect(state({ phase: 'saving', busy: true })[2]).toBe('Saving…');
     expect(state({ phase: 'failed', error: 'Readback did not match' })).toEqual(['bad', 'Push options · Not sent · Readback did not match', 'Not sent · Readback did not match']);
-    const [tone, , pushed] = state({ phase: 'transferred', result: { files: [{}, {}], directory: endpoint.directory } });
+    const [tone, , pushed] = state({ phase: 'transferred', reachability: 'online', result: { files: [{}, {}], directory: endpoint.directory } });
     expect([tone, pushed]).toEqual(['good', expect.stringMatching(/^Pushed 2 · \d\d:\d\d$/)]);
   });
   it('shows the destination and last result in the menu heading, and routes the connection item to setup', () => {
@@ -100,7 +100,13 @@ describe('Push split button', () => {
     expect(control({ place: 'routines', paths: [path('A')], controller: controller() }).trigger).toBeNull();
   });
   it('keeps a result\'s own time', () => {
-    expect(robotStatus({ phase: 'transferred', result: { files: [{}], directory: '/x' } }, new Date(2026, 9, 17, 9, 5))).toMatchObject({ tone: 'good', text: 'Pushed 1 · 09:05', title: 'Verified in /x' });
+    expect(robotStatus({ phase: 'transferred', result: { files: [{}], directory: '/x' } }, new Date(2026, 9, 17, 9, 5))).toMatchObject({ tone: undefined, text: 'Pushed 1 · 09:05', title: 'Verified in /x' });
+  });
+  it('does not show green for a past push after disconnect or before a live check', () => {
+    const result = { files: [{}], directory: endpoint.directory };
+    expect(robotStatus(controller({ settings: { endpoint }, phase: 'transferred', result, reachability: 'offline' }))).toMatchObject({ tone: 'unset', text: '10.24.68.2 · Disconnected' });
+    expect(robotStatus(controller({ settings: { endpoint }, phase: 'transferred', result }))).toMatchObject({ tone: undefined });
+    expect(robotStatus(controller({ settings: { endpoint }, reachability: 'online' }))).toMatchObject({ tone: 'good', text: '10.24.68.2 · Connected' });
   });
 });
 

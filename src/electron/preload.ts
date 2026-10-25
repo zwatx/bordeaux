@@ -42,6 +42,7 @@ const bordeauxAPI = {
   },
   robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true } satisfies RobotDeliveryCapabilities),
   getRobotFileConnection: (): Promise<RobotFileSettings | null> => ipcRenderer.invoke("robotFiles:connection"),
+  checkRobotFileConnection: (): Promise<RobotFileConnection | null> => ipcRenderer.invoke("robotFiles:check"),
   saveRobotFileSettings: (endpoint: RobotFileEndpoint): Promise<RobotFileSettings> => ipcRenderer.invoke("robotFiles:save", endpoint),
   probeRobotFiles: (endpoint: RobotFileEndpoint): Promise<RobotFileConnection> => ipcRenderer.invoke("robotFiles:probe", endpoint),
   trustRobotFiles: (fingerprint: string): Promise<RobotFileConnection> => ipcRenderer.invoke("robotFiles:trust", fingerprint),

@@ -10,7 +10,7 @@ import { CommandBranches as RenderedBranches } from '../src/renderer/components/
 
 // Actual renderer sources run with minimal hooks and a focus-tracking DOM: no DOM library is installed,
 // and these checks need the primitives' real focus and refusal behavior, not markup alone.
-const MODAL = 'dialog[open],[role="dialog"][aria-modal="true"]';
+const MODAL = 'dialog:modal,[role="dialog"][aria-modal="true"]';
 class FakeNode {
   constructor(doc, key) { Object.assign(this, { doc, key, parent: null, props: {}, isConnected: false }); }
   get disabled() { return Boolean(this.props.disabled); }

@@ -123,7 +123,7 @@ try {
     "api", "root", "startupAdopted", "validation", "motorPreset", "eventMarkerAutosave", "multiRoutineUi", "robotPushUi",
     "robotDiscovery", "robotBuilt", "robotRecent", "missingTypeEvidenceRejected", "eventlessBdxExported",
     "restored", "roundTrip", "editorRestored", "nodeGlobalsBlocked", "popupBlocked", "inlineScriptBlocked",
-    "filesWritten", "invalidDraftBlockedClose", "closedWithExactSourceReceipt", "updaterIntegration", "updaterModalVisible", "unsavedDraftRetained", "folderBdxSaved", "sourceSavedOnBdxFailure",
+    "filesWritten", "invalidDraftBlockedClose", "closedWithExactSourceReceipt", "updaterIntegration", "updaterPopoverVisible", "unsavedDraftRetained", "folderBdxSaved", "sourceSavedOnBdxFailure",
   ]) assert.equal(result[check], true, check);
   for (const check of [
     "markerInspector", "linkAction", "commandEnabled", "commandSearch", "recentHiddenForSingleProject",

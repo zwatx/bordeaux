@@ -44,6 +44,14 @@ describe("direct robot SFTP path delivery", () => {
     expect(f.stored.size).toBe(1);
     expect(f.closed()).toBe(1);
   });
+  it("bounds liveness probes with the shorter connection deadline", async () => {
+    const f = fixture();
+    await probeRobotFiles(endpoint, f.factory, 5_000);
+    expect(f.requests[0].timeoutMs).toBe(5_000);
+    expect(f.requests[0].signal).toBeInstanceOf(AbortSignal);
+    expect(f.directories).toEqual([false]);
+    expect(f.closed()).toBe(1);
+  });
 
   it("pins host identity and publishes exact bytes while preserving other paths", async () => {
     const f = fixture();

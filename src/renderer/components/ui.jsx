@@ -87,7 +87,7 @@ import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
       const active = document.activeElement;
       const element = !claimed && root?.isConnected && rootRef.current === root && (!current || current()) && target();
       if (element?.isConnected && root.contains(element) && (!active || active === document.body || active === from)
-        && !document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')) element.focus();
+        && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) element.focus();
     });
   };
 

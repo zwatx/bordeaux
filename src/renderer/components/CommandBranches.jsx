@@ -12,7 +12,7 @@ const operators = [
   ['lte', 'At most'], ['gt', 'Greater than'], ['gte', 'At least'],
 ].map(([value, label]) => ({ value, label }));
 const steps = (count, noun = 'step') => count + ' ' + noun + (count === 1 ? '' : 's');
-const MODAL = 'dialog[open],[role="dialog"][aria-modal="true"]';
+const MODAL = 'dialog:modal,[role="dialog"][aria-modal="true"]';
 
 /** Edits go to the routine owner as intents with stable IDs; a replacement says what it removes before it is chosen. */
 export function CommandBranches({ node, command, acq }) {
