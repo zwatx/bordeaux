@@ -1,5 +1,5 @@
 import type { AppUpdateState } from "../shared/appUpdates";
-import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState } from "../shared/windowChrome";
+import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState, WindowMenuEntry } from "../shared/windowChrome";
 import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings } from "../shared/robotFileDelivery";
 import type { RobotPushScope, RobotDeploymentComparison } from "../shared/export/robotDeployment";
 import { contextBridge, ipcRenderer } from "electron";
@@ -21,6 +21,8 @@ const bordeauxAPI = {
   getWindowState: (): Promise<WindowState> => ipcRenderer.invoke("window:state"),
   windowAction: (action: WindowAction): Promise<void> => ipcRenderer.invoke("window:action", action),
   openWindowMenu: (menu: WindowMenu, anchor: WindowMenuAnchor): Promise<boolean> => ipcRenderer.invoke("window:menu", menu, anchor),
+  getWindowMenu: (): Promise<WindowMenuEntry[]> => ipcRenderer.invoke('window:menuItems'),
+  activateWindowMenu: (token: string): Promise<void> => ipcRenderer.invoke('window:menuActivate', token),
   onWindowState: (handler: (state: WindowState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: WindowState) => handler(state);
     ipcRenderer.on("window:stateChanged", listener);

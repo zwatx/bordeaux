@@ -31,6 +31,7 @@ export function createPlaybackStore() {
     setTotal(total: number) {
       const next = Math.max(0, total || 0);
       emit({ total: next, time: Math.min(snapshot.time, next), playing: snapshot.playing && snapshot.time < next });
+      if (!snapshot.playing) stopFrame();
       startFrame();
     },
     toggle() {

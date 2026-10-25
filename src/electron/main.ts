@@ -848,7 +848,7 @@ function buildMenu() {
   if (process.platform === "win32") mainWindow?.setMenuBarVisibility(false);
 }
 
-registerWindowChrome({ handle, getWindow: () => mainWindow, getMenu: () => Menu.getApplicationMenu(), platform: process.platform });
+registerWindowChrome({ handle, getWindow: () => mainWindow, getMenu: () => Menu.getApplicationMenu(), platform: process.platform, quit: () => app.quit() });
 
 /** Own the initiating native window, document and transition through every asynchronous open/create step. */
 function captureProjectActivation(): () => void {

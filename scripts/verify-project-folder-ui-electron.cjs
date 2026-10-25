@@ -339,11 +339,11 @@ app.whenReady().then(async () => {
         const buttons = [...document.querySelectorAll('.toolbar .tb-actions > button, .toolbar > .keyboard-help-trigger')];
         return buttons.map((button) => {
           const rect = button.getBoundingClientRect();
-          return { label: button.textContent, left: rect.left, right: rect.right, height: rect.height, width: rect.width, clipped: button.scrollWidth > button.clientWidth, reachable: button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)) };
+          return { label: button.textContent, inset: button.matches('.optimizer-toggle,.keyboard-help-trigger'), left: rect.left, right: rect.right, height: rect.height, width: rect.width, clipped: button.scrollWidth > button.clientWidth, reachable: button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)) };
         });
       });
       for (const [index, button] of toolbar.entries()) {
-        assert.ok(button.height >= 40 && button.left >= 0 && button.right <= width, JSON.stringify(button));
+        assert.ok(button.height >= (button.inset ? 32 : 40) && button.left >= 0 && button.right <= width, JSON.stringify(button));
         assert.equal(button.clipped, false, JSON.stringify(button));
         assert.ok(button.reachable, 'Toolbar control must be unobscured: ' + JSON.stringify(button));
         // The compact toolbar intentionally removes inter-button gaps; their hit areas must still stay separate.

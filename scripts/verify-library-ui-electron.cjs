@@ -172,7 +172,8 @@ const activePathId = () => evaluate(() => document.querySelector('.library-pick[
 const editorReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.pt-wp').length > 1), label);
 // Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
-  await evaluate(() => { const point = document.querySelectorAll('.pt-wp')[1]; point.click(); point.blur(); });
+  await pointerClick('.pt-wp[data-selection="wp:1"]');
+  assert.equal(await evaluate(() => document.activeElement?.dataset.selection), 'wp:1', 'The waypoint owns native keyboard input');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
   await delay(80);
 }
@@ -618,7 +619,7 @@ app.whenReady().then(async () => {
     await click('[aria-label="Save name"]');
     assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Managed path copy');
     await click('[aria-label="Actions for Managed path copy"]');
-    await click('.library-menu button', 'Move or link…');
+    await click('.library-menu button', 'Move to folder…');
     await evaluate(() => {
       const select = document.querySelector('.library-properties select');
       select.value = [...select.options].find((option) => option.text === 'Practice').value;
@@ -648,7 +649,7 @@ app.whenReady().then(async () => {
     assert.ok(!saved.pathFolders.some((folder) => folder.name === 'Practice'));
     // Library work after the deletion is not journaled; undoing the older deletion must keep it.
     const moveToFolder = async (name, folderName) => {
-      await click('[aria-label="Actions for ' + name + '"]'); await click('.library-menu button', 'Move or link…');
+      await click('[aria-label="Actions for ' + name + '"]'); await click('.library-menu button', 'Move to folder…');
       await evaluate((folderName) => {
         const select = document.querySelector('.library-properties select');
         select.value = [...select.options].find((option) => option.text === folderName).value;
@@ -1157,7 +1158,7 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => !document.querySelector('.library-menu')), 'native popover toggle retires the dismissed menu');
     assert.equal(await evaluate(() => document.querySelector('.library-menu')), null, 'Click outside in the field dismisses the menu');
     await click('[aria-label="Actions for Opening move"]');
-    await click('.library-menu button', 'Move or link…');
+    await click('.library-menu button', 'Move to folder…');
     assert.equal(await evaluate(() => document.querySelector('.library-properties').open), true);
     assert.equal(await evaluate(() => document.querySelector('.library-properties select option[value=""]').textContent), 'No folder');
     await wait(() => evaluate(() => document.querySelector('.library-properties')?.contains(document.activeElement)), 'path properties focus');
@@ -1320,12 +1321,13 @@ app.whenReady().then(async () => {
     await evaluate(() => document.querySelector('.pt-wp').click());
     const independentBefore = structuredClone(saved.paths[2]);
     const linkBaseline = saved.paths.slice(0, 2).map((path) => structuredClone(path.waypoints[0]));
-    assert.equal(await evaluate(() => document.querySelectorAll('#waypoint-position-link-results [role="option"]').length), 0, 'Ordinary waypoints are absent from the inline chooser');
-    assert.equal(await evaluate(() => document.querySelector('#waypoint-position-link-results .choice-empty')?.textContent), 'Name a shared point in another path to link it here.');
+    await click('#band-waypoint-link');
+    assert.ok(await evaluate(() => document.querySelectorAll('[data-link-target]').length > 0), 'Unnamed interior and endpoint waypoints are available');
+    await key('Escape');
     await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), saved.paths[1].id);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'target point ready');
     await evaluate(() => document.querySelector('.pt-wp').click());
-    await click('[aria-label="Linkable waypoint"]');
+    await click('[aria-label="Name this point"]');
     await wait(() => evaluate(() => { const input = document.querySelector('[aria-label="Linkable point name"]'); return input && !input.disabled && !input.closest('[inert]'); }), 'named point editable');
     await pointerClick('[aria-label="Linkable point name"]');
     await evaluate(() => document.querySelector('[aria-label="Linkable point name"]').select());
@@ -1340,13 +1342,14 @@ app.whenReady().then(async () => {
     await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), saved.paths[0].id);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'source point ready');
     await evaluate(() => document.querySelector('.pt-wp').click());
-    await pointerClick('#waypoint-position-link');
-    assert.equal(await evaluate(() => document.querySelectorAll('#waypoint-position-link-results [role="option"]').length), 1, 'Only the opted-in named point is offered');
+    await pointerClick('#band-waypoint-link');
+    await pointerClick('#link-point-search');
     await win.webContents.insertText('Scoring');
-    await wait(() => evaluate(() => document.querySelector('#waypoint-position-link-results [role="option"] strong')?.textContent === 'Scoring position'), 'filtered named point');
-    await key('Down');
-    assert.equal(await evaluate(() => document.querySelector('#waypoint-position-link').getAttribute('aria-activedescendant')), 'waypoint-position-link-result-0', 'Keyboard selects the exact named-point result');
+    await wait(() => evaluate(() => document.querySelectorAll('[data-link-target]').length === 1), 'filtered named point');
+    await key('Tab');
+    assert.ok(await evaluate(() => !!document.activeElement.dataset.linkTarget), 'Keyboard reaches the exact named-point result');
     await key('Enter');
+    await pointerClick('.point-links .primary');
     await saveCurrent();
     const linkId = saved.paths[0].waypoints[0].positionLink;
     assert.ok(linkId); assert.equal(saved.paths[1].waypoints[0].positionLink, linkId);

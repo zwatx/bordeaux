@@ -116,7 +116,7 @@ describe('App command placement wiring (actual App source)', () => {
     expect(run('plan', false)).toEqual({ result: false, calls: [] });
     expect(run('plan', true)).toEqual({ result: true, calls: [['tool', 'select'], ['menu', null], ['preview', null], ['select', null, -1]] });
     const text = appSource.getFullText();
-    expect(text).toMatch(/else if \(e\.key === 'Escape'\) escapeSelection\(\);/);
+    expect(text).toMatch(/\bif \(e\.key === 'Escape'\) escapeSelection\(\);/);
     expect(declared('bandActions').getText()).toContain('escapeSelection');
   });
 });

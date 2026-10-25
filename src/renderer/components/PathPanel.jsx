@@ -81,6 +81,8 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     if (!project || !actions.setWaypointPositionLink) return null;
     const members = PathLinks.positionMembers(project, doc.id, i);
     linkedNow = members.length > 0;
+    if (actions.openPointLinks) return h(Row, { label: 'Linked' }, h('button', { type: 'button', id: 'band-waypoint-link', className: 'pp-text-btn',
+      onClick: () => actions.openPointLinks(doc.id, i) }, linkedNow ? 'Manage links…' : 'Link points…'));
     const link = (target) => {
       const cancel = focusOwned(target ? '[data-link-unlink]' : '#band-waypoint-link', Boolean(target));
       const status = actions.setWaypointPositionLink(i, target);

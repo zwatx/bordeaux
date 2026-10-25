@@ -1,6 +1,6 @@
-import type { BrowserWindow, IpcMainInvokeEvent, Menu } from "electron";
+import type { BrowserWindow, IpcMainInvokeEvent, Menu, MenuItem } from "electron";
 import type { EventEmitter } from "node:events";
-import type { WindowState } from "../shared/windowChrome";
+import type { WindowState, WindowMenuEntry } from "../shared/windowChrome";
 
 const menuIds = new Set(["application", "file", "robot", "agents", "view", "help"]);
 type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
@@ -18,9 +18,43 @@ export function chromeWindow(event: IpcMainInvokeEvent, window: BrowserWindow | 
   return window;
 }
 
-export function registerWindowChrome(options: { handle: Handle; getWindow: () => BrowserWindow | null; getMenu: () => Menu | null; platform: string }) {
+export function registerWindowChrome(options: { handle: Handle; getWindow: () => BrowserWindow | null; getMenu: () => Menu | null; platform: string; quit?: () => void }) {
   const { handle, getWindow, getMenu, platform } = options;
   let popupOpen = false;
+  let menuGeneration = 0, menuSource: Menu | null = null;
+  const commands = new Map<string, { item: MenuItem; ancestors: MenuItem[] }>();
+  handle('window:menuItems', event => {
+    chromeWindow(event, getWindow(), platform);
+    menuSource = getMenu(); commands.clear(); menuGeneration++;
+    if (!menuSource) throw new Error('Window menu unavailable');
+    const entries = (menu: Menu, ancestors: MenuItem[] = []): WindowMenuEntry[] => menu.items.filter(item => item.visible).map(item => {
+      const token = menuGeneration + ':' + commands.size;
+      commands.set(token, { item, ancestors });
+      return { token, id: item.id, label: item.label.replace(/&/g, ''), enabled: item.enabled, separator: item.type === 'separator',
+        ...(item.type === 'checkbox' || item.type === 'radio' ? { checked: item.checked } : {}),
+        accelerator: item.accelerator?.replace('CmdOrCtrl', 'Ctrl'),
+        ...(item.submenu ? { children: entries(item.submenu, [...ancestors, item]) } : {}) };
+    });
+    return entries(menuSource);
+  });
+  handle('window:menuActivate', (event, token) => {
+    const window = chromeWindow(event, getWindow(), platform);
+    const entry = typeof token === 'string' ? commands.get(token) : undefined;
+    if (!entry || getMenu() !== menuSource || [entry.item, ...entry.ancestors].some(item => !item.enabled || !item.visible)
+      || entry.item.submenu || entry.item.type === 'separator') throw new Error('Menu changed. Open it again.');
+    commands.clear();
+    const item = entry.item, contents = window.webContents;
+    // Roles bypass MenuItem.click in Electron; retain their main-owned operations here.
+    switch (item.role?.toLowerCase()) {
+      case 'quit': options.quit?.(); break;
+      case 'toggledevtools': contents.toggleDevTools(); break;
+      case 'resetzoom': contents.setZoomLevel(0); break;
+      case 'zoomin': contents.setZoomLevel(Math.min(9, contents.getZoomLevel() + 0.5)); break;
+      case 'zoomout': contents.setZoomLevel(Math.max(-9, contents.getZoomLevel() - 0.5)); break;
+      case 'togglefullscreen': window.setFullScreen(!window.isFullScreen()); break;
+      default: item.click(item, window, { triggeredByAccelerator: false });
+    }
+  });
   handle("window:state", event => windowState(chromeWindow(event, getWindow(), platform)));
   handle("window:action", (event, action) => {
     const window = chromeWindow(event, getWindow(), platform);

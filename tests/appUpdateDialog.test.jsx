@@ -4,6 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { AppUpdateDialog, releaseNoteBlocks } from '../src/renderer/components/AppUpdateDialog';
 const render = (patch) => renderToStaticMarkup(React.createElement(AppUpdateDialog, { state: { phase: 'available', currentVersion: '0.2.0-beta.10', version: '0.2.0-beta.11', channel: 'beta', ...patch } }));
 describe('app update dialog', () => {
+  it('reviews the exact install version and lost unsaved edits in a separate confirmation', () => {
+    const html = renderToStaticMarkup(React.createElement(AppUpdateDialog, { state: { phase: 'downloaded', currentVersion: '1.0.0', version: '1.0.1', projectDirty: true }, installConfirmation: { version: '1.0.1' } }));
+    expect(html).toContain('Update Bordeaux?');
+    expect(html).toContain('1.0.0 → 1.0.1');
+    expect(html).toContain('Unsaved changes will be lost');
+    expect(html).toContain('>Cancel</button>');
+    expect(html).toContain('>Update</button>');
+    expect(html).not.toContain('app-update-notes');
+  });
   it('renders safe headings, lists and code without activating release links or HTML', () => {
     const notes = '# Fixes\n- **Faster** playback\n[Download](https://bad.example)\n<script>alert(1)</script>\n```js\nconst value = 1;\n```';
     expect(releaseNoteBlocks(notes).map(b => b.kind)).toEqual(['heading', 'item', 'paragraph', 'paragraph', 'code']);

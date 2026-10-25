@@ -24,7 +24,7 @@ function harness({ clock = { request: () => 1, cancel() {} }, Observer = class {
     { t: 0, f: 0, velocityMps: 0 }, { t: 1, f: 1, velocityMps: 2 },
   ], sample: { pts: [{s:0}, {s:1}] }, prof: { totalTime: 1 } };
   const props = { projectKey: 0, doc: { id: 'a', constraints: { maxVel: 3 } }, robot: { maxSpeed: 4 },
-    derived: preview, sel: { kind: null, idx: -1 }, issues: [], flushDraft: vi.fn(() => true), playbackStore: { seek: vi.fn() },
+    derived: preview, sel: { kind: null, idx: -1 }, issues: [], flushDraft: vi.fn(() => true), playbackStore: { seek: vi.fn(), setTotal: vi.fn() },
     actions: { select: vi.fn(), addSlowZone: vi.fn() } };
   const useRef = value => cells[cursor++] ||= { current: value };
   const useState = initial => {
@@ -77,6 +77,14 @@ function selected() {
 }
 
 describe('displayed planning problem selection', () => {
+  it('feeds playback the displayed duration through a pending edit, clearing it on failure', () => {
+    const ui = harness(); ui.render(); ui.flush();
+    expect(ui.props.playbackStore.setTotal).toHaveBeenLastCalledWith(1);
+    ui.render({ timingPending: true, derived: { sample: {pts:[]},prof:{totalTime:0} } }); ui.flush();
+    expect(ui.props.playbackStore.setTotal).toHaveBeenLastCalledWith(1);
+    ui.render({ timingPending:false }); ui.flush();
+    expect(ui.props.playbackStore.setTotal).toHaveBeenLastCalledWith(0);
+  });
   it('clears before effects when a new result shifts another same-code issue into its index', () => {
     const { ui, issues } = selected();
     const next = ui.render({ issues: [issues[1]] });

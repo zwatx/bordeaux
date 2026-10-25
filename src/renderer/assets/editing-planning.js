@@ -1,4 +1,4 @@
-import { sample as sampleGeometry } from '../../shared/math/geometry';
+import { sample as sampleGeometry, pointAtFraction } from '../../shared/math/geometry';
 import { buildAnchors, headingAt } from '../../shared/math/headingAnchors';
 import { effectiveRanges, featureFraction } from '../../shared/math/pathRanges';
 
@@ -121,7 +121,7 @@ export function liveEditingPreview(path, robot, solvedPath, solved) {
   if (solvedPath === path) return solved;
   const geometry = editingGeometry(path, 14, robot), checks = solved?.checks || [];
   const trace = solved?.trajectorySamples?.length > 1 ? solved.trajectorySamples : solved?.finalTrajectory?.samples;
-  if (!(trace?.length > 1)) return { ...geometry, checks };
+  if (!(trace?.length > 1) || geometry.sample.pts.length < 2) return { ...geometry, checks };
   // Map each live point to the solved fraction within its waypoint segment, keeping stops on their waypoints.
   const from = solved.wpFrac, to = geometry.wpFrac, length = geometry.sample.length || 1;
   const pinned = from?.length === to.length && to.every((f, i) => !i || (f > to[i - 1] && from[i] > from[i - 1]));
@@ -139,7 +139,26 @@ export function liveEditingPreview(path, robot, solvedPath, solved) {
     v.push(a.velocityMps + (b.velocityMps - a.velocityMps) * u);
   }
   const totalTime = Math.max(solved.prof?.totalTime || 0, trace[trace.length - 1].t);
-  return { ...geometry, checks, trajectorySamples: trace,
+  // Carry the clock (including holds) onto the edited geometry. The source trace's positions
+  // must never draw the robot on the old curve while the field already shows the new one.
+  segment = 0;
+  const oldGeometry = editingGeometry(solvedPath, 14, robot);
+  const trajectorySamples = trace.map(sample => {
+    let f = sample.f;
+    if (pinned) {
+      while (segment < from.length - 2 && f > from[segment + 1]) segment++;
+      f = to[segment] + (to[segment + 1] - to[segment]) * Math.min(1, Math.max(0, (f - from[segment]) / (from[segment + 1] - from[segment])));
+    }
+    const before = pointAtFraction(sample.f, solved.sample.pts), after = pointAtFraction(f, geometry.sample.pts);
+    const oldHeading = oldGeometry.mode === 'tank' ? before.heading : headingAt(sample.f, oldGeometry.anchors);
+    const newHeading = geometry.mode === 'tank' ? after.heading : headingAt(f, geometry.anchors);
+    const delta = newHeading - oldHeading + (geometry.rev === oldGeometry.rev ? 0 : Math.PI);
+    const dx = sample.x - before.x, dy = sample.y - before.y;
+    // Retain stopped turns and jiggles relative to the newly authored orientation.
+    return { ...sample, f, x: after.x + dx * Math.cos(delta) - dy * Math.sin(delta),
+      y: after.y + dx * Math.sin(delta) + dy * Math.cos(delta), headingRad: sample.headingRad + delta };
+  });
+  return { ...geometry, checks, trajectorySamples,
     prof: { ...geometry.prof, t, v, totalTime },
     metrics: { ...geometry.metrics, v, vMax: Math.max(0.1, ...v) } };
 }

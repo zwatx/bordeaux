@@ -1,0 +1,18 @@
+.point-links{width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 64px);padding:0;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);overflow:auto}
+.point-links::backdrop{background:rgb(0 0 0/.45)}
+.point-links header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:20px}
+.point-links h2{font-size:17px;margin:0 0 6px}.point-links h3{font-size:13px;margin:0 0 12px;overflow-wrap:anywhere}
+.point-links p{margin:6px 0 16px;color:var(--txt-3);font-size:12px;line-height:1.5}
+.point-links-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:24px;padding:0 20px}
+.point-links label{display:block;margin-bottom:8px;font-size:12px;color:var(--txt-2)}
+.point-links select,.point-links input{width:100%;height:34px;padding:0 8px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt)}
+.point-links ul{padding:0;list-style:none;max-height:150px;overflow:auto}.point-links li{display:flex;flex-direction:column;gap:3px;margin-bottom:10px;font-size:12px;overflow-wrap:anywhere}
+.point-links li span{color:var(--txt-3)}
+.point-links-choices{height:240px;overflow:auto;margin:8px 0}
+.point-links-choices h3{margin:12px 8px 6px;color:var(--txt-2);font-weight:500}
+.point-links :is(input,select,button):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.point-links-choices button{display:flex;flex-direction:column;gap:4px;width:100%;padding:10px;text-align:left;border:1px solid transparent;border-radius:var(--r);overflow-wrap:anywhere}
+.point-links-choices button:hover{background:var(--bg-2)}.point-links-choices button[aria-pressed="true"]{background:var(--bg-3);border-color:var(--line-2)}
+.point-links-choices strong{font-size:13px}.point-links-choices span{font-size:12px;color:var(--txt-3)}
+.point-links-review{display:flex;flex-direction:column;gap:6px;margin:12px 20px 0;padding-top:14px;border-top:1px solid var(--line);font-size:12px;line-height:1.5}.point-links-review span{color:var(--txt-3)}
+.point-links footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px}

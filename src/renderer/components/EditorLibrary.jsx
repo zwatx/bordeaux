@@ -82,7 +82,7 @@ export function LibraryRail({ preferenceKey, mode, hidden, children, ...props })
   };
   return h('nav', { ref: rail, hidden, className: 'rail rail-l library-rail' + (children ? '' : ' library-only'), 'aria-label': mode === 'paths' ? 'Paths and outline' : 'Routines',
     style: { '--library-ratio': ratio + '%', '--library-min-height': effectiveMinHeight + 'px' },
-    onKeyDown: (event) => { if (event.target.closest('.editor-library,.library-divider')) event.stopPropagation(); } },
+    onKeyDown: (event) => { if (event.defaultPrevented) event.stopPropagation(); } },
     h('section', { ref: top, className: 'library-top' },
       h(EditorLibrary, { ...props, mode, prefs, update })),
     children && h('div', { className: 'library-divider', role: 'separator', tabIndex: 0, 'aria-label': 'Resize library and structure', 'aria-orientation': 'horizontal', 'aria-valuemin': Math.round(minRatio), 'aria-valuemax': MAX_RATIO, 'aria-valuenow': Math.round(ratio),
@@ -123,16 +123,10 @@ function LibraryMenu({ menu, close, children, id }) {
 function PathProperties({ item, project, actions, close }) {
   const ref = useRef(null);
   useEffect(() => { ref.current.showModal(); }, []);
-  const outgoing = project.pathLinks?.find((link) => link.fromPathId === item.id);
-  const incoming = project.pathLinks?.find((link) => link.toPathId === item.id);
   return h('dialog', { ref, className: 'library-properties', 'aria-labelledby': 'path-properties-title', onClose: close, onKeyDown: (event) => event.stopPropagation() },
     h('header', null, h('strong', { id: 'path-properties-title' }, item.name), h('button', { type: 'button', 'aria-label': 'Close path properties', onClick: close }, h(Icon, { name: 'x', size: 16 }))),
     h('label', null, 'Folder', h('select', { 'aria-label': 'Move ' + item.name + ' to folder', value: item.folderId || '', onChange: (event) => actions.movePath(item.id, event.target.value) },
       h('option', { value: '' }, 'No folder'), (project.pathFolders || []).map((folder) => h('option', { key: folder.id, value: folder.id }, folder.name)))),
-    h('label', null, 'Link end to path', h('select', { 'aria-label': 'Link end of ' + item.name, disabled: !item.waypoints.length && !outgoing, value: outgoing?.toPathId || '', onChange: (event) => actions.linkPath(item.id, event.target.value) },
-      h('option', { value: '' }, 'Not linked'), project.paths.filter((path) => path.id !== item.id).map((path) => h('option', { key: path.id, value: path.id, disabled: !item.waypoints.length || !path.waypoints.length }, path.name + (!path.waypoints.length ? ' · No waypoints' : ''))))),
-    !item.waypoints.length && h('p', { className: 'library-link' }, 'Place a waypoint before linking this path.'),
-    incoming && h('div', { className: 'library-link' }, 'Start linked from ' + (project.paths.find((path) => path.id === incoming.fromPathId)?.name || 'another path'), h('button', { type: 'button', onClick: () => actions.linkPath(incoming.fromPathId, '') }, 'Unlink')),
     h('footer', null, h('button', { type: 'button', onClick: close }, 'Done')));
 }
 
@@ -273,7 +267,8 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
       menu.kind !== 'folder' && menuButton('Duplicate', () => create(menu.kind, () => pathsMode ? actions.duplicatePath(menuItem.id) : actions.duplicateRoutine(menuItem.id))),
       menu.kind === 'path' && menuButton('Append path', () => create('path', () => actions.appendPath(menuItem.id)), {
         disabled: !menuItem.waypoints.length, title: !menuItem.waypoints.length ? 'Place a waypoint before appending a path' : undefined }),
-      menu.kind === 'path' && menuButton('Move or link…', () => { setPropertiesId(menuItem.id); setMenu(null); }),
+      menu.kind === 'path' && menuButton('Link points…', () => { closeMenu(true); actions.openPointLinks(menuItem.id); }),
+      menu.kind === 'path' && menuButton('Move to folder…', () => { setPropertiesId(menuItem.id); setMenu(null); }),
       menu.kind === 'folder' && menuButton('New path', () => create('path', () => actions.addPath(menuItem.id))),
       h('hr'), menuButton(menu.kind === 'folder' ? 'Delete folder' : 'Delete', () => remove(menu.kind, menuItem), { className: 'danger' })),
     properties && h(PathProperties, { item: properties, project, actions, close: () => { setPropertiesId(null); focusRow(propertiesId); } }));

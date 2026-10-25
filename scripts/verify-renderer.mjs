@@ -25,7 +25,8 @@ import path from "node:path";
 // nonmodal update popover use a 736 KiB cap, with every chunk counted.
 // Power settings/report controls add ~10 KiB; trajectory/routine analysis runs in the shared worker.
 // Every application chunk remains counted.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 746 * 1024;
+// Point-link review, continuous playback and the Windows menu add the separately reviewed 8 KiB allowance.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 754 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -36,7 +37,8 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 746 * 1024;
 // Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
 const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
-const CSS_BUDGET_BYTES = 149 * 1024;
+// Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
+const CSS_BUDGET_BYTES = 153 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

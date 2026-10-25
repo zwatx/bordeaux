@@ -245,6 +245,8 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
    library's width, so the places start at the work area's edge and never move with status. */
 .toolbar{position:relative;z-index:30;display:flex;flex-shrink:0;align-items:center;height:44px;padding:0 8px 0 0;background:var(--bg-1);border-bottom:1px solid var(--line-2)}
 .tb-project{display:flex;flex:0 0 var(--library-width,264px);align-items:center;min-width:0;height:100%;padding:0 10px 0 8px;border-right:1px solid var(--line-2);container:project-slot/inline-size}
+[data-platform="win32"] .tb-project{padding:4px}
+[data-platform="win32"] .tb-project .project-chip{height:35px}
 /* macOS: the bar is the window's drag region and the project slot clears the traffic lights. Only empty bar space
    drags; every control, menu and dialog inside it opts out. */
 [data-platform="darwin"] .toolbar{-webkit-app-region:drag}
@@ -263,12 +265,12 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .tb-actions{display:flex;flex:none;align-items:center;gap:6px}
 .tb-text{min-width:0;height:40px;padding:0 12px;border-radius:var(--r);color:var(--txt-2);font-size:12.5px;font-weight:500;white-space:nowrap;transition:color .14s,background-color .14s}
 /* Fits "Optimized" so the Optimize/Optimized swap never moves the toolbar. */
-.tb-text.optimizer-toggle{min-width:88px}
+.tb-text.optimizer-toggle{min-width:88px;height:32px}
 .tb-text[aria-expanded="true"]{background:var(--bg-3);color:var(--txt)}
 .tb-push{display:flex;flex:0 1 auto;align-items:center;min-width:0;margin-left:10px;padding-left:12px;border-left:1px solid var(--line-2)}
 .tb-push:empty{display:none}
 .toolbar>.update-chip,.toolbar>.keyboard-help-trigger{flex:none;margin-left:6px}
-.toolbar .keyboard-help-trigger{display:grid;place-items:center;width:36px;min-width:36px;height:40px;min-height:40px;padding:0;border-color:transparent;background:transparent;color:var(--txt-3);font-size:13px}
+.toolbar .keyboard-help-trigger{display:grid;place-items:center;width:32px;min-width:32px;height:32px;min-height:32px;padding:0;border-color:transparent;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:13px}
 .toolbar .update-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 9px;border:1px solid var(--line-2);border-radius:999px;color:var(--txt);font-size:12px;white-space:nowrap}
 .update-chip-dot{width:6px;height:6px;border-radius:50%;background:var(--txt-3)}
 .update-chip.available .update-chip-dot,.update-chip.downloaded .update-chip-dot{background:var(--good)}

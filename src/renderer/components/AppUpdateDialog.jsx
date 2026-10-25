@@ -45,13 +45,13 @@ export const updateBytes = (bytes) => Number.isFinite(bytes) && bytes >= 0 ? `${
 // same attempt idempotently, so a lost reply costs one more press, never a silent release.
 const RESUME_BOUND_MS = 10_000;
 
-export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResumed, onCheck, onDownload, onCancel, onInstall, onOpenReleases, onCopyDetails }) {
+export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onConfirmInstall, onClose, onEditingResumed, onCheck, onDownload, onCancel, onInstall, onOpenReleases, onCopyDetails }) {
   const dialog = React.useRef(null), returnFocus = React.useRef(null), restoreOnClose = React.useRef(true);
   const [copied, setCopied] = React.useState(false);
   // Closing a stalled install: { attempt, waiting } while main decides, or { attempt, fact } after a refusal.
   const [resuming, setResuming] = React.useState(null);
   const shownAttempt = React.useRef(null);
-  const modal = state?.phase === 'installing';
+  const modal = Boolean(installConfirmation) || state?.phase === 'installing';
   // One modal at a time. A panel that becomes visible while another sheet is up (Projects, a departure) waits for it to
   // close and then appears; nothing is hidden or answered on its behalf. A panel already shown is never hidden here:
   // only main's state hides it (for a stalled install, after its accepted return to editing).
@@ -62,12 +62,19 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     if (node.open) node.close();
     else { returnFocus.current = document.activeElement; restoreOnClose.current = true; setCopied(false); setResuming(null); }
     if (modal) node.showModal(); else node.show();
+    if (!modal) {
+      const anchor = returnFocus.current?.getBoundingClientRect();
+      const left = anchor ? Math.max(12, Math.min(anchor.right - node.offsetWidth, window.innerWidth - node.offsetWidth - 12)) : window.innerWidth - node.offsetWidth - 12;
+      node.style.setProperty('--update-left', left + 'px');
+      node.style.setProperty('--update-top', Math.max(52, Math.min(anchor?.bottom + 6 || 52, window.innerHeight - node.offsetHeight - 12)) + 'px');
+    } else { node.style.removeProperty('--update-left'); node.style.removeProperty('--update-top'); }
     return true;
   }, [modal]);
   // When App hands this panel an approved install's departure, the pending sheet unmounts in the same commit; open
   // before paint so no frame or queued key reaches the editor between the two modals. Other panels keep the wait below.
   React.useLayoutEffect(() => {
-    if (ownsDeparture && state?.visible && dialog.current) present();
+    if (ownsDeparture && state?.visible && dialog.current && present() && !dialog.current.contains(document.activeElement))
+      dialog.current.querySelector('button:not(:disabled)')?.focus();
   }, [ownsDeparture, state?.visible, present]);
   React.useEffect(() => {
     const node = dialog.current;
@@ -83,6 +90,18 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] });
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [state?.visible, present]);
+  React.useEffect(() => {
+    if (!state?.visible || modal) return;
+    const node = dialog.current;
+    const position = () => {
+      if (!node?.open) return;
+      const anchor = returnFocus.current?.getBoundingClientRect();
+      node.style.setProperty('--update-left', Math.max(12, Math.min((anchor?.right || window.innerWidth - 12) - node.offsetWidth, window.innerWidth - node.offsetWidth - 12)) + 'px');
+      node.style.setProperty('--update-top', Math.max(52, Math.min((anchor?.bottom || 46) + 6, window.innerHeight - node.offsetHeight - 12)) + 'px');
+    };
+    const observer = new ResizeObserver(position); observer.observe(node); window.addEventListener('resize', position); position();
+    return () => { observer.disconnect(); window.removeEventListener('resize', position); };
+  }, [state?.visible, modal]);
   React.useEffect(() => {
     if (!state?.visible || modal) return;
     const outside = (event) => {
@@ -129,6 +148,15 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
       .then(finish, (failure) => finish({ accepted: false, fact: firstFact(failure) || 'Bordeaux didn’t confirm it' }));
   };
   const hold = (onClick) => waiting ? undefined : onClick;
+  if (installConfirmation) return h('dialog', { ref: dialog, className: 'app-update-dialog app-update-confirm', 'aria-modal': true, 'aria-labelledby': 'app-update-title',
+    onCancel: event => { event.preventDefault(); if (!installConfirmation.submitting) onClose?.(); }, onKeyDown: event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); if (!installConfirmation.submitting) onClose?.(); } } },
+    h('div', { className: 'app-update-confirm-body' }, h('h2', { id: 'app-update-title' }, 'Update Bordeaux?'),
+      h('p', { className: 'app-update-confirm-version' }, 'Bordeaux ' + currentVersion + ' → ' + installConfirmation.version),
+      h('p', null, 'Bordeaux will restart to finish installing the update.'),
+      state.projectDirty && h('p', { className: 'app-update-confirm-warning' }, 'Unsaved changes will be lost. Cancel to save your project first.'),
+      installConfirmation.fact && h('p', { role: 'alert' }, installConfirmation.fact)),
+    h('footer', { className: 'app-update-confirm-footer' }, h('button', { type: 'button', className: 'qbtn', autoFocus: true, disabled: installConfirmation.submitting, onClick: onClose }, 'Cancel'),
+      h('button', { type: 'button', className: 'qbtn primary', disabled: installConfirmation.submitting, onClick: onConfirmInstall }, installConfirmation.submitting ? 'Updating…' : 'Update')));
   const action = stalled ? { label: resume?.fact ? 'Try again' : 'Close', onClick: close } : phase === 'downloading' ? { label: 'Cancel download', onClick: onCancel }
     : phase === 'downloaded' ? { label: 'Restart and install', onClick: onInstall }
     : phase === 'available' ? { label: 'Download update', onClick: onDownload }
@@ -140,7 +168,7 @@ export function AppUpdateDialog({ state, ownsDeparture, onClose, onEditingResume
     : !busy ? { label: 'Check for updates', onClick: onCheck } : null;
   // Escape is handled before the native close request (whose prevention the browser can ignore). An install panel that
   // closes natively anyway while main still shows it is reopened: only main's answer may hide it.
-  return h('dialog', { ref: dialog, className: 'app-update-dialog', 'aria-modal': modal, 'aria-labelledby': 'app-update-title', 'aria-busy': waiting || undefined,
+  return h('dialog', { ref: dialog, className: 'app-update-dialog' + (modal ? ' app-update-install' : ''), 'aria-modal': modal, 'aria-labelledby': 'app-update-title', 'aria-busy': waiting || undefined,
     onKeyDown: (event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); close(); } },
     onCancel: (event) => { event.preventDefault(); close(); },
     onClose: () => { if (state.visible && phase === 'installing' && !dialog.current.open) dialog.current.showModal(); } },
