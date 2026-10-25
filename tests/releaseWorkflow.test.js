@@ -48,8 +48,9 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
   const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
-  expect(desktopScripts).toHaveLength(16);
-  expect(new Set(desktopScripts).size).toBe(16);
+  expect(desktopScripts).toHaveLength(17);
+  expect(new Set(desktopScripts).size).toBe(17);
+  expect(desktopScripts).toContain("scripts/verify-editor-interactions.mjs");
   expect(desktopScripts).toContain("scripts/verify-windows-chrome.mjs");
   expect(desktopScripts).toContain("scripts/verify-robot-electrical-ui.mjs");
   const checks = ci.jobs.checks.steps.map(({ run }) => run ?? "").join("\n");

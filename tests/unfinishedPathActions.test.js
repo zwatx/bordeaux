@@ -10,7 +10,7 @@ import { ContextInspector } from '../src/renderer/components/ContextInspector';
 
 // Exercise the actual App owners, including their mutation admission, without a native desktop.
 const source = ts.createSourceFile('App.jsx', readFileSync(new URL('../src/renderer/app/App.jsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
-const names = ['appendPath', 'setPathLink', 'setWp', 'faceWaypoint', 'reversePath', 'enableTargetsAtFraction'];
+const names = ['appendPath', 'applyPointLink', 'setWp', 'faceWaypoint', 'reversePath', 'enableTargetsAtFraction'];
 const declarations = new Map();
 function visit(node) {
   if (ts.isVariableDeclaration(node) && names.includes(node.name.getText(source))) declarations.set(node.name.getText(source), node.getText(source));
@@ -27,7 +27,8 @@ function harness(count = 0) {
     clampWorld: clampWorldPoint, buildWps: buildWaypoints, pathLinkId: () => 'link', resetForPath: vi.fn(),
     FIELD_W: 16.54, FIELD_H: 8.07, editablePath: structuredClone, PathLinks,
     setProject: vi.fn(value => { ctx.project = typeof value === 'function' ? value(ctx.project) : value; }),
-    commitProjectChange: vi.fn((_before, next) => { ctx.project = next; }), useCallback: fn => fn,
+    commitProjectChange: vi.fn((_before, next) => { ctx.project = next; return true; }), useCallback: fn => fn,
+    pathScope: id => 'path:' + id, PROJECT_SCOPE: 'project',
     commit: vi.fn(fn => { ctx.docRef.current = fn(structuredClone(ctx.docRef.current)); }),
     moveWaypointTo, setWaypointFacing, reversePathDraft,
     PM: { reversePathAnchors: vi.fn(value => value), waypointFracs: () => [] },
@@ -46,8 +47,8 @@ describe('unfinished path action admission', () => {
   });
   it('preserves paths and links when either link endpoint is absent', () => {
     const h = harness(), before = structuredClone(h.ctx.project);
-    expect(() => h.setPathLink('unfinished', 'complete')).not.toThrow();
-    expect(() => h.setPathLink('complete', 'unfinished')).not.toThrow();
+    expect(h.applyPointLink('unfinished', 0, { pathId: 'complete', index: 0 })).toBe('unchanged');
+    expect(h.applyPointLink('complete', 0, { pathId: 'unfinished', index: 0 })).toBe('unchanged');
     expect(h.ctx.project).toEqual(before);
     expect(h.ctx.commitProjectChange).not.toHaveBeenCalled();
   });
@@ -73,7 +74,7 @@ describe('unfinished path action admission', () => {
     expect(h.appendPath('unfinished')).toMatchObject({ id: expect.any(String) });
     expect(h.ctx.project.paths).toHaveLength(3);
     expect(h.ctx.project.paths[2].waypoints[0]).toMatchObject({ x: h.ctx.project.paths[0].waypoints[0].x, y: h.ctx.project.paths[0].waypoints[0].y });
-    h.setPathLink('complete', 'unfinished');
+    h.applyPointLink('complete', 0, { pathId: 'unfinished', index: 0 });
     expect(h.ctx.commitProjectChange).toHaveBeenCalledOnce();
     h.setWp(0, { theta: 90 });
     expect(h.ctx.docRef.current.waypoints[0].theta).toBe(90);

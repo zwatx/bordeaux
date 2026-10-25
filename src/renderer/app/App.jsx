@@ -1385,6 +1385,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     const applyPointLink = (pathId, index, target) => {
       const before = materializeProject();
+      if (!before.paths.find(path => path.id === pathId)?.waypoints[index]
+        || target && !before.paths.find(path => path.id === target.pathId)?.waypoints[target.index]) return 'unchanged';
       let next = target ? PathLinks.linkPosition(before, pathId, index, target.pathId, target.index, pathLinkId())
         : PathLinks.unlinkPosition(before, pathId, index);
       if (target && next !== before) next = PathLinks.nameNewSharedPoint(next, pathId, index);

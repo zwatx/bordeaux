@@ -593,7 +593,7 @@ describe("current planner regressions", () => {
       const arrivalTimes = placements.map((arrival) => arrival.t);
       expect(Math.max(...arrivalTimes) - Math.min(...arrivalTimes)).toBeLessThan(0.02);
     }
-  });
+  }, 15_000); // Six complete planner solves include shared-bus and load-transfer validation.
 
   it("does not create a velocity notch at a smooth non-stop waypoint", () => {
     const project = currentTangentToTargetsProject("split");

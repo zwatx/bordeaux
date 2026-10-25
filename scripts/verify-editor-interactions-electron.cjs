@@ -130,6 +130,6 @@ app.whenReady().then(async () => {
     console.log('PASS Library-origin linking of an inactive path is available to visible Undo');
     assert.deepEqual(errors, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', sizes: [[1440,900],[1100,720]], units: ['metric','imperial'] }));
-  } catch (error) { console.error(error, errors); if (win) await snapshot('failure'); process.exitCode = 1; }
+  } catch (error) { process.exitCode = 1; console.error(error, errors); if (win) { try { await snapshot('failure'); } catch (captureError) { console.error('Failure capture unavailable:', captureError); } } }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });
