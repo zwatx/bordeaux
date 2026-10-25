@@ -1,5 +1,5 @@
 /* A quiet toolbar popover; only the approved install blocks editing. */
-.app-update-dialog{position:fixed;inset:52px auto auto auto;margin:0;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 76px);padding:0;overflow:hidden;font:13px var(--ui);z-index:60}
+.app-update-dialog{position:fixed;inset:var(--update-top,52px) auto auto var(--update-left,auto);margin:0;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 76px);padding:0;overflow:hidden;font:13px var(--ui);z-index:60}
 .app-update-dialog[open]{display:flex;flex-direction:column}
 .app-update-header{display:flex;flex:none;align-items:center;gap:12px;padding:10px 8px 0 14px}
 .app-update-header h2{display:flex;align-items:center;gap:9px}

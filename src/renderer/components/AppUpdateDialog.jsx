@@ -65,9 +65,9 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
     if (!modal) {
       const anchor = returnFocus.current?.getBoundingClientRect();
       const left = anchor ? Math.max(12, Math.min(anchor.right - node.offsetWidth, window.innerWidth - node.offsetWidth - 12)) : window.innerWidth - node.offsetWidth - 12;
-      node.style.left = left + 'px';
-      node.style.top = Math.max(52, Math.min(anchor?.bottom + 6 || 52, window.innerHeight - node.offsetHeight - 12)) + 'px';
-    } else { node.style.removeProperty('left'); node.style.removeProperty('top'); }
+      node.style.setProperty('--update-left', left + 'px');
+      node.style.setProperty('--update-top', Math.max(52, Math.min(anchor?.bottom + 6 || 52, window.innerHeight - node.offsetHeight - 12)) + 'px');
+    } else { node.style.removeProperty('--update-left'); node.style.removeProperty('--update-top'); }
     return true;
   }, [modal]);
   // When App hands this panel an approved install's departure, the pending sheet unmounts in the same commit; open
@@ -96,8 +96,8 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
     const position = () => {
       if (!node?.open) return;
       const anchor = returnFocus.current?.getBoundingClientRect();
-      node.style.left = Math.max(12, Math.min((anchor?.right || window.innerWidth - 12) - node.offsetWidth, window.innerWidth - node.offsetWidth - 12)) + 'px';
-      node.style.top = Math.max(52, Math.min((anchor?.bottom || 46) + 6, window.innerHeight - node.offsetHeight - 12)) + 'px';
+      node.style.setProperty('--update-left', Math.max(12, Math.min((anchor?.right || window.innerWidth - 12) - node.offsetWidth, window.innerWidth - node.offsetWidth - 12)) + 'px');
+      node.style.setProperty('--update-top', Math.max(52, Math.min((anchor?.bottom || 46) + 6, window.innerHeight - node.offsetHeight - 12)) + 'px');
     };
     const observer = new ResizeObserver(position); observer.observe(node); window.addEventListener('resize', position); position();
     return () => { observer.disconnect(); window.removeEventListener('resize', position); };

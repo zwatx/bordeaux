@@ -78,6 +78,9 @@ updater.quitAndInstall = () => {
     await wait(async () => JSON.stringify(await modals()) === '["app-update-dialog"]', 'stalled update panel as the only modal');
     const owner = await evaluate(() => { const panel = document.querySelector('.app-update-dialog'); return { modal: panel.matches(':modal'), focus: panel.contains(document.activeElement), pending: Boolean(document.querySelector('.pj-pending')), title: panel.querySelector('#app-update-title')?.textContent }; });
     assert.deepEqual(owner, { modal: true, focus: true, pending: false, title: 'Restart delayed' }); result.stalledOwner = owner;
+    await delay(120);
+    const centered = await evaluate(() => { const r = document.querySelector('.app-update-dialog').getBoundingClientRect(); return Math.abs(r.x + r.width / 2 - innerWidth / 2) < 1 && Math.abs(r.y + r.height / 2 - innerHeight / 2) < 1; });
+    assert.equal(centered, true, 'Install recovery remains centered after the anchored popover/confirmation handoff');
     fs.writeFileSync(path.join(output, 'stalled-panel.png'), (await win.webContents.capturePage()).toPNG());
     // Optional root visual evidence at the supported sizes; Close must stay unoccluded at each before the real pointer press.
     if (process.env.BORDEAUX_UPDATE_QUIT_SIZES === '1') {
