@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppErrorBoundary } from "./app/App";
 import { WindowsTitleBar } from "./components/WindowsTitleBar";
+import { installTooltips } from "./components/tooltips";
 import "./styles/app.css";
 import "./styles/library.css";
 import "./styles/routine-workspace.css";
@@ -15,6 +16,7 @@ if (!root) {
 }
 
 document.documentElement.dataset.platform = window.bordeauxAPI?.platform || "web";
+installTooltips();
 
 createRoot(root).render(
   <StrictMode>

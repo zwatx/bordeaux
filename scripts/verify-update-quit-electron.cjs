@@ -145,8 +145,8 @@ app.on('browser-window-created', (_event, window) => {
       const observer = new MutationObserver(check);
       observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] }); check();
     });
-    await wait(() => evaluate(() => Boolean(document.querySelector('.update-chip.downloaded'))), 'downloaded update chip');
-    await pointer('.update-chip');
+    await wait(() => evaluate(() => Boolean(document.querySelector('.update-button.ready'))), 'downloaded update icon');
+    await pointer('.update-button');
     await wait(() => evaluate(() => document.querySelector('.app-update-confirm')?.matches(':modal')), 'native restart confirmation');
     assert.equal(result.installerCalls, 0, 'Opening confirmation must not install');
     await pointer('.app-update-confirm button', 'Update');

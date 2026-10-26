@@ -36,7 +36,7 @@
 .pp-row.warn .pp-row-label{color:var(--warn-txt)}
 .pp-value-text{color:var(--txt-3);font-size:12.5px}
 .pp-text-btn{min-height:26px;padding:0 6px;border-radius:var(--r-s);color:var(--accent);font-size:12.5px;font-weight:550;white-space:nowrap}
-.pp-text-btn:disabled{color:var(--txt-3);cursor:not-allowed}
+.pp-text-btn:disabled{color:var(--txt-3)}
 .pp .numrow{display:grid;grid-template-columns:minmax(0,1fr) 108px;align-items:center;gap:8px;min-height:30px;padding:0 10px 0 14px}
 .pp .numlbl{overflow:hidden;font-size:12.5px;text-overflow:ellipsis;white-space:nowrap}
 .pp .numbox,.pt-limits .numbox{height:28px;padding:0 8px;border-color:transparent;background:transparent}
@@ -146,7 +146,7 @@
 .pt-wp.start{box-shadow:inset 0 0 0 1.5px var(--good)}
 .pt-wp.end{box-shadow:inset 0 0 0 1.5px var(--bad)}
 .pt-wp.selected{background:var(--accent);box-shadow:inset 0 0 0 1.5px #fff;color:var(--bg)}
-.pt-lane{position:absolute;border-radius:var(--r);background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045);cursor:copy}
+.pt-lane{position:absolute;border-radius:var(--r);background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045)}
 .pt-lane-ghost{position:absolute;top:50%;display:grid;place-items:center;width:18px;height:18px;translate:-50% -50%;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--cmd);color:var(--cmd);font:500 13px/1 var(--ui);pointer-events:none}
 .pt-chip{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11.5px;cursor:grab;touch-action:none;transition:box-shadow .12s,color .12s}
 .pt-chip:active{cursor:grabbing}
@@ -168,8 +168,7 @@
 .pt-stack-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-stack-time{flex:none;padding-left:10px;font-family:var(--mono);font-variant-numeric:tabular-nums}
 /* The Points row's open space adds a waypoint, as the command lane adds a command. */
-.pt-points{position:absolute;z-index:0;border-radius:var(--r);cursor:copy}
-.pt-points[data-blocked]{cursor:not-allowed}
+.pt-points{position:absolute;z-index:0;border-radius:var(--r)}
 .pt-points:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .pt-points-ghost{position:absolute;z-index:2;display:grid;place-items:center;width:18px;height:18px;translate:-50% -50%;border-radius:50%;background:var(--bg-1);box-shadow:inset 0 0 0 1.5px var(--txt-2);color:var(--txt);font:500 13px/1 var(--ui);pointer-events:none}
 .pt-points-ghost[data-blocked]{box-shadow:inset 0 0 0 1.5px var(--txt-3);color:var(--txt-3);opacity:.7}

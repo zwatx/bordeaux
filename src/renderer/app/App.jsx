@@ -2938,7 +2938,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
         optimizationOpen, toggleOptimization, optimizationApplied: Boolean(editing.ready && editing.acceptedTrajectory),
-        updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall }),
+        updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
       projectsSheet, departureSheet, departureHint,
       h(DiagnosticBundleDialog, { getProject: materializeProject, targetSelector: '.robot-connection-diagnostics', onOpen: pushController.close, renderKey: pushController.open + ':' + pushController.phase,

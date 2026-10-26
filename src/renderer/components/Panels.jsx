@@ -29,25 +29,44 @@ import { deletionInput } from "./DeletionNotice";
         (plan || page === 'auto') && h(IconBtn, { icon: 'undo', onClick: onUndo, disabled: !props.canUndo, label: 'Undo', title: 'Undo (' + shortcutLabel('Z') + ')' }),
         (plan || page === 'auto') && h(IconBtn, { icon: 'redo', onClick: onRedo, disabled: !props.canRedo, label: 'Redo', title: 'Redo (' + shortcutLabel('Z', { shift: true }) + ')' })),
       props.push && h('div', { className: 'tb-push' }, props.push),
-      h(UpdateChip, { state: props.updateState, onOpen: props.onOpenUpdates, onInstall: props.onInstallUpdate }),
+      h(UpdateButton, { state: props.updateState, onOpen: props.onOpenUpdates, onInstall: props.onInstallUpdate, onCheck: props.onCheckUpdates }),
       h(KeyboardHelp));
   }
 
-  // Update status lives quietly in the toolbar instead of interrupting work with a dialog.
-  // A ready update opens the restart confirmation; other states open the update notes.
-  function UpdateChip({ state, onOpen, onInstall }) {
+  // Update status is one round icon in the toolbar: check, download, progress, then restart. A ready update opens the
+  // restart confirmation; an offered or failed one opens the update notes; otherwise it checks for updates.
+  const RING = 2 * Math.PI * 14;
+  function UpdateButton({ state, onOpen, onInstall, onCheck }) {
     const phase = state?.phase;
-    const percent = Number.isFinite(state?.progress?.percent) ? Math.round(state.progress.percent) : null;
-    const label = phase === 'available' ? 'Update available'
-      : phase === 'downloading' ? 'Downloading' + (percent == null ? '…' : ' ' + percent + '%')
-      : phase === 'downloaded' ? 'Restart to update'
-      : phase === 'installing' ? 'Restarting…'
-      : phase === 'error' && state.version ? 'Update failed' : null;
-    if (!label) return null;
-    const ready = phase === 'downloaded';
-    return h('button', { type: 'button', className: 'update-chip ' + phase, onClick: ready ? onInstall : onOpen,
-      title: ready ? 'Restart Bordeaux and install ' + state.version : 'Bordeaux ' + (state.version || 'update') },
-      h('span', { className: 'update-chip-dot', 'aria-hidden': true }), label);
+    if (!phase || phase === 'unsupported') return null;
+    const version = state.version, failed = phase === 'error' && version ? state.errorStage : null;
+    const stalled = phase === 'installing' && state.installStalled;
+    const percent = Number.isFinite(state.progress?.percent) ? Math.min(100, Math.max(0, Math.floor(state.progress.percent))) : null;
+    const kind = phase === 'downloading' ? 'downloading'
+      : phase === 'downloaded' || phase === 'installing' || failed === 'install' ? 'ready'
+      : phase === 'available' || failed === 'download' ? 'available' : 'idle';
+    const label = phase === 'checking' ? 'Checking for updates…'
+      : phase === 'available' ? `Update ${version} ready to download`
+      : phase === 'downloading' ? 'Downloading update' + (percent == null ? '' : ` (${percent}%)`)
+      : phase === 'downloaded' ? `Update ${version} downloaded. Click to restart and install.`
+      : stalled ? 'Restart delayed. Click for options.'
+      : phase === 'installing' ? 'Restarting to install…'
+      : failed === 'download' ? `Download failed for ${version}. Click for details.`
+      : failed === 'install' ? `Install failed for ${version}. Click to retry.`
+      : 'Check for updates';
+    const busy = phase === 'checking' || phase === 'installing' && !stalled;
+    // A failed or delayed step trades the check badge for a red dot.
+    const glyph = kind === 'ready' ? h('span', { className: 'update-glyph' }, h(Icon, { name: 'rotatecw', size: 16 }),
+        failed || stalled ? h('span', { className: 'update-dot' }) : h('span', { className: 'update-badge' }, h(Icon, { name: 'check', size: 8, sw: 3.5 })))
+      : kind === 'available' ? h('span', { className: 'update-glyph' }, h(Icon, { name: 'download', size: 16 }), h('span', { className: 'update-dot' }))
+      : kind === 'downloading' ? [h('svg', { key: 'ring', className: 'update-ring', viewBox: '0 0 32 32', 'aria-hidden': true },
+          h('circle', { className: 'track', cx: 16, cy: 16, r: 14 }),
+          h('circle', { className: 'bar', cx: 16, cy: 16, r: 14, strokeDasharray: RING, strokeDashoffset: RING * (1 - (percent || 0) / 100) })),
+        h(Icon, { key: 'icon', name: 'download', size: 16 })]
+      : h(Icon, { name: 'refreshcw', size: 16 });
+    return h('button', { type: 'button', className: 'update-button ' + kind + (phase === 'checking' ? ' checking' : '') + (failed || stalled ? ' failed' : ''),
+      title: label, 'aria-label': label, 'aria-disabled': busy || undefined,
+      onClick: busy ? undefined : stalled ? onOpen : kind === 'ready' ? onInstall : kind === 'idle' ? onCheck : onOpen }, glyph);
   }
 
   const TOOLS = [

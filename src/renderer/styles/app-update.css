@@ -34,7 +34,7 @@
 .app-update-dialog .app-update-footer button{min-height:32px}
 @media (hover:hover){.app-update-dialog .app-update-action:hover:not(:disabled){background:var(--bg-4)}.app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action:hover:not(:disabled){border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:var(--on-accent)}}
 /* Waiting for main to accept a Close: the controls stay focusable but read as unavailable, like the shared disabled style. */
-.app-update-dialog button[aria-disabled="true"]{opacity:.45;cursor:progress}
+.app-update-dialog button[aria-disabled="true"]{opacity:.45}
 .app-update-dialog:is(.app-update-confirm,.app-update-install){inset:0;margin:auto;width:min(480px,calc(100vw - 32px));height:fit-content;max-height:calc(100vh - 48px)}
 .app-update-dialog:is(.app-update-confirm,.app-update-install)::backdrop{background:rgb(0 0 0/.55);backdrop-filter:blur(4px)}
 .app-update-confirm-body{padding:22px 24px}.app-update-confirm-body h2{margin:0 0 8px;font-size:18px;font-weight:600;line-height:1.35}

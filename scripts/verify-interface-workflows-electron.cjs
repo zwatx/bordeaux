@@ -42,7 +42,7 @@ app.whenReady().then(async () => {
     win.focus(); win.webContents.focus();
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
     // A nonmodal update must allow the actual field's first press and ordinary editor shortcuts.
-    await click('.update-chip');
+    await click('.update-button');
     await wait(() => evaluate(() => document.querySelector('.app-update-dialog')?.open), 'update popover');
     assert.equal(await evaluate(() => document.querySelector('.app-update-dialog').matches(':modal')), false);
     const waypoint = await evaluate(() => {
@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
     for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...waypoint });
     await wait(() => evaluate(() => document.querySelector('#band-waypoint-link') || document.querySelector('.pp-head .pp-title')?.textContent !== 'Path'), 'first field press selects waypoint');
     await wait(() => evaluate(() => !document.querySelector('.app-update-dialog').open), 'field press dismisses update');
-    await click('.update-chip');
+    await click('.update-button');
     await evaluate(() => document.querySelector('.band-divider').focus());
     await key('2');
     assert.equal(await evaluate(() => document.querySelector('button[aria-label="Place waypoint"]').getAttribute('aria-pressed')), 'true', 'Tool shortcuts work while a nonmodal update is open');
