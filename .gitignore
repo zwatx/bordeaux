@@ -18,3 +18,18 @@ npm-debug.log*
 # Task-local agent work and archived scratch artifacts
 /.scratch/
 /work/
+
+# Personal plans and Markdown notes stay local by default.
+/.plans/
+*.[mM][dD]
+!README.md
+!AGENTS.md
+!CLAUDE.md
+!CONTRIBUTING.md
+!SECURITY.md
+!RIGHTS.md
+!ASSET_PROVENANCE.md
+!SOURCES.md
+# Repository instructions and release verification inputs remain versioned.
+!/docs/agents/*.md
+!/docs/packaging.md
