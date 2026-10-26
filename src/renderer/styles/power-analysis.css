@@ -8,6 +8,3 @@
 .power-results dt { font-size: 13px; }
 .power-results dd { margin: 0; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
 .power-limit-note { color: var(--txt-2); }
-.power-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.power-burst, .power-breaker { margin: 16px 0; }
-.power-minimum { margin-top: 16px; }

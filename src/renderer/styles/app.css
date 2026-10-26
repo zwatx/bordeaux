@@ -203,7 +203,7 @@ input,select,textarea{font-family:inherit}
 .inrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
 .inrow.first{border-top:none}
 .inrow-l{display:flex;flex-direction:column;gap:2px;min-width:0;color:var(--txt-2);font-size:13px;line-height:1.4}
-.inrow-l small,.hint,.seg-hint,.chint,.rp-sub{color:var(--txt-3);font-size:11.5px;line-height:1.5;overflow-wrap:break-word;text-wrap:pretty}
+.inrow-l small,.hint,.seg-hint,.chint{color:var(--txt-3);font-size:11.5px;line-height:1.5;overflow-wrap:break-word;text-wrap:pretty}
 .hint{display:flex;gap:8px;padding:10px 0 2px}
 .hint svg{flex-shrink:0;margin-top:2px;color:var(--accent)}
 .seg-hint{margin-top:6px}
@@ -525,112 +525,6 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 
 /* ============ robot page ============ */
 .page-main{display:flex;flex:1;min-height:0;overflow:hidden}
-.robotpage{flex:1;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);display:flex;justify-content:center}
-.rp-wrap{width:100%;max-width:1240px;padding:28px 32px 48px}
-.rp-title{margin:0;font-size:20px;font-weight:600;letter-spacing:-.2px}
-.rp-sub{max-width:560px;margin-top:4px;font-size:12.5px}
-/* The robot's controls sit beside the footprint they draw; the agent profile follows them. */
-.rp-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);gap:20px 32px;align-items:start;margin-top:18px}
-.rp-grid>.rp-col:last-child{grid-column:2;grid-row:1/span 2;align-self:stretch}
-.rp-grid>.rp-agent{grid-column:1;grid-row:2}
-.rp-col{display:flex;flex-direction:column;min-width:0}
-.rp-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;align-items:start}
-.rp-controls>.rp-sec:nth-child(-n+2){border-top:0;padding-top:4px}
-.rp-controls>.rp-sec:nth-child(3){grid-column:1/-1}
-.rp-controls .rp-drive-model{grid-template-columns:repeat(auto-fit,minmax(155px,1fr))}
-.rp-controls .rp-hard-limits{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-.rp-sec{padding:16px 0;border-top:1px solid var(--line)}
-.rp-sec:first-child{border-top:none;padding-top:4px}
-.rp-sech{margin-bottom:12px;color:var(--txt);font-size:13px;font-weight:600}
-.rp-subh{margin:18px 0 2px;color:var(--txt-2);font-size:12px;font-weight:600}
-.rp-drive{display:flex;gap:10px}
-/* Drivetrain cards follow the current-object rule: accent line and soft fill. */
-.rp-drivebtn{flex:1;padding:11px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);text-align:left}
-.rp-drivebtn:hover{border-color:var(--line-3)}
-.rp-drivebtn.on{border-color:var(--accent-line);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line)}
-.rp-drivebtn .dbi{display:flex;margin-bottom:6px;color:var(--txt-3)}
-.rp-drivebtn.on .dbi{color:var(--accent)}
-.rp-drivebtn .dbt{font-size:13px;font-weight:600}
-.rp-drivebtn .dbd{margin-top:3px;color:var(--txt-3);font-size:11.5px;line-height:1.4}
-.rp-field{min-width:0;margin-bottom:12px}
-.rp-flabel{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px;color:var(--txt-2);font-size:12px;font-weight:500}
-.rp-flabel small{color:var(--txt-3);font-size:11px;font-weight:400}
-.rp-field:has(.is-disabled) .rp-flabel::after{content:'From motor preset';color:var(--txt-3);font-size:11px;font-weight:400;white-space:nowrap}
-.rp-big{display:flex;align-items:center;gap:8px;min-width:0;height:38px;padding:0 12px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);transition:border-color .12s,box-shadow .12s}
-.rp-big:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
-.rp-big input{flex:1;min-width:0;padding:0;border:0;outline:none;background:none;color:var(--txt);font:15px var(--mono);font-variant-numeric:tabular-nums}
-.rp-big .u{flex-shrink:0;color:var(--txt-3);font:12px var(--mono)}
-.rp-big.is-disabled{border-color:var(--line);background:var(--bg-1);cursor:default}
-.rp-big.is-disabled input,.rp-big.is-disabled .u{color:var(--txt-3);cursor:default}
-.rp-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-/* Bumper shape is a segmented choice with the shared raised selection. */
-.rp-shapes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:2px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-1)}
-.rp-shapes button{min-height:30px;padding:0 6px;border-radius:var(--r-s);color:var(--txt-3);font-size:12px;font-weight:500;transition:color .14s,background-color .14s}
-.rp-shapes button.on{background:var(--bg-5);color:var(--txt);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.35)}
-@media (hover:hover){.rp-shapes button:not(.on):hover{background:var(--bg-3);color:var(--txt)}}
-.rp-vertices{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
-.rp-col:has(>.rp-preview-vertices) .rp-preview{position:static}
-.rp-vertexhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-bottom:8px;color:var(--txt-3);font-size:11.5px}
-.rp-vertex{display:grid;grid-template-columns:18px minmax(0,1fr) minmax(0,1fr) 28px;align-items:center;gap:6px;margin-top:6px;color:var(--txt-3);font:11px var(--mono)}
-.rp-vertex.selected .rp-big{border-color:var(--accent)}
-.rp-vertex-coordinate{display:flex;align-items:center;gap:4px;min-width:0}
-.rp-vertex .rp-big{flex:1;gap:3px;height:34px;padding:0 6px}
-.rp-vertex .rp-big input{font-size:13px}
-.rp-vertex .rp-big .u{font-size:10.5px}
-.rp-vertex button,.rp-addvertex{min-height:30px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt-2)}
-.rp-vertex button:disabled,.rp-addvertex:disabled{opacity:.4;cursor:not-allowed}
-.rp-addvertex{width:100%;margin-top:10px;font-size:12px;font-weight:550}
-.rp-preset-params{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
-.rp-preset-params.rp-two{align-items:end}.rp-preset-params .rp-field{margin:0}.rp-preset-params input[type="range"]{width:100%;accent-color:var(--accent)}
-.rp-note.invalid{color:var(--bad-txt)}.rp-stage svg.editable{cursor:crosshair;touch-action:none}.rp-vertex-hit{fill:transparent;stroke:transparent;cursor:grab}
-.rp-vertex-hit:focus-visible{outline:none;stroke:#fff;stroke-width:2;stroke-dasharray:3 3}.rp-vertex-hit:active{cursor:grabbing}
-.rp-vertex-handle{fill:var(--bg-1);stroke:var(--accent);stroke-width:2}.rp-vertex-handle.selected{fill:var(--accent);stroke:#fff}
-.rp-vertices .rp-note{margin-top:8px}
-.rp-preview{position:sticky;top:18px;display:flex;flex-direction:column;align-items:center;padding:16px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
-.rp-stage{width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;position:relative;background:
-  linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 8.33%,
-  linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/8.33% 100%,var(--bg);border-radius:var(--r);overflow:hidden}
-.rp-stage svg{overflow:visible}
-.rp-readout{display:flex;width:100%;margin-top:14px;border-block:1px solid var(--line)}
-.rp-readout .rr{flex:1;min-width:0;padding:10px 4px;text-align:center}
-.rp-readout .rr+.rr{border-left:1px solid var(--line)}
-.rp-readout .rrv{font:600 14px var(--mono);font-variant-numeric:tabular-nums}
-.rp-readout .rru{margin-top:3px;color:var(--txt-3);font-size:11px;line-height:1.3}
-.rp-note{display:flex;gap:7px;margin-top:10px;color:var(--txt-3);font-size:11.5px;line-height:1.5}
-.rp-note svg{flex-shrink:0;margin-top:2px;color:var(--accent)}
-/* Each field spans a shared label track and input track, so a wrapped preset note keeps row labels and inputs aligned. */
-.rp-drive-model{margin-top:12px;row-gap:12px}.rp-drive-model .rp-field{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0;margin-bottom:0}
-.rp-drive-model .rp-flabel{flex-wrap:wrap;row-gap:2px}
-.rp-drive-model .rp-flabel small,.rp-drive-model .rp-flabel::after{flex-basis:100%}
-/* Derived limits: label above, value and unit on one line. */
-.rp-hard-limits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
-.rp-drive-result{display:flex;flex-direction:column;justify-content:center;gap:4px;min-height:58px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-1)}
-.rp-drive-result>span{color:var(--txt-3);font-size:11.5px;line-height:1.3}
-.rp-drive-result>strong{color:var(--txt);font:600 15px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-.rp-drive-result>strong small{color:var(--txt-3);font-size:11px;font-weight:400}
-/* Restoring physical limits is a secondary action, not an empty "add" slot. */
-.rp-sec .rp-use-physical{display:flex;width:fit-content;margin:12px 0 14px}
-/* The agent profile pairs intake and shooter beside each other, notes below. */
-.rp-agent{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;align-items:start}
-.rp-agent>*{grid-column:1/-1}
-.rp-agent>:is(.rp-agent-group,.rp-add-profile){grid-column:auto}
-.rp-agent-note{margin:-4px 0 16px}
-.rp-text,.rp-notes{width:100%;padding:9px 12px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font:13px var(--ui);outline:none}
-.rp-text{height:38px}
-.rp-text:focus,.rp-notes:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
-.rp-notes{min-height:86px;resize:vertical;line-height:1.5}
-/* Dashed outlines are reserved for empty "add" slots. */
-.rp-add-profile{width:100%;min-height:40px;margin:0 0 14px;padding:0 12px;border:1px dashed var(--line-3);border-radius:var(--r);background:transparent;color:var(--txt-2);font-size:12px;font-weight:550}
-.rp-add-profile:hover{border-color:var(--accent-line);color:var(--txt)}
-.rp-agent .delbtn,.rp-agent .qbtn.quiet{margin:0 0 14px -8px}
-.rp-check{display:flex;align-items:center;gap:8px;margin:-2px 0 14px;color:var(--txt-2);font-size:12px}
-/* A pending proposal is a ruled section of the column, not a card. */
-.rp-proposal{display:flex;flex-direction:column;gap:6px;margin:0 0 18px;padding:12px 0;border-block:1px solid var(--line);font-size:12px;line-height:1.45}
-.rp-proposal b{font-size:13px}
-.rp-proposal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
-@media(max-width:1180px){.rp-wrap{padding-inline:20px}.rp-controls{column-gap:20px}}
-@media(max-width:1040px){.rp-grid{grid-template-columns:minmax(0,1fr)}.rp-grid>.rp-col:last-child{grid-column:1;grid-row:2;max-width:360px}.rp-grid>.rp-agent{grid-row:3}.rp-preview{position:static}}
-@media(max-width:700px){.rp-controls,.rp-agent{grid-template-columns:1fr}.rp-controls>.rp-sec:nth-child(2){border-top:1px solid var(--line);padding-top:14px}.rp-controls>.rp-sec:nth-child(3){grid-column:auto}}
 
 .stage-plan .viewctl.graph-open{bottom:264px}
 

@@ -1,54 +1,54 @@
 import * as React from 'react';
 import { REV_40A_ATO_BREAKER, BUSSMANN_185_120A_BREAKER } from '../../shared/breakerPresets';
+import { UI } from './ui';
 
 const h = React.createElement;
+const CURVE_KEYS = ['ratedCurrentA', 'tripTimeAt2xS', 'initialHeat'];
+const CAVEAT = 'Trips use the earliest cold trip time at twice rated current; heating and cooling are approximations, not measured temperatures.';
 
-function BreakerEditor({ name, value, onChange, BigNum }) {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState({ ratedCurrentA: undefined, tripTimeAt2xS: undefined, initialHeat: 0 });
-  const start = () => { setDraft(value || { ratedCurrentA: undefined, tripTimeAt2xS: undefined, initialHeat: 0 }); setEditing(true); };
-  const valid = draft.ratedCurrentA > 0 && draft.tripTimeAt2xS > 0 && draft.initialHeat >= 0 && draft.initialHeat <= 1;
-  return h('div', { className: 'power-breaker' },
-    h('div', { className: 'rp-subh' }, name),
-    !editing ? h(React.Fragment, null,
-      h('p', { className: 'rp-note' }, value ? `${value.ratedCurrentA} A · cold trip at 2×: ${value.tripTimeAt2xS} s · initial heat: ${Math.round(value.initialHeat * 100)}%` : 'Not configured. No trip risk is estimated until you enter its curve.'),
-      h('button', { type: 'button', className: 'qbtn quiet', onClick: start }, value ? `Edit ${name.toLowerCase()}` : `Configure ${name.toLowerCase()}`),
-      value && h('button', { type: 'button', className: 'qbtn quiet', onClick: () => onChange(undefined) }, `Remove ${name.toLowerCase()}`))
-      : h(React.Fragment, null,
-        h('div', { className: 'rp-two rp-drive-model' },
-          [['ratedCurrentA', 'Rating', 'A', 1, 500, 1], ['tripTimeAt2xS', 'Cold trip at 2×', 's', 0.01, 3600, 1], ['initialHeat', 'Initial heat', '%', 0, 100, 100]].map(([key, label, unit, min, max, scale]) =>
-            h('div', { className: 'rp-field', key }, h('div', { className: 'rp-flabel' }, label),
-              h(BigNum, { label: `${name} ${label.toLowerCase()}`, value: draft[key] === undefined ? undefined : draft[key] * scale, unit, min, max, precision: 2, step: 1,
-                onChange: v => setDraft(previous => ({ ...previous, [key]: v / scale })) })))),
-        h('div', { className: 'power-actions' },
-          h('button', { type: 'button', className: 'qbtn', onClick: () => setEditing(false) }, 'Cancel'),
-          h('button', { type: 'button', className: 'qbtn primary', disabled: !valid, onClick: () => { onChange(draft); setEditing(false); } }, `Use ${name.toLowerCase()} curve`))));
+// A breaker is one dropdown: not modeled, its preset, or a custom curve whose fields open beneath it.
+function Breaker({ id, name, preset, presetLabel, source, value, onChange, BigNum, Row }) {
+  const [custom, setCustom] = React.useState(false);
+  const choice = !value ? 'none' : !custom && CURVE_KEYS.every((key) => value[key] === preset[key]) ? 'preset' : 'custom';
+  const choose = (next) => {
+    setCustom(next === 'custom');
+    // Re-picking the shown choice must not write: an unchanged project stays clean.
+    const curve = next === 'none' ? undefined : next === 'preset' ? { ...preset } : value || { ...preset };
+    if (curve === value || (curve && value && CURVE_KEYS.every((key) => curve[key] === value[key]))) return;
+    onChange(curve);
+  };
+  return h(React.Fragment, null,
+    h(Row, { label: name, hint: source + ' ' + CAVEAT },
+      h(UI.Dropdown, { id, ariaLabel: name, value: choice, onChange: choose, items: [
+        { value: 'none', label: 'Not modeled' },
+        { value: 'preset', label: presetLabel, meta: `${preset.ratedCurrentA} A · ${preset.tripTimeAt2xS} s at 2×` },
+        { value: 'custom', label: 'Custom curve' },
+      ] })),
+    choice === 'custom' && [['ratedCurrentA', 'Rating', 'A', 1, 500, 1], ['tripTimeAt2xS', 'Cold trip at 2×', 's', 0.01, 3600, 1], ['initialHeat', 'Initial heat', '%', 0, 100, 100]].map(([key, label, unit, min, max, scale]) =>
+      h(Row, { key, label, className: 'settings-sub' },
+        h(BigNum, { label: `${name} ${label.toLowerCase()}`, value: value[key] * scale, unit, min, max, precision: 2, step: 1,
+          onChange: (v) => onChange({ ...value, [key]: v / scale }) }))));
 }
 
-export function PowerSettings({ model, setModel, BigNum }) {
+export function PowerSettings({ model, setModel, BigNum, Row }) {
   const bursts = model.loadBursts || [];
+  const add = React.useRef(null);
   const setBurst = (index, patch) => setModel({ loadBursts: bursts.map((burst, i) => i === index ? { ...burst, ...patch } : burst) });
+  const breaker = (key, name, preset, presetLabel, source) => h(Breaker, { id: 'robot-' + key, name, preset, presetLabel, source, value: model[key], BigNum, Row,
+    onChange: (value) => setModel(value ? { [key]: value } : {}, value ? [] : [key]) });
   return h(React.Fragment, null,
-    h('div', { className: 'rp-note' }, 'Battery voltage is the unloaded voltage. Resistance includes battery, wiring and connectors; use measured values for the battery condition you want to plan for.'),
-    h('div', { className: 'rp-field power-minimum' },
-      h('div', { className: 'rp-flabel' }, 'Minimum bus voltage', model.minimumBusVoltageV === undefined && h('small', null, 'Default · 7.25 V')),
-      h(BigNum, { label: 'Minimum bus voltage', value: model.minimumBusVoltageV, placeholder: '7.25', unit: 'V', min: 1, max: (model.batteryVoltageV ?? 12) - 0.01, precision: 2, step: 0.05, onChange: v => setModel({ minimumBusVoltageV: v }) })),
-    model.minimumBusVoltageV !== undefined && h('button', { className: 'qbtn quiet', type: 'button', onClick: () => setModel({}, ['minimumBusVoltageV']) }, 'Use default minimum voltage'),
-    h('p', { className: 'rp-note' }, 'Set this above your configured brownout threshold. The default includes 0.5 V above the roboRIO 2 default; confirm it for your robot.'),
-    h('div', { className: 'rp-subh' }, 'Mechanism load bursts'),
-    h('p', { className: 'rp-note' }, 'Additional battery current above Other mechanisms. Times start at 0 for each path or the selected routine preview. Overlaps add; path timing reserves the peak load throughout.'),
-    bursts.map((burst, index) => h('div', { key: index, className: 'power-burst' },
-      h('div', { className: 'rp-two rp-drive-model' },
-        [['startTimeS', 'Start', 's', 0, burst.endTimeS - 0.01], ['endTimeS', 'End', 's', burst.startTimeS + 0.01, 3600], ['currentA', 'Additional current', 'A', 0, 500]].map(([key, label, unit, min, max]) =>
-          h('div', { className: 'rp-field', key }, h('div', { className: 'rp-flabel' }, label), h(BigNum, { label: `Load burst ${index + 1} ${label.toLowerCase()}`, value: burst[key], unit, min, max, precision: 2, step: 0.1, onChange: v => setBurst(index, { [key]: v }) })))),
-      h('button', { type: 'button', className: 'qbtn quiet', onClick: () => setModel({ loadBursts: bursts.filter((_, i) => i !== index) }) }, `Remove load burst ${index + 1}`))),
-    h('button', { type: 'button', className: 'qbtn quiet', disabled: bursts.length >= 128, onClick: () => setModel({ loadBursts: [...bursts, { startTimeS: 0, endTimeS: 1, currentA: 0 }] }) }, 'Add load burst'),
-    h('div', { className: 'rp-subh' }, 'Breaker estimates'),
-    h('p', { className: 'rp-note' }, 'Use the earliest trip time at twice rated current from your breaker’s cold trip curve. Heating and cooling are approximations. Initial heat is an assumed starting condition, not a measured temperature. Drive curves apply to one breaker per motor; mechanism branch breakers are not modeled.'),
-    h('button', { type: 'button', className: 'qbtn quiet', onClick: () => setModel({ driveBreaker: { ...REV_40A_ATO_BREAKER } }) }, 'Use REV 40 A ATO drive breakers'),
-    h('p', { className: 'rp-note' }, 'REV preset: earliest published cold trip at 80 A is 5 s. Starts cold; edit Initial heat for a warm-start estimate.'),
-    h(BreakerEditor, { name: 'Drive breaker', value: model.driveBreaker, onChange: value => setModel(value ? { driveBreaker: value } : {}, value ? [] : ['driveBreaker']), BigNum }),
-    h('button', { type: 'button', className: 'qbtn quiet', onClick: () => setModel({ mainBreaker: { ...BUSSMANN_185_120A_BREAKER } }) }, 'Use Bussmann 185120F main breaker'),
-    h('p', { className: 'rp-note' }, 'Bussmann preset: about 10 s at 240 A, read from the earliest edge of the 18X series graph. This is an approximate cold-curve fit, not an exact trip time.'),
-    h(BreakerEditor, { name: 'Main breaker', value: model.mainBreaker, onChange: value => setModel(value ? { mainBreaker: value } : {}, value ? [] : ['mainBreaker']), BigNum }));
+    h('div', { className: 'settings-card' },
+      h(Row, { label: 'Load bursts', hint: 'Extra current above Other mechanisms, timed from the start of each path or routine preview. Overlapping bursts add; path timing reserves the peak.', status: bursts.length ? null : 'None' },
+        h('button', { ref: add, type: 'button', className: 'qbtn', disabled: bursts.length >= 128, onClick: () => setModel({ loadBursts: [...bursts, { startTimeS: 0, endTimeS: 1, currentA: 0 }] }) }, 'Add load burst')),
+      // Each burst reads as "start – end, current"; the units name the fields.
+      bursts.map((burst, index) => h(Row, { key: index, label: `Burst ${index + 1}`, className: 'settings-sub power-burst' },
+        h(BigNum, { label: `Load burst ${index + 1} start`, value: burst.startTimeS, unit: 's', min: 0, max: burst.endTimeS - 0.01, precision: 2, step: 0.1, onChange: (v) => setBurst(index, { startTimeS: v }) }),
+        h('span', { className: 'power-dash', 'aria-hidden': true }, '–'),
+        h(BigNum, { label: `Load burst ${index + 1} end`, value: burst.endTimeS, unit: 's', min: burst.startTimeS + 0.01, max: 3600, precision: 2, step: 0.1, onChange: (v) => setBurst(index, { endTimeS: v }) }),
+        h(BigNum, { label: `Load burst ${index + 1} additional current`, value: burst.currentA, unit: 'A', min: 0, max: 500, precision: 2, step: 0.1, onChange: (v) => setBurst(index, { currentA: v }) }),
+        h('button', { type: 'button', className: 'power-remove', title: 'Remove', 'aria-label': `Remove load burst ${index + 1}`,
+          onClick: () => { setModel({ loadBursts: bursts.filter((_, i) => i !== index) }); requestAnimationFrame(() => add.current.focus()); } }, h(UI.Icon, { name: 'x', size: 14 }))))),
+    h('div', { className: 'settings-card' },
+      breaker('driveBreaker', 'Drive breaker', REV_40A_ATO_BREAKER, 'REV 40 A ATO', 'One per drive motor. REV preset: published 5 s at 80 A.'),
+      breaker('mainBreaker', 'Main breaker', BUSSMANN_185_120A_BREAKER, 'Bussmann 185120F', 'Bussmann preset: about 10 s at 240 A, an approximate fit.')));
 }

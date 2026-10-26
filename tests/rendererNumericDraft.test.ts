@@ -179,7 +179,8 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
     if (Array.isArray(node)) return node.map(field).find(Boolean);
     if (!node || typeof node !== "object") return undefined;
     const element = node as ElementNode;
-    return element.props?.label === label ? element : element.children?.map(field).find(Boolean);
+    // A settings row shares its field's label; the field is the element that edits a value.
+    return element.props?.label === label && element.props.onChange ? element : element.children?.map(field).find(Boolean);
   };
   return field(tree)!.props;
 }

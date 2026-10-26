@@ -13,7 +13,7 @@ import "../styles/settings.css";
 // Bordeaux Robot config page (project-global).
   const { useRef, useState, useEffect } = React;
   const h = React.createElement;
-  const { Dropdown, Icon } = UI;
+  const { Dropdown, Icon, Seg } = UI;
 
   const DRIVE_MOTORS = [
     { value: 'custom', label: 'Custom motor', meta: 'Enter its published 12 V figures' },
@@ -23,7 +23,19 @@ import "../styles/settings.css";
     })),
   ];
   // Electrical values a project may leave to the shared planning defaults.
-  const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve'];
+  const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve', 'minimumBusVoltageV'];
+  const SECTIONS = [['general', 'General'], ['robot', 'Robot'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
+  const SHAPES = ['Rectangle', 'Round', 'Trapezoid', 'Custom'].map((label) => ({ v: label.toLowerCase(), label }));
+
+  // Explanations are a hover tooltip on an info mark, and screen-reader text beside the name.
+  const Hint = ({ text }) => text ? h('span', { className: 'settings-hint', title: text },
+    h(Icon, { name: 'info', size: 13 }), h('span', { className: 'sr-only' }, text)) : null;
+  // A settings row: the name on the left; a short status and the controls on the right.
+  const Row = ({ label, hint, status, className = '', children }) => h('div', { className: 'settings-row ' + className },
+    h('div', { className: 'settings-label' }, h('strong', null, label), h(Hint, { text: hint })),
+    h('div', { className: 'settings-control' }, status && h('span', { className: 'settings-status' }, status), children));
+  const Section = ({ id, title, hint, children }) => h('section', { className: 'settings-section', id: 'settings-' + id },
+    h('div', { className: 'settings-head' }, h('h2', { id: 'settings-' + id + '-h', tabIndex: -1 }, title), h(Hint, { text: hint })), children);
   const presetFigures = (preset) => preset && preset.rpm ? { motorFreeRpm: preset.rpm, motorMaxTorqueNm: preset.torque } : {};
 
   const footprintFor = (shape, w, l, preset) => {
@@ -93,6 +105,8 @@ import "../styles/settings.css";
   function RobotPage({ robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState, onOpenUpdates, agentProposal, onApplyProposal, onRejectProposal }) {
     const isSwerve = robot.drive === 'swerve';
     const [customEditing, setCustomEditing] = useState(false);
+    const [current, setCurrent] = useState('general');
+    const pageRef = useRef(null), jumped = useRef(false);
     const [selectedVertex, setSelectedVertex] = useState(0);
     const [dragVertices, setDragVertices] = useState(null);
     const previewRef = useRef(null);
@@ -107,7 +121,7 @@ import "../styles/settings.css";
       : [{ x: -robot.l / 2, y: -robot.w / 2 }, { x: robot.l / 2, y: -robot.w / 2 }, { x: robot.l / 2, y: robot.w / 2 }, { x: -robot.l / 2, y: robot.w / 2 }];
     const footprint = dragVertices || storedFootprint;
     const maxDim = Math.max(robot.w, robot.l, 0.4, ...footprint.flatMap((point) => [Math.abs(point.x) * 2, Math.abs(point.y) * 2]));
-    const unit = 220 / maxDim;
+    const unit = 164 / maxDim;
     const rw = robot.l * unit, rh = robot.w * unit;
     const footprintPoints = footprint.map((point) => `${point.x * unit},${-point.y * unit}`).join(' ');
     const footprintArea = Math.abs(footprint.reduce((area, point, index) => {
@@ -175,7 +189,7 @@ import "../styles/settings.css";
       { label: 'Trackwidth', value: driveModel.trackwidthM, unit: 'm', imperialUnit: 'in', min: 0.1, max: robot.w, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ trackwidthM: value }) },
       { label: 'Wheel friction', value: driveModel.wheelFrictionCoefficient, unit: 'μ', min: 0.1, max: 3, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ wheelFrictionCoefficient: value }) },
       // Unset uses the shared default; 0 plans with equal wheel loads.
-      { label: 'CG height', note: cgHeight.defaulted ? 'Default · above floor' : 'above floor',
+      { label: 'CG height', hint: (cgHeight.defaulted ? 'Using the default. ' : '') + 'Height of the center of gravity above the floor; 0 plans with equal wheel loads.',
         ...(cgHeight.defaulted ? { value: undefined, placeholder: String(+UnitPrefs.fromCanonical(cgHeight.value, 'm', 'in').toFixed(unitSystem === 'imperial' ? 2 : 3)) } : { value: cgHeight.value }),
         unit: 'm', imperialUnit: 'in', min: 0, max: 2, precision: 3, step: 0.01, onChange: (value) => setDriveModel({ cgHeightM: value }) },
     ];
@@ -188,16 +202,16 @@ import "../styles/settings.css";
     const electricalFields = [
       { key: 'motorStallCurrentA', label: 'Motor stall current', disabled: motorPresetSelected, ...(motorPresetSelected ? { value: preset.stallCurrent } : effective('motorStallCurrentA')), unit: 'A', min: 1, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ motorStallCurrentA: value }) },
       { key: 'motorFreeCurrentA', label: 'Motor free current', disabled: motorPresetSelected, ...(motorPresetSelected ? { value: preset.freeCurrent } : effective('motorFreeCurrentA')), unit: 'A', min: 0, max: 50, precision: 1, step: 0.1, onChange: (value) => setDriveModel({ motorFreeCurrentA: value }) },
-      { key: 'driveCurrentLimitA', label: 'Drive current limit', note: 'stator, per motor', ...effective('driveCurrentLimitA'), unit: 'A', min: 5, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveCurrentLimitA: value }) },
-      { key: 'batteryVoltageV', label: 'Battery voltage', ...effective('batteryVoltageV'), unit: 'V', min: 8, max: 14, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ batteryVoltageV: value }) },
-      { key: 'batteryResistanceOhm', label: 'Battery resistance', note: 'battery and wiring', ...effective('batteryResistanceOhm', 1000), unit: 'mΩ', min: 0, max: 100, precision: 1, step: 0.5, onChange: (value) => setDriveModel({ batteryResistanceOhm: value / 1000 }) },
-      { key: 'otherLoadA', label: 'Other mechanisms', note: 'current while driving', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
-      { key: 'driveEfficiency', label: 'Drive efficiency', ...effective('driveEfficiency', 100), unit: '%', min: 50, max: 100, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveEfficiency: value / 100 }) },
-      { key: 'controlReserve', label: 'Control reserve', note: 'kept for correction', ...effective('controlReserve', 100), unit: '%', min: 0, max: 50, precision: 0, step: 1, onChange: (value) => setDriveModel({ controlReserve: value / 100 }) },
+      { key: 'driveCurrentLimitA', label: 'Drive current limit', hint: 'Stator current limit for each drive motor.', ...effective('driveCurrentLimitA'), unit: 'A', min: 5, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveCurrentLimitA: value }) },
+      { key: 'batteryVoltageV', label: 'Battery voltage', hint: 'Resting voltage with no load.', ...effective('batteryVoltageV'), unit: 'V', min: 8, max: 14, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ batteryVoltageV: value }) },
+      { key: 'batteryResistanceOhm', label: 'Battery resistance', hint: 'Battery and wiring resistance. Measure it for the condition you plan for.', ...effective('batteryResistanceOhm', 1000), unit: 'mΩ', min: 0, max: 100, precision: 1, step: 0.5, onChange: (value) => setDriveModel({ batteryResistanceOhm: value / 1000 }) },
+      { key: 'otherLoadA', label: 'Other mechanisms', hint: 'Current other mechanisms draw while driving.', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
+      { key: 'driveEfficiency', label: 'Drive efficiency', hint: 'Gearbox and wheel losses between motor and floor.', ...effective('driveEfficiency', 100), unit: '%', min: 50, max: 100, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveEfficiency: value / 100 }) },
+      { key: 'controlReserve', label: 'Control reserve', hint: 'Torque held back for path-following corrections.', ...effective('controlReserve', 100), unit: '%', min: 0, max: 50, precision: 0, step: 1, onChange: (value) => setDriveModel({ controlReserve: value / 100 }) },
+      { label: 'Minimum bus voltage', hint: (driveModel.minimumBusVoltageV === undefined ? 'Using the default. ' : '') + 'Lowest voltage plans may sag to. Keep it above your brownout threshold.', value: driveModel.minimumBusVoltageV, placeholder: '7.25', unit: 'V', min: 1, max: (driveModel.batteryVoltageV ?? 12) - 0.01, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ minimumBusVoltageV: value }) },
     ];
-    const fieldNote = (field) => (isDefault(field.key) && !field.disabled
-      ? (field.note ? 'Default · ' + field.note : 'Default')
-      : field.note);
+    const fieldHint = (field) => field.disabled ? 'Set by the motor preset.'
+      : isDefault(field.key) ? 'Using the default.' + (field.hint ? ' ' + field.hint : '') : field.hint;
     const hasAuthoredElectrical = ELECTRICAL_DEFAULT_KEYS.some((key) => typeof driveModel[key] === 'number');
     // A preset supplies stall and free current; a custom motor keeps the last known figures as editable values.
     const chooseMotor = (motorId) => {
@@ -291,154 +305,79 @@ import "../styles/settings.css";
       const preset = { ...trapezoidPreset, [key]: Math.max(0.05, Math.min(robot.w, value)) };
       setRobot({ footprintPreset: preset, footprint: footprintFor('trapezoid', robot.w, robot.l, preset) });
     };
-    const customVerticesEditor = shape === 'custom' && h('div', { className: 'rp-vertices rp-preview-vertices' },
-      h('div', { className: 'rp-vertexhead' }, h('span', null, 'Custom convex vertices'), h('span', null, '+X forward, +Y left')),
+    const numRow = (field) => h(Row, { key: field.key || field.label, label: field.label, hint: fieldHint(field) }, h(BigNum, field));
+    const chooseShape = (id) => {
+      const preset = id === 'round' ? roundPreset : id === 'trapezoid' ? trapezoidPreset : id === 'custom' ? { kind: 'custom' } : undefined;
+      setCustomEditing(id === 'custom');
+      setRobot({ footprintPreset: preset, footprint: id === 'custom' ? { kind: 'polygon', verticesM: footprint.map((point) => ({ ...point })) } : footprintFor(id, robot.w, robot.l, preset) });
+    };
+    const customVerticesEditor = shape === 'custom' && h('div', { className: 'rp-vertices' },
+      h('div', { className: 'rp-vertexhead' }, h('span', null, 'Vertices'), h(Hint, { text: 'Drag points in the preview or enter exact coordinates. +X is forward, +Y is left.' })),
       footprint.map((point, index) => h('div', { className: 'rp-vertex' + (selectedVertex === index ? ' selected' : ''), key: index, onClick: () => setSelectedVertex(index) },
         h('span', null, index + 1),
         h('div', { className: 'rp-vertex-coordinate' }, h('span', null, 'X'), h(BigNum, { label: `Vertex ${index + 1} X`, unit: 'm', value: point.x, precision: 3, onChange: (value) => updateVertex(index, 'x', value) })),
         h('div', { className: 'rp-vertex-coordinate' }, h('span', null, 'Y'), h(BigNum, { label: `Vertex ${index + 1} Y`, unit: 'm', value: point.y, precision: 3, onChange: (value) => updateVertex(index, 'y', value) })),
-        h('button', { type: 'button', disabled: footprint.length <= 3, 'aria-label': `Remove vertex ${index + 1}`, onClick: () => setVertices(footprint.filter((_, pointIndex) => pointIndex !== index)) }, '\u00d7'))),
-      h('button', { className: 'rp-addvertex', type: 'button', disabled: footprint.length >= 16, onClick: () => addVertex() }, 'Add vertex on longest edge'),
-      h('div', { className: 'rp-note' + (footprintValid ? '' : ' invalid'), role: footprintValid ? undefined : 'status' }, footprintValid
-        ? 'Drag points in the preview or enter exact coordinates.'
-        : 'Use a convex footprint around the center, within the robot bounds.'));
+        h('button', { type: 'button', disabled: footprint.length <= 3, 'aria-label': `Remove vertex ${index + 1}`, onClick: () => setVertices(footprint.filter((_, pointIndex) => pointIndex !== index)) }, '×'))),
+      h('button', { className: 'qbtn rp-addvertex', type: 'button', disabled: footprint.length >= 16, onClick: () => addVertex() }, 'Add vertex on longest edge'),
+      // Errors stay visible.
+      !footprintValid && h('div', { className: 'rp-note invalid', role: 'status' }, 'Use a convex footprint around the center, within the robot bounds.'));
 
-    return h('div', { className: 'robotpage' },
-      h('div', { className: 'rp-wrap' },
-        h('h1', { className: 'rp-title' }, 'Settings'),
-        h('section', { className: 'settings-general', 'aria-label': 'General settings' },
-          h('div', { className: 'settings-row' },
-            h('div', { className: 'settings-label' }, h('strong', null, 'Robot connection'),
-              h('span', null, pushController.pairing || pushController.busy ? pushController.connectionLabel : 'Not connected')),
-            h('button', { className: 'qbtn library-connection', type: 'button', onClick: pushController.openConnection },
-              pushController.busy ? 'Show progress' : pushController.pairing ? 'Edit' : 'Set up')),
-          h('div', { className: 'settings-row' },
-            h('strong', null, 'Display units'),
-            h(UI.Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
-          updateState && h('div', { className: 'settings-row' },
-            h('div', { className: 'settings-label' }, h('strong', null, 'Software updates'),
-              h('span', null, 'Bordeaux ' + updateState.currentVersion + (updateState.phase === 'downloaded' ? ' · Ready to install' : updateState.phase === 'downloading' ? ' · Downloading update' : updateState.phase === 'available' ? ' · Update available' : ''))),
-            h('button', { className: 'qbtn', type: 'button', onClick: onOpenUpdates }, ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(updateState.phase) ? 'View update' : 'Check for updates'))),
-        h('h2', { className: 'settings-robot-heading' }, 'Robot'),
-        h('div', { className: 'rp-grid' },
-          // ---- left column: controls ----
-          h('div', { className: 'rp-col rp-controls' },
-            h('div', { className: 'rp-sec' },
-              h('div', { className: 'rp-sech' }, 'Drivetrain'),
-              h('div', { className: 'rp-drive' },
-                h('button', { className: 'rp-drivebtn' + (isSwerve ? ' on' : ''), type: 'button', 'aria-pressed': isSwerve, onClick: () => setRobot({ drive: 'swerve' }) },
-                  h('span', { className: 'dbi' }, h(Icon, { name: 'swerve', size: 22 })),
-                  h('div', { className: 'dbt' }, 'Swerve'),
-                  h('div', { className: 'dbd' }, 'Independent heading')),
-                h('button', { className: 'rp-drivebtn' + (!isSwerve ? ' on' : ''), type: 'button', 'aria-pressed': !isSwerve, onClick: () => setRobot({ drive: 'tank' }) },
-                  h('span', { className: 'dbi' }, h(Icon, { name: 'tank', size: 22 })),
-                  h('div', { className: 'dbt' }, 'Tank'),
-                  h('div', { className: 'dbd' }, 'Follows path tangent')))),
+    // The rail jumps between sections and follows the reader's scroll position.
+    const sections = SECTIONS.filter(([id]) => id !== 'agent' || mcpEnabled);
+    const followScroll = () => {
+      if (jumped.current) { jumped.current = false; return; }
+      const page = pageRef.current, line = page.getBoundingClientRect().top + 120;
+      // A short final section cannot reach the top; reaching the end selects it.
+      setCurrent(page.scrollTop + page.clientHeight >= page.scrollHeight - 2 ? sections[sections.length - 1][0]
+        : sections.reduce((found, [id]) => document.getElementById('settings-' + id).getBoundingClientRect().top <= line ? id : found, 'general'));
+    };
+    const jump = (id) => {
+      const page = pageRef.current, top = page.scrollTop, heading = document.getElementById('settings-' + id + '-h');
+      heading.parentNode.scrollIntoView({ block: 'start' });
+      heading.focus({ preventScroll: true });
+      jumped.current = page.scrollTop !== top;
+      setCurrent(id);
+    };
+    const resetButton = (label, onClick) => h('button', { key: label, className: 'qbtn quiet', type: 'button', onClick }, label);
+    const quietRow = (label, onClick) => h('div', { className: 'settings-foot' }, resetButton(label, onClick));
 
-            h('div', { className: 'rp-sec' },
-              h('div', { className: 'rp-sech' }, 'Drive dimensions'),
-              h('div', { className: 'rp-two' },
-                h('div', { className: 'rp-field' },
-                  h('div', { className: 'rp-flabel' }, 'Width'),
-                  h(BigNum, { label: 'Robot width', value: robot.w, unit: 'm', min: 0.3, max: 1.3, onChange: (v) => resize('w', v) })),
-                h('div', { className: 'rp-field' },
-                  h('div', { className: 'rp-flabel' }, 'Length'),
-                  h(BigNum, { label: 'Robot length', value: robot.l, unit: 'm', min: 0.3, max: 1.3, onChange: (v) => resize('l', v) }))),
-              h('div', { className: 'rp-field' },
-                h('div', { className: 'rp-flabel' }, 'Bumper shape'),
-                h('div', { className: 'rp-shapes', role: 'group', 'aria-label': 'Robot bumper shape' },
-                  [['rectangle', 'Rectangle'], ['round', 'Round'], ['trapezoid', 'Trapezoid'], ['custom', 'Custom']].map(([id, label]) => h('button', {
-                    key: id, type: 'button', className: shape === id ? 'on' : '', 'aria-pressed': shape === id,
-                    onClick: () => {
-                      const preset = id === 'round' ? roundPreset : id === 'trapezoid' ? trapezoidPreset : id === 'custom' ? { kind: 'custom' } : undefined;
-                      setCustomEditing(id === 'custom');
-                      setRobot({ footprintPreset: preset, footprint: id === 'custom' ? { kind: 'polygon', verticesM: footprint.map((point) => ({ ...point })) } : footprintFor(id, robot.w, robot.l, preset) });
-                    },
-                  }, label))),
-                shape === 'round' && h('div', { className: 'rp-preset-params' },
-                  h('div', { className: 'rp-flabel' }, 'Curve detail', h('small', null, roundPreset.vertices + ' vertices')),
-                  h('input', { type: 'range', min: 8, max: 16, step: 1, value: roundPreset.vertices, 'aria-label': 'Round footprint curve detail', onChange: (event) => setRoundVertices(Number(event.target.value)) }),
-                  h('div', { className: 'rp-note' }, 'Detail sets how closely the collision outline follows the curve.')),
-                shape === 'trapezoid' && h('div', { className: 'rp-preset-params rp-two' },
-                  h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Front width'),
-                    h(BigNum, { label: 'Trapezoid front width', value: trapezoidPreset.frontWidthM, unit: 'm', min: 0.05, max: robot.w, onChange: (value) => setTrapezoidWidth('frontWidthM', value) })),
-                  h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Rear width'),
-                    h(BigNum, { label: 'Trapezoid rear width', value: trapezoidPreset.rearWidthM, unit: 'm', min: 0.05, max: robot.w, onChange: (value) => setTrapezoidWidth('rearWidthM', value) })))),
-              h('div', { className: 'rp-field' },
-                // The field already shows the selected unit; only an unset height needs a note.
-                h('div', { className: 'rp-flabel' }, 'Height', typeof robot.heightM === 'number' ? null : h('small', null, 'required for TRENCH checks')),
-                h(BigNum, { label: 'Robot height', value: robot.heightM, unit: 'm', min: 0.1, max: 2.5, onChange: (v) => setRobot({ heightM: v }) })),
-              ),
+    return h('div', { className: 'robotpage', ref: pageRef, onScroll: followScroll },
+      h('div', { className: 'settings-layout' },
+        h('div', { className: 'settings-side' },
+          h('h1', { className: 'rp-title' }, 'Settings'),
+          h('nav', { className: 'settings-nav', 'aria-label': 'Settings sections' },
+            sections.map(([id, title]) => h('button', { key: id, type: 'button', 'aria-current': current === id || undefined, onClick: () => jump(id) }, title)))),
+        h('div', { className: 'settings-content' },
+          h(Section, { id: 'general', title: 'General' },
+            h('div', { className: 'settings-card settings-general' },
+              h(Row, { label: 'Robot connection', status: pushController.pairing || pushController.busy ? pushController.connectionLabel : 'Not connected' },
+                h('button', { className: 'qbtn library-connection', type: 'button', onClick: pushController.openConnection },
+                  pushController.busy ? 'Show progress' : pushController.pairing ? 'Edit' : 'Set up')),
+              h(Row, { label: 'Display units' },
+                h(Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
+              updateState && h(Row, { label: 'Software updates', status: 'Bordeaux ' + updateState.currentVersion + (updateState.phase === 'downloaded' ? ' · Ready to install' : updateState.phase === 'downloading' ? ' · Downloading update' : updateState.phase === 'available' ? ' · Update available' : '') },
+                h('button', { className: 'qbtn', type: 'button', onClick: onOpenUpdates }, ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(updateState.phase) ? 'View update' : 'Check for updates')))),
 
-            h('div', { className: 'rp-sec' },
-              h('div', { className: 'rp-sech' }, 'Performance'),
-              h(Dropdown, { id: 'robot-drive-motor', label: 'Drive motor', value: driveModel.motorId, items: DRIVE_MOTORS,
-                onChange: chooseMotor }),
-              h('div', { className: 'rp-two rp-drive-model' },
-                driveFields.map((field) => h('div', { className: 'rp-field', key: field.label }, h('div', { className: 'rp-flabel' }, field.label, field.note && h('small', null, field.note)), h(BigNum, field)))),
-              !cgHeight.defaulted && h('button', { className: 'qbtn quiet rp-use-physical', type: 'button', onClick: () => setDriveModel({}, ['cgHeightM']) }, 'Use default CG height'),
-              h('div', { className: 'rp-note' }, 'CG height is the center of gravity above the floor. The default is an estimate; 0 uses equal wheel loads.'),
-              h('div', { className: 'rp-subh' }, 'Electrical model'),
-              !electrical && h('div', { className: 'rp-note' }, h(Icon, { name: 'info', size: 14 }), "Enter the motor's stall and free current to plan with its current limit and battery sag. Until then, limits assume full stall torque below free speed."),
-              h('div', { className: 'rp-two rp-drive-model' },
-                electricalFields.map((field) => h('div', { className: 'rp-field', key: field.key }, h('div', { className: 'rp-flabel' }, field.label, fieldNote(field) && h('small', null, fieldNote(field))), h(BigNum, field)))),
-              hasAuthoredElectrical && h('button', { className: 'qbtn quiet rp-use-physical', type: 'button', onClick: () => setDriveModel({}, ELECTRICAL_DEFAULT_KEYS) }, 'Use default electrical values'),
-              h(PowerSettings, { model: driveModel, setModel: setDriveModel, BigNum }),
-              !hardLimits && h('button', { className: 'qbtn rp-use-physical', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits'),
-              hardLimits && h('div', { className: 'rp-hard-limits' },
-                [['Top speed', hardLimits.maxSpeed, 'm/s', 2], ['Max acceleration', hardLimits.maxAccel, 'm/s²', 2], ['Acceleration at 3/4 speed', accelAt(0.75), 'm/s²', 2], ['Braking', hardLimits.maxDecel, 'm/s²', 2], ['Corner acceleration', hardLimits.maxCornerAccel, 'm/s²', 2], ['Angular speed', hardLimits.maxAngVel, '°/s', 0]].map(([label, value, unit, precision]) =>
-                  h('div', { className: 'rp-drive-result', key: label }, h('span', null, label), h('strong', null, UnitPrefs.fromCanonical(value, unit).toFixed(precision), h('small', null, ' ' + UnitPrefs.label(unit)))))),
-              h('div', { className: 'rp-note' }, h(Icon, { name: 'info', size: 14 }), 'Paths and zones can only tighten these limits.'))),
-
-            mcpEnabled && h('div', { className: 'rp-sec rp-agent' },
-              h('div', { className: 'rp-sech' }, 'Agent planning profile'),
-              h('div', { className: 'rp-note rp-agent-note' }, h(Icon, { name: 'info', size: 14 }), 'Guides agent plans. Review changes before applying.'),
-              agentProposal && h('div', { className: 'rp-proposal', role: 'region', 'aria-label': 'Agent robot profile proposal' },
-                h('b', null, 'Agent robot profile proposal'),
-                h('span', null, agentProposal.intent),
-                agentProposal.summary && agentProposal.summary.map((line, index) => h('span', { key: index }, line)),
-                h('span', { className: 'agent-proposal-status' }, agentProposal.status === 'ready' ? 'Preview only — the robot profile has not changed.' : agentProposal.status === 'stale' ? 'Stale — ask the agent to regenerate.' : agentProposal.status === 'applied' ? 'Applied as one undoable project change.' : 'Rejected.'),
-                agentProposal.status === 'ready' && h('div', { className: 'rp-proposal-actions' },
-                  h('button', { type: 'button', onClick: onRejectProposal }, 'Reject'),
-                  h('button', { className: 'primary', type: 'button', onClick: onApplyProposal }, 'Apply robot info'))),
-              intake
-                ? h('div', { className: 'rp-agent-group' },
-                    h('div', { className: 'rp-field' },
-                      h('div', { className: 'rp-flabel' }, 'Primary intake'),
-                      h('input', { className: 'rp-text', value: intake.name || '', 'aria-label': 'Primary intake name', maxLength: 80, onChange: (e) => setIntake({ name: e.target.value }) })),
-                    h('div', { className: 'rp-two' },
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Local X', h('small', null, '+ forward')), h(BigNum, { label: 'Intake local X', value: intake.centerM && intake.centerM.x, unit: 'm', min: -2, max: 2, onChange: (v) => setIntake({ centerM: { ...(intake.centerM || { x: 0, y: 0 }), x: v } }) })),
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Local Y', h('small', null, '+ left')), h(BigNum, { label: 'Intake local Y', value: intake.centerM && intake.centerM.y, unit: 'm', min: -2, max: 2, onChange: (v) => setIntake({ centerM: { ...(intake.centerM || { x: 0, y: 0 }), y: v } }) }))),
-                    h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Collection direction', h('small', null, '0° = front')), h(BigNum, { label: 'Intake collection direction', value: intake.directionDeg, unit: '°', min: -180, max: 180, precision: 0, step: 1, onChange: (v) => setIntake({ directionDeg: v }) })),
-                    h('div', { className: 'rp-two' },
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Capture width'), h(BigNum, { label: 'Intake capture width', value: intake.captureWidthM, unit: 'm', min: 0.05, max: 3, onChange: (v) => setIntake({ captureWidthM: v }) })),
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Collect speed'), h(BigNum, { label: 'Maximum collection speed', value: intake.maxCollectSpeedMps, unit: 'm/s', min: 0.1, max: robot.maxSpeed, precision: 1, step: 0.1, onChange: (v) => setIntake({ maxCollectSpeedMps: v }) }))),
-                    h('button', { className: 'delbtn', type: 'button', onClick: () => setPlanning({ intake: undefined }) }, 'Remove intake details'))
-                  : h('button', { className: 'rp-add-profile', type: 'button', onClick: () => setPlanning({ intake: { name: 'Front intake', centerM: { x: robot.l / 2, y: 0 }, directionDeg: 0, captureWidthM: Math.min(robot.w, 0.7), maxCollectSpeedMps: Math.min(robot.maxSpeed, 2) } }) }, 'Add intake details'),
-              shooter
-                ? h('div', { className: 'rp-agent-group' },
-                    h('div', { className: 'rp-two' },
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Shooter direction'), h(BigNum, { label: 'Shooter direction', value: shooter.directionDeg, unit: '°', min: -180, max: 180, precision: 0, step: 1, onChange: (v) => setShooter({ directionDeg: v }) })),
-                      h('div', { className: 'rp-field' }, h('div', { className: 'rp-flabel' }, 'Preferred range'), h(BigNum, { label: 'Preferred shooting range', value: shooter.preferredRangeM, unit: 'm', imperialUnit: 'm', min: 0.1, max: 20, onChange: (v) => setShooter({ preferredRangeM: v }) }))),
-                    h('label', { className: 'rp-check' }, h('input', { type: 'checkbox', checked: shooter.requiresTargetFacing === true, onChange: (e) => setShooter({ requiresTargetFacing: e.target.checked }) }), 'Shooter direction must face the target'),
-                    typeof shooter.preferredRangeM === 'number' && h('button', { className: 'qbtn quiet', type: 'button', onClick: () => setPlanning({ shooter: { ...shooter, preferredRangeM: undefined } }) }, 'Clear preferred range'),
-                    h('button', { className: 'delbtn', type: 'button', onClick: () => setPlanning({ shooter: undefined }) }, 'Remove shooter details'))
-                : h('button', { className: 'rp-add-profile', type: 'button', onClick: () => setPlanning({ shooter: { directionDeg: 0, requiresTargetFacing: true } }) }, 'Add shooter details'),
-              h('div', { className: 'rp-field' },
-                h('div', { className: 'rp-flabel' }, 'Planning notes'),
-                h('textarea', { className: 'rp-notes', value: planning.notes || '', maxLength: 4000, 'aria-label': 'Robot planning notes', placeholder: 'Mechanism timing, preferred lanes, stability limits…', onChange: (e) => setPlanning({ notes: e.target.value }) }))),
-
-          // ---- right column: live preview ----
-          h('div', { className: 'rp-col' },
-            h('div', { className: 'rp-preview' },
-              h('div', { className: 'rp-stage' },
-                h('svg', { ref: previewRef, width: 260, height: 260, viewBox: '0 0 260 260',
+          h(Section, { id: 'robot', title: 'Robot' },
+            h('div', { className: 'settings-card rp-robot' },
+              h('div', null,
+                h(Row, { label: 'Width' }, h(BigNum, { label: 'Robot width', value: robot.w, unit: 'm', min: 0.3, max: 1.3, onChange: (v) => resize('w', v) })),
+                h(Row, { label: 'Length' }, h(BigNum, { label: 'Robot length', value: robot.l, unit: 'm', min: 0.3, max: 1.3, onChange: (v) => resize('l', v) })),
+                h(Row, { label: 'Height', hint: 'Used for TRENCH clearance checks.', status: typeof robot.heightM === 'number' ? null : 'Needed for TRENCH' },
+                  h(BigNum, { label: 'Robot height', value: robot.heightM, unit: 'm', min: 0.1, max: 2.5, onChange: (v) => setRobot({ heightM: v }) })),
+                h(Row, { label: 'Bumper shape' }, h(Seg, { className: 'rp-shapes', ariaLabel: 'Robot bumper shape', value: shape, options: SHAPES, onChange: chooseShape })),
+                shape === 'round' && h(Row, { label: 'Curve detail', hint: 'Vertices in the collision outline.', status: roundPreset.vertices + ' vertices' },
+                  h('input', { type: 'range', min: 8, max: 16, step: 1, value: roundPreset.vertices, 'aria-label': 'Round footprint curve detail', onChange: (event) => setRoundVertices(Number(event.target.value)) })),
+                shape === 'trapezoid' && [['frontWidthM', 'Front width'], ['rearWidthM', 'Rear width']].map(([key, label]) => h(Row, { key, label },
+                  h(BigNum, { label: 'Trapezoid ' + label.toLowerCase(), value: trapezoidPreset[key], unit: 'm', min: 0.05, max: robot.w, onChange: (value) => setTrapezoidWidth(key, value) })))),
+              h('div', { className: 'rp-preview' },
+                h('svg', { ref: previewRef, width: 168, height: 168, viewBox: '0 0 200 200',
                   className: shape === 'custom' ? 'editable' : '', onDoubleClick: addVertexFromPreview,
                   'aria-label': shape === 'custom' ? 'Drag a vertex. Double-click an edge to add one.' : 'Robot footprint preview' },
-                  h('g', { transform: 'translate(130 130)' },
-                    h('polygon', { points: footprintPoints, fill: 'var(--accent-soft)', stroke: 'var(--accent)', strokeWidth: 2.5, strokeLinejoin: 'round' }),
+                  h('g', { transform: 'translate(100 100)' },
+                    h('polygon', { points: footprintPoints, fill: 'var(--accent-soft)', stroke: 'var(--accent)', strokeWidth: 2, strokeLinejoin: 'round' }),
                     // forward indicator (front = +X)
-                    h('line', { x1: 0, y1: 0, x2: rw / 2 + 4, y2: 0, stroke: '#fff', strokeWidth: 2.5 }),
+                    h('line', { x1: 0, y1: 0, x2: rw / 2 + 4, y2: 0, stroke: '#fff', strokeWidth: 2 }),
                     h('path', { d: `M ${rw / 2 + 2} -6 L ${rw / 2 + 14} 0 L ${rw / 2 + 2} 6 Z`, fill: '#fff' }),
                     // width / length ticks
                     h('text', { x: 0, y: -rh / 2 - 10, fill: 'var(--txt-3)', fontSize: 11, fontFamily: 'JetBrains Mono, monospace', textAnchor: 'middle' }, UnitPrefs.format(robot.w, 'm', 2, 'in')),
@@ -464,13 +403,75 @@ import "../styles/settings.css";
                       h('circle', { cx: point.x * unit, cy: -point.y * unit,
                         r: selectedVertex === index ? 7 : 5, 'aria-hidden': true, pointerEvents: 'none',
                         className: 'rp-vertex-handle' + (selectedVertex === index ? ' selected' : ''),
-                      })))))),
-              h('div', { className: 'rp-readout' },
-                h('div', { className: 'rr' }, h('div', { className: 'rrv' }, isSwerve ? 'Swerve' : 'Tank'), h('div', { className: 'rru' }, 'drive')),
-                h('div', { className: 'rr' }, h('div', { className: 'rrv' }, UnitPrefs.fromCanonical(footprintArea, 'm²').toFixed(2)), h('div', { className: 'rru' }, UnitPrefs.label('m²') + ' footprint')),
-                h('div', { className: 'rr' }, h('div', { className: 'rrv' }, typeof robot.heightM === 'number' ? UnitPrefs.fromCanonical(robot.heightM, 'm', 'in').toFixed(2) : '—'), h('div', { className: 'rru' }, UnitPrefs.label('m', 'in') + ' high')),
-                h('div', { className: 'rr' }, h('div', { className: 'rrv' }, UnitPrefs.fromCanonical(robot.maxSpeed, 'm/s').toFixed(1)), h('div', { className: 'rru' }, UnitPrefs.label('m/s') + ' top')))),
-            customVerticesEditor))));
+                      }))))),
+                h('small', null, UnitPrefs.fromCanonical(footprintArea, 'm²').toFixed(2) + ' ' + UnitPrefs.label('m²') + ' footprint')),
+              customVerticesEditor)),
+
+          h(Section, { id: 'drive', title: 'Drivetrain' },
+            h('div', { className: 'settings-card' },
+              h(Row, { label: 'Drive type', hint: 'Swerve turns independently of its heading; tank faces along the path.' },
+                h(Seg, { ariaLabel: 'Drive type', value: isSwerve ? 'swerve' : 'tank', options: [{ v: 'swerve', label: 'Swerve' }, { v: 'tank', label: 'Tank' }], onChange: (drive) => setRobot({ drive }) })),
+              h(Row, { label: 'Drive motor' }, h(Dropdown, { id: 'robot-drive-motor', ariaLabel: 'Drive motor', value: driveModel.motorId, items: DRIVE_MOTORS, onChange: chooseMotor })),
+              driveFields.slice(0, 5).map(numRow)),
+            h('h3', { className: 'rp-subh' }, 'Chassis'),
+            h('div', { className: 'settings-card' },
+              driveFields.slice(5).map(numRow),
+              !cgHeight.defaulted && quietRow('Use default CG height', () => setDriveModel({}, ['cgHeightM'])))),
+
+          h(Section, { id: 'electrical', title: 'Electrical', hint: electrical
+            ? 'Empty fields plan with the grey default shown.'
+            : 'Until then, limits assume full stall torque below free speed.' },
+            // This state explains the current limits, so it stays visible.
+            !electrical && h('p', { className: 'rp-note' }, "Enter the motor's stall and free current to model its current limit and battery sag."),
+            h('div', { className: 'settings-card' },
+              electricalFields.map(numRow),
+              hasAuthoredElectrical && h('div', { className: 'settings-foot' },
+                driveModel.minimumBusVoltageV !== undefined && resetButton('Use default minimum voltage', () => setDriveModel({}, ['minimumBusVoltageV'])),
+                resetButton('Use default electrical values', () => setDriveModel({}, ELECTRICAL_DEFAULT_KEYS))))),
+
+          h(Section, { id: 'limits', title: 'Limits', hint: 'Derived from the drivetrain and electrical model. Paths and zones can only tighten these limits.' },
+            hardLimits
+              ? h('div', { className: 'settings-card rp-hard-limits' },
+                  [['Top speed', hardLimits.maxSpeed, 'm/s', 2], ['Max acceleration', hardLimits.maxAccel, 'm/s²', 2], ['Acceleration at 3/4 speed', accelAt(0.75), 'm/s²', 2], ['Braking', hardLimits.maxDecel, 'm/s²', 2], ['Corner acceleration', hardLimits.maxCornerAccel, 'm/s²', 2], ['Angular speed', hardLimits.maxAngVel, '°/s', 0]].map(([label, value, unit, precision]) =>
+                    h('div', { className: 'rp-drive-result', key: label }, h('span', null, label), h('strong', null, UnitPrefs.fromCanonical(value, unit).toFixed(precision), h('small', null, ' ' + UnitPrefs.label(unit))))))
+              : h('button', { className: 'qbtn', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits')),
+
+          h(Section, { id: 'power', title: 'Loads and breakers' }, h(PowerSettings, { model: driveModel, setModel: setDriveModel, BigNum, Row })),
+
+          mcpEnabled && h(Section, { id: 'agent', title: 'Agent profile', hint: 'Guides agent plans. Review changes before applying.' },
+            agentProposal && h('div', { className: 'settings-card rp-proposal', role: 'region', 'aria-label': 'Agent robot profile proposal' },
+              h('b', null, 'Agent robot profile proposal'),
+              h('span', null, agentProposal.intent),
+              agentProposal.summary && agentProposal.summary.map((line, index) => h('span', { key: index }, line)),
+              h('span', { className: 'agent-proposal-status' }, agentProposal.status === 'ready' ? 'Preview only — the robot profile has not changed.' : agentProposal.status === 'stale' ? 'Stale — ask the agent to regenerate.' : agentProposal.status === 'applied' ? 'Applied as one undoable project change.' : 'Rejected.'),
+              agentProposal.status === 'ready' && h('div', { className: 'rp-proposal-actions' },
+                h('button', { type: 'button', onClick: onRejectProposal }, 'Reject'),
+                h('button', { className: 'primary', type: 'button', onClick: onApplyProposal }, 'Apply robot info'))),
+            h('div', { className: 'settings-card' },
+              intake
+                ? [
+                    h(Row, { key: 'name', label: 'Primary intake' }, h('input', { className: 'rp-text', value: intake.name || '', 'aria-label': 'Primary intake name', maxLength: 80, onChange: (e) => setIntake({ name: e.target.value }) })),
+                    h(Row, { key: 'x', label: 'Local X', hint: '+X is forward.' }, h(BigNum, { label: 'Intake local X', value: intake.centerM && intake.centerM.x, unit: 'm', min: -2, max: 2, onChange: (v) => setIntake({ centerM: { ...(intake.centerM || { x: 0, y: 0 }), x: v } }) })),
+                    h(Row, { key: 'y', label: 'Local Y', hint: '+Y is left.' }, h(BigNum, { label: 'Intake local Y', value: intake.centerM && intake.centerM.y, unit: 'm', min: -2, max: 2, onChange: (v) => setIntake({ centerM: { ...(intake.centerM || { x: 0, y: 0 }), y: v } }) })),
+                    h(Row, { key: 'dir', label: 'Collection direction', hint: '0° is the robot front.' }, h(BigNum, { label: 'Intake collection direction', value: intake.directionDeg, unit: '°', min: -180, max: 180, precision: 0, step: 1, onChange: (v) => setIntake({ directionDeg: v }) })),
+                    h(Row, { key: 'width', label: 'Capture width' }, h(BigNum, { label: 'Intake capture width', value: intake.captureWidthM, unit: 'm', min: 0.05, max: 3, onChange: (v) => setIntake({ captureWidthM: v }) })),
+                    h(Row, { key: 'speed', label: 'Collect speed' }, h(BigNum, { label: 'Maximum collection speed', value: intake.maxCollectSpeedMps, unit: 'm/s', min: 0.1, max: robot.maxSpeed, precision: 1, step: 0.1, onChange: (v) => setIntake({ maxCollectSpeedMps: v }) })),
+                    h('div', { key: 'remove', className: 'settings-foot' }, h('button', { className: 'qbtn quiet', type: 'button', onClick: () => setPlanning({ intake: undefined }) }, 'Remove intake details')),
+                  ]
+                : h(Row, { label: 'Intake' }, h('button', { className: 'qbtn', type: 'button', onClick: () => setPlanning({ intake: { name: 'Front intake', centerM: { x: robot.l / 2, y: 0 }, directionDeg: 0, captureWidthM: Math.min(robot.w, 0.7), maxCollectSpeedMps: Math.min(robot.maxSpeed, 2) } }) }, 'Add intake details'))),
+            h('div', { className: 'settings-card' },
+              shooter
+                ? [
+                    h(Row, { key: 'dir', label: 'Shooter direction' }, h(BigNum, { label: 'Shooter direction', value: shooter.directionDeg, unit: '°', min: -180, max: 180, precision: 0, step: 1, onChange: (v) => setShooter({ directionDeg: v }) })),
+                    h(Row, { key: 'range', label: 'Preferred range' }, h(BigNum, { label: 'Preferred shooting range', value: shooter.preferredRangeM, unit: 'm', imperialUnit: 'm', min: 0.1, max: 20, onChange: (v) => setShooter({ preferredRangeM: v }) })),
+                    h('label', { key: 'facing', className: 'settings-row rp-check' }, h('input', { type: 'checkbox', checked: shooter.requiresTargetFacing === true, onChange: (e) => setShooter({ requiresTargetFacing: e.target.checked }) }), 'Shooter direction must face the target'),
+                    h('div', { key: 'remove', className: 'settings-foot' },
+                      typeof shooter.preferredRangeM === 'number' && h('button', { className: 'qbtn quiet', type: 'button', onClick: () => setPlanning({ shooter: { ...shooter, preferredRangeM: undefined } }) }, 'Clear preferred range'),
+                      h('button', { className: 'qbtn quiet', type: 'button', onClick: () => setPlanning({ shooter: undefined }) }, 'Remove shooter details')),
+                  ]
+                : h(Row, { label: 'Shooter' }, h('button', { className: 'qbtn', type: 'button', onClick: () => setPlanning({ shooter: { directionDeg: 0, requiresTargetFacing: true } }) }, 'Add shooter details'))),
+            h('h3', { className: 'rp-subh' }, 'Planning notes'),
+            h('textarea', { className: 'rp-notes', value: planning.notes || '', maxLength: 4000, 'aria-label': 'Robot planning notes', placeholder: 'Mechanism timing, preferred lanes, stability limits…', onChange: (e) => setPlanning({ notes: e.target.value }) })))));
   }
 
 export { RobotPage };
