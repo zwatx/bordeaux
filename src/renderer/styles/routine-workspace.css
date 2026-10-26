@@ -26,7 +26,7 @@
 .stage-auto,.rt-add-menu{--cmd:oklch(.86 .1 300)}
 .rt-panel{--tw:96px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
 @container routine-workspace (max-width:640px){.rt-panel{--tw:56px}}
-.rt-panel.dragging,.rt-panel.dragging *{cursor:grabbing!important;user-select:none}
+.rt-panel.dragging,.rt-panel.dragging *{cursor:default!important;user-select:none}
 .rt-scroll{flex:1;overflow:auto;padding:20px 24px 56px;scrollbar-width:thin}
 .rt-list{position:relative;display:flex;flex-direction:column;width:100%;max-width:760px;min-width:360px;margin:0 auto}
 .rt-list.playing::after{content:'';position:absolute;z-index:3;top:0;bottom:0;right:calc(104px + var(--tw) * (1 - var(--p)));width:1px;background:var(--txt);opacity:.7;pointer-events:none}
@@ -47,7 +47,7 @@
 .rt-step.off :is(.rt-step-ic,.rt-collapse){opacity:.6}
 .rt-step.unreachable :is(.rt-step-body,.rt-step-ic,.rt-collapse,.rt-step-dur){opacity:.55}
 .rt-grip,.rt-grip-space{display:flex;align-items:center;justify-content:center;width:14px;height:24px;padding:0;color:var(--txt-3)}
-.rt-grip{opacity:0;cursor:grab;touch-action:none}
+.rt-grip{opacity:0;touch-action:none;cursor:pointer}
 .rt-step-num{color:var(--txt-3);font:11px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 .rt-step-ic,.rt-collapse{display:flex;align-items:center;justify-content:center;width:22px;height:24px;padding:0;border-radius:var(--r-s);color:var(--txt-2)}
 .rt-step.cmd :is(.rt-step-ic,.rt-collapse-kind){color:var(--cmd)}
@@ -133,7 +133,7 @@
 .rt-ch-sec{padding:8px 8px 4px;color:var(--txt-3);font-size:11.5px;font-weight:550}
 .rt-ch-row{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;column-gap:10px;row-gap:2px;min-height:32px;padding:5px 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12.5px;cursor:pointer}
 .rt-ch-row.active{background:var(--bg-4);color:var(--txt)}
-.rt-ch-row.disabled{opacity:.5;cursor:not-allowed}
+.rt-ch-row.disabled{opacity:.5}
 .rt-ch-ic{grid-column:1;grid-row:1 / span 2;display:flex;flex:none;justify-content:center;width:18px;color:var(--txt-3)}
 .rt-ch-ic.cmd{color:var(--cmd)}.rt-ch-ic.wait{color:var(--warn)}
 .rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
@@ -167,7 +167,7 @@
 .rt-timeline-toolbar{display:flex;align-items:center;min-width:0;padding:0 10px 0 6px;border-bottom:1px solid var(--line)}
 .rt-tp-ctl{display:flex;align-items:center;gap:2px}
 .rt-tp-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:26px;border-radius:var(--r-s);color:var(--txt-2)}
-.rt-tp-btn:disabled{opacity:.4;cursor:not-allowed}
+.rt-tp-btn:disabled{opacity:.4}
 .rt-timeline-time,.rt-timeline-step{color:var(--txt);font:11.5px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-time{margin-left:10px}
 .rt-timeline-step{margin-left:auto;padding-left:10px}
@@ -205,7 +205,7 @@
 .rt-insp-sec>.seg-hint:first-of-type{margin-top:0}
 .rt-insp-toggle{margin-top:12px}
 .rt-insp-toggle .toggle{display:flex;width:100%;justify-content:flex-start;text-align:left}
-.rt-insp-toggle .toggle:disabled{opacity:.45;cursor:not-allowed}
+.rt-insp-toggle .toggle:disabled{opacity:.45}
 .rt-insp-toggle+.dropdown,.rt-insp-toggle+.cmd-param{margin-top:8px}
 .rt-insp-problems{margin:0 0 14px}
 .rt-insp-problem,.rt-insp-warning,.rt-insp-note{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:4px 0;font-size:12px;line-height:1.5}

@@ -25,15 +25,19 @@ describe('settings workspace', () => {
   });
 
   it.each([
-    [null, null], [{ phase: 'upToDate', version: null }, null], [{ phase: 'checking', version: null }, null],
-    [{ phase: 'available', version: '0.3.0' }, 'Update available'],
-    [{ phase: 'downloading', version: '0.3.0', progress: { percent: 41.6 } }, 'Downloading 42%'],
-    [{ phase: 'downloaded', version: '0.3.0' }, 'Restart to update'],
-    [{ phase: 'error', version: '0.3.0', errorStage: 'download' }, 'Update failed'],
-  ])('shows update status quietly in the toolbar: %j', (updateState, label) => {
+    [null, null, null], [{ phase: 'unsupported', version: null }, null, null],
+    [{ phase: 'idle', version: null }, 'idle', 'Check for updates'], [{ phase: 'upToDate', version: null }, 'idle', 'Check for updates'],
+    [{ phase: 'checking', version: null }, 'idle checking', 'Checking for updates…'],
+    [{ phase: 'available', version: '0.3.0' }, 'available', 'Update 0.3.0 ready to download'],
+    [{ phase: 'downloading', version: '0.3.0', progress: { percent: 41.6 } }, 'downloading', 'Downloading update (41%)'],
+    [{ phase: 'downloaded', version: '0.3.0' }, 'ready', 'Update 0.3.0 downloaded. Click to restart and install.'],
+    [{ phase: 'error', version: '0.3.0', errorStage: 'download' }, 'available failed', 'Download failed for 0.3.0. Click for details.'],
+    [{ phase: 'error', version: '0.3.0', errorStage: 'install' }, 'ready failed', 'Install failed for 0.3.0. Click to retry.'],
+    [{ phase: 'installing', version: '0.3.0', installStalled: true }, 'ready failed', 'Restart delayed. Click for options.'],
+  ])('shows update status as one toolbar icon: %j', (updateState, kind, label) => {
     const markup = renderToStaticMarkup(React.createElement(Panels.Toolbar, { page: 'plan', updateState }));
-    expect(markup.includes('update-chip')).toBe(Boolean(label));
-    if (label) expect(markup).toContain('</span>' + label + '</button>');
+    expect(markup.includes('update-button')).toBe(Boolean(kind));
+    if (kind) expect(markup).toContain(`class="update-button ${kind}" title="${label}" aria-label="${label}"`);
   });
 
   it.each([

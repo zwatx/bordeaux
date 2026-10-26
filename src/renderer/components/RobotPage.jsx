@@ -333,7 +333,9 @@ import "../styles/settings.css";
     };
     const jump = (id) => {
       const page = pageRef.current, top = page.scrollTop, heading = document.getElementById('settings-' + id + '-h');
-      heading.parentNode.scrollIntoView({ block: 'start' });
+      // Scroll only this pane: scrollIntoView would also scroll the window to place a short final section at the top.
+      const margin = parseFloat(getComputedStyle(heading.closest('.settings-section')).scrollMarginTop) || 0;
+      page.scrollTop = top + heading.closest('.settings-section').getBoundingClientRect().top - page.getBoundingClientRect().top - margin;
       heading.focus({ preventScroll: true });
       jumped.current = page.scrollTop !== top;
       setCurrent(id);

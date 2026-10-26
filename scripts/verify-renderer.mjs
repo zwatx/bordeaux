@@ -26,7 +26,8 @@ import path from "node:path";
 // Power settings/report controls add ~10 KiB; trajectory/routine analysis runs in the shared worker.
 // Every application chunk remains counted.
 // Point-link review, continuous playback and the Windows menu add the separately reviewed 8 KiB allowance.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 754 * 1024;
+// The styled tooltip layer and the toolbar update icon add 2 KiB.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 756 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

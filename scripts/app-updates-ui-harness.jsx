@@ -23,7 +23,7 @@ window.bordeauxAPI = {
 function Harness() {
   const { state, actions } = useAppUpdates();
   return h(React.Fragment, null,
-    h(Panels.Toolbar, { page: 'robot', editorPage: 'plan', setPage: () => {}, updateState: state, onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onInstallUpdate: actions.onInstall }),
+    h(Panels.Toolbar, { page: 'robot', editorPage: 'plan', setPage: () => {}, updateState: state, onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onInstallUpdate: actions.onInstall, onCheckUpdates: actions.onCheck }),
     h('main', { style: { height: 'calc(100vh - 56px)', padding: 48, background: 'var(--bg-0)' } },
     h('h1', { style: { fontSize: 20 } }, 'Bordeaux'), h('p', null, 'Editor workspace'),
     h('button', { id: 'update-trigger', className: 'qbtn', onClick: () => window.bordeauxAPI.setAppUpdatesVisible(true) }, 'Software updates'),

@@ -1,0 +1,6 @@
+/* The app's tooltip: a small raised label beside the hovered or focused control. */
+.tip{position:fixed;inset:auto;margin:0;max-width:260px;padding:5px 8px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--bg-3);box-shadow:0 6px 18px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.35);color:var(--txt);font:500 12px/1.4 var(--ui);white-space:pre-line;overflow-wrap:anywhere;pointer-events:none;opacity:0;transform:translateY(-2px);transition:opacity .12s,transform .12s,overlay .12s allow-discrete,display .12s allow-discrete}
+.tip[data-side="above"]{transform:translateY(2px)}
+.tip:popover-open{opacity:1;transform:none}
+@starting-style{.tip:popover-open{opacity:0}}
+@media (prefers-reduced-motion:reduce){.tip{transition:none}}

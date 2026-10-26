@@ -144,7 +144,7 @@
 .pj-row[data-confirm] .pj-open[aria-disabled="true"],.pj-row[data-kind="current"] .pj-open{cursor:default}
 .pj-confirm{display:flex;flex:none;align-items:center;gap:2px;margin-right:6px}
 .pj-confirm .delbtn{margin:0;color:var(--bad-txt);white-space:nowrap}
-.pj-confirm .delbtn[aria-disabled="true"]{opacity:.6;cursor:progress}
+.pj-confirm .delbtn[aria-disabled="true"]{opacity:.6}
 /* A double-click on × or the confirmation never leaves a text selection behind. */
 .pj-remove,.pj-more,.pj-confirm button{-webkit-user-select:none;user-select:none}
 /* A long name in a confirming row wraps a line further before it truncates. */

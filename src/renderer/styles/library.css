@@ -50,7 +50,7 @@
 /* Item menu, properties and linking */
 .library-menu{position:fixed;inset:auto;width:224px;max-height:calc(100vh - 16px);margin:0;padding:5px;overflow:auto;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt);box-shadow:var(--elevation),var(--shadow);font-size:12.5px}
 .library-menu button{display:block;width:100%;min-height:32px;padding:7px 10px;border-radius:var(--r);font-size:12.5px;line-height:1.35;text-align:left}
-.library-menu button:disabled{opacity:.45;cursor:not-allowed}
+.library-menu button:disabled{opacity:.45}
 .library-menu button.danger{color:var(--bad-txt)}
 .library-menu hr{margin:4px 2px;border:0;border-top:1px solid var(--line)}
 .library-properties{width:360px;max-width:calc(100vw - 32px);margin:auto;padding:18px 20px 20px;font-size:12.5px}

@@ -4,7 +4,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 14px 2px 20px}
 .robot-push-dialog h3,.robot-push-dialog p{margin:0}
 .robot-push-dialog h3{font-size:13px;font-weight:600}
-.robot-push-close:disabled{opacity:.35;cursor:not-allowed}
+.robot-push-close:disabled{opacity:.35}
 .robot-push-intro{padding:14px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.55}
 .robot-push-section{display:grid;gap:12px;padding:14px 20px 20px}
 .robot-push-section>p,.robot-push-status>p,.robot-push-outcome>p{color:var(--txt-2);font-size:12.5px;line-height:1.55}
@@ -52,7 +52,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-trigger svg{color:var(--txt-3)}
 .robot-push-trigger-diagnostics::after{content:'Diagnostics'}
 .robot-push-trigger:hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
-.robot-push-trigger:disabled{opacity:.45;cursor:not-allowed}
+.robot-push-trigger:disabled{opacity:.45}
 @keyframes robot-push-spin{to{transform:rotate(360deg)}}
 /* Path push: one compact surface. Destination, files, then one footer with diagnostics left and the commit right. */
 /* Push: one split button in the toolbar. The primary half is the exact scope and its shortcut; the chevron half carries
@@ -140,8 +140,8 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-footer .robot-connection-diagnostics{padding:0}
 .rfp-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-left:auto}
 .rfp .qbtn.primary .robot-push-spinner{width:12px;height:12px;border-color:oklch(.17 .003 286/.25);border-top-color:var(--on-accent)}
-.rfp .qbtn.primary:disabled:has(.robot-push-spinner){opacity:.85;cursor:progress}
-.rfp .qbtn[aria-disabled="true"]{opacity:.7;cursor:progress}
+.rfp .qbtn.primary:disabled:has(.robot-push-spinner){opacity:.85}
+.rfp .qbtn[aria-disabled="true"]{opacity:.7}
 @media (max-width:700px){
   .robot-push-dialog{width:100%;max-height:calc(100vh - 20px)}
   dialog.robot-diagnostics{width:calc(100vw - 20px)}
