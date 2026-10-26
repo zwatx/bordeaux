@@ -349,7 +349,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   };
   const chipDrag = (chip) => (event) => {
     const frozen = tl;
-    gesture(event, { pick: (path) => path.markers[chip.index],
+    gesture(event, { cursor: 'grabbing', pick: (path) => path.markers[chip.index],
       move: (next) => {
         const f = fAtT(frozen, tAtX(local(next).x));
         edit.mutate((path) => { const item = path.markers[chip.index]; if (item) Object.assign(item, featurePositionPatch(item, f, derived)); return path; });

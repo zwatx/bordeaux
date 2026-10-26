@@ -26,7 +26,7 @@
 .stage-auto,.rt-add-menu{--cmd:oklch(.86 .1 300)}
 .rt-panel{--tw:96px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
 @container routine-workspace (max-width:640px){.rt-panel{--tw:56px}}
-.rt-panel.dragging,.rt-panel.dragging *{cursor:default!important;user-select:none}
+.rt-panel.dragging,.rt-panel.dragging *{cursor:grabbing!important;user-select:none}
 .rt-scroll{flex:1;overflow:auto;padding:20px 24px 56px;scrollbar-width:thin}
 .rt-list{position:relative;display:flex;flex-direction:column;width:100%;max-width:760px;min-width:360px;margin:0 auto}
 .rt-list.playing::after{content:'';position:absolute;z-index:3;top:0;bottom:0;right:calc(104px + var(--tw) * (1 - var(--p)));width:1px;background:var(--txt);opacity:.7;pointer-events:none}
@@ -47,7 +47,7 @@
 .rt-step.off :is(.rt-step-ic,.rt-collapse){opacity:.6}
 .rt-step.unreachable :is(.rt-step-body,.rt-step-ic,.rt-collapse,.rt-step-dur){opacity:.55}
 .rt-grip,.rt-grip-space{display:flex;align-items:center;justify-content:center;width:14px;height:24px;padding:0;color:var(--txt-3)}
-.rt-grip{opacity:0;touch-action:none;cursor:pointer}
+.rt-grip{opacity:0;cursor:grab;touch-action:none}
 .rt-step-num{color:var(--txt-3);font:11px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 .rt-step-ic,.rt-collapse{display:flex;align-items:center;justify-content:center;width:22px;height:24px;padding:0;border-radius:var(--r-s);color:var(--txt-2)}
 .rt-step.cmd :is(.rt-step-ic,.rt-collapse-kind){color:var(--cmd)}

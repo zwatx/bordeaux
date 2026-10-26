@@ -148,7 +148,8 @@
 .pt-wp.selected{background:var(--accent);box-shadow:inset 0 0 0 1.5px #fff;color:var(--bg)}
 .pt-lane{position:absolute;border-radius:var(--r);background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045)}
 .pt-lane-ghost{position:absolute;top:50%;display:grid;place-items:center;width:18px;height:18px;translate:-50% -50%;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--cmd);color:var(--cmd);font:500 13px/1 var(--ui);pointer-events:none}
-.pt-chip{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11.5px;touch-action:none;transition:box-shadow .12s,color .12s;cursor:pointer}
+.pt-chip{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11.5px;cursor:grab;touch-action:none;transition:box-shadow .12s,color .12s}
+.pt-chip:active{cursor:grabbing}
 .pt-chip.selected{background:var(--bg-4);box-shadow:inset 0 0 0 1.5px #fff;color:var(--txt)}
 .pt-chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-diamond{flex:none;width:7px;height:7px;border-radius:1.5px;background:var(--cmd);rotate:45deg}
