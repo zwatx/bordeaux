@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { RobotTargetUsername } from "../shared/robotTargets";
 
 export const ROBOT_PUSH_PROTOCOL_VERSION = "bordeaux-robot-push/1.0" as const;
 export const ROBOT_RETENTION_PROTOCOL_VERSION = "bordeaux-retention/1.0" as const;
@@ -159,7 +160,8 @@ export interface RobotSftpSession {
 }
 
 export interface RobotCredentials {
-  username?: "admin" | "lvuser";
+  /** A file-delivery target account, or `lvuser` for the receiver-based revision push. */
+  username?: RobotTargetUsername | "lvuser";
   password?: string;
   privateKey?: string | Buffer;
   passphrase?: string;
