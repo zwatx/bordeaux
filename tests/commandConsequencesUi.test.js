@@ -350,7 +350,7 @@ describe('command branch consequences', () => {
   it('states what each choice removes before it is made, and nothing when routes are empty', () => {
     let ui = branches();
     expect(ui.meta()).toEqual(['Removes 5 branch steps', 'integer', 'boolean · removes 5 steps']);
-    const head = (index) => ui.view.find((element) => element.props['aria-label'] === 'Route ' + index).children[0].children[1].children[0];
+    const head = (index) => ui.view.find((element) => element.props['aria-label'] === 'Route ' + index).children[0].children.find((child) => child.type === 'span').children[0];
     expect([head(1), head(2), head(3)]).toEqual(['≥ 50 · 4 steps', '≥ 10 · 1 step', 'Otherwise']);
     expect(ui.trash('a1').props).toMatchObject({ 'aria-label': 'Remove route 1 and its 4 steps', title: 'Remove comparison and its 4 steps' });
     expect(ui.trash('a2').props).toMatchObject({ 'aria-label': 'Remove route 2 and its 1 step', title: 'Remove comparison and its 1 step' });
@@ -362,6 +362,29 @@ describe('command branch consequences', () => {
     expect(ui.meta()).toEqual([undefined, 'integerString', 'boolean']);
     expect(ui.trash('a1').props).toMatchObject({ 'aria-label': 'Remove route 1', title: 'Remove comparison' });
     expect(ui.view.find((element) => element.type === 'button' && String(element.children[0]).startsWith('Rebuild')).children).toEqual(['Rebuild routes']);
+  });
+  it('says before the choice when another output of the same type keeps the routes', () => {
+    const command = scan(); command.outputs.push({ name: 'peak', label: 'Peak', schema: { ...I32 } }, { name: 'tight', label: 'Tight', schema: { ...I32 }, max: 5 });
+    const ui = branches(commandNode(), command);
+    expect(ui.meta()).toEqual(['Removes 5 branch steps', 'integer', 'boolean · removes 5 steps', 'integer · keeps routes', 'integer · removes 5 steps']);
+  });
+  it('offers one preview choice per route, bound to the same preview state as the flow lanes', () => {
+    const ui = branches(), radios = () => ['a1', 'a2', 'a3'].map((id) => ui.view.find((element) => element.type === 'input' && element.props.name === 'command-preview-cmd'
+      && element.node.closest('[data-route-editor]')?.props['data-route-editor'] === id).props);
+    expect(radios().map((props) => [props.type, props.checked, props['aria-label']])).toEqual([['radio', true, 'Preview High route'], ['radio', false, 'Preview Mid route'], ['radio', false, 'Preview Otherwise route']]);
+    radios()[1].onChange(); expect(ui.acq.setOutcome).toHaveBeenCalledExactlyOnceWith('cmd', 'a2');
+    ui.view.render({ ...ui.view.props, acq: { ...ui.acq, outcomes: { cmd: 'a2' } } });
+    expect(radios().map((props) => props.checked)).toEqual([false, true, false]);
+    // No second preview control in the inspector.
+    expect(ui.view.find((element) => element.props.id === 'command-preview-route')).toBeNull();
+  });
+  it('marks the route block that holds focus as the one being edited', () => {
+    const ui = branches(), block = (id) => ui.view.find((element) => element.props['data-route-editor'] === id);
+    expect(block('a2').props).toMatchObject({ tabIndex: -1, role: 'group', 'aria-label': 'Route 2' });
+    expect(block('a2').props['aria-current']).toBeUndefined();
+    block('a2').props.onFocus(); ui.view.render();
+    expect(block('a2').props).toMatchObject({ 'aria-current': true, className: 'command-branch-route current' });
+    expect(block('a1').props.className).toBe('command-branch-route');
   });
   it('routes field edits through intents without writing captured route steps', () => {
     const ui = branches(), route = (routeId) => ui.view.find((element) => element.props.id === 'route-label-' + routeId).props;
@@ -436,7 +459,7 @@ describe('routine command chooser', () => {
   }
   it('sends a command choice to the owner and states its consequence only when steps would be removed', () => {
     let ui = inspector(commandNode());
-    expect(ui.chooser.note).toBe('Another command removes 5 branch steps.'); expect(ui.chooser.onChange).toBeUndefined();
+    expect(ui.chooser.note).toBe('A command without a matching “Score” output removes 5 branch steps.'); expect(ui.chooser.onChange).toBeUndefined();
     const returned = ['scan', 'aim', ''].map((value) => ui.chooser.onChoose(value));
     expect(returned).toEqual(ui.acq.branch.mock.results.map((result) => result.value)); expect(returned[0]).toBe(ui.acq.branch.mock.results[0].value);
     expect(ui.acq.branch.mock.calls).toEqual([['cmd', { kind: 'keep' }], ['cmd', { kind: 'command', commandId: 'aim' }], ['cmd', { kind: 'command', commandId: '' }]]);

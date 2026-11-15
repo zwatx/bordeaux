@@ -26,7 +26,7 @@ console.log(`Command branch artifacts: ${output}`);
 let timedOut = false;
 const startedAt = new Date().toISOString();
 const child = spawn(electron, ['scripts/verify-command-branches-ui-electron.cjs'], { env, stdio: 'inherit' });
-const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 600000); // Expanded serial baseline +34 groups, not an assertion/interaction retry.
+const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 600000); // Expanded serial baseline +36 groups, not an assertion/interaction retry.
 let status;
 try {
   status = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => resolve({ code, signal })); });
@@ -43,10 +43,10 @@ try {
     if (status.code !== 0 || timedOut || result.passed !== true || result.mode !== 'placement' || result.placement?.length !== 22 || result.placement.some(row => row.passed !== true)
       || [1440, 1100].some(width => result.placement.filter(row => row.width === width).length !== 11) || new Set(result.placement.map(row => row.width + ':' + row.name)).size !== 22
       || ![result.errors, result.confirms, result.robotCalls].every(rows => Array.isArray(rows) && rows.length === 0)) throw new Error('Placement JSON verdict failed: require native child success, 22 passing unique cases/11 per size, empty errors/confirms/robot calls');
-  } else if (status.code !== 0 || timedOut || result.passed !== true || result.checks?.length !== 1 || result.scenarios?.length !== 34
-    || result.scenarios.some(row => row.passed !== true) || [1440, 1100].some(width => result.scenarios.filter(row => row.width === width).length !== 17)
-    || new Set(result.scenarios.map(row => row.width + ':' + row.name)).size !== 34
-    || ![result.errors, result.confirms, result.robotCalls].every(rows => Array.isArray(rows) && rows.length === 0)) throw new Error('Branch JSON verdict failed: require native child success, retained baseline +34 passing unique groups/17 per size, empty errors/confirms/robot calls');
+  } else if (status.code !== 0 || timedOut || result.passed !== true || result.checks?.length !== 1 || result.scenarios?.length !== 36
+    || result.scenarios.some(row => row.passed !== true) || [1440, 1100].some(width => result.scenarios.filter(row => row.width === width).length !== 18)
+    || new Set(result.scenarios.map(row => row.width + ':' + row.name)).size !== 36
+    || ![result.errors, result.confirms, result.robotCalls].every(rows => Array.isArray(rows) && rows.length === 0)) throw new Error('Branch JSON verdict failed: require native child success, retained baseline +36 passing unique groups/18 per size, empty errors/confirms/robot calls');
 } catch (error) {
   clearTimeout(timer); let identityFailure = null; try { await json('inputs-after-failure.json', await identities()); } catch (failure) { identityFailure = failure.stack || String(failure); } await json('launcher-failure.json', { error: error.stack || String(error), status, timedOut, identityFailure }); console.error(error.stack || error); process.exitCode = 1;
 }

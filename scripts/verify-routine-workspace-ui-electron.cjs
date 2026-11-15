@@ -155,9 +155,22 @@ app.whenReady().then(async () => {
       assert.ok(!(await previewHelp()).open, 'Escape closes preview help beside the inspector');
       await click('[data-id="choice"] .rt-step-body');
       await snapshot('branch-' + width);
-      await click('.rt-brlbl[role="radio"]', undefined);
+      // A lane header opens its route's editor in the inspector; only the lane's radio chooses the preview route.
+      const keepLane = '.rt-brprev[aria-label="Preview Keep collecting along the wall route"]';
+      await click(keepLane + ' + .rt-brlbl');
+      await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp [data-route-editor="else"]')), 'lane header opens its route in the inspector');
+      assert.equal(await evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent), 'Full — take the scoring route', 'Opening a route keeps the preview route');
+      await click(keepLane);
+      await wait(() => evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent === 'Keep collecting along the wall'), 'lane radio chooses the preview route');
       await key('Down'); await key('Space');
-      assert.ok(await evaluate(() => document.activeElement !== document.body), 'Arrow/Space keeps focus in the flow');
+      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Preview Full — take the scoring route route', 'Arrow moves the preview within the branch');
+      assert.equal(await evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent), 'Full — take the scoring route');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('[aria-label="Play routine"]'))), 'Space on the preview radio does not start playback');
+      await key('Escape');
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-brlbl') && document.activeElement.textContent.startsWith('Full')), 'Escape returns to the chosen lane header');
+      // Enter presses the header like any button; Space stays page playback, as for other ordinary buttons.
+      await key('Enter');
+      await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp [data-route-editor="then"]')), 'Enter on a lane header opens its route');
       assert.deepEqual(await source(), baseline, 'Preview selection does not rewrite the routine');
       await click('[data-id="return"] .rt-step-body');
       await key('A');
@@ -182,6 +195,17 @@ app.whenReady().then(async () => {
       assert.equal(added.type, 'path'); assert.equal(added.ref, route.id);
       await key('z', ['meta']);
       await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of inserted path');
+      // Shift+A adds before the step, through the same checked insert.
+      await click('[data-id="return"] .rt-step-body');
+      await key('A', ['shift']);
+      await wait(() => evaluate(() => document.querySelector('.rt-add-dest')?.textContent.startsWith('Before “')), 'Shift+A opens Add before the step');
+      await snapshot('insert-before-' + width);
+      await key('Enter');
+      await wait(async () => (await source())[0].nodes.length === 3, 'insert before the shared continuation');
+      assert.equal((await source())[0].nodes[1].type, 'path');
+      assert.equal((await source())[0].nodes[2].id, 'return', 'Shift+A inserts before the step');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of inserted-before path');
       // Undo removes the inserted selected step and closes its inspector. Select a retained step before testing Close.
       await click('[data-id="return"] .rt-step-body');
       await click('button[aria-label="Close step inspector"]');
@@ -252,6 +276,31 @@ app.whenReady().then(async () => {
         { id: 'completion-step', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } },
       ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
       await load('output-loop'); await planned();
+      // Add: All lists paths, commands and steps; the Commands filter, reached from the search with Tab and arrows,
+      // inserts a catalog command bound with its default arguments in one pick.
+      const loopBaseline = await source();
+      await click('[data-id="after-loop"] .rt-step-body'); await key('A');
+      await wait(() => evaluate(() => document.activeElement?.matches('.rt-add-search input')), 'Add search focused');
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(el => el.textContent)), ['Paths', 'Commands', 'Steps']);
+      assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => el.textContent.startsWith('Check whether collection is finished'))), 'All lists catalog commands');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => /^Branch on/.test(el.textContent))), false, 'No Branch-on items');
+      await snapshot('add-all-' + width);
+      await key('Tab');
+      assert.equal(await evaluate(() => document.activeElement.dataset.filter), 'all', 'Tab reaches the kind filter');
+      await key('Right'); await key('Right');
+      assert.equal(await evaluate(() => document.querySelector('.rt-add-filter [aria-pressed="true"]').textContent), 'Commands');
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"] .rt-ch-t')].map(el => el.textContent)), ['Check whether collection is finished']);
+      await snapshot('add-commands-' + width);
+      await key('Down');
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-add-search input') && document.activeElement.getAttribute('aria-activedescendant') === 'rt-add-opt-0'), 'Down returns to the results');
+      await key('Enter');
+      await wait(async () => (await source())[0].nodes.length === 3, 'one-pick command insert');
+      const pickedCommand = (await source())[0].nodes[2];
+      assert.deepEqual([pickedCommand.type, pickedCommand.cat, pickedCommand.title, pickedCommand.invocation], ['function', 'command', 'Check whether collection is finished', { commandId: 'completion', arguments: {} }]);
+      assert.equal(pickedCommand.outputBranch, undefined);
+      assert.equal(await evaluate(() => document.querySelector('.routine-insp .ctxinsp-t')?.textContent), 'Command', 'The new bound command is selected');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(loopBaseline), 'exact undo of one-pick command');
       await click('[data-id="output-loop"] .rt-step-body');
       await click('[aria-label="Repeat mode"] button', 'Until output');
       await wait(async () => (await source())[0].nodes[0].times === undefined, 'dynamic repeat clears only its count');
@@ -291,6 +340,27 @@ app.whenReady().then(async () => {
       assert.equal((await source())[0].nodes[0].nodes[2].ends.endWhen.conditionId, 'piece', 'Space does not activate an ordinary mutation styled like a chooser');
       await key('Enter');
       await wait(async () => !(await source())[0].nodes[0].nodes[2].ends?.endWhen, 'Enter still activates the repair action');
+      // A populated Boolean command branch: each lane header opens its route's editor beside the flow.
+      saved.routines = [{ ...routine, nodes: [
+        { id: 'branch-command', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} },
+          outputBranch: { output: 'finished', schema: bool, routes: [
+            { id: 'route-finished', label: 'Finished — score and leave the collection zone', operator: 'eq', value: true, nodes: [{ id: 'branch-score', type: 'path', ref: route.id }] },
+            { id: 'route-more', label: 'Keep collecting', operator: 'eq', value: false, nodes: [
+              { id: 'branch-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .5 } }, { id: 'branch-collect', type: 'path', ref: route.id }] }] } },
+        { id: 'branch-after', type: 'path', ref: route.id }] }];
+      await load('branch-command'); await planned();
+      const branchBaseline = await source();
+      await click('.rt-brprev[aria-label="Preview Keep collecting route"] + .rt-brlbl');
+      await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp .command-branch-route.current[data-route-editor="route-more"]')), 'Boolean lane header opens its route editor');
+      const branchFit = await evaluate(() => {
+        const flow = document.querySelector('.rt-scroll'), body = document.querySelector('.routine-insp .ctxinsp-body');
+        const lanes = [...document.querySelectorAll('.rt-route')].map(lane => { const radio = lane.querySelector('.rt-brprev').getBoundingClientRect(), name = lane.querySelector('.rt-brname').getBoundingClientRect(), count = lane.querySelector('.rt-brcount').getBoundingClientRect();
+          return radio.right <= name.left && (name.right <= count.left || name.bottom <= count.top || count.bottom <= name.top); });
+        return { flow: flow.scrollWidth <= flow.clientWidth + 1, inspector: body.scrollWidth <= body.clientWidth + 1, lanes };
+      });
+      assert.deepEqual(branchFit, { flow: true, inspector: true, lanes: [true, true] }, 'Lane headers and route editors fit without overlap');
+      assert.deepEqual(await source(), branchBaseline, 'Opening a route never rewrites the routine');
+      await snapshot('boolean-branch-route-' + width);
       const geometry = [];
       for (const place of ['Paths', 'Routines', 'Settings']) {
         await click('.places .place', place); await delay(250);
@@ -312,7 +382,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'native insert/Escape/focus', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'native insert/Escape/focus', 'Shift+A insert before', 'Add filter and one-pick command', 'lane header route focus', 'preview radio keyboard', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

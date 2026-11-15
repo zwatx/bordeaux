@@ -87,9 +87,15 @@
 .rt-step.drop-after::after,.rt-route.drop-after::after{bottom:-1px}
 .drop-invalid::after{display:none}
 
-/* A lane header: the route's name, how it matches, and what it holds. Choosing it sets the preview route only. */
+/* A lane header: the preview radio, then the route's name, how it matches, and what it holds. The name opens the
+   route's editor in the inspector; only the radio changes the preview route. */
 .rt-route{position:relative;display:flex;align-items:center;min-height:30px;padding:0 4px}
-.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:28px;padding:5px 6px;border-radius:var(--r-s);text-align:left}
+/* One radio look for the preview route, in lanes and in inspector route blocks: a ring, filled when chosen, on a 22px target. */
+.rt-radio{appearance:none;flex:none;width:22px;height:22px;margin:0;border:0;border-radius:50%;background:radial-gradient(circle,transparent 0 5px,var(--txt-3) 5.5px 6.5px,transparent 7px);cursor:pointer}
+.rt-radio:checked{background:radial-gradient(circle,var(--txt) 0 3px,transparent 3.5px 5px,var(--txt) 5.5px 6.5px,transparent 7px)}
+.rt-radio:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.rt-panel[data-input=keyboard] .rt-radio:focus{outline:2px solid var(--focus);outline-offset:-2px}
+.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:28px;padding:5px 6px 5px 4px;border-radius:var(--r-s);text-align:left}
 .rt-brlbl.static{cursor:default}
 .rt-brname{min-width:0;color:var(--txt-2);font-size:12.5px;font-weight:550;line-height:1.4;overflow-wrap:anywhere}
 .rt-branch.live>.rt-route .rt-brname{color:var(--txt)}
@@ -129,11 +135,16 @@
 .rt-add-search{display:flex;align-items:center;gap:8px;flex:none;height:40px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--txt-3)}
 .rt-add-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:none;color:var(--txt);font-size:13px}
 .rt-add-search input::placeholder{color:var(--txt-3)}
+/* The kind filter under the search: the shared segmented control, compact. */
+.rt-add-filter{flex:none;min-height:30px;margin:8px 8px 2px}
+.rt-add-filter .seg-i{min-height:24px;white-space:nowrap}
 .rt-add-list{flex:1;min-height:0;overflow:auto;padding:4px;scrollbar-width:thin}
 .rt-ch-sec{padding:8px 8px 4px;color:var(--txt-3);font-size:11.5px;font-weight:550}
 .rt-ch-row{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;column-gap:10px;row-gap:2px;min-height:32px;padding:5px 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12.5px;cursor:pointer}
 .rt-ch-row.active{background:var(--bg-4);color:var(--txt)}
 .rt-ch-row.disabled{opacity:.5}
+.rt-ch-row.more{color:var(--txt-3)}
+.rt-ch-row.more.active{color:var(--txt)}
 .rt-ch-ic{grid-column:1;grid-row:1 / span 2;display:flex;flex:none;justify-content:center;width:18px;color:var(--txt-3)}
 .rt-ch-ic.cmd{color:var(--cmd)}.rt-ch-ic.wait{color:var(--warn)}
 .rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
@@ -149,6 +160,7 @@
   .rt-grip:hover{color:var(--txt)}
   .rt-tool:hover,.rt-collapse:hover{background:var(--bg-4);color:var(--txt)}
   .rt-brlbl:not(.static):hover .rt-brname{color:var(--txt)}
+  .rt-radio:not(:checked):hover{background:radial-gradient(circle,transparent 0 5px,var(--txt-2) 5.5px 6.5px,transparent 7px)}
   .rt-addwrap .rt-add:not(.on):hover{background:var(--bg-2);color:var(--txt)}
 }
 @media (pointer:coarse){

@@ -45,6 +45,8 @@ const options = () => [...document.querySelectorAll('.rt-add-menu [role="option"
 const range = () => document.querySelector('.rt-add-pages [role="status"]')?.textContent;
 const input = () => document.querySelector('.rt-add-search input');
 const active = () => document.getElementById(input()?.getAttribute('aria-activedescendant'));
+const filter = () => document.querySelector('.rt-add-filter [aria-pressed="true"]')?.textContent;
+const sections = () => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(element => element.textContent);
 const capture = name => native({ capture: name });
 const results = [];
 try {
@@ -52,32 +54,45 @@ try {
   for (const width of [1440, 1100]) {
     await native({ resize: [width, width === 1440 ? 900 : 720] });
     await pointer('button', 'Add a step'); await wait(() => input() && document.activeElement === input(), 'Add search focus');
-    assert(options().length === 80 && range() === '1–80 of 20,025', 'First page is bounded and counts the full catalog');
-    assert(options()[0].getAttribute('aria-setsize') === '20025' && options()[0].getAttribute('aria-posinset') === '1', 'Full logical ARIA positions');
+    // All: short Paths and Commands sections, each ending in a row that opens its full filter, then every step.
+    assert(options().length === 16 && !range(), 'All shows short sections without paging');
+    assert(options()[0].getAttribute('aria-setsize') === '16', 'All counts its own rows');
+    assert(sections().join() === 'Paths,Commands,Steps', 'All names its sections');
+    await key('End'); assert(active()?.textContent === 'Exit repeat', 'End reaches the last step in All');
+    await capture('add-all-' + width);
+    await pointer('.rt-add-menu [role="option"]', 'Show all 10,000 commands');
+    assert(filter() === 'Commands' && document.activeElement === input(), 'Show all switches the filter and keeps the search focused');
+    assert(options().length === 80 && range() === '1–80 of 10,000', 'First page is bounded and counts the full catalog');
+    assert(options()[0].getAttribute('aria-setsize') === '10000' && options()[0].getAttribute('aria-posinset') === '1', 'Full logical ARIA positions');
     await capture('add-first-' + width);
-    await pointer('.rt-add-pages button', 'Next'); assert(range() === '81–160 of 20,025', 'Pointer Next changes page');
-    await key('PageDown'); assert(range() === '161–240 of 20,025', 'PageDown changes page');
-    await key('PageUp'); assert(range() === '81–160 of 20,025', 'PageUp changes page');
-    await key('ArrowUp'); assert(active()?.getAttribute('aria-posinset') === '80' && range() === '1–80 of 20,025', 'ArrowUp crosses page boundary');
+    await pointer('.rt-add-pages button', 'Next'); assert(range() === '81–160 of 10,000', 'Pointer Next changes page');
+    await key('PageDown'); assert(range() === '161–240 of 10,000', 'PageDown changes page');
+    await key('PageUp'); assert(range() === '81–160 of 10,000', 'PageUp changes page');
+    await key('ArrowUp'); assert(active()?.getAttribute('aria-posinset') === '80' && range() === '1–80 of 10,000', 'ArrowUp crosses page boundary');
     await key('ArrowDown'); assert(active()?.getAttribute('aria-posinset') === '81', 'ArrowDown crosses page boundary');
-    await key('End'); assert(active()?.textContent === 'Exit repeat' && active().getAttribute('aria-posinset') === '20025', 'End reaches the last built-in after all command outputs');
+    // The last command is Needle9999 until the first pass refreshes its label.
+    const last = () => /^(Needle9999|Refreshed command label)/.test(active()?.textContent || '');
+    await key('End'); assert(last() && active().getAttribute('aria-posinset') === '10000', 'End reaches the last command');
     await capture('add-tail-' + width);
     await key('ArrowDown'); assert(active()?.getAttribute('aria-posinset') === '1', 'ArrowDown wraps to first result');
-    await key('ArrowUp'); assert(active()?.textContent === 'Exit repeat', 'ArrowUp wraps to final result');
+    await key('ArrowUp'); assert(last(), 'ArrowUp wraps to final result');
     await key('Home'); assert(active()?.getAttribute('aria-posinset') === '1', 'Home reaches first result');
     // Programmatic focus is fixture setup only; activation is an actual native key event.
     document.querySelector('.rt-add-pages button[aria-label="Next results"]').focus();
-    await key('Enter'); assert(range() === '81–160 of 20,025' && !state.picked, 'Pagination Enter changes page without choosing the active option');
+    await key('Enter'); assert(range() === '81–160 of 10,000' && !state.picked, 'Pagination Enter changes page without choosing the active option');
     document.querySelector('.rt-add-pages button[aria-label="Next results"]').focus();
-    await key('Space'); assert(range() === '161–240 of 20,025' && !state.picked, 'Pagination Space retains native button activation');
-    await key('End'); refreshCatalog(); await wait(() => range() === '1–80 of 20,025', 'new catalog resets a later page');
+    await key('Space'); assert(range() === '161–240 of 10,000' && !state.picked, 'Pagination Space retains native button activation');
+    await key('End'); refreshCatalog(); await wait(() => range() === '1–80 of 10,000', 'new catalog resets a later page');
     assert(active() && active().getAttribute('aria-posinset') === '1', 'Catalog replacement keeps active DOM/ARIA valid');
-    await type('Refreshed command label'); await wait(() => options().length === 2, 'Search finds a late refreshed command');
+    await type('Refreshed command label'); await wait(() => options().length === 1, 'Search finds a late refreshed command');
     assert(!document.querySelector('.rt-add-pages') && options().every(option => option.textContent.includes('Refreshed command label')), 'Search spans the full refreshed catalog');
     await capture('add-long-search-' + width);
-    await key('End'); await key('Enter'); assert(state.picked?.kind === 'commandBranch' && state.picked.output.name === 'Status', 'Enter chooses the exact late output branch');
+    await key('Enter'); assert(state.picked?.kind === 'command' && state.picked.command.id === 'command.9999', 'Enter chooses the exact late command');
     await wait(() => document.activeElement?.textContent === 'Add a step', 'selection returns focus');
+    // Tab moves from the search to the filter; Tab past the filter dismisses and refocuses.
     await pointer('button', 'Add a step'); await key('End'); await key('Tab');
+    assert(state.open && document.activeElement?.dataset.filter === 'all', 'Tab reaches the kind filter');
+    await key('Tab');
     await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Tab dismiss/refocus');
     await pointer('button', 'Add a step'); await key('Escape');
     await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Escape dismiss/refocus');
@@ -92,7 +107,7 @@ try {
     await type('surface torque'); assert(document.querySelectorAll('.choice-results [role="option"]').length === 80, 'Rich parameter search preserves AND terms and bounded rows');
     await key('Escape'); await key('Escape');
     await capture('refreshed-current-' + width);
-    results.push({ width, height: width === 1440 ? 900 : 720, ok: true, options: 20025 });
+    results.push({ width, height: width === 1440 ? 900 : 720, ok: true, options: 10000 });
   }
   window.__searchResults = { passed: true, scenarios: results, fixtureOnly: true, noRobotCalls: true };
 } catch (error) { window.__searchResults = { passed: false, scenarios: results, error: error.stack }; }

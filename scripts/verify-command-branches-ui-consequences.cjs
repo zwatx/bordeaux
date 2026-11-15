@@ -47,7 +47,10 @@ exports.runConsequences = async h => {
     { name: 'ticket', label: 'Exact ticket', role: 'argument', schema: { kind: 'integerString', valueType: 'I64' } },
     { name: 'note', label: 'Note', role: 'argument', schema: { kind: 'string', valueType: 'String' } },
   ];
-  catalog.commands.push({ ...clone(catalog.commands[0]), id: 'alternate', label: 'Alternate scoring command', member: 'Alternate.vi' });
+  // Alternate reports the same outputs (a compatible replacement keeps the routes); Different lacks the branch's output.
+  catalog.commands.push({ ...clone(catalog.commands[0]), id: 'alternate', label: 'Alternate scoring command', member: 'Alternate.vi' },
+    { ...clone(catalog.commands[0]), id: 'different', label: 'Different scoring command', member: 'Different.vi', outputs: [clone(OUTPUTS[0])] });
+  const NOTE = 'A command without a matching “Measured distance to scoring target” output removes 128 branch steps.';
   const populated = fixture(corpus, catalog);
   const expectSource = async expected => wait(async () => equal(await source(), expected), 'exact complete routines source');
   const chooseOutput = async (value, mode = 'pointer') => {
@@ -68,7 +71,7 @@ exports.runConsequences = async h => {
   const openCommand = () => click('.choice-browser[aria-label="Command"] .choice-change');
   const chooseCommand = async (label, mode = 'pointer', query) => {
     await openCommand();
-    assert.equal(await evaluate(() => document.querySelector('#routine-command-note')?.textContent), 'Another command removes 128 branch steps.');
+    assert.equal(await evaluate(() => document.querySelector('#routine-command-note')?.textContent), NOTE);
     if (query) await replace('#routine-command', query);
     if (mode === 'pointer') await click('#routine-command-results [role="option"]', label);
     else {
@@ -143,11 +146,26 @@ exports.runConsequences = async h => {
     }, removeCheck);
     await cycle('populated route keyboard Enter', 'route', async () => {
       await click('#command-branch-output'); await key('Escape'); await key('Tab');
+      // The checked preview radio is the route group's one Tab stop, before the first route's actions.
+      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Preview At least threshold route', 'Native Tab reaches the checked preview radio');
+      await key('Tab');
       assert.equal(await evaluate(() => document.activeElement.getAttribute('data-route-remove')), 'route-populated', 'Native Tab reaches first enabled Remove');
       await key('Enter'); await drain(); assert.equal(await evaluate(() => document.activeElement.getAttribute('data-route-remove')), 'route-empty');
     }, removeCheck);
-    await cycle('populated command replacement', 'command', () => chooseCommand('Alternate scoring command'), (node, old) => { assert.equal(node.invocation.commandId, 'alternate'); assert.equal(node.invocation.arguments.ticket, '0'); assert.equal(node.invocation.arguments.note, ''); assert.equal(node.outputBranch, undefined); assert.deepEqual(node.ends, old.ends); });
+    await cycle('populated command replacement', 'command', () => chooseCommand('Different scoring command'), (node, old) => { assert.equal(node.invocation.commandId, 'different'); assert.equal(node.invocation.arguments.ticket, '0'); assert.equal(node.invocation.arguments.note, ''); assert.equal(node.outputBranch, undefined); assert.deepEqual(node.ends, old.ends); });
     await cycle('populated command clear', 'command', async () => { await chooseCommand('Choose a command'); assert.equal(await evaluate(() => document.activeElement.id), 'routine-command'); }, (node, old) => { assert.equal(node.invocation, null); assert.equal(node.outputBranch, undefined); assert.equal(node.title, 'Robot command'); assert.deepEqual(node.ends, old.ends); });
+
+    // A command reporting the same output and value type keeps the branch, its routes and all 128 nested steps: no notice.
+    await start('compatible command replacement keeps routes', width); await resetPopulated(); const compatibleBefore = await source();
+    await chooseCommand('Alternate scoring command');
+    await wait(async () => commandNode(await source()).invocation?.commandId === 'alternate', 'compatible command applied');
+    const compatible = commandNode(await source()), compatibleOld = commandNode(compatibleBefore);
+    assert.deepEqual(compatible.outputBranch.routes, compatibleOld.outputBranch.routes, 'Routes, names, comparisons and nested steps are kept');
+    assert.equal(compatible.outputBranch.output, 'distance'); assert.deepEqual(compatible.ends, compatibleOld.ends);
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.deletion-notice'))), false, 'Nothing removed, so no deletion notice');
+    assert.equal(await evaluate(() => document.activeElement.matches('.choice-browser[aria-label="Command"] .choice-change')), true, 'Applied command returns focus to Change');
+    await key('Z', ['meta']); await expectSource(compatibleBefore); await isolate();
+    await record({ width, height, name: 'compatible command replacement keeps routes', passed: true });
 
     await start('128-count header/output option/command note fit', width); await resetPopulated(); const fit = {};
     await evaluate(() => document.querySelector('.command-branch-head').scrollIntoView({ block: 'center' }));
@@ -166,7 +184,7 @@ exports.runConsequences = async h => {
     assert.equal(fit.option.text, 'Named outcomes · removes 128 steps'); assert.ok(fit.option.scrollWidth <= fit.option.clientWidth || fit.option.essentialWidth <= fit.option.width);
     await snapshot('consequence-' + width + '-output-meta-128'); await key('Escape'); await openCommand();
     fit.note = await evaluate(() => { const el = document.querySelector('#routine-command-note'), r = el.getBoundingClientRect(), parent = el.closest('.ctxinsp-body').getBoundingClientRect(); return { text: el.textContent, describedBy: document.querySelector('#routine-command').getAttribute('aria-describedby'), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, left: r.left, right: r.right, parentLeft: parent.left, parentRight: parent.right }; });
-    assert.equal(fit.note.text, 'Another command removes 128 branch steps.'); assert.equal(fit.note.describedBy, 'routine-command-note'); assert.ok(fit.note.scrollWidth <= fit.note.clientWidth && fit.note.left >= fit.note.parentLeft && fit.note.right <= fit.note.parentRight);
+    assert.equal(fit.note.text, NOTE); assert.equal(fit.note.describedBy, 'routine-command-note'); assert.ok(fit.note.scrollWidth <= fit.note.clientWidth && fit.note.left >= fit.note.parentLeft && fit.note.right <= fit.note.parentRight);
     await snapshot('consequence-' + width + '-command-note-128'); await isolate(); await record({ width, height, name: '128-count header/output option/command note fit', passed: true, fit });
 
     await start('invalid route draft refuses pointer press and retains focus', width); await resetPopulated(); const untouched = await source();

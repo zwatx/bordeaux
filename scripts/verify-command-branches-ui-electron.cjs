@@ -39,6 +39,20 @@ async function loadApp() {
 async function source() { await wait(() => Boolean(published?.routines), 'actual published routine source'); return structuredClone(published.routines); }
 async function isolate() { assert.deepEqual(confirms, [], 'No confirm call'); assert.deepEqual(robotCalls, [], 'No robot operation'); assert.deepEqual(await evaluate(() => window.__branchHarnessConfirms), [], 'Main-world confirm recorder'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-local'))), false, 'No routine placeholder label'); assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routines have no robot Push scope'); }
 async function choose(name) { await click('#command-branch-output'); await click('[role="option"]', name); }
+const laneHeader = (label) => '.rt-brprev[aria-label="Preview ' + label + ' route"] + .rt-brlbl';
+// A lane header opens its route's editor in the inspector: focused, marked current and scrolled into view.
+async function openRouteFromLane(label) {
+  const before = await evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent);
+  await click(laneHeader(label));
+  await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp .command-branch-route.current[data-route-editor]')), label + ' lane header focuses its route editor');
+  const state = await evaluate(() => {
+    const block = document.activeElement, body = block.closest('.ctxinsp-body').getBoundingClientRect(), r = block.getBoundingClientRect();
+    return { id: block.dataset.routeEditor, current: block.getAttribute('aria-current'), visible: r.top >= body.top - 1 && r.top < body.bottom - 24,
+      live: document.querySelector('.rt-branch.live .rt-brname')?.textContent };
+  });
+  assert.equal(state.current, 'true'); assert.ok(state.visible, 'Route editor scrolled into view'); assert.equal(state.live, before, 'Opening a route never changes the preview route');
+  return state.id;
+}
 async function snapshot(name) { await drain(); await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
 const catalog = { runtime: 'labview', projectName: 'Inspection fixture', sourceFileCount: 1, scannedAt: '', warnings: [], commands: [{
   id: 'inspect', label: 'Inspect game piece and determine scoring route', member: 'Inspect.vi', ownerType: 'LabVIEW', kind: 'factory', confidence: 'confirmed', source: { file: 'Inspect.vi', line: 1 }, parameters: [],
@@ -76,6 +90,30 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelectorAll('.rt-branch').length === 2), 'boolean routes');
     assert.equal(await evaluate(() => document.activeElement.id), 'command-branch-output');
     await snapshot('boolean-1440');
+    const booleanSource = await source(), falseId = booleanSource[0].nodes[0].outputBranch.routes[1].id;
+    assert.equal(await openRouteFromLane('False'), falseId);
+    await snapshot('boolean-lane-route-1440');
+    // The preview is one radio group shown in the lanes and in the inspector's route blocks.
+    await click('.rt-brprev[aria-label="Preview False route"]');
+    await wait(() => evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent === 'False'), 'lane radio previews False');
+    assert.ok(await evaluate(() => document.querySelector('.command-branches input[type="radio"][aria-label="Preview False route"]').checked), 'Inspector route block shows the same preview choice');
+    await click('.command-branches input[type="radio"][aria-label="Preview True route"]');
+    await wait(() => evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent === 'True'), 'inspector radio previews True');
+    // Keyboard: Down from the step row reaches the first lane header; ArrowRight reaches its radio; arrows move the preview.
+    await click('[data-id="inspect-step"] .rt-step-body');
+    if (await evaluate(() => document.querySelector('[data-id="inspect-step"] .rt-step-body').getAttribute('aria-pressed') === 'true')) await click('[data-id="inspect-step"] .rt-step-body');
+    await key('Down');
+    assert.ok(await evaluate(() => document.activeElement.matches('.rt-brlbl') && document.activeElement.querySelector('.rt-brname').textContent === 'True'), 'Down reaches the True lane header');
+    await key('Right');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Preview True route', 'ArrowRight reaches the lane preview radio');
+    await key('Down');
+    await wait(() => evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent === 'False'), 'arrow key previews False');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Preview False route');
+    await key('Escape');
+    assert.ok(await evaluate(() => document.activeElement.matches('.rt-brlbl') && document.activeElement.querySelector('.rt-brname').textContent === 'False'), 'Escape returns to the chosen lane header');
+    assert.deepEqual(await source(), booleanSource, 'Preview choices never rewrite the routine');
+    await click('[data-id="inspect-step"] .rt-step-body');
+    await wait(() => evaluate(() => document.querySelector('#command-branch-output')), 'inspector reopened');
     await choose('Result');
     await wait(() => evaluate(() => document.querySelectorAll('.rt-branch').length === 4), 'named routes');
     await snapshot('named-1440');
@@ -96,6 +134,8 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.rt-branch .rt-step.path')), 'nested path');
     await click('[data-id="inspect-step"] .rt-step-body');
     await snapshot('numeric-populated-1440');
+    await openRouteFromLane('Otherwise');
+    await snapshot('numeric-lane-route-1440');
     await click('.project-chip'); await click('[role="menuitem"][data-action="save"]');
     await wait(() => saves > 0, 'save');
     assert.equal(saved.routines[0].nodes[0].outputBranch.routes.length, 3);
@@ -112,6 +152,8 @@ app.whenReady().then(async () => {
     await wait(async () => JSON.stringify(await source()) === JSON.stringify(baselineRoutines), 'exact entire baseline routine reload in imperial fixture');
     assert.equal(await evaluate(() => document.querySelector('input[id^="route-value-"]').value), '12.5', 'Command output comparison stays exact under imperial display preference');
     await snapshot('numeric-restored-1100');
+    await openRouteFromLane('Otherwise');
+    await snapshot('numeric-lane-route-1100');
     await click('input[id^="route-value-"]');
     await snapshot('numeric-comparison-editor-1100');
     await click('#command-branch-output'); await key('Escape');
@@ -137,9 +179,9 @@ app.whenReady().then(async () => {
       save: async () => { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'explicit save IPC'); return structuredClone(saved); },
       reload: async (project) => { saved = structuredClone(project); await loadApp(); await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]'); await source(); } }));
     assert.deepEqual(errors, []); await isolate();
-    assert.equal(scenarios.length, 34, 'Exactly17 consequence groups per supported size');
+    assert.equal(scenarios.length, 36, 'Exactly 18 consequence groups per supported size');
     await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ passed: true, checks, scenarios, errors, confirms, robotCalls, runtime: { electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform } }, null, 2));
-    console.log('PASS: retained branch baseline plus34 populated consequence groups; exact entire routines Undo/Redo/save/reload; native pointer/keyboard; both sizes; no confirm or robot operations. Captures require personal review.');
+    console.log('PASS: retained branch baseline plus 36 populated consequence groups; exact entire routines Undo/Redo/save/reload; native pointer/keyboard; both sizes; no confirm or robot operations. Captures require personal review.');
   } catch (error) { console.error(error, errors); await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ passed: false, error: error.stack || String(error), checks, scenarios, errors, confirms, robotCalls, published, saved, runtime: { electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform } }, null, 2)); if (win) await snapshot('failure'); process.exitCode = 1; }
   finally { if (win) win.destroy(); app.exit(process.exitCode || 0); }
 });

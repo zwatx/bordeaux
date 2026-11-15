@@ -55,6 +55,16 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     return { output: output.name, schema: output.schema, routes };
   }
 
+  /**
+   * The saved branch moved onto `output` with every route, name and nested step intact, or null. Only an output whose
+   * value type is structurally equal and whose bounds admit every saved comparison value can take the routes as they are.
+   */
+  function carryBranch(branch, output) {
+    if (!branch || !output || !robotValueSchemasEqual(output.schema, branch.schema)) return null;
+    const fits = branch.routes.every((route) => route.operator === 'otherwise' || !robotParameterValueError(route.value, { ...output, schema: branch.schema }));
+    return fits ? { ...branch, output: output.name, schema: output.schema } : null;
+  }
+
   function routeSteps(routes) {
     return routes.reduce((count, route) => count + branchCount(route.nodes), 0);
   }
@@ -67,7 +77,10 @@ import { createRoutineNodeId } from "../../shared/project/ids";
       if (intent.output === (branch?.output || '')) return unchanged;
       if (intent.output === '') return applied(undefined, routeSteps(branch.routes));
       const output = outputs.find((item) => item.name === intent.output);
-      return output ? applied(newOutputBranch(output), routeSteps(branch?.routes || [])) : refused;
+      if (!output) return refused;
+      // An output with the same value type keeps the routes and their steps; any other is a fresh set.
+      const carried = carryBranch(branch, output);
+      return carried ? applied(carried) : applied(newOutputBranch(output), routeSteps(branch?.routes || []));
     }
     if (intent.kind === 'rebuild') {
       const output = outputs.find((item) => item.name === branch?.output);
@@ -473,7 +486,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, selectedBranch, branchOutputs, newOutputBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 

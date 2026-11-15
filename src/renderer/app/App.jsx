@@ -1931,8 +1931,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         if (intent.commandId === commandId) return { status: 'unchanged', removed: 0, current: owns() };
         const next = intent.commandId ? commands.find((command) => command.id === intent.commandId) : null;
         if (intent.commandId && !next) return refused;
-        result = { status: 'applied', removed: AUTO.routeSteps(branch?.routes || []) };
-        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next) } : null, outputBranch: undefined };
+        // A command reporting the same output with the same value type keeps the branch, its routes and their steps.
+        const carried = branch && AUTO.carryBranch(branch, AUTO.branchOutputs(next).find((output) => output.name === branch.output));
+        result = { status: 'applied', removed: carried ? 0 : AUTO.routeSteps(branch?.routes || []) };
+        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next) } : null, outputBranch: carried ? clone(carried) : undefined };
       } else {
         result = AUTO.branchEdit(branch, outputs, intent);
         patch = { outputBranch: result.branch && clone(result.branch) };

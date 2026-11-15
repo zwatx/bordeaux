@@ -10,9 +10,10 @@ import { enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE } f
 import { routinePathChoices, routinePathUses } from '../lib/routinePathChoices';
 
 // Routine run sheet: one line per step in run order, each with its share of preview time on a shared axis. Repeats and
-// branches are bounded groups; a branch's routes are lanes. A closing row states what authored control flow does next
-// (shown when it is not obvious from the group ending); those facts come from AUTO.flowSummary, never from the chosen
-// preview route. Explanations live in tooltips and the inspector. Selecting a row only changes the right inspector.
+// branches are bounded groups; a branch's routes are lanes, whose header opens that route's editor in the inspector and
+// whose radio chooses the preview route. A closing row states what authored control flow does next (shown when it is not
+// obvious from the group ending); those facts come from AUTO.flowSummary, never from the chosen preview route.
+// Explanations live in tooltips and the inspector. Selecting a row only changes the right inspector.
 const { useState, useRef, useEffect, useLayoutEffect, useMemo } = React;
 const h = React.createElement;
 const { Icon } = UI;
@@ -153,15 +154,17 @@ function listNodes(routine, ref) {
   return owner ? A.childLists(owner.node).find((list) => refKey(list.ref) === refKey(ref))?.nodes || null : null;
 }
 function insideRepeat(routine, where) {
-  if (where.afterId) return Boolean(A.locate(routine, where.afterId)?.repeatIds.length);
+  const anchorId = where.afterId || where.beforeId;
+  if (anchorId) return Boolean(A.locate(routine, anchorId)?.repeatIds.length);
   if (where.list.kind === 'root') return false;
   if (where.list.kind === 'repeat') return true;
   return Boolean(A.locate(routine, where.list.nodeId)?.repeatIds.length);
 }
+/** Where an Add lands, as the model's checked insert: after or before a step, or at the end of a list. */
 function insertOperation(routine, where, node) {
-  if (where.afterId) {
-    const at = A.locate(routine, where.afterId);
-    return at && { kind: 'insert', listRef: at.listRef, index: at.index + 1, node };
+  if (where.afterId || where.beforeId) {
+    const at = A.locate(routine, where.afterId || where.beforeId);
+    return at && { kind: 'insert', listRef: at.listRef, index: at.index + (where.afterId ? 1 : 0), node };
   }
   const nodes = listNodes(routine, where.list);
   return nodes && { kind: 'insert', listRef: where.list, index: nodes.length, node };
@@ -176,24 +179,44 @@ function nudgeOperation(routine, id, dir) {
   return owner && { kind: 'move', nodeId: id, listRef: owner.listRef, index: dir > 0 ? owner.index + 1 : owner.index };
 }
 
+/** One Add item per catalog command, built once per immutable catalog snapshot (catalogs can hold thousands). */
+const commandItemCache = new WeakMap();
+function catalogCommandItems(commands) {
+  let items = commandItemCache.get(commands);
+  if (!items) {
+    items = commands.map((command) => {
+      const inputs = (command.parameters || []).filter((parameter) => parameter.role === 'argument');
+      const outputs = A.branchOutputs(command);
+      const branches = outputs.length === 1 ? 'Can branch on ' + (outputs[0].label || outputs[0].name) : outputs.length > 1 ? 'Can branch on ' + outputs.length + ' outputs' : '';
+      return { key: 'command:' + command.id, kind: 'command', group: 'commands', command, label: command.label, icon: 'bolt', tone: 'cmd',
+        meta: [inputs.length ? plural(inputs.length, 'input') : 'No inputs', branches].filter(Boolean).join(' · '),
+        searchText: [command.id, command.member, command.description, ...(command.semanticTags || []), ...inputs.map((parameter) => parameter.label || parameter.name),
+          ...outputs.map((output) => output.label || output.name)].filter(Boolean).join(' ') };
+    });
+    commandItemCache.set(commands, items);
+  }
+  return items;
+}
+
 /**
- * Step kinds Add offers in a list: the authorable kinds the model exposes, a command-result branch per branchable
- * output, and Exit repeat only inside a repeat. Wait is always available.
+ * What Add offers in a list besides paths: every linked catalog command (bound in one pick), then the routine's own
+ * steps: Wait, Repeat, End routine, and Exit repeat only inside a repeat. Without commands to list, one unbound Command
+ * keeps the step authorable offline. Branching is set on a command afterwards, never as a separate Add item.
  * Legacy categories and generated trajectories are never offered.
  */
 export function addMenuSteps(routine, where, catalog) {
   const kinds = new Set(A.AUTHORABLE_STEPS.map((step) => step.id));
   const items = [];
-  // Only commands depend on linked robot code; Wait is a native routine instruction.
-  if (kinds.has('command')) items.push({ key: 'command', kind: 'command', label: 'Command', icon: 'bolt', tone: 'cmd', meta: catalog ? undefined : 'Needs linked robot code' });
-  if (kinds.has('wait')) items.push({ key: 'wait', kind: 'wait', label: 'Wait', icon: 'pause', tone: 'wait' });
-  (catalog?.commands || []).forEach((command) => A.branchOutputs(command).forEach((output) => items.push({
-    key: 'branch:' + command.id + ':' + output.name, kind: 'commandBranch', command, output, icon: 'branch',
-    label: 'Branch on ' + command.label + ' · ' + (output.label || output.name),
-  })));
-  if (kinds.has('repeat')) items.push({ key: 'repeat', kind: 'repeat', label: 'Repeat', icon: 'repeat' });
-  if (kinds.has('end')) items.push({ key: 'end', kind: 'end', label: 'End routine', icon: 'stop' });
-  if (kinds.has('end') && insideRepeat(routine, where)) items.push({ key: 'exit', kind: 'exit', label: 'Exit repeat', icon: 'exit' });
+  const commands = catalog?.commands || [];
+  if (kinds.has('command')) {
+    if (commands.length) items.push(...catalogCommandItems(commands));
+    else items.push({ key: 'command', kind: 'command', group: 'commands', label: 'Command', icon: 'bolt', tone: 'cmd', meta: catalog ? 'No commands in linked robot code' : 'Link robot code to list commands' });
+  }
+  // Wait is a native routine instruction; it never depends on linked robot code.
+  if (kinds.has('wait')) items.push({ key: 'wait', kind: 'wait', group: 'steps', label: 'Wait', icon: 'pause', tone: 'wait' });
+  if (kinds.has('repeat')) items.push({ key: 'repeat', kind: 'repeat', group: 'steps', label: 'Repeat', icon: 'repeat' });
+  if (kinds.has('end')) items.push({ key: 'end', kind: 'end', group: 'steps', label: 'End routine', icon: 'stop' });
+  if (kinds.has('end') && insideRepeat(routine, where)) items.push({ key: 'exit', kind: 'exit', group: 'steps', label: 'Exit repeat', icon: 'exit' });
   return items;
 }
 
@@ -294,22 +317,54 @@ function useOutside(ref, anchor, close) {
   }, [ref, anchor, close]);
 }
 
-/** Searchable Add: project paths first (the common case), then the step kinds valid in this list.
- * `pathMeta` gives each path its context line (folder, time, use here); it is searchable like the name. */
+/**
+ * Searchable Add. One search over paths, commands and steps, with a filter under it: All shows each kind as a short
+ * section (a long one ends in a row that shows the rest under its own filter); Paths, Commands and Steps list only that
+ * kind, paged. Typing searches within the active filter. `steps` holds the commands (`group: 'commands'`) and the
+ * routine's own steps; `pathMeta` gives each path its context line (folder, time, use here), searchable like the name.
+ * Tab order inside is search, then the filter; Tab past the filter, Shift+Tab before the search, or Escape closes.
+ */
 export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pathMeta }) {
+  const FILTERS = [['all', 'All'], ['paths', 'Paths'], ['commands', 'Commands'], ['steps', 'Steps']];
+  const SECTION_LIMIT = 5;
   const ref = useRef(null), input = useRef(null);
   const [query, setQuery] = useState('');
-  const pathChoices = useMemo(() => paths.map(path => ({ key: 'path:' + path.id, kind: 'path', ref: path.id, label: path.name, icon: 'route', meta: pathMeta?.get(path.id) || undefined })), [paths, pathMeta]);
+  const [filter, setFilter] = useState('all');
+  const pathChoices = useMemo(() => paths.map(path => ({ key: 'path:' + path.id, kind: 'path', group: 'paths', ref: path.id, label: path.name, icon: 'route', meta: pathMeta?.get(path.id) || undefined })), [paths, pathMeta]);
+  const commandChoices = useMemo(() => steps.filter(item => item.group === 'commands'), [steps]);
+  const stepChoices = useMemo(() => steps.filter(item => item.group !== 'commands'), [steps]);
   const pathItems = useMemo(() => filterPickerItems(pathChoices, query), [pathChoices, query]);
-  const stepItems = useMemo(() => filterPickerItems(steps, query), [steps, query]);
-  const items = useMemo(() => [...pathItems, ...stepItems], [pathItems, stepItems]);
+  const commandItems = useMemo(() => filterPickerItems(commandChoices, query), [commandChoices, query]);
+  const stepItems = useMemo(() => filterPickerItems(stepChoices, query), [stepChoices, query]);
+  // Options in display order, and the option index where each All section starts (its heading).
+  const view = useMemo(() => {
+    if (filter !== 'all') return { items: filter === 'paths' ? pathItems : filter === 'commands' ? commandItems : stepItems, headings: new Map() };
+    const items = [], headings = new Map();
+    const section = (title, matches, more) => {
+      if (!matches.length) return;
+      headings.set(items.length, title);
+      if (!more || matches.length <= SECTION_LIMIT) { items.push(...matches); return; }
+      items.push(...matches.slice(0, SECTION_LIMIT), { key: 'more:' + more, kind: 'more', filter: more, icon: 'more',
+        label: 'Show all ' + matches.length.toLocaleString() + (query.trim() ? ' matching ' : ' ') + more });
+    };
+    section('Paths', pathItems, 'paths'); section('Commands', commandItems, 'commands'); section('Steps', stepItems);
+    return { items, headings };
+  }, [filter, query, pathItems, commandItems, stepItems]);
+  const items = view.items;
   const [active, setActive] = useState(0);
   const [page, setPage] = useState(0);
   const shown = pickerPage(items, page);
   const activeVisible = active >= shown.start && active < shown.end && !items[active]?.disabled;
-  const pathCount = Math.max(0, Math.min(shown.items.length, pathItems.length - shown.start));
-  // A replacement catalog/query must not keep an old page or an active DOM id that no longer exists.
-  useEffect(() => { setActive(enabledPickerIndex(items, 0)); setPage(0); }, [items]);
+  // A new query or filter starts at the first result. Replacement items for the same search (a background catalog
+  // update) keep the highlighted item by key, so Enter never inserts something else; a vanished item falls back.
+  const prevItems = useRef(items), prevSearch = useRef(query + '\0' + filter);
+  useEffect(() => {
+    const search = query + '\0' + filter, kept = prevSearch.current === search ? prevItems.current[active]?.key : undefined;
+    prevItems.current = items; prevSearch.current = search;
+    const keep = kept === undefined ? -1 : items.findIndex((item) => item.key === kept && !item.disabled);
+    const next = keep >= 0 ? keep : enabledPickerIndex(items, 0);
+    setActive(next); setPage(next > 0 ? Math.floor(next / PICKER_PAGE_SIZE) : 0);
+  }, [items]);
   const pos = usePlacement(anchor, ref, 360, 'start');
   const placed = Boolean(pos);
   // A hidden element cannot take focus; focus once placed.
@@ -326,36 +381,61 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
     setPage(next.page); setActive(enabledPickerIndex(items, next.start, 1, false, next.end));
     input.current?.focus();
   };
+  // "Show all" switches the filter and keeps the query; anything else is the pick.
+  const choose = (item) => {
+    if (item.kind !== 'more') { onPick(item); return; }
+    setFilter(item.filter); input.current?.focus();
+  };
   const onKeyDown = (event) => {
+    const inFilter = Boolean(event.target?.closest?.('.rt-add-filter'));
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); return; }
+    if (event.key === 'Tab') { if (inFilter !== Boolean(event.shiftKey)) { event.preventDefault(); event.stopPropagation(); onClose(true); } return; }
+    if (inFilter) {
+      // The filter is one stop: Left/Right change it, Up/Down return to the results, and typing returns to the search.
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const at = FILTERS.findIndex(([id]) => id === filter), next = FILTERS[(at + (event.key === 'ArrowRight' ? 1 : -1) + FILTERS.length) % FILTERS.length][0];
+        setFilter(next); ref.current?.querySelector('[data-filter="' + next + '"]')?.focus();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); input.current?.focus(); step(event.key === 'ArrowDown' ? 1 : -1); }
+      else if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) input.current?.focus();
+      return;
+    }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); step(event.key === 'ArrowDown' ? 1 : -1); }
     else if (event.key === 'PageDown' || event.key === 'PageUp') { event.preventDefault(); goPage(shown.page + (event.key === 'PageDown' ? 1 : -1)); }
     else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); activate(enabledPickerIndex(items, event.key === 'Home' ? 0 : items.length - 1, event.key === 'Home' ? 1 : -1)); }
     // Pagination buttons retain native Enter/Space activation; the combobox must not also choose an option.
-    else if (event.key === 'Enter' && !event.target.closest?.('.rt-add-pages button')) { event.preventDefault(); const item = activeVisible && items[active]; if (item && !item.disabled && !event.repeat) onPick(item); }
-    else if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); onClose(true); }
+    else if (event.key === 'Enter' && !event.target?.closest?.('.rt-add-pages button')) { event.preventDefault(); const item = activeVisible && items[active]; if (item && !item.disabled && !event.repeat) choose(item); }
   };
   const option = (item, index) => h('div', { key: item.key, id: 'rt-add-opt-' + index, role: 'option', 'aria-selected': index === active, 'aria-disabled': item.disabled || undefined, 'aria-posinset': index + 1, 'aria-setsize': items.length,
-    className: 'rt-ch-row' + (index === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
-    onPointerMove: () => !item.disabled && setActive(index), onClick: () => !item.disabled && onPick(item) },
+    className: 'rt-ch-row' + (item.kind === 'more' ? ' more' : '') + (index === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
+    onPointerMove: () => !item.disabled && setActive(index), onClick: () => !item.disabled && choose(item) },
     h('span', { className: 'rt-ch-ic ' + (item.tone || '') }, h(Glyph, { name: item.icon, size: 15 })),
     h('span', { className: 'rt-ch-t' }, item.label),
     item.meta && h('span', { className: 'rt-ch-d' }, item.meta));
+  const rows = [];
+  shown.items.forEach((item, offset) => {
+    const index = shown.start + offset, heading = view.headings.get(index);
+    if (heading) rows.push(h('div', { key: 'section:' + heading, className: 'rt-ch-sec', role: 'presentation' }, heading));
+    rows.push(option(item, index));
+  });
+  const kinds = { all: 'path, command or step', paths: 'path', commands: 'command', steps: 'step' };
   return createPortal(h('div', { ref, className: 'rt-add-menu', role: 'dialog', 'aria-label': label, onKeyDown,
     style: pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: 'hidden' } },
     // Where the pick lands, stated before choosing it.
     dest && h('div', { className: 'rt-add-dest' }, dest),
     h('div', { className: 'rt-add-search' },
       h(Icon, { name: 'search', size: 14 }),
-      h('input', { ref: input, value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Path name or step', 'aria-label': 'Find a path or step',
+      h('input', { ref: input, value: query, onChange: (event) => setQuery(event.target.value), 'aria-label': 'Find a path or step',
+        placeholder: filter === 'all' ? 'Search paths, commands and steps' : 'Search ' + filter,
         role: 'combobox', 'aria-expanded': true, 'aria-controls': 'rt-add-list', 'aria-activedescendant': activeVisible ? 'rt-add-opt-' + active : undefined,
         'aria-describedby': shown.last > 0 ? 'rt-add-pages' : undefined, 'aria-keyshortcuts': 'ArrowUp ArrowDown PageUp PageDown Home End', spellCheck: false, autoComplete: 'off' })),
+    // Pointer presses keep focus in the search, so typing continues under the new filter.
+    h('div', { className: 'seg rt-add-filter', role: 'group', 'aria-label': 'Show', style: { '--seg-count': FILTERS.length } },
+      FILTERS.map(([id, text]) => h('button', { key: id, type: 'button', 'data-filter': id, className: 'seg-i' + (filter === id ? ' on' : ''), 'aria-pressed': filter === id,
+        tabIndex: filter === id ? 0 : -1, 'aria-keyshortcuts': 'ArrowLeft ArrowRight', onMouseDown: (event) => event.preventDefault(), onClick: () => setFilter(id) }, text))),
     items.length
-      ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': 'Paths and steps' },
-          pathCount > 0 && h('div', { className: 'rt-ch-sec', role: 'presentation' }, 'Paths'),
-          shown.items.slice(0, pathCount).map((item, index) => option(item, shown.start + index)),
-          shown.items.length > pathCount && h('div', { className: 'rt-ch-sec', role: 'presentation' }, 'Steps'),
-          shown.items.slice(pathCount).map((item, index) => option(item, shown.start + pathCount + index)))
-      : h('div', { className: 'rt-add-none' }, 'No path or step matches “' + query + '”'),
+      ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': filter === 'all' ? 'Paths, commands and steps' : FILTERS.find(([id]) => id === filter)[1] }, rows)
+      : h('div', { className: 'rt-add-none' }, query.trim() ? 'No ' + kinds[filter] + ' matches “' + query + '”' : filter === 'paths' ? 'No paths yet. Create one in Paths.' : 'Nothing to add here'),
     shown.last > 0 && h('div', { className: 'qrow rt-add-pages', id: 'rt-add-pages', role: 'group', 'aria-label': 'Result pages. Use Page Up or Page Down to change pages.' },
       h('button', { type: 'button', className: 'qbtn quiet', tabIndex: -1, disabled: shown.page === 0, 'aria-label': 'Previous results', title: 'Previous results (Page Up)', onClick: () => goPage(shown.page - 1) }, 'Previous'),
       h('span', { role: 'status', 'aria-live': 'polite', 'aria-atomic': true }, (shown.start + 1).toLocaleString() + '–' + shown.end.toLocaleString() + ' of ' + items.length.toLocaleString()),
@@ -459,13 +539,37 @@ export function RoutinePanel(props) {
     [...document.querySelectorAll('.rt-panel .rt-step')].find((row) => row.dataset.id === id)?.querySelector('.rt-step-body')?.focus();
   }));
   const run_ = (operation) => { const result = edit(operation); if (result.changed && result.focusId) focusStep(result.focusId); return result; };
+  /** After selecting a step, move focus to a control in its inspector once that inspector has rendered. */
+  const focusInspector = (id, selector, match, origin) => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const inspector = [...document.querySelectorAll('.routine-insp')].find((element) => element.dataset.stepId === id);
+    const target = inspector && (match ? [...inspector.querySelectorAll(selector)].find(match) : inspector.querySelector(selector));
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest' });
+    if (!origin) return;
+    // Escape from what was opened, or the inspector's Close, returns once to the lane that opened it. Fields, pickers
+    // and open menus keep their own Escape (cancel a draft, close a list) first.
+    const stop = () => { inspector.removeEventListener('keydown', keydown); inspector.removeEventListener('click', click, true); inspector.removeEventListener('focusout', leave); };
+    const back = () => { stop(); requestAnimationFrame(() => requestAnimationFrame(() => { if (origin.isConnected) origin.focus(); })); };
+    const keydown = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.target.closest?.('input:not([type="radio"]):not([type="checkbox"]), textarea, select, [role="combobox"], [aria-expanded="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); back();
+    };
+    const click = (event) => { if (event.target.closest?.('.ctxinsp-x')) back(); };
+    const leave = (event) => { if (!inspector.contains(event.relatedTarget)) stop(); };
+    inspector.addEventListener('keydown', keydown); inspector.addEventListener('click', click, true); inspector.addEventListener('focusout', leave);
+  }));
 
   // ---- Add ----
   const stepItems = useMemo(() => add ? addMenuSteps(routine, add.where, catalog) : [], [routine, add, catalog]);
   const openAdd = (where, anchor, label) => { setMenu(null); setAdd({ where, anchor, label }); };
   const closeAdd = (refocus) => { const anchor = add?.anchor; setAdd(null); if (refocus && anchor?.isConnected) anchor.focus(); };
   const destination = (where) => {
-    if (where.afterId) { const at = A.locate(routine, where.afterId); return at ? 'After “' + stepTitle(at.node, paths, catalog) + '”' : ''; }
+    if (where.afterId || where.beforeId) {
+      const at = A.locate(routine, where.afterId || where.beforeId);
+      return at ? (where.afterId ? 'After “' : 'Before “') + stepTitle(at.node, paths, catalog) + '”' : '';
+    }
     const ref = where.list;
     if (ref.kind === 'root') return routine.nodes.length ? 'At the end of the routine' : 'First step of the routine';
     const owner = A.locate(routine, ref.nodeId)?.node; if (!owner) return '';
@@ -474,14 +578,14 @@ export function RoutinePanel(props) {
   };
   const nodeFor = (item) => {
     if (item.kind === 'path') return A.newNode('path', null, item.ref);
-    if (item.kind === 'command') return A.newNode('function', 'command');
+    // A catalog command lands bound, with its default arguments; without a catalog it stays a placeholder to bind later.
+    if (item.kind === 'command') return item.command ? { ...A.newNode('function', 'command'), title: item.command.label,
+      invocation: { commandId: item.command.id, arguments: commandArguments(item.command) } } : A.newNode('function', 'command');
     if (item.kind === 'wait') return A.newNode('builtin', 'wait');
     if (item.kind === 'decision') return A.newNode('decision');
     if (item.kind === 'repeat') return A.newNode('repeat');
     if (item.kind === 'end') return A.newNode('end', 'routine');
     if (item.kind === 'exit') return A.newNode('end', 'repeat');
-    if (item.kind === 'commandBranch') return { ...A.newNode('function', 'command'), title: item.command.label,
-      invocation: { commandId: item.command.id, arguments: commandArguments(item.command) }, outputBranch: A.newOutputBranch(item.output) };
     return null;
   };
   const pick = (item) => {
@@ -501,10 +605,15 @@ export function RoutinePanel(props) {
     };
     const up = nudgeOperation(routine, id, -1), down = nudgeOperation(routine, id, 1);
     const ranged = range.length > 1 && range.includes(id);
+    const command = at.node.type === 'function' && at.node.cat === 'command' ? catalog?.commands?.find((item) => item.id === at.node.invocation?.commandId) : null;
+    const branchable = Boolean(at.node.outputBranch || A.branchOutputs(command).length);
     return [
       // A keyboard-reachable range action beside the row itself, not only in the range bar above the sheet.
       ...(ranged ? [option('wrapRange', 'Repeat these ' + range.length + ' steps', { kind: 'wrapRepeat', nodeIds: range })] : []),
       { key: 'add', label: 'Add step after', hint: 'A', run: () => openAdd({ afterId: id }, body, 'Add a step after this one') },
+      { key: 'addBefore', label: 'Add step before', hint: '⇧A', run: () => openAdd({ beforeId: id }, body, 'Add a step before this one') },
+      // Branching belongs to the command: this opens its inspector at the output choice.
+      ...(branchable ? [{ key: 'branch', label: at.node.outputBranch ? 'Change branch output…' : 'Branch on output…', run: () => { setRange([]); onSelect(id); focusInspector(id, '#command-branch-output'); } }] : []),
       option('wrap', 'Repeat this step', { kind: 'wrapRepeat', nodeIds: [id] }),
       ...(at.node.type === 'repeat' ? [option('unwrap', 'Remove repeat, keep steps', { kind: 'unwrapRepeat', nodeId: id })] : []),
       ...(up ? [option('up', at.index > 0 ? 'Move up' : 'Move out, above', up, '⌥↑')] : []),
@@ -557,9 +666,26 @@ export function RoutinePanel(props) {
     if (event.key === ' ') { event.stopPropagation(); return; }
     if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey) { event.preventDefault(); event.stopPropagation(); if (!event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) acq.del(node.id); return; }
     if (event.key === 'Escape' && (selId || range.length)) { event.preventDefault(); event.stopPropagation(); setRange([]); onSelect(null); return; }
+    // A adds after this step; Shift+A adds before it.
     if ((event.key === 'a' || event.key === 'A') && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      event.preventDefault(); openAdd({ afterId: node.id }, event.currentTarget, 'Add a step after this one');
+      event.preventDefault();
+      if (event.shiftKey) openAdd({ beforeId: node.id }, event.currentTarget, 'Add a step before this one');
+      else openAdd({ afterId: node.id }, event.currentTarget, 'Add a step after this one');
     }
+  };
+
+  // ---- lanes: the header opens the route's editor; its radio, reached with ArrowRight, chooses the preview route ----
+  const editRoute = (id, routeId, origin) => { setRange([]); onSelect(id); focusInspector(id, '[data-route-editor]', (element) => element.dataset.routeEditor === routeId, origin); };
+  const laneKeys = (event) => {
+    if (navKeys(event)) return;
+    if (event.key === 'ArrowRight' && !event.altKey && !event.metaKey && !event.ctrlKey) { event.preventDefault(); event.currentTarget.parentElement?.querySelector('.rt-brprev')?.focus(); }
+  };
+  // Arrows move the choice within the branch (native radios); Escape returns to the chosen lane's header.
+  const previewKeys = (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault(); event.stopPropagation();
+    const chosen = document.querySelector('input.rt-brprev[name="' + CSS.escape(event.currentTarget.name) + '"]:checked') || event.currentTarget;
+    chosen.parentElement?.querySelector('.rt-brlbl')?.focus();
   };
 
   // ---- rows ----
@@ -635,7 +761,7 @@ export function RoutinePanel(props) {
             'aria-label': (isCollapsed ? 'Expand ' : 'Collapse ') + title, onClick: () => toggleCollapse(node.id) },
             h('span', { className: 'rt-collapse-kind' }, h(Glyph, { name: glyphFor(node) })), h('span', { className: 'rt-collapse-chev' }, h(Icon, { name: 'chevron', size: 14 })))
         : h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })),
-      h('button', { className: 'rt-step-body', type: 'button', 'data-nav': 'row:' + node.id, tabIndex: stop('row:' + node.id), 'aria-pressed': sel, 'aria-keyshortcuts': readOnly ? undefined : 'Shift+F10 A Delete Alt+ArrowUp Alt+ArrowDown', 'aria-expanded': kids.length ? !isCollapsed : undefined,
+      h('button', { className: 'rt-step-body', type: 'button', 'data-nav': 'row:' + node.id, tabIndex: stop('row:' + node.id), 'aria-pressed': sel, 'aria-keyshortcuts': readOnly ? undefined : 'Shift+F10 A Shift+A Delete Alt+ArrowUp Alt+ArrowDown', 'aria-expanded': kids.length ? !isCollapsed : undefined,
         onClick: () => { setRange([]); onSelect(sel && selId === node.id ? null : node.id); },
         onKeyDown: onBodyKeyDown(node), title: isCollapsed ? undefined : info.meta },
         h('span', { className: 'rt-step-title' }, title),
@@ -698,11 +824,16 @@ export function RoutinePanel(props) {
           h('div', { className: 'rt-route' + (markHere ? ' drop-after' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
             list.ref.kind === 'fallback'
               ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-brname' }, 'Saved fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
-              : h('button', { className: 'rt-brlbl', type: 'button', 'data-nav': 'route:' + refKey(list.ref), tabIndex: stop('route:' + refKey(list.ref)), role: 'radio', 'aria-checked': Boolean(live), 'aria-label': 'Preview route ' + list.label,
-                  title: 'Preview this route', onClick: () => acq.setOutcome(node.id, routeId), onKeyDown: navKeys },
-                  h('span', { className: 'rt-brname' }, list.label),
-                  h('span', { className: 'rt-brkey' }, routeRule(node, list)),
-                  h('span', { className: 'rt-brcount' }, [live && 'Previewing', count ? plural(count, 'step') : 'Empty', outcome].filter(Boolean).join(' · ')))),
+              // Two controls per lane: the preview choice (one radio group per branch, shared with the inspector's route
+              // blocks), and the header itself, which opens this route's editor in the inspector.
+              : h(React.Fragment, null,
+                  h('input', { type: 'radio', className: 'rt-brprev rt-radio', name: 'rt-preview-' + node.id, tabIndex: -1, checked: Boolean(live), 'aria-label': 'Preview ' + list.label + ' route',
+                    title: 'Preview this route', onChange: () => acq.setOutcome(node.id, routeId), onKeyDown: previewKeys }),
+                  h('button', { className: 'rt-brlbl', type: 'button', 'data-nav': 'route:' + refKey(list.ref), tabIndex: stop('route:' + refKey(list.ref)), 'aria-keyshortcuts': 'ArrowRight',
+                    title: 'Edit this route', onClick: (event) => editRoute(node.id, routeId, event.currentTarget), onKeyDown: laneKeys },
+                    h('span', { className: 'rt-brname' }, list.label),
+                    h('span', { className: 'rt-brkey' }, routeRule(node, list)),
+                    h('span', { className: 'rt-brcount' }, [count ? plural(count, 'step') : 'Empty', outcome].filter(Boolean).join(' · '))))),
           renderList(list.nodes, list.ref, { depth: depth + 2, offPreview: offPreview || !live, readOnly: fixed, after: ctx.after, exitTo: ctx.exitTo }, 'Add step to the ' + list.label + ' route')));
       });
       body.push(closingRow(depth + 1, node.type === 'generatedTrajectory' ? { glyph: 'join', parts: ['End of the saved fallback'] } : branchClosing(kids, ctx.after, paths, catalog, flowCache)));

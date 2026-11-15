@@ -35,8 +35,13 @@ describe('routine flow closings follow authored outcomes', () => {
     expect(closings).toEqual(['Only Keep collecting continues to Return path']);
     expect(html).not.toMatch(/Both routes|rejoin/);
     // The terminal route says where it goes; the empty-or-continuing one does not pretend to stop.
-    expect(html).toMatch(/rt-brcount">Previewing · 1 step · ends routine</);
+    expect(html).toMatch(/rt-brcount">1 step · ends routine</);
     expect(html).toMatch(/rt-brcount">1 step</);
+    // The preview choice is its own radio per lane, one group per branch; the header text is never a preview claim.
+    expect(html).toMatch(/<input type="radio" class="rt-brprev rt-radio" name="rt-preview-d" tabindex="-1" aria-label="Preview Full route" title="Preview this route" checked=""/);
+    expect(html).toMatch(/<input type="radio" class="rt-brprev rt-radio" name="rt-preview-d" tabindex="-1" aria-label="Preview Keep collecting route" title="Preview this route"\/>/);
+    expect(html).not.toContain('Previewing');
+    expect(html).not.toMatch(/role="radio"/);
   });
 
   it('says no route continues when every route is terminal, and later steps stay marked unreachable', () => {
@@ -103,7 +108,8 @@ describe('routine flow insertion and empty states', () => {
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {
     const items = addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, null);
-    expect(items.find((item) => item.kind === 'command')).toMatchObject({ meta: 'Needs linked robot code' });
+    expect(items.find((item) => item.kind === 'command')).toMatchObject({ meta: 'Link robot code to list commands', group: 'commands' });
+    expect(items.find((item) => item.kind === 'command').command).toBeUndefined();
     expect(items.find((item) => item.kind === 'decision')).toBeUndefined();
     expect(items.find((item) => item.kind === 'wait').disabled).toBeFalsy();
     expect(addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, catalog).some((item) => item.kind === 'decision')).toBe(false);

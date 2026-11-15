@@ -157,6 +157,19 @@ describe('actual App command branch owner',()=>{
   h.stepHistory('redo')();expect(h.ctx.projectRef.current.routines[0]).toEqual(after);
   h.stepHistory('undo')();expect(h.ctx.projectRef.current.routines[0]).toEqual(before);
  });
+ it('keeps the branch, its routes and nested steps when the new command reports the same output and value type',()=>{
+  const h=branchHarness(),catalog=scanCatalog();
+  catalog.commands.push({id:'scan2',label:'Scan again',member:'scan2',parameters:[],outputs:[{name:'score',label:'Score',schema:{valueType:'I32',kind:'integer'},max:100}]},
+   {id:'scan3',label:'Narrow scan',member:'scan3',parameters:[],outputs:[{name:'score',label:'Score',schema:I32,max:20}]});
+  h.ctx.catalogRef.current=catalog;const before=structuredClone(h.live().outputBranch);
+  expect(h.render()('cmd',{kind:'command',commandId:'scan2'})).toMatchObject({status:'applied',removed:0});
+  expect(h.state.notice).toBeNull();expect(h.size()).toBe(1);
+  expect(h.live()).toMatchObject({title:'Scan again',invocation:{commandId:'scan2',arguments:{}}});expect(h.live().outputBranch.routes).toEqual(before.routes);
+  h.stepHistory('undo')();expect(h.live().invocation.commandId).toBe('scan');expect(h.live().outputBranch).toEqual(before);
+  // A bound that excludes a saved comparison (≥ 50 > 20) is a different output: today's removal and notice apply.
+  expect(h.render()('cmd',{kind:'command',commandId:'scan3'})).toMatchObject({status:'applied',removed:5});
+  expect(h.live().outputBranch).toBeUndefined();expect(h.state.notice.message).toBe('Command changed · 5 steps');
+ });
  it('uses the exact integer-string defaults and shows no notice when nothing was removed',()=>{
   const h=branchHarness({...commandNode(),invocation:{commandId:'aim',arguments:{turns:3}},outputBranch:undefined});
   expect(h.render()('cmd',{kind:'command',commandId:'scan'})).toMatchObject({status:'applied',removed:0});

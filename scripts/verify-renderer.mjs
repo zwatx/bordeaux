@@ -31,7 +31,9 @@ import path from "node:path";
 // Command search indexes and bounded Add result pages add 2 KiB.
 // Directed headings, Focus recovery, routine seeking/path context and notice fixes measure 789,156 B.
 // The independent UI review accepted this bounded increment; every application chunk stays counted.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 772 * 1024;
+// The routine Add filter, one-pick catalog commands, lane route focus/preview radios, insert-before and
+// compatible-branch carry add 4,683 B (measured against HEAD at 789,213 B).
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 777 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -44,7 +46,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
-const CSS_BUDGET_BYTES = 155 * 1024;
+// The routine Add filter, preview radios and the current route block add 1,082 B.
+const CSS_BUDGET_BYTES = 157 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

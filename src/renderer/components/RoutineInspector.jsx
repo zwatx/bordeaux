@@ -134,12 +134,11 @@ export function StepInspector(props) {
   const remove = (label) => h('button', { className: 'delbtn', type: 'button', ...deletionInput(() => acq.del(node.id)) }, h(Icon, { name: 'trash', size: 15 }), label);
   const deployment = A.nodeDeploymentState(node, catalog);
   // The local-only boundary and preview assumptions are stated once, in the workspace header, not per step.
-  let glyph = 'info', title = 'Step', tone = null, body = null, tag = null;
+  let title = 'Step', body = null, tag = null;
   // Steps inside a generated trajectory's fallback are retained as authored and cannot be edited or removed here.
   if (A.locate(routine, node.id)?.readOnly) {
-    return h('div', { className: 'ctxinsp inspector-refresh routine-insp' },
+    return h('div', { className: 'ctxinsp inspector-refresh routine-insp', 'data-step-id': node.id },
       h('div', { className: 'ctxinsp-hd' },
-        h('span', { className: 'ctxinsp-ic' }, h(Glyph, { name: 'info', size: 15 })),
         h('span', { className: 'ctxinsp-t', title: stepTitle(node, paths, catalog) }, stepTitle(node, paths, catalog)),
         h('span', { className: 'ctxinsp-tag' }, 'Read-only'),
         h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
@@ -147,7 +146,7 @@ export function StepInspector(props) {
   }
 
   if (node.type === 'path') {
-    glyph = 'route'; title = 'Path';
+    title = 'Path';
     // The chosen path reads as a card; Change opens the searchable list with each path's folder, time and use here.
     // A deleted path has no card, so the list stays open beside the problem until another path is chosen.
     const choices = routinePathChoices(paths, { folders: props.pathFolders, times: props.pathTimes, uses: routinePathUses(routine) });
@@ -164,7 +163,7 @@ export function StepInspector(props) {
       remove('Remove from routine'));
 
   } else if (node.type === 'builtin' && node.builtinId === 'bordeaux.wait') {
-    glyph = 'pause'; title = 'Wait'; tone = 'wait';
+    title = 'Wait';
     body = h(React.Fragment, null,
       h(CommandParameterEditor, { key: node.id, id: 'routine-wait-' + safeControlId(node.id), label: 'Wait duration in seconds',
         schema: { kind: 'number' }, parameter: SECONDS, value: node.arguments && node.arguments.durationS,
@@ -173,17 +172,17 @@ export function StepInspector(props) {
       remove('Delete wait'));
 
   } else if (node.type === 'decision') {
-    glyph = 'branch'; title = 'Saved condition branch'; tag = 'Legacy';
+    title = 'Saved condition branch'; tag = 'Legacy';
     body = h(React.Fragment, null,
       Hint('Saved condition: ' + (node.cond || '(unselected)') + '. Routes kept. Use command outputs for new decisions.'),
       h('div', { className: 'rt-route-names' },
-        h('div', null, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
-        h('div', null, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
+        h('div', { 'data-route-editor': 'then', tabIndex: -1 }, FieldLabel('When true'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the true route', value: node.thenLabel, owner: node.id + ':then', spellCheck: false, onCommit: (thenLabel) => thenLabel.trim() && thenLabel.trim() !== node.thenLabel && set({ thenLabel: thenLabel.trim() }) })),
+        h('div', { 'data-route-editor': 'else', tabIndex: -1 }, FieldLabel('When false'), h(DraftText, { className: 'textinput', 'aria-label': 'Name of the false route', value: node.elseLabel, owner: node.id + ':else', spellCheck: false, onCommit: (elseLabel) => elseLabel.trim() && elseLabel.trim() !== node.elseLabel && set({ elseLabel: elseLabel.trim() }) }))),
       // The preview route is chosen on the route lanes in the flow, beside the steps it plays.
       remove('Delete branch'));
 
   } else if (node.type === 'repeat') {
-    glyph = 'repeat'; title = 'Repeat';
+    title = 'Repeat';
     const dynamic = node.times === undefined, previewLimit = node.times ?? 50;
     const passes = Math.min(previewLimit, acq.passes?.[node.id] ?? 1);
     body = h(React.Fragment, null,
@@ -210,30 +209,32 @@ export function StepInspector(props) {
 
   } else if (node.type === 'end') {
     if (node.scope === 'repeat') {
-      glyph = 'exit'; title = 'Exit repeat';
+      title = 'Exit repeat';
       const repeat = A.locate(routine, A.locate(routine, node.id)?.repeatIds.at(-1))?.node;
       body = h(React.Fragment, null, repeat && Hint('Leaves “' + stepTitle(repeat, paths, catalog) + '”. Later steps in this pass never run.'), remove('Delete exit'));
     } else {
-      glyph = 'stop'; title = 'End routine';
+      title = 'End routine';
       body = h(React.Fragment, null, Hint('Ends the routine here. Later steps never run.'), remove('Delete end'));
     }
 
   } else if (node.type === 'generatedTrajectory') {
     // A saved definition only: it cannot be added, generated on the desktop, or delivered to a robot runner today.
-    glyph = 'route'; title = deployment.label || 'Generated trajectory'; tone = 'bad'; tag = 'Not supported';
+    title = deployment.label || 'Generated trajectory'; tag = 'Not supported';
     body = h(React.Fragment, null,
       Hint('Saved runtime path. Preview and robot execution are unavailable.'),
       Hint('Saved fallback: ' + (node.fallback && node.fallback.type === 'branch' ? 'static steps, kept as saved and not checked (read-only)' : 'safe stop')),
       remove('Remove generated trajectory'));
 
   } else if (node.type === 'function' && node.cat === 'command') {
-    glyph = 'bolt'; title = 'Command'; tone = 'cmd';
+    title = 'Command';
     const commands = catalog ? catalog.commands || [] : [];
     const invocationId = node.invocation && node.invocation.commandId || '';
     const selected = commands.find((command) => command.id === invocationId);
     const parameters = selected ? (selected.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
     const saved = node.invocation && node.invocation.arguments || {};
     const branchSteps = A.routeSteps(node.outputBranch?.routes || []);
+    // A command reporting the same output with the same value type keeps the routes; the note names that output.
+    const branchOutput = node.outputBranch && (A.branchOutputs(selected).find((output) => output.name === node.outputBranch.output)?.label || node.outputBranch.output);
     const argumentsValue = selected ? Object.fromEntries(parameters.map((parameter) => {
       const value = Object.prototype.hasOwnProperty.call(saved, parameter.name) ? saved[parameter.name] : undefined;
       return [parameter.name, parameterValueError(value, parameter) ? commandArguments(selected)[parameter.name] : value];
@@ -245,7 +246,7 @@ export function StepInspector(props) {
               value: command.id, label: command.label, meta: (command.parameters || []).filter((parameter) => parameter.role === 'argument').map((parameter) => parameter.label || parameter.name).join(', ') || command.member,
               searchText: command.id + ' ' + command.member,
             }))], placeholder: 'Search commands', emptyText: 'No commands found in this project', icon: 'bolt',
-            note: branchSteps ? 'Another command removes ' + plural(branchSteps, 'branch step') + '.' : undefined,
+            note: branchSteps ? 'A command without a matching “' + branchOutput + '” output removes ' + plural(branchSteps, 'branch step') + '.' : undefined,
             onChoose: (value) => acq.branch(node.id, value === invocationId ? { kind: 'keep' } : { kind: 'command', commandId: value }) })
         // Without linked robot code there is no catalog to choose from; the saved command stays as authored.
         : h(React.Fragment, null,
@@ -271,7 +272,7 @@ export function StepInspector(props) {
 
   } else {
     // Retained legacy or unknown data: shown and removable, never reinterpreted as new control flow.
-    title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step'; tone = 'bad'; tag = 'Legacy — cannot deploy';
+    title = deployment.legacy ? (deployment.label || 'Legacy step') : 'Unsupported step'; tag = 'Legacy — cannot deploy';
     body = h(React.Fragment, null,
       Hint('Saved by an earlier Bordeaux format. ' + (node.cat === 'generate' && node.preview
         ? 'Plays the saved preview path. Runtime generation is unavailable.'
@@ -279,9 +280,9 @@ export function StepInspector(props) {
       remove('Remove unsupported step'));
   }
 
-  return h('div', { className: 'ctxinsp inspector-refresh routine-insp' },
+  // `data-step-id` lets the flow send focus here (a lane header opens its route; Branch on output opens the output choice).
+  return h('div', { className: 'ctxinsp inspector-refresh routine-insp', 'data-step-id': node.id },
     h('div', { className: 'ctxinsp-hd' },
-      h('span', { className: 'ctxinsp-ic' + (tone ? ' ' + tone : '') }, h(Glyph, { name: glyph, size: 15 })),
       h('span', { className: 'ctxinsp-t', title }, title),
       tag && h('span', { className: 'ctxinsp-tag' }, tag),
       h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),

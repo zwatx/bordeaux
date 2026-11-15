@@ -25,6 +25,25 @@ describe('checked command branch edits', () => {
     expect(AUTO.branchEdit(branch, [], { kind: 'output', output: '' })).toEqual({ status: 'applied', removed: 4, branch: undefined });
     expect(AUTO.branchEdit(undefined, [], { kind: 'output', output: '' }).status).toBe('unchanged');
   });
+  it('moves the routes, names and nested steps onto another output only when its value type and bounds admit them', () => {
+    const branch = populated(), before = structuredClone(branch);
+    const twin = { name: 'other', label: 'Other', schema: { kind: 'integer', valueType: 'I32' } };
+    const result = AUTO.branchEdit(branch, [twin], { kind: 'output', output: 'other' });
+    expect(result).toMatchObject({ status: 'applied', removed: 0 });
+    expect(result.branch.output).toBe('other'); expect(result.branch.routes).toEqual(branch.routes);
+    expect(branch).toEqual(before);
+    // Key order alone is not a type change.
+    expect(AUTO.carryBranch(branch, { ...twin, schema: { valueType: 'I32', kind: 'integer' } })?.routes).toBe(branch.routes);
+    // A bound that excludes a saved comparison, or another value type, starts a fresh set and counts what it removes.
+    expect(AUTO.branchEdit(branch, [{ ...twin, max: -1 }], { kind: 'output', output: 'other' })).toMatchObject({ status: 'applied', removed: 4 });
+    expect(AUTO.carryBranch(branch, { ...twin, schema: { kind: 'integerString', valueType: 'I64' } })).toBeNull();
+    expect(AUTO.carryBranch(undefined, twin)).toBeNull();
+    expect(AUTO.carryBranch(branch, undefined)).toBeNull();
+    const yes = AUTO.newOutputBranch({ name: 'ready', schema: { kind: 'boolean', valueType: 'Boolean' } });
+    yes.routes[0].nodes = [{ id: 'kept', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } }];
+    const moved = AUTO.branchEdit(yes, [{ name: 'done', schema: { kind: 'boolean', valueType: 'Boolean' } }], { kind: 'output', output: 'done' });
+    expect(moved).toMatchObject({ status: 'applied', removed: 0 }); expect(moved.branch.routes[0].nodes[0].id).toBe('kept');
+  });
   it('preserves unavailable saved output data until an explicit supported replacement', () => {
     const branch = populated();
     expect(AUTO.branchEdit(branch, [], { kind: 'output', output: branch.output }).status).toBe('unchanged');

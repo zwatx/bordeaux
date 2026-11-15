@@ -14,9 +14,15 @@ const operators = [
 const steps = (count, noun = 'step') => count + ' ' + noun + (count === 1 ? '' : 's');
 const MODAL = 'dialog:modal,[role="dialog"][aria-modal="true"]';
 
-/** Edits go to the routine owner as intents with stable IDs; a replacement says what it removes before it is chosen. */
+/**
+ * "After this command": the one place a command's branch is created, changed and configured. Edits go to the routine
+ * owner as intents with stable IDs; a replacement says what it removes (or that it keeps the routes) before it is chosen.
+ * Each route block is the editor a flow lane header opens, and carries the same preview choice as the lanes.
+ */
 export function CommandBranches({ node, command, acq }) {
   const sectionRef = React.useRef(null);
+  // The route being edited: set by focus within its block, including focus sent from its lane header in the flow.
+  const [openRoute, setOpenRoute] = React.useState(null);
   const branch = node.outputBranch;
   const outputs = AUTO.branchOutputs(command);
   const current = outputs.find((output) => output.name === branch?.output);
@@ -38,16 +44,19 @@ export function CommandBranches({ node, command, acq }) {
     });
   };
   const numeric = branch && !['boolean', 'enum'].includes(branch.schema.kind);
+  const previewing = branch && AUTO.selectedBranch(node, acq.outcomes)?.id;
   const patchRoute = (routeId, patch) => edit({ kind: 'patchRoute', routeId, patch });
-  return h('section', { ref: sectionRef, className: 'command-branches', 'aria-label': 'Command output branches' },
-    h('div', { className: 'fieldlabel' }, 'After command completes'),
+  return h('section', { ref: sectionRef, className: 'rt-insp-sec command-branches', 'aria-label': 'After this command' },
+    h('h3', { className: 'cgroup-h' }, 'After this command'),
     h(Dropdown, { id: 'command-branch-output', label: 'Branch on output', value: branch?.output || '',
       items: [{ value: '', label: 'Continue to next step', meta: branch && total ? 'Removes ' + steps(total, 'branch step') : undefined },
         ...(branch && !current ? [{ value: branch.output, label: branch.output, meta: 'Output unavailable — sync commands or choose another output', badge: 'Missing' }] : []),
         ...outputs.map((output) => {
           const kind = output.schema.kind === 'enum' ? 'Named outcomes' : output.schema.kind;
+          // An output with the same value type takes the routes as they are; any other starts fresh.
+          const other = output.name !== branch?.output, keeps = other && total && AUTO.carryBranch(branch, output);
           return { value: output.name, label: output.label || output.name,
-            meta: output.name !== branch?.output ? kind + removes : changed && total ? 'Type changed' + removes : kind };
+            meta: keeps ? kind + ' · keeps routes' : other ? kind + removes : changed && total ? 'Type changed' + removes : kind };
         })],
       onChoose: choose }),
     !branch && !outputs.length && h('p', { className: 'seg-hint' }, 'Sync a command with outputs to add branches.'),
@@ -56,7 +65,7 @@ export function CommandBranches({ node, command, acq }) {
         changed ? 'This output’s type changed. Rebuild its routes before using it.' : 'Output missing. Saved routes are kept.',
         changed && h('button', { type: 'button', className: 'rt-openbtn',
           ...deletionInput(() => replaceThen({ kind: 'rebuild' }, (section) => section.querySelector('#command-branch-output'))) }, 'Rebuild routes' + removes)),
-      h('p', { className: 'seg-hint' }, (numeric ? 'First match wins, top to bottom. ' : '') + 'Routes rejoin at the next step. Preview only.'),
+      h('p', { className: 'seg-hint' }, (numeric ? 'First match wins, top to bottom. ' : '') + 'Routes rejoin at the next step. The checked route plays in the preview.'),
       // Each route is one group: its condition and actions on the header row, then its name, comparison and value.
       branch.routes.map((route, index) => {
         const count = AUTO.branchCount(route.nodes), contents = count ? ' and its ' + steps(count) : '';
@@ -66,8 +75,13 @@ export function CommandBranches({ node, command, acq }) {
           return [branch.routes[index + 1], branch.routes[index - 1]].map((neighbor) => buttons.find((button) => neighbor && button.dataset.routeRemove === neighbor.id))
             .find((button) => button && !button.disabled) || section.querySelector('.command-branch-add');
         };
-        return h('div', { key: route.id, className: 'command-branch-route', role: 'group', 'aria-label': 'Route ' + (index + 1) },
-          h('div', { className: 'command-branch-head' }, h('strong', null, 'Route ' + (index + 1)), h('span', null, AUTO.routeSummary(route) + (count ? ' · ' + steps(count) : '')),
+        return h('div', { key: route.id, className: 'command-branch-route' + (openRoute === route.id ? ' current' : ''), role: 'group', 'aria-label': 'Route ' + (index + 1),
+          'aria-current': openRoute === route.id || undefined, 'data-route-editor': route.id, tabIndex: -1, onFocus: () => setOpenRoute(route.id) },
+          h('div', { className: 'command-branch-head' },
+            // The same preview radio as the route's lane in the flow, in the same place: before its name.
+            h('input', { type: 'radio', className: 'rt-radio', name: 'command-preview-' + node.id, checked: previewing === route.id, title: 'Preview this route',
+              'aria-label': 'Preview ' + (route.label || 'route ' + (index + 1)) + ' route', onChange: () => acq.setOutcome(node.id, route.id) }),
+            h('strong', null, 'Route ' + (index + 1)), h('span', null, AUTO.routeSummary(route) + (count ? ' · ' + steps(count) : '')),
             numeric && route.operator !== 'otherwise' && h(React.Fragment, null,
               h('button', { type: 'button', className: 'rt-tool', title: 'Check earlier', 'aria-label': 'Check route ' + (index + 1) + ' earlier', disabled: index === 0,
                 onClick: () => edit({ kind: 'routeEarlier', routeId: route.id }) }, '↑'),
@@ -85,8 +99,5 @@ export function CommandBranches({ node, command, acq }) {
               value: route.value, parameter: current && !changed ? current : {}, onChange: (value) => patchRoute(route.id, { value }) })));
       }),
       numeric && h('button', { type: 'button', className: 'rt-openbtn command-branch-add', disabled: branch.routes.length >= 256,
-        onClick: () => edit({ kind: 'addComparison' }) }, 'Add comparison'),
-      h(Dropdown, { id: 'command-preview-route', label: 'Preview route', value: AUTO.selectedBranch(node, acq.outcomes)?.id,
-        items: branch.routes.map((route) => ({ value: route.id, label: route.label || AUTO.routeSummary(route), meta: AUTO.routeSummary(route) })),
-        onChange: (id) => acq.setOutcome(node.id, id) })));
+        onClick: () => edit({ kind: 'addComparison' }) }, 'Add comparison')));
 }
