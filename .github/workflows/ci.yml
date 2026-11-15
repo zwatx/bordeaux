@@ -61,6 +61,7 @@ jobs:
             checks: |
               scripts/verify-planning-recovery-ui.mjs
               scripts/verify-range-limits-ui.mjs
+              scripts/verify-timeline-commands-ui.mjs
               scripts/verify-optimizer-ui.mjs
               scripts/verify-interface-ui.mjs
               scripts/verify-interface-workflows.mjs
@@ -96,6 +97,7 @@ jobs:
       BORDEAUX_ROTATION_FOCUS_UI_OUTPUT: .ui-artifacts/rotation-focus
       BORDEAUX_ROUTINE_SCRUBBER_UI_OUTPUT: .ui-artifacts/routine-scrubber
       BORDEAUX_NOTIFICATION_UI_OUTPUT: .ui-artifacts/notifications
+      BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT: .ui-artifacts/timeline-commands
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install

@@ -4,7 +4,7 @@ import { PointerDrag } from '../hooks/usePointerDrag';
 import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
 import { UnitPrefs } from '../lib/unitPreferences';
-import { fAtT, featureFraction, featurePositionPatch, groupCommandChips, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
+import { commandExtent, fAtT, featureFraction, featurePositionPatch, labelWidth as textWidth, layoutCommandLane, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
 
@@ -14,7 +14,9 @@ import { UI } from './ui';
 
 const h = React.createElement;
 const { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
-const GUTTER = 78, RIGHT = 14, HEAD_ROW = 42, RULER = 20, WPROW = 28, LANE = 52, CHIP_H = 21;
+const GUTTER = 78, RIGHT = 14, HEAD_ROW = 42, RULER = 20, WPROW = 28, CHIP_H = 21, CHIP_ROW = CHIP_H + 2;
+// Chip widths around the name: padding, diamond and gap; a group's mode glyph and a loop's glyph add their own.
+const CHIP_FRAME = 28, CHIP_GLYPH = 15, CHIP_MAX = 168;
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '–';
 const speed = (value) => UnitPrefs.fromCanonical(value, 'm/s');
@@ -25,22 +27,50 @@ const SERIES = {
   curvature: { key: 'k', unit: '1/m', label: 'Curve', signed: false },
 };
 
-let measureContext = null;
-function textWidth(text) {
-  if (!measureContext && typeof document !== 'undefined') measureContext = document.createElement('canvas').getContext('2d');
-  if (!measureContext) return text.length * 6.5;
-  measureContext.font = '11.5px "Space Grotesk", system-ui, sans-serif';
-  return measureContext.measureText(text).width;
-}
+const invocationLabel = (id, catalog) => (id && catalog?.commands?.find((candidate) => candidate.id === id)?.label) || 'Command';
+const groupCommands = (marker) => Array.isArray(marker?.commandGroup?.commands) ? marker.commandGroup.commands.filter(Boolean) : null;
 
-/** The name a person gave the command; a default "eventN" name gives way to the linked command's label. */
+/**
+ * The name a person gave the command; a default "eventN" name gives way to the linked command's label, or
+ * for a group to its first command's label and how many others run with it ("Intake + 2").
+ */
 export function commandLabel(marker, catalog) {
   const name = String(marker?.name || '').trim();
   if (name && !/^event\d+$/.test(name)) return name;
-  const id = marker?.invocation?.commandId || (marker?.cmd && marker.cmd !== 'none' ? marker.cmd : '');
-  const command = id && catalog?.commands?.find((candidate) => candidate.id === id);
-  return command?.label || 'Command';
+  const group = groupCommands(marker);
+  if (group) return invocationLabel(group[0]?.commandId, catalog) + (group.length > 1 ? ' + ' + (group.length - 1) : '');
+  return invocationLabel(marker?.invocation?.commandId || (marker?.cmd && marker.cmd !== 'none' ? marker.cmd : ''), catalog);
 }
+
+/** A loop's limit in words, with distances in the display units. */
+export function loopText(loop) {
+  const until = loop?.until;
+  if (!until) return '';
+  if (until.kind === 'time') return 'loops for ' + Number(until.seconds).toFixed(2) + ' s';
+  if (until.kind === 'distance') return 'loops for ' + UnitPrefs.format(until.meters, 'm', 2);
+  if (until.kind === 'pathEnd') return 'loops until the path ends';
+  return 'loops until its output condition';
+}
+
+/** What the chip says beyond its name: group mode and members, loops and fixed-interval repeats. */
+export function commandDetails(marker, catalog) {
+  const group = groupCommands(marker);
+  const mode = group ? (marker.commandGroup.mode === 'parallel' ? 'parallel' : 'sequential') : null;
+  const loops = (group || [marker?.invocation]).filter((command) => command?.loop);
+  const every = marker?.schedule?.repeatEveryS > 0 ? marker.schedule.repeatEveryS : 0;
+  const repeat = every ? 'repeats every ' + fmt(every) + ' s' + (Number.isFinite(marker.schedule.endTimeS) ? ' until ' + fmt(marker.schedule.endTimeS) + ' s' : '') : '';
+  const summary = [mode && mode + ' group of ' + group.length, !group && loops[0] && loopText(loops[0].loop), group && loops.length > 0 && (loops.length === 1 ? '1 command loops' : loops.length + ' commands loop'), repeat]
+    .filter(Boolean).join(', ');
+  const lines = group ? group.map((command) => '• ' + invocationLabel(command.commandId, catalog) + (command.loop ? ' (' + loopText(command.loop) + ')' : '')) : [];
+  return { mode, loops: loops.length > 0, repeat: Boolean(every), summary, lines };
+}
+
+// Small line glyphs for a group's mode: two lanes side by side (parallel) or one after another (sequential).
+export const MODE_GLYPH = { parallel: 'M2 4.5h8 M2 7.5h8', sequential: 'M1.5 6h3.5 M7 6h3.5 M9 4l1.5 2-1.5 2' };
+export function ChipGlyph({ d, className }) {
+  return h('svg', { className, width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': true, focusable: false, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d }));
+}
+export const LOOP_GLYPH = 'M9.6 4.6A4 4 0 1 0 10 7 M10 2v2.8H7.2';
 
 function usePlayback(store) {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -95,7 +125,7 @@ export function PathHoverReadout({ store, context, tl, metric }) {
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
-function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneGhost = true }) {
+function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneH, laneGhost = true }) {
   const hover = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   if (!context.eligible || hover?.context !== context) return null;
   const times = hover.source === 'timeline' ? [hover.t] : hover.f.map(f => tAtF(tl, f));
@@ -103,7 +133,7 @@ function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneGho
   return h('div', { className: 'pt-hover-overlay', 'aria-hidden': true },
     h('svg', { className: 'pt-svg', width: '100%', height: '100%' }, times.map((t, i) =>
       h('line', { key: i, x1: x(t), x2: x(t), y1: HEAD + RULER, y2: graphBottom, className: 'pt-hoverline', opacity: i === primary ? 1 : .55 }))),
-    hover.source === 'timeline' && laneGhost && h('span', { className: 'pt-lane-ghost', style: { left: x(hover.t), top: laneTop + (LANE - 6) / 2 } }, '+'));
+    hover.source === 'timeline' && laneGhost && h('span', { className: 'pt-lane-ghost', style: { left: x(hover.t), top: laneTop + laneH / 2 } }, '+'));
 }
 
 /** Why a waypoint cannot be added at a time, in the panel's words. */
@@ -172,7 +202,31 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const HEAD = narrow ? 112 : compact ? 78 : HEAD_ROW;
   const plotW = Math.max(50, W - GUTTER - RIGHT);
   const graphTop = HEAD + RULER + 4;
-  const laneTop = H - LANE - 2;
+  const x = (t) => GUTTER + (clamp(t, 0, T) / T) * plotW;
+  const tAtX = (px) => clamp(((px - GUTTER) / plotW) * T, 0, T);
+  const markers = doc.markers || [];
+
+  // Each command is a diamond exactly at its time with its name beside it, facing into the lane so no name is
+  // clipped at either end. Crowded commands take more rows (the lane grows to a third row only while the graph
+  // keeps its height) and shorten their names; the full name, group members and loops stay in the accessible
+  // label and tooltip. What still has no room becomes one "+N" chip, opened to choose a command.
+  const maxRows = H - (3 * CHIP_ROW + 8) - WPROW - 2 - graphTop >= 72 ? 3 : 2;
+  const lane = useMemo(() => {
+    const items = markers.map((marker, index) => {
+      const timedMarker = derived?.markers?.find?.((item) => item.id === marker.id);
+      const t = timedMarker && Number.isFinite(timedMarker.timeS) && !frozenT ? timedMarker.timeS : tAtF(tl, featureFraction(marker, derived));
+      const label = commandLabel(marker, catalog), details = commandDetails(marker, catalog);
+      const extent = commandExtent(marker, t, tl, derived);
+      const extra = (details.mode ? CHIP_GLYPH : 0) + (details.loops ? CHIP_GLYPH : 0);
+      return { marker, index, t, label, details, extent, endT: extent?.t, w: Math.min(CHIP_MAX, Math.ceil(textWidth(label)) + CHIP_FRAME + extra), minW: 46 + extra };
+    }).sort((a, b) => a.t - b.t);
+    return layoutCommandLane(items, { x, left: GUTTER - 10, right: W - 4, rows: maxRows,
+      stackWidth: (count) => Math.ceil(textWidth('+' + count)) + 40 });
+  }, [markers, derived, tl, T, W, catalog, frozenT, maxRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chips = lane.chips.map((chip) => chip.stack ? { ...chip, key: chip.members.map((member) => member.marker.id || member.index).join('|') } : chip);
+  const laneRows = Math.max(2, Math.min(maxRows, lane.rows));
+  const laneH = laneRows * CHIP_ROW;
+  const laneTop = H - laneH - 8;
   const wpTop = laneTop - WPROW;
   const graphBottom = wpTop - 2;
   const graphH = Math.max(24, graphBottom - graphTop);
@@ -186,8 +240,6 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const vStep = niceStep(span, Math.max(1, Math.min(10, graphH / (series?.signed ? 52 : 26))));
   const vTop = Math.max(vStep, Math.ceil(span / vStep - 1e-9) * vStep);
   const vLow = series?.signed ? -vTop : 0;
-  const x = (t) => GUTTER + (clamp(t, 0, T) / T) * plotW;
-  const tAtX = (px) => clamp(((px - GUTTER) / plotW) * T, 0, T);
   const yDisplay = (value) => graphBottom - ((clamp(value, vLow, vTop) - vLow) / (vTop - vLow)) * graphH;
   const y = (v) => yDisplay(speed(v));
   const vAtY = (py) => UnitPrefs.toCanonical(((graphBottom - py) / graphH) * vTop, 'm/s');
@@ -196,7 +248,6 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   // Drawn start to end; `ends` maps each drawn edge back to the authored end it moves.
   const zones = zoneFractions(doc, derived).map((range, index) => ({ ...(doc.ranges || [])[index], f0: Math.min(range.f0, range.f1), f1: Math.max(range.f0, range.f1),
     ends: range.f0 <= range.f1 ? [0, 1] : [1, 0], index }));
-  const markers = doc.markers || [];
   const waypoints = doc.waypoints || [];
   const wpT = (k) => tAtF(tl, tl.wpFrac[k] ?? (k / Math.max(1, waypoints.length - 1)));
 
@@ -226,31 +277,6 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const tTicks = Array.from({ length: Math.min(60, Math.floor(T / tStep + 1e-6) + 1) }, (_, i) => Number((i * tStep).toFixed(4)));
   const vTicks = Array.from({ length: Math.min(30, Math.round((vTop - vLow) / vStep) + 1) }, (_, i) => Number((vLow + i * vStep).toFixed(4)));
 
-  // Chips in two rows, in time order. A chip that would run into the next one in its row is shortened,
-  // down to its diamond; the full name stays in its accessible label, tooltip and the panel. Three or more
-  // commands that crowd one place at this zoom become one stack chip with a count, opened to choose one.
-  const chips = useMemo(() => {
-    const placed = markers.map((marker, index) => {
-      const timed = derived?.markers?.find?.((item) => item.id === marker.id);
-      const t = timed && Number.isFinite(timed.timeS) && !frozenT ? timed.timeS : tAtF(tl, featureFraction(marker, derived));
-      return { marker, index, t, label: commandLabel(marker, catalog) };
-    }).sort((a, b) => a.t - b.t);
-    const items = groupCommandChips(placed, x).map((members) => members.length === 1 ? members[0]
-      : { stack: true, members, t: members[0].t, key: members.map((chip) => chip.marker.id || chip.index).join('|'),
-        label: members.length + ' commands', minW: 38 + 7 * String(members.length).length });
-    const last = [null, null];
-    const end = (chip) => chip ? chip.left + chip.w : -Infinity;
-    items.forEach((chip) => {
-      chip.left = x(chip.t) - 9;
-      chip.w = chip.stack ? Math.min(160, Math.ceil(textWidth(chip.label)) + chip.minW - 4) : Math.min(160, Math.ceil(textWidth(chip.label)) + 28);
-      chip.row = end(last[0]) <= chip.left - 3 ? 0 : end(last[1]) <= chip.left - 3 ? 1 : end(last[0]) <= end(last[1]) ? 0 : 1;
-      const previous = last[chip.row];
-      if (previous && end(previous) > chip.left - 3) previous.w = Math.max(previous.minW || 22, chip.left - 3 - previous.left);
-      last[chip.row] = chip;
-    });
-    items.forEach((chip) => { chip.w = Math.max(chip.minW || 22, Math.min(chip.w, W - 4 - chip.left)); });
-    return items;
-  }, [markers, derived, tl, T, W, catalog, frozenT]); // eslint-disable-line react-hooks/exhaustive-deps
   const [openStack, setOpenStack] = useState(null);
   const stackRefs = useRef(new Map());
   const shownStack = openStack && chips.find((chip) => chip.stack && chip.key === openStack);
@@ -520,8 +546,8 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
         onPointerDown: (event) => event.stopPropagation(), onClick: () => select('wp', k) }, h('span', null, k === 0 || k === n - 1 ? '' : k));
     }),
 
-    h('div', { className: 'pt-gutter', style: { top: laneTop, height: LANE - 6 } }, 'Commands'),
-    h('div', { className: 'pt-lane', style: { left: GUTTER, width: plotW, top: laneTop, height: LANE - 6 }, role: 'button', tabIndex: 0, 'aria-label': 'Add command at the playhead',
+    h('div', { className: 'pt-gutter', style: { top: laneTop, height: laneH } }, 'Commands'),
+    h('div', { className: 'pt-lane', style: { left: GUTTER, width: plotW, top: laneTop, height: laneH }, role: 'button', tabIndex: 0, 'aria-label': 'Add command at the playhead',
       onPointerDown: (event) => { if (event.target === event.currentTarget) event.stopPropagation(); },
       onClick: (event) => { if (event.target === event.currentTarget) actions.addMarkerAt(null, fAtT(tl, tAtX(local(event).x))); },
       onKeyDown: (event) => {
@@ -530,14 +556,22 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
         // A held key places one command; its repeats reach the lane until the new command's search takes focus.
         if (!event.repeat) actions.addMarkerAt(null, fAtT(tl, clamp(playbackStore.getSnapshot().time, 0, T)));
       } }),
+    // How long looping and repeating commands run: an underline from the diamond to the limit, along the bottom of
+    // the chip's row, drawn over the chip so even a short loop shows.
+    chips.map((chip) => !chip.stack && chip.endX > chip.x + 1 && h('span', { key: 'x' + (chip.marker.id || chip.index), 'aria-hidden': true,
+      className: 'pt-extent ' + chip.extent.kind + (chip.extent.open ? ' open' : '') + (sel.kind === 'em' && sel.idx === chip.index ? ' selected' : ''),
+      style: { left: chip.x, width: chip.endX - chip.x, top: laneTop + 1 + chip.row * CHIP_ROW + CHIP_H - 2,
+        ...(chip.extent.every ? { '--every': Math.max(4, (chip.extent.every / T) * plotW) + 'px' } : {}) } })),
     chips.map((chip) => {
+      const top = laneTop + 1 + chip.row * CHIP_ROW;
+      const side = chip.dir === 'left' ? ' left' : '';
       if (chip.stack) {
         const chosen = sel.kind === 'em' ? chip.members.find((member) => member.index === sel.idx) : null;
         const open = shownStack === chip;
         return h('button', { key: chip.key, ref: (node) => { if (node) stackRefs.current.set(chip.key, node); else stackRefs.current.delete(chip.key); },
-          type: 'button', className: 'pt-chip stack' + (chosen ? ' selected' : ''), 'data-stack': chip.key,
-          style: { left: chip.left, width: chip.w, top: laneTop + 1 + chip.row * (CHIP_H + 2), height: CHIP_H },
-          'aria-label': chip.label + at(chip.t) + (chosen ? ', ' + chosen.label + ' selected' : ''), 'aria-haspopup': 'menu', 'aria-expanded': open,
+          type: 'button', className: 'pt-chip stack' + side + (chosen ? ' selected' : ''), 'data-stack': chip.key,
+          style: { left: chip.left, width: chip.w, top, height: CHIP_H },
+          'aria-label': chip.members.length + ' more commands' + at(chip.t) + (chosen ? ', ' + chosen.label + ' selected' : ''), 'aria-haspopup': 'menu', 'aria-expanded': open,
           title: chip.members.map((member) => member.label).join('\n'),
           onPointerDown: (event) => { if (event.button === 0) event.stopPropagation(); },
           onClick: () => setOpenStack(open ? null : chip.key),
@@ -546,13 +580,14 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
             event.preventDefault(); event.stopPropagation(); setOpenStack(chip.key);
           } },
           h('span', { className: 'pt-stack-glyph', 'aria-hidden': true }),
-          h('span', { className: 'pt-stack-count', 'aria-hidden': true }, chip.members.length),
-          h('span', { className: 'pt-chip-name', 'aria-hidden': true }, chosen ? chosen.label : 'commands'));
+          h('span', { className: 'pt-stack-count', 'aria-hidden': true }, '+' + chip.members.length));
       }
       const on = sel.kind === 'em' && sel.idx === chip.index;
-      return h('button', { key: chip.marker.id || chip.index, type: 'button', className: 'pt-chip' + (on ? ' selected' : ''),
-        style: { left: chip.left, width: chip.w, top: laneTop + 1 + chip.row * (CHIP_H + 2), height: CHIP_H },
-        'aria-label': chip.label + at(chip.t), 'aria-pressed': on, title: chip.label, 'data-selection': 'em:' + chip.index,
+      const { details } = chip;
+      return h('button', { key: chip.marker.id || chip.index, type: 'button', className: 'pt-chip' + side + (details.mode ? ' group' : '') + (on ? ' selected' : ''),
+        style: { left: chip.left, width: chip.w, top, height: CHIP_H },
+        'aria-label': chip.label + (details.summary ? ', ' + details.summary : '') + at(chip.t), 'aria-pressed': on,
+        title: [chip.label + (details.summary ? ' (' + details.summary + ')' : ''), ...details.lines].join('\n'), 'data-selection': 'em:' + chip.index,
         onPointerDown: chipDrag(chip),
         onKeyDown: (event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -563,12 +598,15 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
             if (changed(f, featureFraction(chip.marker, derived), 1e-6)) actions.setMarker(chip.index, featurePositionPatch(chip.marker, f, derived));
           } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); select('em', chip.index); }
         } },
-        h('span', { className: 'pt-diamond', 'aria-hidden': true }), h('span', { className: 'pt-chip-name' }, chip.label));
+        h('span', { className: 'pt-diamond', 'aria-hidden': true }),
+        details.mode && h(ChipGlyph, { className: 'pt-chip-mode', d: MODE_GLYPH[details.mode] }),
+        h('span', { className: 'pt-chip-name' }, chip.label),
+        details.loops && h(ChipGlyph, { className: 'pt-chip-loop', d: LOOP_GLYPH }));
     }),
     shownStack && h(CommandStackMenu, { stack: shownStack, at, selectedIndex: sel.kind === 'em' ? sel.idx : null, onClose: closeStack,
-      style: { left: clamp(shownStack.left, 4, Math.max(4, W - 244)), bottom: H - (laneTop + 1 + shownStack.row * (CHIP_H + 2)) + 4,
-        maxHeight: Math.max(60, Math.min(260, laneTop + 1 + shownStack.row * (CHIP_H + 2) - 12)) },
+      style: { left: clamp(shownStack.left, 4, Math.max(4, W - 244)), bottom: H - (laneTop + 1 + shownStack.row * CHIP_ROW) + 4,
+        maxHeight: Math.max(60, Math.min(260, laneTop + 1 + shownStack.row * CHIP_ROW - 12)) },
       onChoose: (index) => { closeStack(true); select('em', index); } }),
-    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneGhost: !pointsHover }),
-    h(Playhead, { store: playbackStore, x, top: HEAD + RULER, bottom: laneTop + LANE - 8 }));
+    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneH, laneGhost: !pointsHover }),
+    h(Playhead, { store: playbackStore, x, top: HEAD + RULER, bottom: laneTop + laneH - 2 }));
 }

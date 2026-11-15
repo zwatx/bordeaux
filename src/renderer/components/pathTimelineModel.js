@@ -16,13 +16,13 @@ export function buildTimeline(derived) {
     const step = Math.max(1, Math.floor(trace.length / 1200));
     const points = [];
     // Authoritative per-sample values, including turning while stopped.
-    const point = (sample) => ({ t: sample.t, f: clamp01(sample.f), v: Math.max(0, sample.velocityMps || 0),
+    const point = (sample) => ({ t: sample.t, f: clamp01(sample.f), s: Number.isFinite(sample.s) ? sample.s : undefined, v: Math.max(0, sample.velocityMps || 0),
       a: sample.accelerationMps2 || 0, w: (sample.angularVelocityRadps || 0) * R2D, k: sample.curvatureInvM || 0 });
     for (let i = 0; i < trace.length; i += step) points.push(point(trace[i]));
     const last = trace[trace.length - 1];
     if (points[points.length - 1].t < last.t) points.push(point(last));
     const total = Math.max(derived.prof?.totalTime || 0, last.t, 0.01);
-    if (total > last.t + 1e-6) points.push({ t: total, f: 1, v: 0, a: 0, w: 0, k: 0 });
+    if (total > last.t + 1e-6) points.push({ t: total, f: 1, s: points[points.length - 1].s, v: 0, a: 0, w: 0, k: 0 });
     return { points, total, empty: false, wpFrac };
   }
   const pts = derived?.sample?.pts || [];
@@ -40,13 +40,31 @@ export function buildTimeline(derived) {
     const hold = holdAt.get(i);
     const extra = { a: metrics.accel?.[i] || 0, w: (metrics.omega?.[i] || 0) * R2D, k: metrics.curv?.[i] || 0 };
     if (hold) {
-      points.push({ t: hold.t0, f, v: 0, ...extra, a: 0 });
-      points.push({ t: hold.t1, f, v: 0, ...extra, a: 0 });
-    } else points.push({ t: prof.t[i], f, v: Math.max(0, v[i] || 0), ...extra });
+      points.push({ t: hold.t0, f, s: pts[i].s, v: 0, ...extra, a: 0 });
+      points.push({ t: hold.t1, f, s: pts[i].s, v: 0, ...extra, a: 0 });
+    } else points.push({ t: prof.t[i], f, s: pts[i].s, v: Math.max(0, v[i] || 0), ...extra });
   }
   const total = Math.max(prof.totalTime || 0, points[points.length - 1].t, 0.01);
-  if (total > points[points.length - 1].t + 1e-6) points.push({ t: total, f: 1, v: 0, a: 0, w: 0, k: 0 });
+  if (total > points[points.length - 1].t + 1e-6) points.push({ t: total, f: 1, s: points[points.length - 1].s, v: 0, a: 0, w: 0, k: 0 });
   return { points, total, empty: false, wpFrac };
+}
+
+/**
+ * The time at which the robot has travelled `meters` more than at time `t`, from the trace's travelled distance
+ * (which also advances during stationary actions such as a jiggle, where the path fraction does not), or null when
+ * the trace carries no distance or the robot never travels that far.
+ */
+export function timeAfterDistance(tl, t, meters) {
+  const p = tl?.points || [];
+  if (!(meters > 0) || p.length < 2 || !p.every((point) => Number.isFinite(point.s))) return undefined;
+  let i = Math.max(1, lowerBound(p, 't', t));
+  const a0 = p[i - 1], b0 = p[i] || a0, span0 = b0.t - a0.t;
+  const start = span0 < 1e-9 ? b0.s : a0.s + ((t - a0.t) / span0) * (b0.s - a0.s), goal = start + meters;
+  for (; i < p.length; i++) {
+    const a = p[i - 1], b = p[i];
+    if (b.s >= goal - 1e-9) return b.s - a.s < 1e-12 ? b.t : Math.max(t, a.t + ((goal - a.s) / (b.s - a.s)) * (b.t - a.t));
+  }
+  return null;
 }
 
 function lowerBound(points, key, value) {
@@ -110,19 +128,164 @@ export function featurePositionPatch(item, f, derived) {
   return item.anchor === 'dist' ? { f: fraction, d: +(fraction * (derived?.sample?.length || 0)).toFixed(3) } : { f: fraction };
 }
 
+let measureContext = null;
+/** Width of a chip label in the timelines' 11.5 px UI font; an estimate where there is no canvas. */
+export function labelWidth(text) {
+  if (!measureContext && typeof document !== 'undefined') measureContext = document.createElement('canvas').getContext('2d');
+  if (!measureContext) return text.length * 6.5;
+  measureContext.font = '11.5px "Space Grotesk", system-ui, sans-serif';
+  return measureContext.measureText(text).width;
+}
+
 /**
- * Command chips (sorted by time, each with `t`) gathered into runs whose anchors sit within `gap` pixels
- * of the previous one at the current zoom, a run spanning at most `span` pixels. A run of `min` or more
- * becomes one stack; smaller runs stay individual chips, which the two chip rows can still name.
+ * How long a command keeps running on the timeline, from its start `t`, or null when it runs once.
+ * A loop ends at its time, at its distance converted to time through the path's timing, or at the path's end;
+ * a fixed-interval repeat ends at its end time (or the path's end) and carries its interval. `open` means the
+ * limit lies beyond the path's end, so the drawn extent stops at the end without a cap. Group commands: in a
+ * parallel group every command starts at `t`; in a sequential group only the first does, so a later command's
+ * limit is known only when it is the path's end.
  */
-export function groupCommandChips(placed, xOf, { gap = 14, span = 40, min = 3 } = {}) {
-  const runs = [];
-  placed.forEach((chip) => {
-    const run = runs[runs.length - 1], x = xOf(chip.t);
-    if (run && x - run.lastX < gap && x - run.firstX <= span) { run.members.push(chip); run.lastX = x; }
-    else runs.push({ members: [chip], firstX: x, lastX: x });
-  });
-  return runs.flatMap((run) => run.members.length >= min ? [run.members] : run.members.map((chip) => [chip]));
+export function commandExtent(marker, t, tl, derived) {
+  if (!marker || tl?.empty || !Number.isFinite(t)) return null;
+  const total = tl.total;
+  const length = derived?.sample?.length || derived?.sample?.pts?.at?.(-1)?.s || 0;
+  const loopEnd = (loop, known) => {
+    const until = loop?.until;
+    if (!until) return null;
+    if (until.kind === 'pathEnd') return { t: total, open: false };
+    if (!known) return null;
+    if (until.kind === 'time' && until.seconds > 0) return { t: t + until.seconds, open: t + until.seconds > total + 1e-9 };
+    if (until.kind === 'distance' && until.meters > 0) {
+      // Travelled distance, so a jiggle or other stationary travel counts; path fraction only as a fallback.
+      const byDistance = timeAfterDistance(tl, t, until.meters);
+      if (byDistance === null) return { t: total, open: true };
+      if (byDistance !== undefined) return { t: byDistance, open: false };
+      if (!(length > 0)) return null;
+      const f = fAtT(tl, t) + until.meters / length;
+      return f >= 1 - 1e-9 ? { t: total, open: true } : { t: tAtF(tl, f), open: false };
+    }
+    return null;
+  };
+  const group = marker.commandGroup;
+  const ends = group && Array.isArray(group.commands)
+    ? group.commands.map((command, i) => loopEnd(command?.loop, group.mode === 'parallel' || i === 0)).filter(Boolean)
+    : [loopEnd(marker.invocation?.loop, true)].filter(Boolean);
+  if (ends.length) {
+    const end = ends.reduce((a, b) => (b.t > a.t || (b.t === a.t && b.open) ? b : a));
+    return end.t > t ? { kind: 'loop', t: Math.min(end.t, total), open: end.open } : null;
+  }
+  const every = marker.schedule?.repeatEveryS;
+  if (every > 0) {
+    const until = Number.isFinite(marker.schedule.endTimeS) ? Math.min(marker.schedule.endTimeS, total) : total;
+    return until > t ? { kind: 'repeat', t: until, open: false, every } : null;
+  }
+  return null;
+}
+
+/**
+ * Places command chips in the lane so none is clipped or overlaps another. Each chip has a diamond exactly at
+ * its time (`x`) with its name beside it: to the right, or to the left when the name would run past the lane's
+ * right end. Items (sorted by time) carry `t`, a natural width `w`, an optional `minW` and an optional extent end
+ * `endT`, drawn as a bar in the chip's row, so the bar takes room there too. A chip goes in the first row with
+ * room for its full name; otherwise in the row where the fewest pixels must be shortened from it and its
+ * neighbours, keeping each at least `minW`; otherwise it waits. Waiting commands near each other (within `span`
+ * pixels) become one "+N" chip, which takes the place of commands in the last row when it must.
+ * Returns the chips and stacks in time order, each with `left`, `w`, `row` and `dir`, and the rows used.
+ */
+export function layoutCommandLane(items, { x, left, right, rows = 3, pad = 9, gap = 3, minW = 46, span = 56,
+  stackWidth = (count) => 31 + 7 * String(count).length } = {}) {
+  const lanes = Array.from({ length: rows }, () => []);
+  const sync = (e) => { e.lo = Math.min(e.l, e.x); e.hi = Math.max(e.r, e.endX ?? -Infinity); };
+  const shape = (e, w) => {
+    const toRight = e.x - pad + w <= right ? true : e.x + pad - w >= left ? false : right - (e.x - pad) >= e.x + pad - left;
+    e.dir = toRight ? 'right' : 'left';
+    e.full = Math.max(1, Math.min(w, toRight ? right - (e.x - pad) : e.x + pad - left));
+    if (toRight) { e.l = e.x - pad; e.r = e.l + e.full; } else { e.r = e.x + pad; e.l = e.r - e.full; }
+    sync(e);
+    return e;
+  };
+  const floor = (e) => Math.min(e.full, e.stack ? e.full : e.minW);
+  // Pixels an entry can give up on each side: a right-facing chip shortens its end, a left-facing one its start.
+  const giveRight = (e) => e.dir === 'right' && !(e.endX > e.r) ? Math.max(0, e.r - Math.max(e.l + floor(e), e.endX ?? -Infinity)) : 0;
+  const giveLeft = (e) => e.dir === 'left' ? Math.max(0, e.r - floor(e) - e.l) : 0;
+
+  // How `e` fits in a row: { cost, apply } or null.
+  const fit = (e, row) => {
+    const hits = lanes[row].filter((o) => o.lo < e.hi + gap && o.hi + gap > e.lo);
+    if (!hits.length) return { cost: 0, apply: () => {} };
+    const before = [], after = [];
+    for (const o of hits) {
+      const leftSide = o.lo < e.lo || (o.lo === e.lo && o.x <= e.x);
+      (leftSide ? before : after).push({ o, d: leftSide ? o.hi + gap - e.lo : e.hi + gap - o.lo, slack: leftSide ? giveRight(o) : giveLeft(o) });
+    }
+    const side = (pairs, own) => {
+      let mine = 0;
+      for (const p of pairs) mine = Math.max(mine, p.d - p.slack, Math.min(p.d / 2, own));
+      return mine <= own + 1e-9 ? mine : null;
+    };
+    const fromLeft = side(before, giveLeft(e)), fromRight = side(after, giveRight(e));
+    if (fromLeft == null || fromRight == null) return null;
+    const plan = [...before.map((p) => ({ o: p.o, by: Math.max(0, p.d - fromLeft), end: 'r' })),
+      ...after.map((p) => ({ o: p.o, by: Math.max(0, p.d - fromRight), end: 'l' }))];
+    return { cost: fromLeft + fromRight + plan.reduce((sum, p) => sum + p.by, 0), apply: () => {
+      e.l += fromLeft; e.r -= fromRight; sync(e);
+      plan.forEach((p) => { if (p.end === 'r') p.o.r -= p.by; else p.o.l += p.by; sync(p.o); });
+    } };
+  };
+  const place = (e) => {
+    let best = null;
+    for (let row = 0; row < rows; row++) {
+      const option = fit(e, row);
+      if (option && (!best || option.cost < best.cost - 1e-9)) best = { ...option, row };
+      if (option && option.cost === 0) break;
+    }
+    if (!best) return false;
+    best.apply(); e.row = best.row; lanes[best.row].push(e);
+    return true;
+  };
+
+  const waiting = [];
+  for (const item of items) {
+    const ax = x(item.t), endX = item.endT > item.t ? x(item.endT) : undefined;
+    const e = shape({ item, x: ax, endX, minW: item.minW ?? minW }, item.w);
+    if (!place(e)) waiting.push(e);
+  }
+
+  // Waiting commands become "+N" stacks; a stack with no room takes over the last row's commands at its place.
+  const buckets = [];
+  for (const e of waiting) {
+    const last = buckets[buckets.length - 1];
+    if (last && e.x - last[0].x <= span) last.push(e); else buckets.push([e]);
+  }
+  const remove = (o) => { const lane = lanes[o.row]; lane.splice(lane.indexOf(o), 1); };
+  for (let members of buckets) {
+    for (let guard = 0; guard <= items.length + buckets.length; guard++) {
+      members = members.slice().sort((a, b) => a.item.t - b.item.t);
+      const stack = shape({ stack: true, members, x: members[0].x }, stackWidth(members.length));
+      if (place(stack)) break;
+      const blocking = (row) => lanes[row].filter((o) => o.lo < stack.hi + gap && o.hi + gap > stack.lo);
+      const other = blocking(rows - 1).find((o) => o.stack) || lanes.flat().find((o) => o.stack && o.lo < stack.hi + gap && o.hi + gap > stack.lo);
+      if (other) { remove(other); members = [...members, ...other.members]; continue; }
+      blocking(rows - 1).forEach((o) => { remove(o); members.push(o); });
+    }
+  }
+
+  // Shortened chips take back free room, up to their own width.
+  for (const lane of lanes) {
+    lane.sort((a, b) => a.lo - b.lo);
+    lane.forEach((e, i) => {
+      if (e.stack || e.r - e.l >= e.full - 1e-9) return;
+      if (e.dir === 'right') e.r = Math.min(e.l + e.full, i + 1 < lane.length ? lane[i + 1].lo - gap : Infinity);
+      else e.l = Math.max(e.r - e.full, i > 0 ? lane[i - 1].hi + gap : -Infinity);
+      sync(e);
+    });
+  }
+
+  const placed = lanes.flat().map((e) => e.stack
+    ? { stack: true, members: e.members.map((m) => m.item), t: e.members[0].item.t, x: e.x, left: e.l, w: e.r - e.l, row: e.row, dir: e.dir }
+    : { ...e.item, x: e.x, endX: e.endX, left: e.l, w: e.r - e.l, row: e.row, dir: e.dir });
+  placed.sort((a, b) => a.t - b.t || a.row - b.row);
+  return { chips: placed, rows: lanes.reduce((count, lane, i) => lane.length ? i + 1 : count, 0) };
 }
 
 /** Closest a new waypoint may sit to an existing one, along the path (m). */

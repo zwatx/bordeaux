@@ -3,38 +3,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import corpus from '../benchmarks/planner-corpus/v2/corpus.bordeaux.json';
 import { PathTimeline, CommandStackMenu, insertionReason } from '../src/renderer/components/PathTimeline';
-import { buildTimeline, fAtT, groupCommandChips, MIN_WAYPOINT_GAP, waypointInsertionAt } from '../src/renderer/components/pathTimelineModel';
+import { buildTimeline, fAtT, MIN_WAYPOINT_GAP, waypointInsertionAt } from '../src/renderer/components/pathTimelineModel';
 import { PM } from '../src/renderer/lib/pathMath';
 import { sample } from '../src/shared/math/geometry';
 
 const pathOf = (id) => structuredClone(corpus.paths.find((p) => p.id === id));
 const plan = (doc) => PM.derivePath(doc, corpus.robot, 60, 'profiledSpline');
-const chip = (t, index = 0) => ({ t, index, marker: { id: 'm' + index }, label: 'C' + index });
-const ids = (groups) => groups.map((group) => group.map((item) => item.index));
 
 describe('command stacks on the timeline', () => {
-  const px = (t) => t * 100; // 100 px per second
-  it('stacks three or more exactly coincident commands into one group', () => {
-    const groups = groupCommandChips([0, 1, 2, 3, 4].map((i) => chip(1, i)), px);
-    expect(ids(groups)).toEqual([[0, 1, 2, 3, 4]]);
-  });
-  it('joins near-coincident commands by pixel distance at the current zoom, not by exact time', () => {
-    const placed = [chip(1, 0), chip(1, 1), chip(1.06, 2), chip(1.12, 3), chip(2, 4)];
-    expect(ids(groupCommandChips(placed, px))).toEqual([[0, 1, 2, 3], [4]]);
-    // Zoomed in tenfold the same commands stand apart again.
-    expect(ids(groupCommandChips(placed, (t) => t * 1000))).toEqual([[0], [1], [2], [3], [4]]);
-  });
-  it('leaves one or two commands as individual named chips', () => {
-    expect(ids(groupCommandChips([chip(1, 0)], px))).toEqual([[0]]);
-    expect(ids(groupCommandChips([chip(1, 0), chip(1, 1)], px))).toEqual([[0], [1]]);
-  });
-  it('bounds a chained run so a long even spread does not become one stack', () => {
-    const placed = Array.from({ length: 8 }, (_, i) => chip(1 + i * 0.12, i));
-    const groups = groupCommandChips(placed, px);
-    expect(groups.every((group) => px(group[group.length - 1].t) - px(group[0].t) <= 40)).toBe(true);
-    expect(groups.flat().length).toBe(8);
-  });
-
   const doc = pathOf('corpus-neutral-slalom');
   doc.markers = [0.14, 0.42, 0.42, 0.42, 0.42, 0.42, 0.428, 0.434, 0.74, 0.74]
     .map((f, i) => ({ id: 'm' + i, f, name: 'Cmd ' + i, cmd: 'none', group: 'sequential' }));
@@ -44,19 +20,54 @@ describe('command stacks on the timeline', () => {
   const render = (sel = { kind: null, idx: -1 }) => renderToStaticMarkup(React.createElement(PathTimeline, {
     doc, derived, tl, robot: corpus.robot, sel, select: () => {}, edit: {}, actions: {}, playbackStore: store, catalog: null }));
 
-  it('renders a stack chip with a count and an accessible name, the rest as named chips', () => {
+  it('names what fits in up to three rows and gathers the rest of a crowd into one +N chip', () => {
     const html = render();
     const stacks = html.match(/class="pt-chip stack[^"]*"[^>]*>/g) || [];
     expect(stacks).toHaveLength(1);
-    expect(stacks[0]).toMatch(/aria-label="7 commands, \d+\.\d\d s"/);
+    const count = Number(stacks[0].match(/aria-label="(\d+) more commands, \d+\.\d\d s"/)[1]);
     expect(stacks[0]).toContain('aria-haspopup="menu"');
     expect(stacks[0]).toContain('aria-expanded="false"');
-    expect(html).toContain('class="pt-stack-count" aria-hidden="true">7<');
-    for (const name of ['Cmd 0', 'Cmd 8', 'Cmd 9']) expect(html).toContain('aria-label="' + name + ', ');
+    expect(html).toContain('class="pt-stack-count" aria-hidden="true">+' + count + '<');
+    // Every command is either a named chip or a member of the stack.
+    const named = (html.match(/class="pt-chip(?! stack)[^"]*"[^>]*aria-label="Cmd \d+, /g) || []).length;
+    expect(named + count).toBe(10);
+    expect(named).toBeGreaterThanOrEqual(5);
+    for (const name of ['Cmd 0', 'Cmd 1', 'Cmd 8', 'Cmd 9']) expect(html).toContain('aria-label="' + name + ', ');
+    // The crowd used the third row, so the lane grew.
+    expect(html).toMatch(/class="pt-lane" style="[^"]*height:69px/);
   });
   it('shows the chosen member on the stack and names it', () => {
-    const html = render({ kind: 'em', idx: 3 });
-    expect(html).toMatch(/class="pt-chip stack selected"[^>]*aria-label="7 commands, \d+\.\d\d s, Cmd 3 selected"/);
+    const html = render({ kind: 'em', idx: 7 });
+    expect(html).toMatch(/class="pt-chip stack selected"[^>]*aria-label="\d+ more commands, \d+\.\d\d s, Cmd 7 selected"/);
+  });
+  it('shows a group as one chip with its mode and members, and a loop as an extent to its limit', () => {
+    const catalog = { commands: [{ id: 'intake', label: 'Intake' }, { id: 'shoot', label: 'Shooter' }, { id: 'feed', label: 'Feed' }] };
+    const grouped = { ...doc, markers: [
+      { id: 'g', f: 0.2, name: 'event1', cmd: 'none', commandGroup: { mode: 'parallel', commands: [
+        { commandId: 'intake', arguments: {} }, { commandId: 'shoot', arguments: {} }, { commandId: 'feed', arguments: {}, loop: { until: { kind: 'time', seconds: 0.5 } } }] } },
+      { id: 'l', f: 0.6, name: 'Spin up', cmd: 'shoot', invocation: { commandId: 'shoot', arguments: {}, loop: { until: { kind: 'pathEnd' } } } },
+      { id: 'end', f: 1, name: 'A very long command name that would never fit in the lane at all', cmd: 'none' },
+    ] };
+    const d = plan(grouped), t = buildTimeline(d);
+    const html = renderToStaticMarkup(React.createElement(PathTimeline, {
+      doc: grouped, derived: d, tl: t, robot: corpus.robot, sel: { kind: null, idx: -1 }, select: () => {}, edit: {}, actions: {}, playbackStore: store, catalog }));
+    const chips = html.match(/<button[^>]*class="pt-chip[^"]*"[^>]*>/g);
+    expect(chips).toHaveLength(3);
+    expect(chips[0]).toContain('class="pt-chip group"');
+    expect(chips[0]).toMatch(/aria-label="Intake \+ 2, parallel group of 3, 1 command loops, \d+\.\d\d s"/);
+    expect(chips[0]).toContain('title="Intake + 2 (parallel group of 3, 1 command loops)\n• Intake\n• Shooter\n• Feed (loops for 0.50 s)"');
+    expect(chips[1]).toMatch(/aria-label="Spin up, loops until the path ends, \d+\.\d\d s"/);
+    // The last chip faces left so its long name ends at its diamond, inside the lane; its title keeps the full name.
+    expect(chips[2]).toContain('class="pt-chip left"');
+    expect(chips[2]).toContain('title="A very long command name that would never fit in the lane at all"');
+    const [, left, width] = chips[2].match(/left:([\d.]+)px;width:([\d.]+)px/).map(Number);
+    expect(left + width).toBeLessThanOrEqual(900 - 4);
+    expect(width).toBeLessThanOrEqual(168);
+    const extents = html.match(/class="pt-extent[^"]*"[^>]*>/g);
+    expect(extents).toHaveLength(2);
+    expect(extents[1]).toContain('class="pt-extent loop"');
+    const [, barLeft, barWidth] = extents[1].match(/left:([\d.]+)px;width:([\d.]+)px/).map(Number);
+    expect(barLeft + barWidth).toBeCloseTo(900 - 14, 6);
   });
   it('lists every member as its own menu item, selectable by its marker index', () => {
     const members = [1, 2, 3, 4, 5, 6, 7].map((i) => ({ index: i, t: 1.28 + (i > 5 ? 0.01 * (i - 5) : 0), marker: { id: 'm' + i }, label: 'Cmd ' + i }));

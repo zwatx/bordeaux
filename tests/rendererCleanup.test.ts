@@ -35,12 +35,13 @@ describe("timeline marker timing", () => {
       edit: {}, playbackStore: createPlaybackStore(), catalog: null,
     }));
     expect(html).toContain('aria-label="Endpoint event, ' + derived.finalTrajectory.totalTimeS.toFixed(2) + ' s"');
-    // Placement, not only the label: the chip's diamond (9 px into the chip) sits at the plot's right end,
-    // at least the whole endpoint wait after the robot reaches the end waypoint.
+    // Placement, not only the label: the chip faces left at the end of the lane, so its diamond (9 px inside its
+    // right edge) sits at the plot's right end, at least the whole endpoint wait after the robot reaches the end waypoint.
     const left = (pattern: RegExp) => Number(html.match(pattern)?.[1]);
     const rulerLeft = left(/class="pt-ruler" style="left:([\d.]+)px/);
     const rulerWidth = Number(html.match(/class="pt-ruler" style="left:[\d.]+px;width:([\d.]+)px/)?.[1]);
-    const chip = left(/class="pt-chip"[^>]*style="left:([\d.]+)px/) + 9;
+    const box = html.match(/class="pt-chip left"[^>]*style="left:([\d.]+)px;width:([\d.]+)px/);
+    const chip = Number(box?.[1]) + Number(box?.[2]) - 9;
     const end = left(/class="pt-wp stop end"[^>]*style="left:([\d.]+)px/);
     expect(rulerWidth).toBeGreaterThan(100);
     expect(chip).toBeCloseTo(rulerLeft + rulerWidth, 6);
