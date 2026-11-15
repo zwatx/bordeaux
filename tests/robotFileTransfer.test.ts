@@ -196,6 +196,29 @@ describe("direct robot SFTP path delivery", () => {
     }
   });
 
+  it("logs in with a custom Systemcore password when one is given", async () => {
+    const f = fixture();
+    await probeRobotFiles(systemcore, f.factory, undefined, "team-2468");
+    await uploadRobotFiles({ endpoint: systemcore, hostKeyFingerprint: fingerprint }, files, undefined, f.factory, "team-2468");
+    expect(f.requests.map((request) => request.credentials)).toEqual([
+      { username: "systemcore", password: "team-2468" },
+      { username: "systemcore", password: "team-2468" },
+    ]);
+  });
+
+  it("refuses a custom password for a robot type that logs in without one, before connecting", async () => {
+    const f = fixture();
+    await expect(probeRobotFiles(endpoint, f.factory, undefined, "team-2468")).rejects.toThrow("roboRIO logs in without a password");
+    await expect(uploadRobotFiles(connection, files, undefined, f.factory, "team-2468")).rejects.toThrow("roboRIO logs in without a password");
+    expect(f.requests).toEqual([]);
+  });
+
+  it("says a custom password was refused", async () => {
+    const rejected = async () => { throw new RobotTransportError("auth_rejected", "rejected"); };
+    const failure = await probeRobotFiles(systemcore, rejected, undefined, "team-2468").catch((error) => error);
+    expect(failure.message).toBe("Systemcore login refused; check the robot type and password. The robot rejected SSH login for systemcore with a custom password.");
+  });
+
   it("cancels a Systemcore upload before publication and removes its temporary file", async () => {
     const f = fixture();
     const controller = new AbortController();

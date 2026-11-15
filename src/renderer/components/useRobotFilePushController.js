@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ROBOT_TARGETS } from '../../shared/robotTargets';
+import { ROBOT_TARGETS, allowsCustomPassword } from '../../shared/robotTargets';
 import { focusIfAvailable } from '../lib/focusReturn';
 import { linkedPathIds } from '../lib/undoHistory';
 
@@ -18,11 +18,15 @@ const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'prepari
 
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
   const api = window.bordeauxAPI;
-  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, reachability: 'unknown', monitoring: false, probe: null, preview: null, result: null, error: '' });
+  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, reachability: 'unknown', monitoring: false, probe: null, preview: null, result: null, error: '', passwordStatus: { custom: false, persistent: false } });
   const [target, setTarget] = useState('roborio');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [directory, setDirectory] = useState(ROBOT_TARGETS.roborio.defaultDirectory);
+  // A typed password replaces the one in effect on Connect or Save; useDefault returns to the robot type's default.
+  // Main never sends the password back, only its status.
+  const [password, setTypedPassword] = useState('');
+  const [useDefault, setUseDefault] = useState(false);
   const state = useRef(view);
   const generation = useRef(0);
   const intent = useRef(null);
@@ -32,6 +36,16 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const context = useRef({ projectKey, catalogKey, bookmarkKey });
   const update = (patch) => { state.current = { ...state.current, ...patch }; setView(state.current); };
   const discard = async (preview) => { if (preview) await api.cancelRobotFiles(preview.operationId); };
+  const passwordChange = () => !allowsCustomPassword(target) ? { kind: 'keep' } : password ? { kind: 'custom', password } : useDefault ? { kind: 'default' } : { kind: 'keep' };
+  const refreshPassword = async () => {
+    try { update({ passwordStatus: await api.getRobotFilePassword() }); } catch { /* The status only shapes the field's hint. */ }
+  };
+  const committedPassword = () => { setTypedPassword(''); setUseDefault(false); return refreshPassword(); };
+  // Drafts never outlive the form they were typed in, and a login error is stale once the password changes.
+  const discardPasswordDraft = () => { setTypedPassword(''); setUseDefault(false); };
+  const setPassword = (value) => { setTypedPassword(value); if (value) setUseDefault(false); if (state.current.error) update({ error: '' }); };
+  const useDefaultPassword = () => { setTypedPassword(''); setUseDefault(true); };
+  const keepSavedPassword = () => setUseDefault(false);
   const prepare = async () => {
     if (!intent.current) return;
     const request = ++generation.current;
@@ -56,6 +70,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       trusted.current = connection;
       update({ settings, connection, phase: 'idle' });
       if (connection && intent.current) void prepare();
+      void refreshPassword();
     }).catch((error) => { if (live && request === generation.current) update({ phase: 'idle', error: message(error) }); });
     return () => { live = false; generation.current += 1; };
   }, []);
@@ -105,7 +120,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   };
   const show = () => { if (!state.current.open) origin.current = document.activeElement; update({ open: true }); };
   const returnFocus = () => focusIfAvailable(origin.current);
-  const close = () => { update({ open: false }); };
+  const close = () => { discardPasswordDraft(); update({ open: false }); };
   const requestPush = async (scope) => {
     show();
     if (working(state.current.phase) && state.current.phase !== 'loading') return;
@@ -132,7 +147,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     update({ phase: 'probing', probe: null, error: '', monitoring: false, reachability: 'unknown' });
     try {
-      const probe = await api.probeRobotFiles({ target, host: host.trim(), port: Number(port), directory: directory.trim() });
+      const probe = await api.probeRobotFiles({ target, host: host.trim(), port: Number(port), directory: directory.trim() }, passwordChange());
       if (request !== generation.current) return;
       update({ probe, phase: 'identity' });
       const saved = trusted.current;
@@ -145,13 +160,14 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     update({ phase: 'saving', error: '' });
     try {
-      const settings = await api.saveRobotFileSettings({ target, host: host.trim(), port: Number(port), directory: directory.trim() });
+      const settings = await api.saveRobotFileSettings({ target, host: host.trim(), port: Number(port), directory: directory.trim() }, passwordChange());
       if (request !== generation.current) return;
       const connection = settings.hostKeyFingerprint ? settings : null;
       trusted.current = connection;
       intent.current = null;
       setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
       update({ settings, connection, editing: false, probe: null, preview: null, result: null, phase: 'idle', monitoring: false, reachability: 'unknown' });
+      await committedPassword();
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
   };
   const acceptPairing = async (probe, request) => {
@@ -161,6 +177,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       if (request !== generation.current) return;
       trusted.current = connection;
       update({ settings: connection, connection, editing: false, probe: null, phase: 'idle', monitoring: true, reachability: 'online' });
+      await committedPassword();
       if (intent.current) await prepare();
     } catch (error) { if (request === generation.current) update({ phase: 'identity', error: message(error) }); }
   };
@@ -221,6 +238,9 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, preview: null, result: null, phase: 'idle', error: '', monitoring: false, reachability: 'unknown' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
+  // Edit from the summary starts a fresh form. Back from identity and Change in a review keep the drafts,
+  // so the next Connect still uses the password the user typed or the pending default.
+  const editConnection = async () => { discardPasswordDraft(); await chooseAnotherRobot(); };
   const connectionHome = async () => {
     if (working(state.current.phase)) return;
     intent.current = null;
@@ -230,13 +250,13 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     try { await discard(previous.preview); if (request === generation.current) update({ preview: null, result: null, phase: 'idle', error: '' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
-  return { ...view, fileTransfer: true, target, chooseTarget, host, setHost, port, setPort, directory, setDirectory,
+  return { ...view, fileTransfer: true, target, chooseTarget, host, setHost, port, setPort, directory, setDirectory, password, setPassword, useDefault, useDefaultPassword, keepSavedPassword,
     busy: working(view.phase), canRetry: Boolean(intent.current), desktopAvailable: true, deliveryAvailable: true,
     pairing: view.settings,
     connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.reachability === 'online' ? ' · connected' : view.reachability === 'offline' ? ' · disconnected' : ' · not connected') : 'Not set up',
     itemStatus: (kind, id) => working(view.phase) && intent.current?.projectKey === projectKey && (kind === 'path' ? intent.current.pathIds.includes(id) : kind === 'routine' && intent.current.scope.routineId === id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads the selected files over SFTP.', tone: 'muted' },
-    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, connectionHome,
+    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
     retry: () => intent.current && requestPush(intent.current.scope) };
 }

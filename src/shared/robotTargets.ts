@@ -6,6 +6,7 @@
 export interface RobotTarget {
   label: string;
   username: string;
+  /** The default password; robots that use one let a team set a custom password instead. */
   password: string;
   /** Uploads may write only at or below one of these absolute directories. */
   directoryRoots: readonly string[];
@@ -43,6 +44,9 @@ export const LEGACY_ROBOT_TARGET: RobotTargetId = "roborio";
 
 export const isRobotTargetId = (value: unknown): value is RobotTargetId =>
   typeof value === "string" && Object.hasOwn(ROBOT_TARGETS, value);
+
+/** A robot type that logs in without a password (a roboRIO's empty admin login) never takes a custom one. */
+export const allowsCustomPassword = (target: RobotTargetId): boolean => ROBOT_TARGETS[target].password !== "";
 
 /** Every root any target allows: the SFTP session's last guard against arbitrary remote paths. */
 export const ROBOT_DIRECTORY_ROOTS: readonly string[] = [...new Set(Object.values(ROBOT_TARGETS).flatMap((target) => target.directoryRoots))];

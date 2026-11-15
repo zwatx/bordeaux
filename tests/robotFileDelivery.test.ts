@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "../src/electron/robotFileDelivery";
-import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection } from "../src/shared/robotFileDelivery";
+import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection, type RobotFileSettings } from "../src/shared/robotFileDelivery";
+import { sessionRobotPasswordStore } from "../src/electron/robotPasswordStore";
 const connection: RobotFileConnection = { endpoint: { target: "roborio", host: "roborio-2468-frc.local", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvxyz123456789" };
 const file = (): PreparedRobotFile => ({ pathId: "path-1", name: "Opening", fileName: "Opening.bdx", contents: Buffer.from("BDX fixture") });
 function setup(initial: RobotFileConnection | null = connection) {
@@ -27,7 +28,7 @@ describe("reviewed robot file delivery", () => {
     const { delivery, transport, persist } = setup();
     const preview = delivery.prepare([file()], async () => undefined);
     expect(await delivery.checkConnection()).toEqual(connection);
-    expect(transport.probe).toHaveBeenCalledWith(connection.endpoint, 5_000);
+    expect(transport.probe).toHaveBeenCalledWith(connection.endpoint, 5_000, null);
     transport.probe.mockRejectedValueOnce(new Error("unplugged"));
     expect(await delivery.checkConnection()).toBeNull();
     transport.probe.mockResolvedValueOnce({ ...connection, hostKeyFingerprint: "SHA256:anotherabcdefghijklmnopqr" });
@@ -204,5 +205,108 @@ describe("remembered robot destination", () => {
     expect(delivery.current()).toBeNull();
     expect(() => delivery.prepare([file()], async () => undefined)).toThrow(/Connect/);
     expect(persist).toHaveBeenCalledOnce();
+  });
+});
+
+describe("custom Systemcore SSH password", () => {
+  const systemcore: RobotFileConnection = { endpoint: { target: "systemcore", host: "robot.local", port: 22, directory: "/home/systemcore/bordeaux/paths" }, hostKeyFingerprint: connection.hostKeyFingerprint };
+  function systemcoreSetup(initial: RobotFileConnection | null = systemcore) {
+    const passwords = sessionRobotPasswordStore();
+    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    const transport = {
+      probe: vi.fn(async (endpoint: RobotFileConnection["endpoint"], _timeoutMs?: number, _password?: string | null) => ({ endpoint, hostKeyFingerprint: systemcore.hostKeyFingerprint })),
+      upload: vi.fn(async (_connection: RobotFileConnection, _files: Array<{ fileName: string; contents: Buffer }>, _signal?: AbortSignal, _password?: string | null) => ({ directoryCreated: false })),
+    };
+    return { delivery: new RobotFileDelivery(initial, persist, transport, passwords), passwords, persist, transport };
+  }
+  const push = async (delivery: RobotFileDelivery) => delivery.confirm(delivery.prepare([file()], async () => undefined).operationId);
+
+  it("connects with a typed password, remembers it only after trust, then uses it for checks and uploads", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup(null);
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "team-2468" });
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "team-2468");
+    expect(passwords.current()).toBeNull();
+    await delivery.trust(systemcore.hostKeyFingerprint);
+    expect(passwords.current()).toBe("team-2468");
+    await delivery.checkConnection();
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, 5_000, "team-2468");
+    await push(delivery);
+    expect(transport.upload.mock.calls[0][3]).toBe("team-2468");
+  });
+
+  it("keeps the saved password when a probe with a new one is abandoned or refused", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "abandoned" });
+    transport.probe.mockRejectedValueOnce(new Error("Systemcore login refused"));
+    await expect(delivery.probe(systemcore.endpoint, { kind: "custom", password: "wrong" })).rejects.toThrow("refused");
+    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow(/Connect/);
+    expect(passwords.current()).toBe("saved");
+    await delivery.probe(systemcore.endpoint);
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved");
+  });
+
+  it("saves a typed password offline without writing it to the settings file, and returns to the default on request", async () => {
+    const { delivery, passwords, persist } = systemcoreSetup();
+    await delivery.saveSettings(systemcore.endpoint, { kind: "custom", password: "team-2468" });
+    expect(passwords.current()).toBe("team-2468");
+    expect(JSON.stringify(persist.mock.calls)).not.toContain("team-2468");
+    await delivery.saveSettings(systemcore.endpoint, { kind: "default" });
+    expect(passwords.current()).toBeNull();
+  });
+
+  it("asks to connect again after saving a changed password, but keeps trust when it is unchanged", async () => {
+    const { delivery } = systemcoreSetup();
+    expect(await delivery.saveSettings(systemcore.endpoint, { kind: "keep" })).toEqual(systemcore);
+    expect(delivery.current()).toEqual(systemcore);
+    expect(await delivery.saveSettings(systemcore.endpoint, { kind: "custom", password: "team-2468" })).toEqual({ endpoint: systemcore.endpoint });
+    expect(delivery.current()).toBeNull();
+  });
+
+  it("keeps the password in effect when the field is left blank", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    await delivery.saveSettings(systemcore.endpoint, { kind: "keep" });
+    expect(passwords.current()).toBe("saved");
+    await delivery.probe(systemcore.endpoint, { kind: "keep" });
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved");
+  });
+
+  it("clears a custom password when the robot type changes to one without passwords", async () => {
+    const { delivery, passwords } = systemcoreSetup();
+    await passwords.replace("saved");
+    await delivery.saveSettings({ ...connection.endpoint, host: systemcore.endpoint.host });
+    expect(passwords.current()).toBeNull();
+  });
+
+  it("reports whether a custom password is in effect and whether it survives a restart, never the password", async () => {
+    const { delivery, passwords } = systemcoreSetup();
+    expect(delivery.passwordStatus()).toEqual({ custom: false, persistent: false });
+    await passwords.replace("team-2468");
+    expect(delivery.passwordStatus()).toEqual({ custom: true, persistent: false });
+    expect(JSON.stringify([delivery.settings(), delivery.current(), delivery.passwordStatus()])).not.toContain("team-2468");
+  });
+
+  it.each([
+    { kind: "custom", password: "" },
+    { kind: "custom", password: 2468 },
+    { kind: "custom", password: "x".repeat(257) },
+    { kind: "custom" },
+    { kind: "reset" },
+    "team-2468",
+  ])("rejects password change %j before connecting or saving", async (change) => {
+    const { delivery, passwords, persist, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    await expect(delivery.probe(systemcore.endpoint, change as never)).rejects.toThrow(/password/i);
+    await expect(delivery.saveSettings(systemcore.endpoint, change as never)).rejects.toThrow(/password/i);
+    expect(transport.probe).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
+    expect(passwords.current()).toBe("saved");
+  });
+
+  it("refuses a custom password for a robot type that logs in without one", async () => {
+    const { delivery, transport, persist } = systemcoreSetup();
+    await expect(delivery.probe(connection.endpoint, { kind: "custom", password: "team-2468" })).rejects.toThrow(/roboRIO.*password/);
+    await expect(delivery.saveSettings(connection.endpoint, { kind: "custom", password: "team-2468" })).rejects.toThrow(/roboRIO.*password/);
+    expect(transport.probe).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
   });
 });

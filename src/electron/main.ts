@@ -1,6 +1,6 @@
 import type { ProjectCopyDefaultsRequest } from "../shared/project/desktopProjects";
 import { attachWindowChrome, registerWindowChrome } from "./windowChrome";
-import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -53,6 +53,7 @@ import { serveBordeauxMcp } from "../mcp/server";
 import { RobotPairingController, readRobotPairing, writeRobotPairing } from "./robotPairings";
 import { connectRobotSftp } from "./robotSsh2Session";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection } from "./robotFileDelivery";
+import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
 import type { RobotFileEndpoint } from "../shared/robotFileDelivery";
 import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../shared/project/writeErrors";
 import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, canonicalProjectDigest } from "./projectSourcePersistence";
@@ -449,6 +450,8 @@ function robotProjectBookmarksFile(): string { return userDataPath("robot-projec
 function recentProjectsFile(): string { return userDataPath("recent-projects.json"); }
 function robotPairingFile(): string { return userDataPath("robot-pairing.json"); }
 function robotFileConnectionFile(): string { return userDataPath("robot-sftp-connection.json"); }
+/** Keychain-encrypted custom SSH password; never plaintext, absent when the default is used. */
+function robotPasswordFile(): string { return userDataPath("robot-ssh-password.bin"); }
 function labviewDiscoveryCacheDirectory(): string { return userDataPath("labview-discovery"); }
 
 async function rememberLinkedRobotProject(projectPath: string, projectName: string, runtime: RobotProjectRuntime): Promise<{ bookmarkId: string; warning?: string }> {
@@ -1623,8 +1626,9 @@ handle("robot:inspect", async () => {
 });
 handle("robotFiles:connection", () => robotFileDelivery.settings());
 handle("robotFiles:check", () => robotFileDelivery.checkConnection());
-handle("robotFiles:save", (_event, endpoint) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint));
-handle("robotFiles:probe", (_event, endpoint) => robotFileDelivery.probe(endpoint as RobotFileEndpoint));
+handle("robotFiles:password", () => robotFileDelivery.passwordStatus());
+handle("robotFiles:save", (_event, endpoint, password) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint, password));
+handle("robotFiles:probe", (_event, endpoint, password) => robotFileDelivery.probe(endpoint as RobotFileEndpoint, password));
 handle("robotFiles:trust", (_event, fingerprint) => {
   if (typeof fingerprint !== "string") throw new Error("Review the robot SSH identity first");
   return robotFileDelivery.trust(fingerprint);
@@ -1778,7 +1782,13 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
     console.warn("Could not load the paired Bordeaux robot:", error);
   }
   try {
-    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value));
+    // safeStorage is usable only after app ready, which this startup path already awaits. A store
+    // failure must not lose the saved connection, so it falls back to a session-only password.
+    const passwords = await openRobotPasswordStore(robotPasswordFile(), safeStorage).catch((error) => {
+      console.warn("Could not open the robot SSH password store:", error);
+      return sessionRobotPasswordStore();
+    });
+    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value), undefined, passwords);
   } catch (error) { console.warn("Could not load robot SFTP connection:", error); }
   agentBridge = new AgentBridgeServer(app.getPath("userData"), agentSessions);
   // The Agents menu shows MCP access as off when the bridge cannot start.

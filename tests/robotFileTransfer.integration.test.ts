@@ -177,6 +177,14 @@ describe("Systemcore path delivery against a real SSH/SFTP connection", () => {
     expect(r.writes).toEqual([]); expect(r.created).toEqual([]);
   }, 15_000);
 
+  it("delivers with a custom password on a Systemcore whose password was changed", async () => {
+    const r = await robot({ kind: "systemcore", password: "team-2468", missingFolder: true });
+    const connection = await probeRobotFiles(r.endpoint, undefined, undefined, "team-2468");
+    const contents = Buffer.from([1, 2, 3]);
+    expect(await uploadRobotFiles(connection, [{ fileName: "Custom.bdx", contents }], undefined, undefined, "team-2468")).toEqual({ directoryCreated: true });
+    expect(r.files.get(`${systemcoreDirectory}/Custom.bdx`)).toEqual(contents);
+  }, 15_000);
+
   it("tells a roboRIO login that reached a Systemcore to check the robot type", async () => {
     const r = await robot({ kind: "systemcore" });
     const failure = await probeRobotFiles({ ...r.endpoint, target: "roborio", directory }).catch((error) => error);

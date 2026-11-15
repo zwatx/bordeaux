@@ -2,7 +2,7 @@ import * as React from 'react';
 import { UI } from './ui';
 import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 import { shortFact } from '../lib/projectLifecycle';
-import { ROBOT_TARGETS } from '../../shared/robotTargets';
+import { ROBOT_TARGETS, allowsCustomPassword } from '../../shared/robotTargets';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
@@ -31,6 +31,25 @@ function Linked({ linked, count, onInclude, disabled }) {
   return h('p', { className: 'rfp-note rfp-linked', title: names.length > 3 ? names.join(', ') : undefined }, text,
     over ? ' Push sends at most ' + MAX_PUSH_PATHS + ' paths at once.' : null,
     add > 0 && !over ? [' ', button('Include ' + plural(add), onInclude, { key: 'include', disabled })] : null);
+}
+
+// The password row shows its source, never its value: typed, saved, session-only, the robot type's default,
+// or a pending return to the default that Save or Connect commits (Keep saved undoes it).
+function Password({ c }) {
+  const input = React.useRef(null);
+  const saved = c.passwordStatus?.custom, persistent = c.passwordStatus?.persistent;
+  const pendingDefault = saved && c.useDefault && !c.password;
+  const placeholder = pendingDefault ? 'Default password after Save or Connect' : !saved ? 'Default password'
+    : persistent ? 'Saved on this computer' : 'Saved until Bordeaux closes';
+  // The action changes or disappears when pressed, so focus returns to the field instead of the page.
+  const act = (run) => () => { run(); input.current?.focus(); };
+  const action = pendingDefault ? button('Keep saved', act(c.keepSavedPassword), { className: 'qbtn quiet', 'aria-label': 'Keep saved password', disabled: c.busy })
+    : (saved || c.password) ? button('Use default', act(c.useDefaultPassword), { className: 'qbtn quiet', 'aria-label': 'Use default password', disabled: c.busy }) : null;
+  return [h('div', { key: 'password', className: 'rfp-wide rfp-robot' }, h('label', { htmlFor: 'rfp-password' }, 'SSH password'),
+    h('div', { className: 'rfp-password' },
+      h('input', { ref: input, id: 'rfp-password', type: 'password', value: c.password, autoComplete: 'off', placeholder, disabled: c.busy, onChange: (e) => c.setPassword(e.target.value) }),
+      action)),
+    !persistent && (c.password || (saved && !pendingDefault)) && h('p', { key: 'session', className: 'rfp-note rfp-wide' }, 'This computer has no secure password storage, so Bordeaux forgets the password when it closes.')];
 }
 
 function Files({ files }) {
@@ -75,6 +94,8 @@ export function RobotFilePushDialog({ controller: c }) {
           Object.entries(ROBOT_TARGETS).map(([id, target]) => h('button', { key: id, type: 'button', className: 'seg-i' + (c.target === id ? ' on' : ''), 'aria-pressed': c.target === id, disabled: c.busy, onClick: () => c.chooseTarget(id) }, target.label)))),
       h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: ROBOT_TARGETS[c.target].hostPlaceholder, disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
       h('label', { className: 'rfp-port' }, 'Port', h('input', { value: c.port, inputMode: 'numeric', disabled: c.busy, onChange: (e) => c.setPort(e.target.value) })),
+      allowsCustomPassword(c.target) ? h(Password, { c })
+        : c.passwordStatus?.custom && h('p', { className: 'rfp-note rfp-wide' }, 'Saving or connecting as ' + ROBOT_TARGETS[c.target].label + ' forgets the custom SSH password.'),
       h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) }))),
       h('p', { key: 'note', className: 'rfp-note' }, 'Save offline. Connect to verify the robot.')];
     // The primary action sits last.
@@ -88,7 +109,7 @@ export function RobotFilePushDialog({ controller: c }) {
       c.connection && h('p', { key: 'note', className: 'rfp-note' }, 'Select paths or open a routine, then choose Push.')];
     const done = (!c.connection && waiting) ? null : button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true });
     actions = [
-      button('Edit', c.chooseAnotherRobot, { key: 'edit', disabled: c.busy }),
+      button('Edit', c.editConnection, { key: 'edit', disabled: c.busy }),
       (!c.connection || c.reachability === 'offline') && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
       done,
     ];
