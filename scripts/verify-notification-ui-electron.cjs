@@ -162,6 +162,18 @@ app.whenReady().then(async () => {
       await snapshot('space-under-tooltip-' + width);
       await key('Space');
       await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Space pauses under a hover tooltip');
+      // A control clicked with the mouse keeps focus, but Space still plays and pauses instead of operating it.
+      await click('#field-overlay-metric');
+      await wait(() => evaluate(() => document.querySelector('#field-overlay-metric').getAttribute('aria-expanded') === 'true'), 'overlay picker opens');
+      await click('#field-overlay-metric');
+      await wait(() => evaluate(() => document.querySelector('#field-overlay-metric').getAttribute('aria-expanded') === 'false'), 'overlay picker closes');
+      assert.equal(await evaluate(() => document.activeElement?.id), 'field-overlay-metric', 'clicked picker keeps focus');
+      await key('Space');
+      await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause trajectory playback"]'))), 'Space plays after clicking a picker');
+      assert.equal(await evaluate(() => document.querySelector('#field-overlay-metric').getAttribute('aria-expanded')), 'false', 'Space does not open the clicked picker');
+      await key('Space');
+      await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Space pauses after clicking a picker');
+      await park();
       // An open menu still owns Space.
       await click('[aria-label="Actions for Slalom warm-up"]');
       await key('Space');

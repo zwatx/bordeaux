@@ -5,7 +5,7 @@ import { FieldStatus } from "../components/FieldStatus";
 import * as React from "react";
 import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
-import { isPlaybackSpace } from "../lib/shortcuts";
+import { isPlaybackSpace, trackFocusModality } from "../lib/shortcuts";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
 import { liveEditingPreview } from "../assets/editing-planning";
@@ -2895,6 +2895,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       return () => window.removeEventListener('keydown', onKey);
     }, [undo, redo, sel, delWp, delTarget, delMarker, delRange, select, page, derivationCurrent, nudgeWp, nudgeFrac, playbackStore]);
 
+    // A control clicked with the mouse keeps focus without taking Space from playback.
+    useEffect(() => trackFocusModality(), []);
     useEffect(() => {
       let held = false;
       const onDown = (event) => {
