@@ -90,6 +90,8 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelectorAll('.rt-branch').length === 2), 'boolean routes');
     assert.equal(await evaluate(() => document.activeElement.id), 'command-branch-output');
     await snapshot('boolean-1440');
+    // The DOM can update before the routine source is published; wait for the new routes there too.
+    await wait(() => published?.routines?.[0]?.nodes?.[0]?.outputBranch?.routes?.length === 2, 'published boolean routes');
     const booleanSource = await source(), falseId = booleanSource[0].nodes[0].outputBranch.routes[1].id;
     assert.equal(await openRouteFromLane('False'), falseId);
     await snapshot('boolean-lane-route-1440');
