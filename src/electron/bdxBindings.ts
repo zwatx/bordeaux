@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { RobotCommandCatalog } from "../shared/types";
 import type { BinaryBindings, BdxParameterType } from "../shared/export/robotBinary";
 import { discoverLabviewProject } from "./labviewProject";
-import { withActiveLabviewCommands, withCachedLabviewCommands } from "./labviewNiInspection";
+import { labviewCommandSourceChanges, withLastKnownLabviewCommands } from "./labviewNiInspection";
 import { parseLabviewXml } from "./labviewProjectDiscovery";
 
 /** Inspected NI type evidence describes bytes only. It never certifies robot execution. */
@@ -36,9 +36,49 @@ export function bdxBindingsFromCatalog(catalog: RobotCommandCatalog | null): Bin
     definitionJson: definitionBytes.toString("utf8") };
 }
 
-export async function prepareBdxBindings(options: { projectFile: string | null; inspectionCacheDirectory: string; activeCatalog?: RobotCommandCatalog | null }): Promise<BinaryBindings> {
+/**
+ * The used commands' definitions, plus any command sharing a used VI's basename (the robot dispatches by basename,
+ * so a new same-named VI makes the file ambiguous). An unrelated command's edit never invalidates a review.
+ */
+export function usedCommandEvidence(bindings: BinaryBindings, commandIds: Iterable<string>): string {
+  const ids = new Set(commandIds), commands = bindings.catalog?.commands ?? [];
+  const basename = (file: string | undefined) => file ? file.replaceAll("\\", "/").split("/").pop()!.toLowerCase() : null;
+  const names = new Set(commands.filter((command) => ids.has(command.id)).map((command) => basename(command.labviewConnector?.file)).filter(Boolean));
+  return JSON.stringify(commands.filter((command) => ids.has(command.id) || names.has(basename(command.labviewConnector?.file)))
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    .map((command) => ({ id: command.id, parameters: command.parameters, outputs: command.outputs, connector: command.labviewConnector })));
+}
+
+function missingCommands(commands: RobotCommandCatalog["commands"]): string {
+  const names = commands.map((command) => `${command.label} (${command.labviewConnector?.file ?? command.member})`);
+  return `${names.join(", ")} ${names.length === 1 ? "is" : "are"} no longer in the LabVIEW project. Choose another command or restore the VI.`;
+}
+
+function changedCommands(commands: RobotCommandCatalog["commands"]): string {
+  const names = commands.map((command) => command.label);
+  return `${names.join(", ")} changed in LabVIEW since Bordeaux last read ${names.length === 1 ? "it" : "them"}. `
+    + "Open the robot project in LabVIEW on Windows so Bordeaux can read the new inputs, then try again.";
+}
+
+/**
+ * Bindings for an export. Uses the last known command definitions and checks only the VIs of `commandIds`:
+ * a VI that no longer exists, or one that changed and can't be read again through `refresh` (LabVIEW closed), stops
+ * the export with its name, since enum orders and saved defaults may have changed. Other project edits are irrelevant.
+ */
+export async function prepareBdxBindings(options: { projectFile: string | null; inspectionCacheDirectory: string; activeCatalog?: RobotCommandCatalog | null;
+  commandIds?: Iterable<string>; refresh?: () => Promise<RobotCommandCatalog | null> }): Promise<BinaryBindings> {
   if (!options.projectFile) return bdxBindingsFromCatalog(null);
   const discovered = await discoverLabviewProject(options.projectFile);
-  const active = await withActiveLabviewCommands(options.projectFile, discovered, options.activeCatalog);
-  return bdxBindingsFromCatalog(active ?? await withCachedLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory));
+  const ids = [...(options.commandIds ?? [])];
+  let catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, options.activeCatalog);
+  let changes = await labviewCommandSourceChanges(options.projectFile, catalog, ids);
+  if (changes.changed.length && options.refresh) {
+    // Null means LabVIEW couldn't be read or another read already finished; the newest evidence decides either way.
+    const fresh = await options.refresh().catch(() => null);
+    catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, fresh ?? options.activeCatalog);
+    changes = await labviewCommandSourceChanges(options.projectFile, catalog, ids);
+  }
+  if (changes.missing.length) throw new Error(missingCommands(changes.missing));
+  if (changes.changed.length) throw new Error(changedCommands(changes.changed));
+  return bdxBindingsFromCatalog(catalog);
 }

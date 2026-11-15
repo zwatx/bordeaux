@@ -1,3 +1,5 @@
+import { projectCommandIds } from "../src/electron/usedCommands";
+import { usedCommandEvidence } from "../src/electron/bdxBindings";
 import { loadProjectSelection } from "../src/electron/projectOpening";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -22,7 +24,7 @@ it.each(["first-bindings", "worker", "second-bindings"])("actual extracted main 
   let context = { windowEpoch: randomUUID(), documentSessionId: randomUUID(), targetGeneration: 1 }, location = { folderPath: folder, projectPath: null as string | null };
   const entered = gate(), release = gate(); let bindings = 0, workers = 0, writers = 0; let workerSignal: AbortSignal | undefined;
   // Inject only passive binding/worker boundaries. Production source, recovery, lease and folder writer are unchanged.
-  const sandbox: Record<string, any> = { validateProjectSource, ProjectBdxChangedError, projectTargetGeneration: 1, projectContext: () => context, compatibilitySnapshotRevision: 0,
+  const sandbox: Record<string, any> = { validateProjectSource, ProjectBdxChangedError, projectCommandIds, usedCommandEvidence, refreshLinkedCommands: async () => null, projectTargetGeneration: 1, projectContext: () => context, compatibilitySnapshotRevision: 0,
     currentLegacyFile: null, currentProjectPath: null, currentProjectFolder: folder, smokeDirectory: null, path, projectWorkspacePath, openProjectFolder,
     robotConnectionGeneration: 0, linkedLabviewProjectFile: null, linkedRobotCatalog: null, linkedRobotProjectBookmarkId: null, labviewDiscoveryCacheDirectory: () => path.join(root, "cache"), MAX_BDX_BATCH: 64,
     prepareBdxBindings: async () => { bindings++; if ((phase === "first-bindings" && bindings === 1) || (phase === "second-bindings" && bindings === 2)) { entered.resolve(); await release.promise; } return { definitionJson: "fixture" }; },

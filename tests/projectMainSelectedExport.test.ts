@@ -1,3 +1,5 @@
+import { projectCommandIds } from "../src/electron/usedCommands";
+import { usedCommandEvidence } from "../src/electron/bdxBindings";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +25,7 @@ async function fixture() {
   let target = path.join(folder, "Paths", "Selected.bdx"), review: () => Promise<void> = async () => {};
   let handler!: (_event: unknown, project: unknown, id: string) => Promise<unknown>;
   // Execute the actual IPC listener and writer routing; only native dialogs and compiler bytes are supplied.
-  const sandbox = { fs: { promises: fs }, path, createHash, smokeDirectory: null, mainWindow: {}, projectSources: source,
+  const sandbox = { fs: { promises: fs }, path, createHash, projectCommandIds, usedCommandEvidence, refreshLinkedCommands: async () => null, smokeDirectory: null, mainWindow: {}, projectSources: source,
     projectWorkspacePath, projectFolderIdentity, writeBufferAtomically, writeProjectFolderBdx,
     captureLinkedProject: () => ({ isCurrent: () => true, bindingOptions: () => ({ projectFile: null }) }),
     prepareBdxBindings: async () => ({ definitionJson: "fixture" }),

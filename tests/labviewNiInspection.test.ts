@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
-import { eligibleLabviewLegacySource, inspectLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
+import { eligibleLabviewLegacySource, inspectLabviewCommands, labviewCommandSourceChanges, refreshLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
 import { bdxBindingsFromCatalog, prepareBdxBindings } from "../src/electron/bdxBindings";
 import { robotInvocationErrors } from "../src/shared/robotCommands";
@@ -44,6 +44,8 @@ async function cacheFixture() {
   await fs.mkdir(path.join(root, "Intake/Commands"), { recursive: true });
   await fs.writeFile(path.join(root, source.file), "hashing sentinel, not a LabVIEW binary");
   await fs.writeFile(typedef, "type hashing sentinel, not a LabVIEW binary");
+  // A typedef saved during an inspection stays unverified; this one was saved well before.
+  const earlier = new Date(Date.now() - 3600_000); await fs.utimes(typedef, earlier, earlier);
   await fs.writeFile(project, '<Project><Item Name="Robot" Type="RT myRIO"><Item Name="Command Status Info.ctl" Type="VI" URL="../Command Status Info.ctl"/><Item Name="Intake" Type="Folder" URL="../Intake"><Property Name="NI.DISK" Type="Bool">true</Property></Item></Item></Project>');
   const adapter = async (requestFile: string, responseFile: string) => {
     const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
@@ -334,28 +336,52 @@ describe("NI legacy connector discovery", () => {
     expect(bdxBindingsFromCatalog(changed).parameterTypes["team.intake.start"]).toBeUndefined();
   });
 
-  it("reuses session evidence after wrapper creation but rejects changed command sources", async () => {
+  it("keeps session definitions after unrelated edits and reads only new or changed VIs again", async () => {
     const fixture = await cacheFixture();
     const inspected = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
     await fs.writeFile(path.join(fixture.root, "Intake/Commands/Start_wrapper.vi"), "generated wrapper sentinel");
-    expect((await withSessionLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project)))?.commands).toBe(inspected.commands);
+    expect((await withSessionLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project)))?.commands.map(command => command.id)).toEqual(inspected.commands.map(command => command.id));
+    const requests: string[][] = [];
+    const adapter = async (requestFile: string, responseFile: string) => {
+      const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
+      requests.push(request.sources.map((item: { file: string }) => item.file));
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? row()
+        : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
+      await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
+    };
+    // Generated wrappers are not candidates, so nothing needs reading and LabVIEW is not contacted.
+    expect(await refreshLabviewCommands(fixture.project, fixture.cache, adapter)).toBeNull();
+    expect(requests).toEqual([]);
+    // A new VI elsewhere in the project is read on its own; the command keeps its earlier reading.
+    await fs.writeFile(path.join(fixture.root, "Intake/Drive Helper.vi"), "unrelated VI sentinel");
+    const afterNew = await refreshLabviewCommands(fixture.project, fixture.cache, adapter);
+    expect(requests).toEqual([["Intake/Drive Helper.vi"]]);
+    expect(afterNew?.commands.map(command => command.label)).toEqual(["Start"]);
+    // A saved edit to the command VI reads only that VI.
     await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
-    expect(await withSessionLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project))).toBeNull();
+    expect((await refreshLabviewCommands(fixture.project, fixture.cache, adapter))?.commands).toHaveLength(1);
+    expect(requests).toEqual([["Intake/Drive Helper.vi"], [source.file]]);
+    // A removed VI is dropped without contacting LabVIEW.
+    await fs.rm(path.join(fixture.root, "Intake/Drive Helper.vi"));
+    expect((await refreshLabviewCommands(fixture.project, fixture.cache, adapter))?.commands).toHaveLength(1);
+    expect(requests).toHaveLength(2);
   });
 
-  it("reuses a portable inspected cache and invalidates changed external type definitions and VI sources", async () => {
+  it("keeps the last known definitions in the cache after VI and typedef edits", async () => {
     const fixture = await cacheFixture();
     const inspected = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
     expect(inspected.labviewDiscovery?.inspection?.status).toBe("available");
-    expect(inspected.commands).toHaveLength(1);
-    const refresh = async () => withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
-    expect((await refresh()).labviewDiscovery?.inspection?.status).toBe("cached");
+    const restore = async () => {
+      vi.resetModules();
+      const fresh = await import("../src/electron/labviewNiInspection");
+      return fresh.withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    };
+    expect((await restore()).labviewDiscovery?.inspection?.status).toBe("cached");
     await fs.writeFile(fixture.typedef, "changed type hashing sentinel");
-    expect((await refresh()).labviewDiscovery?.inspection?.status).toBe("stale");
-    expect((await refresh()).commands).toEqual([]);
-    await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
     await fs.writeFile(path.join(fixture.root, source.file), "changed VI hashing sentinel");
-    expect((await refresh()).labviewDiscovery?.inspection?.status).toBe("stale");
+    const restored = await restore();
+    expect(restored.labviewDiscovery?.inspection?.status).toBe("cached");
+    expect(restored.commands.map(command => command.labviewConnector?.file)).toEqual([source.file]);
   });
 
   it("restores confirmed commands alongside clean unsupported sources on passive refresh", async () => {
@@ -376,7 +402,7 @@ describe("NI legacy connector discovery", () => {
     expect(restored.labviewDiscovery?.inspection?.status).toBe("cached");
   });
 
-  it("persists live-only evidence across restart until the saved sources change", async () => {
+  it("keeps live-only definitions across restart and reads a used command again once it is saved", async () => {
     const fixture = await cacheFixture();
     const live = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
       await fixture.adapter(request, response);
@@ -385,18 +411,13 @@ describe("NI legacy connector discovery", () => {
       await fs.writeFile(response, JSON.stringify(raw));
     });
     expect(live.labviewDiscovery?.inspection).toMatchObject({ status: "available", liveOnly: true });
-    const restore = async () => withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
-    const restored = await restore();
+    const restored = await withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
     expect(restored.labviewDiscovery?.inspection).toMatchObject({ status: "cached", liveOnly: true });
-    expect(restored.labviewDiscovery?.inspection?.reason).toContain("Refresh commands");
-    expect(restored.commands.map(command => command.labviewConnector?.file)).toEqual([source.file]);
-    expect((await prepareBdxBindings({ projectFile: fixture.project, inspectionCacheDirectory: fixture.cache })).catalog.commands).toHaveLength(1);
-    await fs.writeFile(fixture.typedef, "typedef saved after the live inspection");
-    expect((await restore()).labviewDiscovery?.inspection?.status).toBe("stale");
-    await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
-    expect((await restore()).labviewDiscovery?.inspection?.liveOnly).toBeUndefined();
+    const id = restored.commands[0].id;
+    expect(await labviewCommandSourceChanges(fixture.project, restored, [id])).toEqual({ changed: [], missing: [] });
     await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
-    expect((await restore()).commands).toEqual([]);
+    expect((await labviewCommandSourceChanges(fixture.project, restored, [id])).changed.map(command => command.id)).toEqual([id]);
+    expect((await refreshLabviewCommands(fixture.project, fixture.cache, fixture.adapter))?.labviewDiscovery?.inspection?.liveOnly).toBeUndefined();
   });
 
   it("rejects concurrent source changes and propagates explicit adapter failures", async () => {
@@ -409,72 +430,125 @@ describe("NI legacy connector discovery", () => {
     expect(await fs.readdir(fixture.cache)).toEqual([]);
   });
 
-  it("does not bind earlier NI metadata to an external typedef hash observed only after inspection", async () => {
+  it("checks only the commands an export uses; unrelated project edits never block it", async () => {
     const fixture = await cacheFixture();
-    const projectXml = await fs.readFile(fixture.project, "utf8");
-    await fs.writeFile(fixture.project, projectXml.replace('<Item Name="Command Status Info.ctl" Type="VI" URL="../Command Status Info.ctl"/>', ""));
-    const live = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
-      await fixture.adapter(request, response); // NI exported a schema based on the previous type bytes.
-      await fs.writeFile(fixture.typedef, "external typedef changed after NI exported the old schema");
-    });
-    expect(live.commands).toHaveLength(1);
-    expect(live.labviewDiscovery?.inspection?.reason).toContain("not fingerprinted beforehand");
-    const refreshed = await withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
-    expect(refreshed.commands).toEqual([]);
-    expect(await fs.readdir(fixture.cache)).toEqual([]);
-  });
-
-  it("exports the active live-only command snapshot without creating or trusting a saved cache", async () => {
-    const fixture = await cacheFixture();
-    await fs.writeFile(fixture.project, (await fs.readFile(fixture.project, "utf8"))
-      .replace('<Item Name="Command Status Info.ctl" Type="VI" URL="../Command Status Info.ctl"/>', ""));
-    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
-      await fixture.adapter(request, response);
-      const raw = JSON.parse(await fs.readFile(response, "utf8"));
-      raw.dirtyContext = null;
-      raw.vis[0].modifiedBefore = null;
-      raw.vis[0].modifiedAfter = null;
-      await fs.writeFile(response, JSON.stringify(raw));
-    });
-    expect(activeCatalog.labviewDiscovery?.inspection?.reason).toContain("Live inspection only");
-    expect(await fs.readdir(fixture.cache)).toEqual([]);
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const id = activeCatalog.commands[0].id;
     const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog: { ...activeCatalog } };
     const f = binaryWriterFixture(false, false);
-    f.path.markers = [{ id: "event1", name: "event1", f: .5, invocation: { commandId: activeCatalog.commands[0].id, arguments: {}, cancelOnPathEnd: false } }];
-    const bindings = await prepareBdxBindings(options);
+    f.path.markers = [{ id: "event1", name: "event1", f: .5, invocation: { commandId: id, arguments: {}, cancelOnPathEnd: false } }];
+    const bindings = await prepareBdxBindings({ ...options, commandIds: [id] });
     const built = buildRobotBinary(f.project, { kind: "path", id: f.path.id }, bindings);
     expect(built.eventCount).toBe(1);
     expect(Buffer.from(built.bytes).includes(Buffer.from("Start.vi"))).toBe(true);
-    expect((await prepareBdxBindings(options)).definitionJson).toBe(bindings.definitionJson);
-    expect((await prepareBdxBindings({ ...options, activeCatalog: undefined })).catalog.commands).toEqual([]);
-    expect((await prepareBdxBindings({ ...options, activeCatalog: structuredClone(activeCatalog) })).catalog.commands).toEqual([]);
-    await fs.writeFile(fixture.typedef, "type changed after the live snapshot");
-    await expect(prepareBdxBindings(options)).rejects.toThrow(/changed since command inspection/);
-  });
-
-  it("rejects a live snapshot after VI changes or when supplied for a different linked project", async () => {
-    const fixture = await cacheFixture();
-    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
-    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog };
-    const other = await cacheFixture();
-    await expect(prepareBdxBindings({ ...options, projectFile: other.project })).rejects.toThrow(/another LabVIEW project/);
-    await fs.writeFile(path.join(fixture.root, source.file), "VI changed after inspection");
-    await expect(prepareBdxBindings(options)).rejects.toThrow(/changed since command inspection/);
+    // Edits to the project file, other VIs and typedefs no command uses leave the export unchanged.
+    await fs.appendFile(fixture.project, "\n");
+    await fs.writeFile(path.join(fixture.root, "Intake/Drive Helper.vi"), "unrelated VI sentinel");
+    expect((await prepareBdxBindings({ ...options, commandIds: [] })).definitionJson).toBe(bindings.definitionJson);
+    // A definition copy without session evidence still exports from the saved definitions.
+    expect((await prepareBdxBindings({ ...options, activeCatalog: structuredClone(activeCatalog), commandIds: [id] })).catalog.commands).toHaveLength(1);
+    // A changed command VI is read again when LabVIEW is available, and noted when it is not.
+    await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
+    // Enum orders and saved defaults may have changed, so a used command LabVIEW can't read again is named, not guessed.
+    await expect(prepareBdxBindings({ ...options, commandIds: [id], refresh: async () => null })).rejects.toThrow(/Start changed in LabVIEW since Bordeaux last read it\. Open the robot project in LabVIEW/);
+    await expect(prepareBdxBindings({ ...options, commandIds: [id] })).rejects.toThrow(/Start changed in LabVIEW/);
+    const anyAdapter = async (requestFile: string, responseFile: string) => {
+      const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? row()
+        : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
+      await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
+    };
+    const refresh = vi.fn(() => refreshLabviewCommands(fixture.project, fixture.cache, anyAdapter));
+    const reread = await prepareBdxBindings({ ...options, commandIds: [id], refresh });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(reread.catalog.commands).toHaveLength(1);
+    // A later check of the earlier linked catalog sees the newer reading (as a push confirmation would).
+    expect((await prepareBdxBindings({ ...options, commandIds: [id] })).definitionJson).toBe(reread.definitionJson);
+    // A used command whose VI is gone names itself; one no export uses does not matter.
+    await fs.rm(path.join(fixture.root, source.file));
+    await expect(prepareBdxBindings({ ...options, commandIds: [id] })).rejects.toThrow(/Start \(Intake\/Commands\/Start\.vi\) is no longer in the LabVIEW project/);
+    await expect(prepareBdxBindings({ ...options, commandIds: [] })).resolves.toBeTruthy();
     expect((await prepareBdxBindings({ ...options, projectFile: null })).catalog.commands).toEqual([]);
   });
 
-  it("rejects changed, added and removed declarations in the active snapshot", async () => {
+  it("uses another project's own definitions instead of a linked catalog from a different project", async () => {
+    const fixture = await cacheFixture();
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const other = await cacheFixture();
+    const bindings = await prepareBdxBindings({ projectFile: other.project, inspectionCacheDirectory: other.cache, activeCatalog, commandIds: [activeCatalog.commands[0].id] });
+    expect(bindings.catalog.commands).toEqual([]);
+  });
+
+  it("applies declaration edits without reading LabVIEW again", async () => {
     const fixture = await cacheFixture();
     const declaration = path.join(fixture.root, "bordeaux-catalog.json");
-    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache };
-    let activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog, commandIds: activeCatalog.commands.map(command => command.id) };
     await fs.writeFile(declaration, JSON.stringify({ schemaVersion: "bordeaux-labview-catalog/1", catalogId: "team", commands: [] }));
-    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
-    activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await expect(prepareBdxBindings(options)).resolves.toBeTruthy();
     await fs.appendFile(declaration, "\n");
-    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
-    activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await expect(prepareBdxBindings(options)).resolves.toBeTruthy();
     await fs.rm(declaration);
-    await expect(prepareBdxBindings({ ...options, activeCatalog })).rejects.toThrow(/changed since command inspection/);
+    expect((await prepareBdxBindings(options)).catalog.commands).toHaveLength(1);
+  });
+
+  it("reads definitions taken from unsaved VIs again after a restart, even when the saved file never changed", async () => {
+    const fixture = await cacheFixture();
+    const live = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
+      await fixture.adapter(request, response);
+      const raw = JSON.parse(await fs.readFile(response, "utf8"));
+      raw.vis[0].modifiedBefore = true;
+      await fs.writeFile(response, JSON.stringify(raw));
+    });
+    const id = live.commands[0].id;
+    // This session keeps the live reading, as before.
+    expect(await labviewCommandSourceChanges(fixture.project, live, [id])).toEqual({ changed: [], missing: [] });
+    vi.resetModules();
+    const fresh = await import("../src/electron/labviewNiInspection");
+    const restored = await fresh.withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    expect((await fresh.labviewCommandSourceChanges(fixture.project, restored, [id])).changed.map(command => command.id)).toEqual([id]);
+  });
+
+  it("leaves a typedef saved during inspection unverified so its commands are read again", async () => {
+    const fixture = await cacheFixture();
+    const inspected = await inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
+      await fixture.adapter(request, response);
+      await fs.writeFile(fixture.typedef, "typedef saved while NI was reading");
+    });
+    const id = inspected.commands[0].id;
+    expect((await labviewCommandSourceChanges(fixture.project, inspected, [id])).changed.map(command => command.id)).toEqual([id]);
+    const earlier = new Date(Date.now() - 3600_000); await fs.utimes(fixture.typedef, earlier, earlier);
+    const reread = await refreshLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    expect(await labviewCommandSourceChanges(fixture.project, reread!, [id])).toEqual({ changed: [], missing: [] });
+  });
+
+  it("keeps an unsaved reading flagged through a timestamp-only change and an unrelated refresh", async () => {
+    const fixture = await cacheFixture();
+    const anyAdapter = (dirty: boolean) => async (requestFile: string, responseFile: string) => {
+      const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? { ...row(), modifiedBefore: dirty }
+        : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
+      await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
+    };
+    const live = await inspectLabviewCommands(fixture.project, fixture.cache, anyAdapter(true));
+    const id = live.commands[0].id, later = new Date(Date.now() + 60_000);
+    await fs.utimes(path.join(fixture.root, source.file), later, later);
+    await fs.writeFile(path.join(fixture.root, "Intake/Drive Helper.vi"), "unrelated VI sentinel");
+    expect(await refreshLabviewCommands(fixture.project, fixture.cache, anyAdapter(false))).not.toBeNull();
+    vi.resetModules();
+    const fresh = await import("../src/electron/labviewNiInspection");
+    const restored = await fresh.withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    expect((await fresh.labviewCommandSourceChanges(fixture.project, restored, [id])).changed.map(command => command.id)).toEqual([id]);
+  });
+
+  it("treats a new VI sharing a used command's basename as a change to the reviewed evidence", async () => {
+    const { usedCommandEvidence } = await import("../src/electron/bdxBindings");
+    const fixture = await cacheFixture();
+    const catalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    const id = catalog.commands[0].id, before = bdxBindingsFromCatalog(catalog);
+    const twin = { ...catalog.commands[0], id: "labview.legacy.twin", labviewConnector: { ...catalog.commands[0].labviewConnector!, file: "Drive/Start.vi" } };
+    const unrelated = { ...catalog.commands[0], id: "labview.legacy.other", labviewConnector: { ...catalog.commands[0].labviewConnector!, file: "Drive/Stop.vi" } };
+    expect(usedCommandEvidence(bdxBindingsFromCatalog({ ...catalog, commands: [...catalog.commands, unrelated] }), [id])).toBe(usedCommandEvidence(before, [id]));
+    expect(usedCommandEvidence(bdxBindingsFromCatalog({ ...catalog, commands: [...catalog.commands, twin] }), [id])).not.toBe(usedCommandEvidence(before, [id]));
   });
 });

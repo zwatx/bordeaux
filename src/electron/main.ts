@@ -10,16 +10,15 @@ import { robotCatalogSemanticSignature } from "../shared/agent/catalogSignature"
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../shared/types";
 import { validateProject, validateProjectSource } from "../shared/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
-import { prepareBdxBindings } from "./bdxBindings";
+import { prepareBdxBindings, usedCommandEvidence } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildRoutineOffThread } from "./routineRuntimeWorkerClient";
-import { routineEvidenceSnapshot } from "./routineBindings";
-import { routineCommandIds } from "./routineSelection";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
 import { withCachedLabviewCommands, withSessionLabviewCommands } from "./labviewNiInspection";
+import { projectCommandIds } from "./usedCommands";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { labviewLinkMatches, relativeLabviewLink, rebaseProjectLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "./projectLabviewLink";
-import { inspectLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation } from "./labviewProjectSync";
+import { inspectLabviewCommandsQueued, refreshLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation } from "./labviewProjectSync";
 import { ensureLabviewCommandWrapper } from "./labviewWrappers";
 import { discoverRobotProject, type RobotProjectRuntime } from "./robotProjectRuntime";
 import {
@@ -134,6 +133,51 @@ const mcpStdioMode = process.argv.includes("--mcp-stdio");
 const enableMcpAccessOnLaunch = process.argv.includes("--enable-mcp-access");
 let agentBridge: AgentBridgeServer | null = null;
 const proposalReceipts = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+
+/**
+ * Replaces the linked command definitions after LabVIEW is read again. The connection (and any review prepared against
+ * it) stays current; the renderer receives the new definitions for its pickers and checks.
+ */
+function publishLinkedCatalog(discovered: RobotCommandCatalog): RobotCommandCatalog {
+  const catalog: RobotCommandCatalog = {
+    ...discovered,
+    semanticFingerprint: `sha256:${createHash("sha256").update(robotCatalogSemanticSignature(discovered), "utf8").digest("hex")}`,
+  };
+  linkedRobotCatalog = catalog;
+  agentSessions.refreshRobotCatalog();
+  if (mainWindow && !mainWindow.isDestroyed() && linkedRobotContext) {
+    try { mainWindow.webContents.send("robotProject:catalog", { context: linkedRobotContext, catalog }); } catch { /* The next refresh delivers it. */ }
+  }
+  return catalog;
+}
+/** Read commands whose VIs are new or changed since they were last read. Null when LabVIEW is unavailable or nothing changed. */
+async function refreshLinkedCommands(): Promise<RobotCommandCatalog | null> {
+  const selection = linkedLabviewProjectFile, generation = robotConnectionGeneration;
+  if (!selection || process.platform !== "win32" || linkedRobotCatalog?.runtime !== "labview" || labviewInspectionInProgress) return null;
+  const fresh = await refreshLabviewCommandsQueued(selection, labviewDiscoveryCacheDirectory());
+  if (!fresh || generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile) return null;
+  return publishLinkedCatalog(fresh);
+}
+// Returning to Bordeaux (for example after saving in LabVIEW) reads changed commands in the background. Failures are
+// quiet: the last known definitions stay usable and an export reads what it needs again.
+// After a failed background read (LabVIEW closed), focus changes wait a minute before asking again.
+let commandSyncTimer: NodeJS.Timeout | null = null, commandSyncRunning = false, commandSyncFailedAt = 0;
+const COMMAND_SYNC_BACKOFF_MS = 60_000;
+function scheduleCommandSync(delayMs = 1200): void {
+  if (process.platform !== "win32" || !linkedLabviewProjectFile) return;
+  if (Date.now() - commandSyncFailedAt < COMMAND_SYNC_BACKOFF_MS) return;
+  if (commandSyncTimer) clearTimeout(commandSyncTimer);
+  commandSyncTimer = setTimeout(() => {
+    commandSyncTimer = null;
+    if (commandSyncRunning) return;
+    commandSyncRunning = true;
+    void refreshLinkedCommands().then(() => { commandSyncFailedAt = 0; }, (error) => {
+      commandSyncFailedAt = Date.now();
+      console.warn("LabVIEW command sync:", error instanceof Error ? error.message : error);
+    }).finally(() => { commandSyncRunning = false; });
+  }, delayMs);
+  commandSyncTimer.unref();
+}
 
 function clearLinkedRobotProject(): void {
   robotConnectionGeneration += 1;
@@ -465,6 +509,7 @@ async function connectRobotProject(projectPath: string, runtime: RobotProjectRun
   linkedRobotCatalog = catalog;
   projectSources.revalidateExports();
   agentSessions.refreshRobotCatalog();
+  if (cachedOnly) scheduleCommandSync(2500);
   return {
     catalog,
     integration,
@@ -530,7 +575,9 @@ function captureLinkedProject(project: BordeauxProject) {
   const projectFile = linkedLabviewProjectFile, bookmark = linkedRobotProjectBookmarkId;
   if (projectFile && !linkedProjectMatches(project)) throw new Error("The linked LabVIEW project does not match this Bordeaux project");
   return {
-    bindingOptions: (hasCommands: boolean) => ({ projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog }),
+    // Only the commands this export uses are checked; a changed one is read again from LabVIEW when it is open.
+    bindingOptions: (commandIds: Set<string>) => ({ projectFile: commandIds.size ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(),
+      activeCatalog: linkedRobotCatalog, commandIds, refresh: refreshLinkedCommands }),
     isCurrent: () => generation === robotConnectionGeneration && projectGeneration === projectTargetGeneration
       && projectFile === linkedLabviewProjectFile && bookmark === linkedRobotProjectBookmarkId,
   };
@@ -594,6 +641,7 @@ function createWindow() {
 
   const window = mainWindow;
   attachWindowChrome(window, process.platform);
+  window.on("focus", () => scheduleCommandSync());
   let windowEpoch = projectWindowEpoch, initialNavigation = true;
   nativeDeparture.documentEntered(projectContext());
   window.once("ready-to-show", () => {
@@ -1107,10 +1155,12 @@ async function exportSaved(persisted: SavedProjectCheckpoint, scope: ProjectBdxE
   const source = persisted.canonicalProject, savedLocation = persisted.location;
   const selected = source.paths.filter(candidate => candidate.exportable !== false && candidate.waypoints.length >= 2);
   const projectFile = linkedLabviewProjectFile;
-  const hasCommands = selected.some(candidate => candidate.markers.some(marker => marker.invocation));
+  const commandIds = projectCommandIds(source, { pathIds: selected.map(candidate => candidate.id) });
+  const hasCommands = commandIds.size > 0;
   scope.assertCurrent();
   if (hasCommands && projectFile && !linkedProjectMatches(source, savedLocation.folderPath)) throw new Error("The linked LabVIEW project does not match this project");
-  const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog };
+  // The source is saved first; only a used command that changed and can't be read again fails the BDX files.
+  const options = { projectFile: hasCommands ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog, commandIds, refresh: refreshLinkedCommands };
   scope.enterPhase("bindings");
   const bindings = await prepareBdxBindings(options); scope.assertCurrent();
   const files = [];
@@ -1121,7 +1171,7 @@ async function exportSaved(persisted: SavedProjectCheckpoint, scope: ProjectBdxE
   }
   scope.enterPhase("revalidate");
   const currentBindings = await prepareBdxBindings(options); scope.assertCurrent();
-  if (currentBindings.definitionJson !== bindings.definitionJson) throw new ProjectBdxChangedError("Command definitions changed; save again to generate BDX files");
+  if (usedCommandEvidence(currentBindings, commandIds) !== usedCommandEvidence(bindings, commandIds)) throw new ProjectBdxChangedError("Command definitions changed; save again to generate BDX files");
   scope.enterPhase("write");
   await writeProjectFolderBdx(scope.folderPath, files, { folderIdentity: scope.folderIdentity, expectedSourceDigest: scope.expectedSourceDigest,
     assertCurrent: () => scope.assertCurrent(), onWriteStarted: () => scope.markWriteStarted() });
@@ -1259,8 +1309,7 @@ handle("project:exportBdx", async (_event, rawProject, rawPathId) => {
   const assertCurrent = () => {
     if (!link.isCurrent()) throw new Error("The selected project changed during BDX export; export again");
   };
-  const hasCommands = project.paths.find((candidate) => candidate.id === rawPathId)?.markers.some((marker) => marker.invocation) === true;
-  const bindingOptions = link.bindingOptions(hasCommands);
+  const bindingOptions = link.bindingOptions(projectCommandIds(project, { pathIds: [rawPathId] }));
   const bindings = await prepareBdxBindings(bindingOptions);
   const built = await buildBdxOffThread({ project, selection: { kind: "path", id: rawPathId }, bindings });
   assertCurrent();
@@ -1279,7 +1328,7 @@ handle("project:exportBdx", async (_event, rawProject, rawPathId) => {
   }
   const currentBindings = await prepareBdxBindings(bindingOptions);
   assertCurrent();
-  if (currentBindings.definitionJson !== bindings.definitionJson) throw new Error("NI binding evidence changed during BDX export; review and export again");
+  if (usedCommandEvidence(currentBindings, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW during export. Export again.");
   await writeSelectedProjectBdx(target, built.bytes, before, assertCurrent);
   return { exported: true, relativePath: path.basename(target), sha256: built.sha256,
     pathCount: built.pathCount, eventCount: built.eventCount, sampleCount: built.sampleCount };
@@ -1289,7 +1338,7 @@ handle("project:exportRoutine", async (_event, rawProject, rawRoutineId) => {
   if (typeof rawRoutineId !== "string" || !rawRoutineId.trim()) throw new Error("Select a routine before exporting");
   const project = rawProject as BordeauxProject, link = captureLinkedProject(project);
   const assertCurrent = () => { if (!link.isCurrent()) throw new Error("The selected project changed during routine export; export again"); };
-  const bindingOptions = link.bindingOptions(routineCommandIds(project, rawRoutineId).size > 0), bindings = await prepareBdxBindings(bindingOptions);
+  const bindingOptions = link.bindingOptions(projectCommandIds(project, { routineId: rawRoutineId })), bindings = await prepareBdxBindings(bindingOptions);
   const built = await buildRoutineOffThread({ project, routineId: rawRoutineId, bindings });
   assertCurrent();
   const result = await dialog.showSaveDialog(mainWindow!, { title: "Export active routine", defaultPath: built.fileName,
@@ -1305,7 +1354,7 @@ handle("project:exportRoutine", async (_event, rawProject, rawRoutineId) => {
   }
   const currentBindings = await prepareBdxBindings(bindingOptions);
   assertCurrent();
-  if (routineEvidenceSnapshot(currentBindings) !== routineEvidenceSnapshot(bindings)) throw new Error("NI command evidence changed during routine export; review and export again");
+  if (usedCommandEvidence(currentBindings, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW during export. Export again.");
   await writeSelectedProjectBdx(target, built.bytes, before, assertCurrent);
   return { exported: true, relativePath: path.basename(target), sha256: built.sha256, pathCount: built.pathCount, nodeCount: built.nodeCount, commandCount: built.commandCount };
 });
@@ -1322,7 +1371,8 @@ handle("diagnostics:preview", async (_event, rawProject) => {
       const project = rawProject as BordeauxProject;
       const selected = project.paths.find((item) => item.id === project.editor?.activePathId) ?? project.paths[0];
       if (!selected) throw new Error("Select a path before preparing export diagnostics");
-      const bindings = await prepareBdxBindings({ projectFile: selected.markers.some((marker) => marker.invocation) ? linkedLabviewProjectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog });
+      const commandIds = projectCommandIds(project, { pathIds: [selected.id] });
+      const bindings = await prepareBdxBindings({ projectFile: commandIds.size ? linkedLabviewProjectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog, commandIds });
       const built = await buildBdxOffThread({ project, selection: { kind: "path", id: selected.id }, bindings });
       fieldPin = {
         id: built.document.field.id,
@@ -1510,26 +1560,30 @@ handle("robotProject:ensureWrappers", async (_event, context, rawIds) => {
   if (!Array.isArray(rawIds) || rawIds.length > 1000 || rawIds.some(id => typeof id !== "string")) throw new Error("Select known LabVIEW commands for wrapper creation.");
   const selection = linkedLabviewProjectFile, catalog = linkedRobotCatalog, generation = robotConnectionGeneration;
   if (!selection || !catalog) throw new Error("Link robot code before creating command wrappers.");
-  const guard = () => { assertRobotProjectContext(context); if (generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile || catalog !== linkedRobotCatalog) throw new Error("The linked robot project changed during wrapper creation."); };
+  // A background re-read may replace the catalog meanwhile; the link itself must stay the same.
+  const guard = () => { assertRobotProjectContext(context); if (generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile) throw new Error("The linked robot project changed during wrapper creation."); };
   const commandIds = [...new Set(rawIds)];
   commandIds.forEach(id => {
     const matches = catalog.commands.filter(command => command.id === id);
     if (matches.length !== 1 || !matches[0].labviewConnector) throw new Error("Rescan command inputs before creating this wrapper.");
   });
+  // Read any changed command first (refresh queues its own LabVIEW work, so it must run before entering the queue).
+  await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog, commandIds, refresh: refreshLinkedCommands });
+  guard();
   return queueLabviewOperation(async () => {
     guard();
-    // The command's terminals must still belong to the inspected source before NI scripts a wrapper.
-    const validated = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog });
+    // The command's terminals must still belong to the current saved source before NI scripts a wrapper.
+    const validated = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog, commandIds });
     guard();
     const commands = commandIds.map(id => {
       const matches = validated.catalog?.commands.filter(command => command.id === id && command.labviewConnector) ?? [];
-      if (matches.length !== 1) throw new Error("Command inputs changed. Rescan command inputs before creating this wrapper.");
+      if (matches.length !== 1) throw new Error("This command is no longer in the linked LabVIEW project.");
       return matches[0];
     });
     const validateSnapshot = async () => {
-      const current = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog });
+      const current = await prepareBdxBindings({ projectFile: selection, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: catalog, commandIds });
       guard();
-      if (current.definitionJson !== validated.definitionJson) throw new Error("Command inputs changed during wrapper creation. Rescan command inputs and try again.");
+      if (usedCommandEvidence(current, commandIds) !== usedCommandEvidence(validated, commandIds)) throw new Error("Command inputs changed during wrapper creation; it will be prepared again.");
     };
     const results = [];
     for (const command of commands) {
@@ -1592,7 +1646,7 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
     if (matches.length !== 1) throw new Error("A selected path is missing or ambiguous");
     return matches[0];
   });
-  const bindingOptions = link.bindingOptions(selected.some(candidate => candidate.markers.some(marker => marker.invocation)));
+  const bindingOptions = link.bindingOptions(projectCommandIds(project, { pathIds: selected.map(candidate => candidate.id) }));
   const bindings = await prepareBdxBindings(bindingOptions);
   assertCurrent();
   const built = await buildBdxBatchOffThread({ project, selections: selected.map(candidate => ({ kind: "path", id: candidate.id })), bindings });
@@ -1602,7 +1656,7 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
     assertCurrent();
     const current = await prepareBdxBindings(bindingOptions);
     assertCurrent();
-    if (current.definitionJson !== bindings.definitionJson) throw new Error("NI parameter evidence changed; review this transfer again");
+    if (usedCommandEvidence(current, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW after this review. Review the transfer again.");
   });
 });
 handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
@@ -1615,7 +1669,7 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
   const assertCurrent = () => {
     if (!link.isCurrent() || JSON.stringify(pairing) !== JSON.stringify(robotFileDelivery.current())) throw new Error("The project or robot connection changed; review this transfer again");
   };
-  const bindingOptions = link.bindingOptions(routineCommandIds(project, routineId).size > 0), bindings = await prepareBdxBindings(bindingOptions);
+  const bindingOptions = link.bindingOptions(projectCommandIds(project, { routineId })), bindings = await prepareBdxBindings(bindingOptions);
   assertCurrent();
   const built = await buildRoutineOffThread({ project, routineId, bindings });
   assertCurrent();
@@ -1623,7 +1677,7 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
     assertCurrent();
     const current = await prepareBdxBindings(bindingOptions);
     assertCurrent();
-    if (routineEvidenceSnapshot(current) !== routineEvidenceSnapshot(bindings)) throw new Error("NI command evidence changed; review this transfer again");
+    if (usedCommandEvidence(current, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW after this review. Review the transfer again.");
   });
 });
 handle("robotFiles:confirm", (_event, operationId) => {

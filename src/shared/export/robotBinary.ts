@@ -31,7 +31,7 @@ const commandBasename = (command: RobotCommandDescriptor) => command.labviewConn
 function resolveCommand(catalog: RobotCommandCatalog, commandId: string, eventName: string) {
   const matches = catalog.commands.filter((command) => command.id === commandId);
   const context = `Event ${eventName}: command ${commandId}`;
-  if (matches.length !== 1) throw new Error(`${context} is ${matches.length ? "ambiguous" : "missing"} in the linked LabVIEW project. Inspect commands before exporting BDX.`);
+  if (matches.length !== 1) throw new Error(`${context} is ${matches.length ? "ambiguous" : "missing"} in the linked LabVIEW project. ${matches.length ? "Refresh commands before exporting BDX." : "Choose another command for this event."}`);
   const command = matches[0], name = commandBasename(command);
   if (!/^.+\.vi$/i.test(name)) throw new Error(`${context} has no inspected original VI filename. Inspect the linked LabVIEW project before exporting BDX.`);
   // The runtime receives only a basename, so distinct folders/targets cannot disambiguate it.

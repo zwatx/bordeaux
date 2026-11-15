@@ -5,6 +5,7 @@ import { inspectLabviewCommandsQueued, syncLabviewCommands } from "../src/electr
 
 vi.mock("../src/electron/labviewNiInspection", () => ({
   inspectLabviewCommands: vi.fn(),
+  refreshLabviewCommands: vi.fn(),
   withCachedLabviewCommands: vi.fn(),
   withSessionLabviewCommands: vi.fn(),
 }));
@@ -42,87 +43,48 @@ function catalog(status: "available" | "cached" = "cached"): RobotCommandCatalog
 beforeEach(() => vi.clearAllMocks());
 
 describe("automatic LabVIEW command sync", () => {
-  it("reuses revalidated session evidence before NI automation or disk cache", async () => {
-    const live = catalog("available"), session = vi.fn(async () => live), inspect = vi.fn(), cached = vi.fn();
-    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session, inspect, cached, discover: vi.fn() })).toBe(live);
-    expect(inspect).not.toHaveBeenCalled(); expect(cached).not.toHaveBeenCalled();
+  it("starts from session definitions and returns them when nothing changed", async () => {
+    const live = catalog("available"), session = vi.fn(async () => live), refresh = vi.fn(async () => null), cached = vi.fn();
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session, refresh, cached })).toBe(live);
+    expect(refresh).toHaveBeenCalledExactlyOnceWith(selection, cacheDirectory); expect(cached).not.toHaveBeenCalled();
   });
-  it("restores a valid saved cache before starting Windows inspection", async () => {
-    const saved = catalog(), inspect = vi.fn(), cached = vi.fn(async () => saved);
-    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), inspect, cached, discover: vi.fn() })).toBe(saved);
-    expect(inspect).not.toHaveBeenCalled();
+  it("falls back to saved definitions before reading changes", async () => {
+    const saved = catalog(), refresh = vi.fn(async () => null), cached = vi.fn(async () => saved);
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), refresh, cached })).toBe(saved);
   });
-  it("re-inspects on refresh when the saved cache holds live-only evidence", async () => {
-    const saved = catalog(); saved.labviewDiscovery!.inspection!.liveOnly = true;
-    const live = catalog("available"), inspect = vi.fn(async () => live), cached = vi.fn(async () => saved);
-    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), inspect, cached, discover: vi.fn() })).toBe(live);
-    expect(inspect).toHaveBeenCalledOnce();
-  });
-  it("inspects on Windows and returns fresh evidence without loading the cache", async () => {
-    const source = catalog(); const live = catalog("available");
-    const inspect = vi.fn(async () => live); const cached = vi.fn(async () => source);
-    expect(await syncLabviewCommands(selection, cacheDirectory, source, { platform: "win32", inspect, cached, discover: vi.fn(async () => source) })).toBe(live);
-    expect(inspect).toHaveBeenCalledExactlyOnceWith(selection, cacheDirectory);
-    expect(cached).not.toHaveBeenCalled();
+  it("returns re-read definitions when VIs changed", async () => {
+    const live = catalog("available"), refresh = vi.fn(async () => live), cached = vi.fn(async () => catalog());
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), refresh, cached })).toBe(live);
   });
 
-  it("keeps cached commands and conditions after inspection fails and explains how to retry", async () => {
+  it("keeps known commands usable and quiet when LabVIEW can't be read", async () => {
     const source = catalog(); const saved = catalog(); const unchanged = structuredClone(saved);
-    const inspect = vi.fn(async () => { throw new Error("NI automation is unavailable"); });
+    const refresh = vi.fn(async () => { throw new Error("NI automation is unavailable"); });
     const cached = vi.fn(async () => saved);
-    const result = await syncLabviewCommands(selection, cacheDirectory, source, { platform: "win32", inspect, cached, discover: vi.fn(async () => source) });
+    const result = await syncLabviewCommands(selection, cacheDirectory, source, { platform: "win32", refresh, cached });
     expect(cached).toHaveBeenCalledExactlyOnceWith(selection, source, cacheDirectory);
     expect(result.commands).toEqual(saved.commands);
     expect(result.conditions).toEqual(saved.conditions);
-    expect(result.warnings).toContain("Existing source warning");
-    expect(result.labviewDiscovery?.inspection).toMatchObject({ status: "unavailable", commandCount: 1, unsupported: saved.labviewDiscovery?.inspection?.unsupported });
-    expect(result.labviewDiscovery?.inspection?.reason).toContain("NI automation is unavailable");
-    expect(result.labviewDiscovery?.inspection?.reason).toContain("Open this project in LabVIEW, then choose Refresh commands to retry");
-    expect(result.warnings).toContain(result.labviewDiscovery?.inspection?.reason);
+    expect(result.labviewDiscovery?.inspection).toEqual(saved.labviewDiscovery?.inspection);
+    expect(result.warnings.at(-1)).toContain("NI automation is unavailable");
     expect(saved).toEqual(unchanged);
   });
 
-  it.each(["darwin", "linux"] as const)("uses cached evidence on %s without launching the NI adapter", async (platform) => {
+  it("explains how to read commands when there are no definitions yet", async () => {
+    const source = catalog(); delete source.labviewDiscovery!.inspection; source.commands = [];
+    const refresh = vi.fn(async () => { throw new Error("LabVIEW is closed"); });
+    const result = await syncLabviewCommands(selection, cacheDirectory, source, { platform: "win32", refresh, cached: vi.fn(async () => source) });
+    expect(result.labviewDiscovery?.inspection).toMatchObject({ status: "unavailable", commandCount: 0 });
+    expect(result.labviewDiscovery?.inspection?.reason).toContain("Open this project in LabVIEW, then refresh commands");
+    expect(result.warnings).toContain(result.labviewDiscovery?.inspection?.reason);
+  });
+
+  it.each(["darwin", "linux"] as const)("uses saved definitions on %s without launching the NI adapter", async (platform) => {
     const source = catalog(); const saved = catalog();
-    const inspect = vi.fn(async () => catalog("available")); const cached = vi.fn(async () => saved);
-    expect(await syncLabviewCommands(selection, cacheDirectory, source, { platform, inspect, cached, discover: vi.fn(async () => source) })).toBe(saved);
+    const refresh = vi.fn(async () => catalog("available")); const cached = vi.fn(async () => saved);
+    expect(await syncLabviewCommands(selection, cacheDirectory, source, { platform, refresh, cached })).toBe(saved);
     expect(cached).toHaveBeenCalledExactlyOnceWith(selection, source, cacheDirectory);
-    expect(inspect).not.toHaveBeenCalled();
-  });
-
-  it("uses current declarations when project sources change during failed inspection", async () => {
-    const source = catalog(); source.authoritative = true;
-    let disk = source;
-    const current = catalog();
-    current.commands = [{ ...current.commands[0], id: "intake.stop", label: "Stop intake" }];
-    current.conditions = [{ ...current.conditions![0], id: "intake.stopped", label: "Intake stopped" }];
-    current.authoritative = false;
-    const inspect = vi.fn(async () => {
-      disk = current;
-      throw new Error("Project sources changed during NI inspection");
-    });
-    const discover = vi.fn(async () => disk);
-    const cached = vi.fn(async (_selection: string, latest: RobotCommandCatalog) => latest);
-    const result = await syncLabviewCommands(selection, cacheDirectory, source, { platform: "win32", inspect, discover, cached });
-    expect(discover).toHaveBeenCalledExactlyOnceWith(selection);
-    expect(cached).toHaveBeenCalledExactlyOnceWith(selection, current, cacheDirectory);
-    expect(result.commands.map(command => command.id)).toEqual(["intake.stop"]);
-    expect(result.conditions?.map(condition => condition.id)).toEqual(["intake.stopped"]);
-    expect(result.authoritative).toBe(false);
-    expect(result.labviewDiscovery?.inspection?.reason).toContain("Project sources changed");
-  });
-
-  it("replaces a failed sync status with live evidence when the next sync succeeds", async () => {
-    const source = catalog(); const live = catalog("available");
-    const inspect = vi.fn<() => Promise<RobotCommandCatalog>>().mockRejectedValueOnce(new Error("LabVIEW is closed")).mockResolvedValueOnce(live);
-    const cached = vi.fn(async () => source); const dependencies = { platform: "win32" as const, inspect, cached, discover: vi.fn(async () => source) };
-    const failed = await syncLabviewCommands(selection, cacheDirectory, source, dependencies);
-    expect(failed.labviewDiscovery?.inspection?.status).toBe("unavailable");
-    const result = await syncLabviewCommands(selection, cacheDirectory, failed, dependencies);
-    expect(result).toBe(live);
-    expect(result.labviewDiscovery?.inspection?.status).toBe("available");
-    expect(result.warnings.some(warning => warning.includes("could not inspect"))).toBe(false);
-    expect(cached).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 

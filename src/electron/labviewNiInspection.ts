@@ -3,29 +3,55 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { RobotCommandCatalog, RobotCommandDescriptor, RobotCommandParameter, LabviewProjectDiscovery } from "../shared/types";
-import { discoverLabviewProject, resolveLabviewProject, LABVIEW_CATALOG_SOURCE } from "./labviewProject";
+import { discoverLabviewProject, resolveLabviewProject } from "./labviewProject";
 import { writeJsonAtomically } from "./projectFiles";
 import { decodeLabviewNiInspection } from "./labviewNiTypes";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 
-const SCHEMA_VERSION = "bordeaux-ni-inspection/1";
+/*
+ * Command definitions come from NI connector inspection, kept per VI.
+ *
+ * Every inspected VI keeps its own report row plus the size, mtime and SHA-256 of the saved file NI read. Bordeaux
+ * always keeps the last known definitions: an edit anywhere in the LabVIEW project never removes commands or blocks
+ * export. Only the VIs (and connector typedefs) of the commands an export actually uses are compared, and only a
+ * changed or new VI is inspected again, one VI at a time rather than the whole project.
+ */
+const REPORT_VERSION = "bordeaux-ni-inspection/1";
+const EVIDENCE_VERSION = "bordeaux-ni-evidence/2";
 const MAX_SOURCES = 1000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_FILE_BYTES = 32 * 1024 * 1024;
+const READ_BUDGET_BYTES = 256 * 1024 * 1024;
 const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const identityPath = (file: string) => process.platform === "win32" ? file.toLowerCase() : file;
-type Source = { file: string; path: string; target: string; sha256: string };
+const sourceKey = (source: { target: string; file: string }) => `${source.target}\0${source.file}`;
+// A file modified this close to (or after) the start of an inspection may not be the version NI read.
+const MTIME_SLACK_MS = 2000;
+const unsavedRow = (row: Record<string, unknown>) => row.modifiedBefore !== false || row.modifiedAfter !== false;
+const missingFile = (error: unknown) => ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException | null)?.code ?? "");
+
 export interface LabviewNiSource { file: string; target: string }
 type Inspection = NonNullable<LabviewProjectDiscovery["inspection"]>;
-interface Snapshot { projectFile: string; fingerprint: string; declarationHash: string | null; sources: Source[]; typeHashes: Array<{ path: string; sha256: string }> }
-// Live connector snapshots are usable for authoring/export in this process, even
-// when NI cannot prove saved-state metadata. They never become a saved-source cache.
-const activeInspections = new WeakMap<RobotCommandDescriptor[], {
-  projectFile: string; fingerprint: string; declarationHash: string | null; dependencies: Array<{ path: string; sha256: string }>;
-}>();
-const recentInspections = new Map<string, RobotCommandCatalog>();
+interface FileRecord { sha256: string; size: number; mtimeMs: number }
+/** `unsaved`: NI read this VI while LabVIEW held unsaved edits, so its definition may not match the saved file. */
+interface SourceRecord extends FileRecord { file: string; target: string; unsaved?: boolean }
+interface DependencyRecord extends FileRecord { path: string }
+interface NiReport { schemaVersion: string; projectFile: string; labviewVersion: string; inspectedAt: string; dirtyContext: unknown; vis: Array<Record<string, unknown>> }
+/** What NI reported for each VI and which saved bytes it read. Survives restart through the user-data cache. */
+interface Evidence { projectFile: string; report: NiReport; sources: SourceRecord[]; dependencies: DependencyRecord[] }
 
-// Bound concurrent local I/O. Results keep source order, and every refresh still reads current bytes.
+// Catalogs built from evidence remember it by their command list, so an export can compare the VIs it uses.
+const catalogEvidence = new WeakMap<RobotCommandDescriptor[], Evidence>();
+const sessionEvidence = new Map<string, Evidence>();
+function rememberEvidence(evidence: Evidence) {
+  const key = identityPath(evidence.projectFile);
+  sessionEvidence.delete(key);
+  sessionEvidence.set(key, evidence);
+  if (sessionEvidence.size > 8) sessionEvidence.delete(sessionEvidence.keys().next().value!);
+}
+
+// Bound concurrent local I/O. Results keep source order.
 async function parallelFiles<T>(items: T[], visit: (item: T) => Promise<void>): Promise<void> {
   let next = 0, failed = false;
   let failure: unknown;
@@ -39,6 +65,18 @@ async function parallelFiles<T>(items: T[], visit: (item: T) => Promise<void>): 
   if (failed) throw failure;
 }
 
+/** Reads saved file identity. A file whose size and mtime match the earlier record is not read again. */
+class FileReader {
+  private total = 0;
+  async record(file: string, previous?: FileRecord): Promise<FileRecord> {
+    const stat = await statLabviewLocalPath(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("NI inspection requires regular source files.");
+    if (previous?.sha256 && previous.size === stat.size && previous.mtimeMs === stat.mtimeMs) return previous;
+    if (stat.size > MAX_FILE_BYTES || (this.total += stat.size) > READ_BUDGET_BYTES) throw new Error("NI inspection source hashes exceed the read limit.");
+    return { sha256: hash(await fs.readFile(file)), size: stat.size, mtimeMs: stat.mtimeMs };
+  }
+}
+
 /** Match the legacy project-tree exclusions; filenames alone never confirm a command. */
 export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items"][number]): boolean {
   return item.status === "present" && !!item.file?.toLowerCase().endsWith(".vi")
@@ -48,56 +86,29 @@ export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items
     && !["prep command info for wait.vi", "wait for command.vi", "should abort operation.vi", "subsystems.vi"].includes(item.name.toLowerCase());
 }
 
-async function snapshot(selection: string, catalog: RobotCommandCatalog): Promise<Snapshot> {
+/** Robot-target VIs that may be commands. Discovery only; nothing is hashed here. */
+async function candidateSources(selection: string, catalog: RobotCommandCatalog) {
   const { root, projectFile } = await resolveLabviewProject(selection);
   if (!catalog.labviewDiscovery || catalog.labviewDiscovery.truncated) throw new Error("Complete project discovery is required before NI command inspection.");
-  const sources: Source[] = [];
-  const typeSources: Array<{ file: string; sha256: string }> = [];
-  const seen = new Set<string>();
-  const seenTypes = new Set<string>();
   const robotTargets = new Set(catalog.labviewDiscovery.targets.filter((target) => target.type === "RT myRIO" || target.type === "RT roboRIO").map((target) => target.name));
-  let totalBytes = 0;
-  const hashes = new Map<string, Promise<string>>();
-  const bytesHash = (file: string): Promise<string> => {
-    let pending = hashes.get(file);
-    if (!pending) {
-      pending = (async () => {
-        const stat = await statLabviewLocalPath(file);
-        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("NI inspection requires regular source files.");
-        if (stat.size > 32 * 1024 * 1024 || (totalBytes += stat.size) > 256 * 1024 * 1024) throw new Error("NI inspection source hashes exceed the read limit.");
-        return hash(await fs.readFile(file));
-      })();
-      hashes.set(file, pending);
-    }
-    return pending;
-  };
+  const sources: Array<LabviewNiSource & { path: string }> = [];
+  const seen = new Set<string>();
   for (const item of catalog.labviewDiscovery.items) {
-    if (item.status === "present" && item.file && /\.(?:ctl|lvlib|lvclass)$/i.test(item.file) && !seenTypes.has(item.file)) {
-      seenTypes.add(item.file);
-      typeSources.push({ file: item.file, sha256: "" });
-    }
     if (!robotTargets.has(item.target) || !eligibleLabviewLegacySource(item)) continue;
-    const key = `${item.target}\0${item.file}`;
+    const key = sourceKey({ target: item.target, file: item.file! });
     if (seen.has(key)) continue;
     seen.add(key);
     if (sources.length >= MAX_SOURCES) throw new Error("NI inspection supports at most 1000 VI sources per project.");
-    const file = path.resolve(root, item.file!);
-    sources.push({ file: item.file!, target: item.target, path: file, sha256: "" });
+    sources.push({ file: item.file!, target: item.target, path: path.resolve(root, item.file!) });
   }
-  await parallelFiles([...typeSources.map(item => ({ item, path: path.resolve(root, item.file) })), ...sources.map(item => ({ item, path: item.path }))],
-    async ({ item, path: file }) => { item.sha256 = await bytesHash(file); });
   sources.sort((a, b) => `${a.target}/${a.file}`.localeCompare(`${b.target}/${b.file}`));
-  typeSources.sort((a, b) => a.file.localeCompare(b.file));
-  let declarationHash: string | null = null;
-  try { declarationHash = await bytesHash(path.join(root, LABVIEW_CATALOG_SOURCE)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  return { projectFile, sources, declarationHash, typeHashes: typeSources.map((type) => ({ path: path.resolve(root, type.file), sha256: type.sha256 })),
-    fingerprint: hash(JSON.stringify({ projectFile: identityPath(projectFile), projectHash: await bytesHash(projectFile), sources, typeSources })) };
+  return { root, projectFile, sources };
 }
+
 function cachePath(cacheDirectory: string, projectFile: string): string { return path.join(cacheDirectory, `${hash(identityPath(projectFile))}.json`); }
-function unavailable(catalog: RobotCommandCatalog, status: "unavailable" | "stale", reason: string): RobotCommandCatalog {
+function unavailable(catalog: RobotCommandCatalog, reason: string): RobotCommandCatalog {
   if (!catalog.labviewDiscovery) return catalog;
-  return { ...catalog, labviewDiscovery: { ...catalog.labviewDiscovery, inspection: { status, commandCount: 0, unsupported: [], reason } }, warnings: [...catalog.warnings, reason] };
+  return { ...catalog, labviewDiscovery: { ...catalog.labviewDiscovery, inspection: { status: "unavailable", commandCount: 0, unsupported: [], reason } }, warnings: [...catalog.warnings, reason] };
 }
 function merge(catalog: RobotCommandCatalog, commands: RobotCommandDescriptor[], inspection: Inspection): RobotCommandCatalog {
   if (!catalog.labviewDiscovery) return catalog;
@@ -145,82 +156,121 @@ function merge(catalog: RobotCommandCatalog, commands: RobotCommandDescriptor[],
     warnings: [...warnings, ...(commands.length ? [
       `${commands.length} LabVIEW commands identified from NI connector metadata. Robot code owns command execution.`,
     ] : [])] };
-
 }
 async function readBoundedJson(file: string): Promise<unknown> {
   const stat = await fs.lstat(file);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_RESPONSE_BYTES) throw new Error("NI inspection response exceeds the file limit or is not a regular file.");
   return JSON.parse(await fs.readFile(file, "utf8")) as unknown;
 }
-async function dependencySnapshot(files: string[]): Promise<Array<{ path: string; sha256: string }>> {
-  if (files.length > 10000) throw new Error("NI type dependencies exceed the file count limit.");
-  let bytes = 0;
-  const result: Array<{ path: string; sha256: string }> = [];
-  const hashes = new Map<string, Promise<string>>();
-  await parallelFiles(files, async file => {
-    if (!path.isAbsolute(file) || !/\.(?:ctl|lvlib|lvclass)$/i.test(file)) throw new Error("NI type dependencies must be absolute local type-definition paths.");
-    let pending = hashes.get(file);
-    if (!pending) {
-      pending = (async () => {
-        const stat = await statLabviewLocalPath(file);
-        if (!stat.isFile() || stat.size > 32 * 1024 * 1024 || (bytes += stat.size) > 128 * 1024 * 1024) throw new Error("NI type dependency hashes exceed the read limit.");
-        return hash(await fs.readFile(file));
-      })();
-      hashes.set(file, pending);
-    }
-    await pending;
-  });
-  for (const file of files) result.push({ path: file, sha256: await hashes.get(file)! });
+
+const reportSources = (report: NiReport): LabviewNiSource[] => report.vis.map((row) => ({ file: String(row.file), target: String(row.target) }));
+/** Definitions from evidence, merged with the project's current declarations. */
+function catalogFromEvidence(discovered: RobotCommandCatalog, evidence: Evidence, status: "available" | "cached"): RobotCommandCatalog {
+  const decoded = decodeLabviewNiInspection(evidence.report, evidence.projectFile, reportSources(evidence.report));
+  const result = merge(discovered, decoded.commands, { ...decoded.inspection, status });
+  catalogEvidence.set(result.commands, evidence);
   return result;
 }
-function preInspectedDependencies(snapshot: Snapshot, paths: string[]): Array<{ path: string; sha256: string }> | null {
-  const known = new Map(snapshot.typeHashes.map((type) => [identityPath(type.path), type.sha256]));
-  if (paths.some((file) => !path.isAbsolute(file) || !known.has(identityPath(path.resolve(file))))) return null;
-  return paths.map((file) => ({ path: file, sha256: known.get(identityPath(path.resolve(file)))! }));
+
+function fileRecords<T extends string>(value: unknown, name: T, limit: number): Array<FileRecord & Record<T, string>> {
+  if (!Array.isArray(value) || value.length > limit) throw new Error("Saved command evidence is malformed.");
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+    if (!record || typeof record[name] !== "string" || typeof record.sha256 !== "string"
+      || !Number.isFinite(record.size) || !Number.isFinite(record.mtimeMs)) throw new Error("Saved command evidence is malformed.");
+    return { [name]: record[name], sha256: record.sha256, size: record.size, mtimeMs: record.mtimeMs } as FileRecord & Record<T, string>;
+  });
+}
+async function loadEvidence(projectFile: string, cacheDirectory: string): Promise<Evidence | null> {
+  const session = sessionEvidence.get(identityPath(projectFile));
+  if (session) return session;
+  let raw: unknown;
+  try { raw = await readBoundedJson(cachePath(cacheDirectory, projectFile)); }
+  catch (error) { if (missingFile(error)) return null; throw error; }
+  const value = raw as Record<string, unknown> | null;
+  const report = value?.report as NiReport | undefined;
+  if (!report || typeof report !== "object" || !Array.isArray(report.vis)) throw new Error("Saved command evidence is malformed.");
+  if (value!.schemaVersion === EVIDENCE_VERSION) {
+    const sources = fileRecords(value!.sources, "file", MAX_SOURCES).map((source, index) => {
+      const target = (value!.sources as Array<Record<string, unknown>>)[index].target;
+      if (typeof target !== "string") throw new Error("Saved command evidence is malformed.");
+      return { ...source, target };
+    });
+    return { projectFile, report, sources, dependencies: fileRecords(value!.dependencies, "path", 10000) };
+  }
+  // Earlier caches bound all definitions to one project fingerprint. Keep their definitions; with no per-VI bytes,
+  // every used command counts as changed until it is read again.
+  if (value!.schemaVersion === REPORT_VERSION) return { projectFile, report, sources: [], dependencies: [] };
+  throw new Error("Saved command evidence uses an unknown format.");
 }
 
-/** Passive refresh: portable NI metadata is used only while the project and VI bytes match. */
+/** The last known definitions for this project, from this session or the user-data cache. Never removed for edits. */
 export async function withCachedLabviewCommands(selection: string, catalog: RobotCommandCatalog, cacheDirectory: string): Promise<RobotCommandCatalog> {
   if (catalog.runtime !== "labview") return catalog;
   const { projectFile } = await resolveLabviewProject(selection);
-  let raw: unknown;
-  try { raw = await readBoundedJson(cachePath(cacheDirectory, projectFile)); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return catalog;
-    return unavailable(catalog, "stale", `Cached NI metadata could not be read: ${errorMessage(error)} Inspect commands again.`);
-  }
   try {
-    const value = raw as { schemaVersion?: unknown; fingerprint?: unknown; report?: unknown; dependencies?: unknown; liveOnly?: unknown };
-    const current = await snapshot(selection, catalog);
-    if (value?.schemaVersion !== SCHEMA_VERSION || value.fingerprint !== current.fingerprint) throw new Error("Project or VI sources changed since NI inspection.");
-    const decoded = decodeLabviewNiInspection(value.report, current.projectFile, current.sources);
-    if (!preInspectedDependencies(current, decoded.dependencyPaths)) throw new Error("NI typedef dependencies were not covered by the project's source fingerprint.");
-    // A live entry carries the same byte binding as a session snapshot, so it survives restart until sources change.
-    const liveOnly = !decoded.cacheable && value.liveOnly === true;
-    if ((!decoded.cacheable && !liveOnly) || JSON.stringify(value.dependencies) !== JSON.stringify(await dependencySnapshot(decoded.dependencyPaths))) throw new Error("NI type definitions changed or the inspection cannot be bound to saved sources.");
-    return merge(catalog, decoded.commands, { ...decoded.inspection, status: "cached",
-      ...(liveOnly ? { reason: "Restored from the last live NI inspection; LabVIEW could not confirm its VIs were saved. Refresh commands to inspect again." } : {}) });
-  } catch (error) { return unavailable(catalog, "stale", `${errorMessage(error)} Inspect commands again.`); }
-}
-
-/** Revalidate a main-owned live snapshot without automating NI or claiming saved-state evidence. */
-export async function withActiveLabviewCommands(selection: string, catalog: RobotCommandCatalog, active: RobotCommandCatalog | null | undefined): Promise<RobotCommandCatalog | null> {
-  const evidence = active && activeInspections.get(active.commands);
-  if (!active || !evidence) return null;
-  const current = await snapshot(selection, catalog);
-  if (identityPath(current.projectFile) !== identityPath(evidence.projectFile)) throw new Error("The active command inspection belongs to another LabVIEW project. Refresh commands before exporting BDX.");
-  if (current.fingerprint !== evidence.fingerprint || current.declarationHash !== evidence.declarationHash
-    || JSON.stringify(evidence.dependencies) !== JSON.stringify(await dependencySnapshot(evidence.dependencies.map(item => item.path)))) {
-    throw new Error("LabVIEW sources, command declarations or type definitions changed since command inspection. Refresh commands before exporting BDX.");
+    const evidence = await loadEvidence(projectFile, cacheDirectory);
+    return evidence ? catalogFromEvidence(catalog, evidence, "cached") : catalog;
+  } catch (error) {
+    return unavailable(catalog, `Saved command definitions could not be read: ${errorMessage(error)} Refresh commands to read them from LabVIEW.`);
   }
-  return active;
 }
 
-/** Reuse a current session snapshot; a saved source/type change falls through to inspection. */
+/** This session's definitions for the project, or null before any inspection in this process. */
 export async function withSessionLabviewCommands(selection: string, catalog: RobotCommandCatalog): Promise<RobotCommandCatalog | null> {
   const { projectFile } = await resolveLabviewProject(selection);
-  try { return await withActiveLabviewCommands(projectFile, catalog, recentInspections.get(identityPath(projectFile))); }
-  catch { recentInspections.delete(identityPath(projectFile)); return null; }
+  const evidence = sessionEvidence.get(identityPath(projectFile));
+  if (!evidence) return null;
+  try { return catalogFromEvidence(catalog, evidence, "available"); }
+  catch { sessionEvidence.delete(identityPath(projectFile)); return null; }
+}
+
+/** Definitions for export: the linked catalog's evidence when it belongs to this project, otherwise the cache. */
+export async function withLastKnownLabviewCommands(selection: string, catalog: RobotCommandCatalog, cacheDirectory: string,
+  active?: RobotCommandCatalog | null): Promise<RobotCommandCatalog> {
+  const { projectFile } = await resolveLabviewProject(selection);
+  // This session's latest reading is always the newest; a linked catalog may predate a background re-read.
+  const session = sessionEvidence.get(identityPath(projectFile));
+  if (session) return catalogFromEvidence(catalog, session, "available");
+  const evidence = active && catalogEvidence.get(active.commands);
+  if (evidence && identityPath(evidence.projectFile) === identityPath(projectFile)) return catalogFromEvidence(catalog, evidence, "available");
+  return withCachedLabviewCommands(projectFile, catalog, cacheDirectory);
+}
+
+/**
+ * Compares only the VIs of the given commands with the bytes NI read. `missing` commands no longer have a VI on disk;
+ * `changed` commands were saved since (or were never read with per-VI evidence) and should be read again.
+ */
+export async function labviewCommandSourceChanges(selection: string, catalog: RobotCommandCatalog, commandIds: Iterable<string>): Promise<{
+  changed: RobotCommandDescriptor[]; missing: RobotCommandDescriptor[];
+}> {
+  const ids = new Set(commandIds);
+  const used = catalog.commands.filter((command) => ids.has(command.id) && command.labviewConnector);
+  const changed: RobotCommandDescriptor[] = [], missing: RobotCommandDescriptor[] = [];
+  if (!used.length) return { changed, missing };
+  const { root } = await resolveLabviewProject(selection);
+  const evidence = catalogEvidence.get(catalog.commands);
+  const known = new Map((evidence?.sources ?? []).map((source) => [sourceKey(source), source]));
+  const reader = new FileReader();
+  let typesChanged = !evidence;
+  for (const dependency of evidence?.dependencies ?? []) {
+    if (typesChanged) break;
+    try { typesChanged = (await reader.record(dependency.path, dependency)).sha256 !== dependency.sha256; }
+    catch { typesChanged = true; }
+  }
+  await parallelFiles(used, async (command) => {
+    const connector = command.labviewConnector!;
+    const before = known.get(sourceKey(connector));
+    try {
+      const now = await reader.record(path.resolve(root, connector.file), before);
+      if (typesChanged || !before || now.sha256 !== before.sha256) changed.push(command);
+    } catch (error) {
+      if (missingFile(error)) missing.push(command);
+      else changed.push(command);
+    }
+  });
+  const order = (list: RobotCommandDescriptor[]) => list.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+  return { changed: order(changed), missing: order(missing) };
 }
 
 export async function runLabviewNiAdapter(requestFile: string, responseFile: string): Promise<void> {
@@ -241,43 +291,103 @@ export async function runLabviewNiAdapter(requestFile: string, responseFile: str
   });
 }
 
-/** Inspect the selected, already-open project; cache in Bordeaux user data only. */
-export async function inspectLabviewCommands(selection: string, cacheDirectory: string, adapter: (requestFile: string, responseFile: string) => Promise<void> = runLabviewNiAdapter): Promise<RobotCommandCatalog> {
-  const catalog = await discoverLabviewProject(selection);
-  let temporary: string | undefined;
-  try {
-    const before = await snapshot(selection, catalog);
-    await fs.mkdir(cacheDirectory, { recursive: true });
-    temporary = await fs.mkdtemp(path.join(cacheDirectory, "inspect-"));
-    const requestFile = path.join(temporary, "request.json");
-    const responseFile = path.join(temporary, "response.json");
-    await writeJsonAtomically(requestFile, { schemaVersion: SCHEMA_VERSION, projectFile: before.projectFile, sources: before.sources });
-    await adapter(requestFile, responseFile);
-    const report = await readBoundedJson(responseFile);
-    const decoded = decodeLabviewNiInspection(report, before.projectFile, before.sources);
-    // Re-discover auto folders as well as hashing existing files before accepting the result.
-    const refreshed = await discoverLabviewProject(selection);
-    const after = await snapshot(selection, refreshed);
-    if (before.fingerprint !== after.fingerprint || before.declarationHash !== after.declarationHash) throw new Error("Project sources changed during NI inspection. Inspect again after saving your intended source changes.");
-    // Never bind old NI metadata to a hash first observed after inspection.
-    const dependencies = preInspectedDependencies(before, decoded.dependencyPaths);
-    if (!dependencies) {
-      decoded.cacheable = false;
-      decoded.inspection.reason = [decoded.inspection.reason,
-        "Live inspection only: some typedefs were discovered during NI inspection and were not fingerprinted beforehand; their saved-source identity cannot be verified."].filter(Boolean).join(" ");
+type Adapter = (requestFile: string, responseFile: string) => Promise<void>;
+/**
+ * Reads command definitions from the project already open in LabVIEW. "all" reads every candidate VI; "changed" reads
+ * only VIs that are new or saved since the last reading (and returns null when there is nothing to read).
+ */
+async function inspect(selection: string, cacheDirectory: string, adapter: Adapter, scope: "all" | "changed"): Promise<RobotCommandCatalog | null> {
+  const discovered = await discoverLabviewProject(selection);
+  const before = await candidateSources(selection, discovered);
+  const previous = scope === "changed" ? await loadEvidence(before.projectFile, cacheDirectory).catch(() => null) : null;
+  const known = new Map((previous?.sources ?? []).map((source) => [sourceKey(source), source]));
+  const previousRows = new Map((previous?.report.vis ?? []).map((row) => [sourceKey({ target: String(row.target), file: String(row.file) }), row]));
+  const reader = new FileReader();
+  const records = new Map<string, SourceRecord>();
+  await parallelFiles(before.sources, async (source) => {
+    const old = known.get(sourceKey(source)), record = await reader.record(source.path, old);
+    // A row read from unsaved edits stays flagged until it is read again, even if only its timestamp changed.
+    const { unsaved: _unsaved, file: _file, target: _target, ...bytes } = record as SourceRecord;
+    records.set(sourceKey(source), { file: source.file, target: source.target, ...bytes, ...(old?.unsaved && old.sha256 === bytes.sha256 ? { unsaved: true } : {}) });
+  });
+  // A changed connector typedef can change every command that uses it, so those commands are read again.
+  let typesChanged = false;
+  for (const dependency of previous?.dependencies ?? []) {
+    if (typesChanged) break;
+    try { typesChanged = (await reader.record(dependency.path, dependency)).sha256 !== dependency.sha256; }
+    catch { typesChanged = true; }
+  }
+  const pending = before.sources.filter((source) => {
+    const key = sourceKey(source), row = previousRows.get(key), old = known.get(key);
+    return !previous || !row || !old || old.sha256 !== records.get(key)!.sha256 || (typesChanged && row.status === "inspected");
+  });
+  const current = new Set(before.sources.map(sourceKey));
+  const removed = [...previousRows.keys()].some((key) => !current.has(key));
+  if (previous && !pending.length && !removed) return null;
+
+  const startedAt = Date.now();
+  let header: Omit<NiReport, "vis"> = previous?.report ?? { schemaVersion: REPORT_VERSION, projectFile: before.projectFile, labviewVersion: "", inspectedAt: "", dirtyContext: null };
+  const inspectedRows = new Map<string, Record<string, unknown>>();
+  if (pending.length) {
+    let temporary: string | undefined;
+    try {
+      await fs.mkdir(cacheDirectory, { recursive: true });
+      temporary = await fs.mkdtemp(path.join(cacheDirectory, "inspect-"));
+      const requestFile = path.join(temporary, "request.json");
+      const responseFile = path.join(temporary, "response.json");
+      await writeJsonAtomically(requestFile, { schemaVersion: REPORT_VERSION, projectFile: before.projectFile,
+        sources: pending.map((source) => ({ file: source.file, target: source.target, path: source.path, sha256: records.get(sourceKey(source))!.sha256 })) });
+      await adapter(requestFile, responseFile);
+      const response = await readBoundedJson(responseFile) as NiReport;
+      // Validates the adapter version, project and that every requested VI was answered exactly once.
+      decodeLabviewNiInspection(response, before.projectFile, pending);
+      const after = new FileReader();
+      for (const source of pending) {
+        const record = records.get(sourceKey(source))!;
+        if ((await after.record(source.path, record)).sha256 !== record.sha256) throw new Error("Project sources changed during NI inspection. Inspect again after saving your intended source changes.");
+      }
+      for (const row of response.vis) inspectedRows.set(sourceKey({ target: String(row.target), file: String(row.file) }), row);
+      const { vis: _rows, ...rest } = response;
+      header = rest;
+    } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
+  }
+  const report: NiReport = { ...header, vis: before.sources.map((source) => inspectedRows.get(sourceKey(source)) ?? previousRows.get(sourceKey(source))!) };
+  for (const [key, row] of inspectedRows) {
+    const record = records.get(key)!;
+    if (unsavedRow(row)) record.unsaved = true; else delete record.unsaved;
+  }
+  const decoded = decodeLabviewNiInspection(report, before.projectFile, before.sources);
+  const knownTypes = new Map((previous?.dependencies ?? []).map((dependency) => [identityPath(dependency.path), dependency]));
+  const dependencies: DependencyRecord[] = [];
+  if (decoded.dependencyPaths.length > 10000) throw new Error("NI type dependencies exceed the file count limit.");
+  for (const file of decoded.dependencyPaths) {
+    if (!path.isAbsolute(file) || !/\.(?:ctl|lvlib|lvclass)$/i.test(file)) throw new Error("NI type dependencies must be absolute local type-definition paths.");
+    try {
+      const record = await reader.record(file, knownTypes.get(identityPath(file)));
+      // A typedef saved during this inspection is left unverified, so its callers are read again next time.
+      dependencies.push({ path: file, ...record, ...(record.mtimeMs >= startedAt - MTIME_SLACK_MS ? { sha256: "" } : {}) });
     }
-    const stable = dependencies && JSON.stringify(dependencies) === JSON.stringify(await dependencySnapshot(decoded.dependencyPaths));
-    if (decoded.cacheable && dependencies && !stable) throw new Error("NI type definitions changed during inspection. Inspect commands again.");
-    // Live-only evidence is persisted so commands survive restart; restore still requires unchanged source bytes.
-    if (stable) await writeJsonAtomically(cachePath(cacheDirectory, before.projectFile), { schemaVersion: SCHEMA_VERSION, fingerprint: before.fingerprint, dependencies, report,
-      ...(decoded.cacheable ? {} : { liveOnly: true }) });
-    else await fs.rm(cachePath(cacheDirectory, before.projectFile), { force: true });
-    const result = merge(refreshed, decoded.commands, decoded.inspection);
-    activeInspections.set(result.commands, { projectFile: after.projectFile, fingerprint: after.fingerprint, declarationHash: after.declarationHash,
-      dependencies: await dependencySnapshot(decoded.dependencyPaths) });
-    recentInspections.delete(identityPath(after.projectFile));
-    recentInspections.set(identityPath(after.projectFile), result);
-    if (recentInspections.size > 8) recentInspections.delete(recentInspections.keys().next().value!);
-    return result;
-  } finally { if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
+    catch (error) { if (!missingFile(error)) throw error; } // A typedef NI resolved elsewhere stays unbound; its callers are read again when they change.
+  }
+  const evidence: Evidence = { projectFile: before.projectFile, report, sources: before.sources.map((source) => records.get(sourceKey(source))!), dependencies };
+  // Re-discover auto-populating folders and declarations so the result merges the project as it is now.
+  const result = catalogFromEvidence(await discoverLabviewProject(selection), evidence, "available");
+  rememberEvidence(evidence);
+  try {
+    await fs.mkdir(cacheDirectory, { recursive: true });
+    // Definitions read from unsaved VIs serve this session only; after a restart they are read again.
+    const saved = evidence.sources.map(({ unsaved, ...source }) => unsaved ? { ...source, sha256: "" } : source);
+    await writeJsonAtomically(cachePath(cacheDirectory, before.projectFile), { schemaVersion: EVIDENCE_VERSION, report, sources: saved, dependencies });
+  } catch (error) { console.warn("Could not save LabVIEW command definitions:", errorMessage(error)); }
+  return result;
+}
+
+/** Read every candidate VI in the selected, already-open project; cache in Bordeaux user data only. */
+export async function inspectLabviewCommands(selection: string, cacheDirectory: string, adapter: Adapter = runLabviewNiAdapter): Promise<RobotCommandCatalog> {
+  return (await inspect(selection, cacheDirectory, adapter, "all"))!;
+}
+
+/** Read only VIs that are new or changed since the last reading. Null when every definition is already current. */
+export function refreshLabviewCommands(selection: string, cacheDirectory: string, adapter: Adapter = runLabviewNiAdapter): Promise<RobotCommandCatalog | null> {
+  return inspect(selection, cacheDirectory, adapter, "changed");
 }

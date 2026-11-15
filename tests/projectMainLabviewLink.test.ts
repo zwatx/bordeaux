@@ -21,6 +21,7 @@ import { createDemoProject } from "../src/shared/project/defaults";
 import { autosaveProjectFolder, openProjectFolder, projectWorkspacePath } from "../src/electron/projectFiles";
 import { loadProjectSelection } from "../src/electron/projectOpening";
 import { projectWriteFactFromMessage } from "../src/shared/project/writeErrors";
+import { projectCommandIds } from "../src/electron/usedCommands";
 
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => fs.promises.rm(root, { recursive: true, force: true }))); });
@@ -44,6 +45,8 @@ async function fixture() {
     withCachedLabviewCommands: vi.fn(async (_selection, catalog) => catalog),
     withSessionLabviewCommands: vi.fn(async () => null),
     syncLabviewCommands: vi.fn(() => { throw new Error("Automatic restoration must not inspect NI"); }),
+    // Restore schedules a quiet background read of changed commands; it never inspects inline.
+    scheduleCommandSync: vi.fn(), refreshLinkedCommands: vi.fn(async () => null), projectCommandIds,
     handle: (channel: string, listener: (...args: any[]) => any) => handlers.set(channel, listener),
     autosaveProjectFolder,
   };
@@ -188,7 +191,7 @@ it("restores the portable project without changing its editor link or invoking N
   expect(result.catalog.projectName).toBe("Robot"); expect(result.editorLink).toBeUndefined();
   expect(f.sandbox.currentRobotEditor).toEqual(before); expect(f.sandbox.syncLabviewCommands).not.toHaveBeenCalled();
   const project = createDemoProject(); project.editor = before;
-  expect(f.sandbox.captureLinkedProject(project).bindingOptions(true).projectFile).toBe(f.file);
+  expect(f.sandbox.captureLinkedProject(project).bindingOptions(new Set(["test"])).projectFile).toBe(f.file);
   project.editor = { labviewProjectPath: "Other.lvproj", robotProjectBookmarkId: result.bookmarkId };
   expect(() => f.sandbox.captureLinkedProject(project)).toThrow("does not match");
   const bindings = vi.fn(); f.sandbox.prepareBdxBindings = bindings;
@@ -228,7 +231,7 @@ it("keeps a differently cased native selection linked through public Save and ex
   for (const action of ["robotProject:refresh", "robotProject:buildCatalog"]) {
     const result = await f.handlers.get(action)!(null, f.context);
     expect(result.editorLink).toBeUndefined();
-    expect(f.sandbox.captureLinkedProject(project).bindingOptions(true).projectFile).toBe(selected);
+    expect(f.sandbox.captureLinkedProject(project).bindingOptions(new Set(["test"])).projectFile).toBe(selected);
     expect(project.editor.labviewProjectPath).toBe("../pATHSpROJECT/rOBOT.lvproj");
   }
   f.sandbox.syncLabviewCommands.mockClear();
@@ -261,7 +264,7 @@ it("keeps a differently cased native selection linked through public Save and ex
   expect(f.sandbox.linkedRobotCatalog).toBe(linked.catalog);
   const disk = (await openProjectFolder(f.folder)).project!;
   expect(disk.editor).toEqual(linked.editorLink);
-  expect(f.sandbox.captureLinkedProject(disk).bindingOptions(true).projectFile).toBe(f.file);
+  expect(f.sandbox.captureLinkedProject(disk).bindingOptions(new Set(["test"])).projectFile).toBe(f.file);
   expect(f.sandbox.syncLabviewCommands).not.toHaveBeenCalled();
 });
 
@@ -307,7 +310,7 @@ it("writes a copy through the real main hook and public persistence, keeping exa
   const saved = await persistence.saveWithExport(request, { folderPath: to, projectPath: projectWorkspacePath(to), createProject: true }, captured,
     async (result, scope) => {
       scope.assertCurrent(); expect(f.sandbox.linkedProjectMatches(result.canonicalProject, to)).toBe(true);
-      expect(f.sandbox.captureLinkedProject(result.canonicalProject).bindingOptions(true).projectFile).toBe(f.file);
+      expect(f.sandbox.captureLinkedProject(result.canonicalProject).bindingOptions(new Set(["test"])).projectFile).toBe(f.file);
       throw new Error("Injected export failure after source commit");
     });
   expect(saved).toMatchObject({ saved: true, exportError: expect.stringContaining("Injected export failure") });

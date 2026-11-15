@@ -17,7 +17,7 @@ export function LabviewProjectPanel({ robotProject }) {
     catalog && h('strong', { className: 'labview-project-name' }, catalog.projectName),
     h('p', { className: 'labview-project-status', role: 'status' }, busy ? (operation === 'build' ? 'Building command catalog…' : 'Syncing project and commands…')
       : !catalog ? 'Choose a project to load its commands.'
-      : robotProject.status === 'stale' ? 'Project changed. Sync to update commands.'
+      : robotProject.status === 'stale' ? 'Couldn’t sync. Using the last known commands.'
       : commands.length + ' command' + (commands.length === 1 ? '' : 's') + ' available'),
     h('div', { className: 'labview-project-actions' },
       h('button', { className: 'qbtn', type: 'button', disabled: busy, onClick: robotProject?.link }, catalog ? 'Change project' : 'Choose LabVIEW project'),

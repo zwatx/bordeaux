@@ -687,6 +687,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [applyRobotProjectConnection]);
 
+    // Main reads changed LabVIEW commands in the background (for example after a save in LabVIEW). The new
+    // definitions replace the linked catalog quietly; the link, reviews and any pending operation are untouched.
+    useEffect(() => window.bordeauxAPI?.onRobotCatalogChanged?.((update) => {
+      if (!update?.catalog || !sameContext(update.context, sessionContext.current)) return;
+      setRobotProjectState((current) => current.catalog && (current.status === 'ready' || current.status === 'stale') && !current.operation
+        ? { ...current, status: 'ready', catalog: update.catalog, error: '' } : current);
+    }), []);
+
     const usedCommandKey = useMemo(() => {
       const ids = new Set();
       for (const path of project.paths) for (const marker of path.markers || []) if (marker.invocation?.commandId) ids.add(marker.invocation.commandId);

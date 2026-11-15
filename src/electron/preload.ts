@@ -123,6 +123,12 @@ const bordeauxAPI = {
   inspectLabviewCommands: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:inspectLabview", context),
   ensureCommandWrappers: (context: ProjectDurabilityContext, commandIds: string[]) => ipcRenderer.invoke("robotProject:ensureWrappers", context, commandIds),
   buildRobotCatalog: (context: ProjectDurabilityContext) => ipcRenderer.invoke("robotProject:buildCatalog", context),
+  /** New command definitions read in the background for the linked project; the link and its reviews stay current. */
+  onRobotCatalogChanged: (handler: (update: { context: ProjectDurabilityContext; catalog: unknown }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: { context: ProjectDurabilityContext; catalog: unknown }) => handler(update);
+    ipcRenderer.on("robotProject:catalog", listener);
+    return () => { ipcRenderer.removeListener("robotProject:catalog", listener); };
+  },
   getRobotPairing: (): Promise<RobotPairing | null> => ipcRenderer.invoke("robot:getPairing"),
   probeRobot: (endpoint: RobotEndpoint): Promise<RobotProbe> => ipcRenderer.invoke("robot:probe", endpoint),
   confirmRobotPairing: (hostKeyFingerprint: string, runtimeId: string): Promise<RobotPairing> => ipcRenderer.invoke("robot:confirmPairing", hostKeyFingerprint, runtimeId),
