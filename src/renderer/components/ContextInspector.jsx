@@ -464,7 +464,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       setJiggleError(false);
     }, [doc.id, endpointJiggle?.distanceM, endpointJiggle?.strokes, endpointJiggle?.startDeg, endpointJiggle?.stepDeg, endpointJiggle?.strokeTimeS]);
 
-    let icon = 'route', title = '', tag = null, body = null, headerAction = null;
+    let title = '', tag = null, body = null, headerAction = null;
 
     if (props.repairMode) {
       // These controls use authored values only. Failed or stale trajectories must
@@ -473,7 +473,6 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       const range = sel.kind === 'cr' && doc.ranges?.[sel.idx];
       const target = sel.kind === 'rt' && doc.targets?.[sel.idx];
       const marker = sel.kind === 'em' && doc.markers?.[sel.idx];
-      icon = range ? 'gauge' : waypoint ? 'waypoint' : target ? 'rotation' : marker ? 'flag2' : 'route';
       title = range ? range.name || 'Zone' : waypoint ? waypointLabel(sel.idx)
         : target ? 'Rotation target' : marker ? marker.name || 'Command' : doc.name || 'Path';
       const remove = range ? () => actions.delRange(sel.idx) : target ? () => actions.delTarget(sel.idx)
@@ -492,7 +491,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         remove && h('button', { className: 'delbtn', type: 'button', onClick: remove }, h(Icon, { name: 'trash', size: 15 }), removeLabel));
     }
     else if (!sel.kind) {
-      icon = 'route'; title = doc.name || 'Path';
+      title = doc.name || 'Path';
       // Path-level actions live in the header; waypoint placement belongs to the tool rail.
       headerAction = h('button', { className: 'ctxinsp-act', type: 'button', disabled: n < 2 || !actions.canReversePath, 'aria-label': 'Swap start/end',
         title: n < 2 ? 'Place two waypoints to swap start and end' : actions.canReversePath ? 'Swap start/end' : 'Waiting for the current path preview', onClick: () => actions.reversePath() }, h(Icon, { name: 'shuffle', size: 14 }));
@@ -544,7 +543,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         w.thetaOn && headingDirection);
       const headingDirection = h(TurnDirection, { value: w.rotationDirection, values: AUTHORED_DIRECTION, label: 'Turn into heading', ariaLabel: 'Turn direction into heading',
         onChange: (rotationDirection) => actions.setWp(i, { rotationDirection }) });
-      icon = 'waypoint'; title = waypointLabel(i);
+      title = waypointLabel(i);
       body = h(React.Fragment, null,
         h('div', { className: 'grid2' },
           h(Num, { label: 'X', value: w.x, unit: 'm', onChange: (v) => actions.setWp(i, { x: v }) }),
@@ -625,7 +624,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
     else if (sel.kind === 'seg' && wps[sel.idx] && wps[sel.idx + 1]) {
       const i = sel.idx;
       const st = segNorm(wps[i].segType);
-      icon = 'route'; title = waypointLabel(i) + ' \u2192 ' + waypointLabel(i + 1);
+      title = waypointLabel(i) + ' \u2192 ' + waypointLabel(i + 1);
       let segLen = 0, minR = Infinity, dur = 0;
       if (derived.wpFrac && derived.sample.pts.length > 1) {
         const total = derived.sample.length || 1;
@@ -680,7 +679,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       let targetSegment = 0;
       if (derived.wpFrac) for (let i = 0; i < derived.wpFrac.length - 1; i++) if (targetFraction >= derived.wpFrac[i] - 1e-6) targetSegment = i;
       const targetHeadingMode = isTank ? 'tangent' : (wps[targetSegment]?.segmentHeadingMode || headingMode);
-      icon = 'rotation'; title = 'Rotation target';
+      title = 'Rotation target';
       body = h(React.Fragment, null,
         targetHeadingMode !== 'targets' && h('div', { className: 'hint' }, h(Icon, { name: 'info', size: 14 }), 'Inactive on this segment \u2014 switch its heading mode to Targets.'),
         h(Num, { label: 'Target heading', value: t.deg, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setTarget(sel.idx, { deg: v }) }),
@@ -723,7 +722,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         || argumentParameters.some((parameter) => parameterValueError(invocationArguments[parameter.name], parameter))
       );
       const operation = robotProject && robotProject.operation;
-      icon = 'flag2'; title = m.name || 'Command';
+      title = m.name || 'Command';
       body = h(React.Fragment, null,
         h('label', { className: 'fieldlabel first', htmlFor: 'event-marker-name' }, 'Name'),
         h(DraftText, { id: 'event-marker-name', className: 'textinput', value: m.name, owner: doc.id + ':' + (m.id || sel.idx), autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setMarker(sel.idx, { name }) }),
@@ -822,7 +821,7 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       const loF = Math.min(effR.f0, effR.f1), hiF = Math.max(effR.f0, effR.f1);
       const clampFraction = (value) => Math.max(0, Math.min(1, value / 100));
       const rangeAnchor = rg.anchor === 'dist' ? 'dist' : 'param';
-      icon = 'gauge'; title = rg.name || 'Zone';
+      title = rg.name || 'Zone';
       tag = UnitPrefs.fromCanonical(loF * len, 'm').toFixed(1) + '\u2013' + UnitPrefs.format(hiF * len, 'm', 1);
       body = h(React.Fragment, null,
         h(RangeLimits, { range: rg, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
@@ -847,7 +846,6 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
 
     return h('div', { className: 'ctxinsp inspector-refresh' },
       h('div', { className: 'ctxinsp-hd' },
-        h('span', { className: 'ctxinsp-ic' }, h(Icon, { name: icon, size: 15 })),
         h('span', { className: 'ctxinsp-t', title }, title),
         tag && h('span', { className: 'ctxinsp-tag' }, tag),
         headerAction,

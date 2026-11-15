@@ -227,10 +227,6 @@
 .routine-insp :is(.rt-callout,.cmd-project-error,.cmd-project-warning,.cmd-project-notice,.cmd-schema-warning){margin:8px 0;padding:0;border:0;border-radius:0;background:none}
 .routine-insp :is(.cmd-project-error){color:var(--bad-txt)}
 .routine-insp :is(.cmd-project-warning,.cmd-schema-warning){color:var(--warn-txt)}
-.routine-insp .ctxinsp-ic{background:var(--bg-3);color:var(--txt-2)}
-.routine-insp .ctxinsp-ic.cmd{color:var(--cmd)}
-.routine-insp .ctxinsp-ic.wait{color:var(--warn)}
-.routine-insp .ctxinsp-ic.bad{color:var(--bad-txt)}
 .routine-insp .seg-i{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .rt-insp-sec{margin-top:22px}
 .rt-insp-sec>.cgroup-h{margin:0 0 8px;padding-top:14px;border-top:1px solid var(--line)}

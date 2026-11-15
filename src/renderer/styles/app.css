@@ -424,7 +424,6 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .ctxinsp{position:relative;display:flex;flex-direction:column;width:320px;min-width:280px;height:100%;overflow:hidden;background:var(--bg-1);border-left:1px solid var(--line-2)}
 @media (max-width:1200px){.ctxinsp{width:290px}}
 .ctxinsp-hd{display:flex;align-items:center;gap:10px;min-height:52px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
-.ctxinsp-ic{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:26px;height:26px;border-radius:var(--r);background:var(--accent-soft);color:var(--accent)}
 /* Names stay complete; after five lines the title scrolls so the close button and body stay in view. */
 .ctxinsp-t{flex:1;min-width:0;max-height:7em;overflow:hidden auto;overscroll-behavior:contain;scrollbar-width:thin;font-size:14px;font-weight:600;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
 .ctxinsp-tag{flex-shrink:0;max-width:100px;overflow:hidden;padding:2px 6px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-3);font:11px var(--mono);text-overflow:ellipsis;white-space:nowrap}
