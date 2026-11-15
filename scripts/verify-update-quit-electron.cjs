@@ -54,7 +54,8 @@ async function type(selector, value) {
   await wait(() => evaluate((selector, value) => document.activeElement === document.querySelector(selector) && document.activeElement.value === String(value), selector, value), 'exact authored native text');
 }
 const handle = ipcMain.handle.bind(ipcMain);
-const localRobotReads = new Set(['robot:getPairing', 'robotFiles:connection']);
+// Reads of saved robot settings and password status stay local; anything else would contact a robot.
+const localRobotReads = new Set(['robot:getPairing', 'robotFiles:connection', 'robotFiles:password']);
 ipcMain.handle = (channel, listener) => handle(channel, async (event, ...args) => {
   if (/^(robot|robotFiles):/.test(channel) && !localRobotReads.has(channel)) { void fail(Error('Local persistence attempted robot operation: ' + channel)); throw Error('Robot action forbidden'); }
   if (channel === 'project:departureResponse' || channel === 'project:editingResumed') record(channel + ':received', args);

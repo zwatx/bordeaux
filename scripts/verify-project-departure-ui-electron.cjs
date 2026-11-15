@@ -36,7 +36,8 @@ process.on('unhandledRejection', error => void fail(error));
 
 // Spy preserves actual handlers and their results. Reject only forbidden robot actions before any transport can run.
 const handle = ipcMain.handle.bind(ipcMain);
-const localRobotReads = new Set(['robot:getPairing', 'robotFiles:connection']);
+// Reads of saved robot settings and password status stay local; anything else would contact a robot.
+const localRobotReads = new Set(['robot:getPairing', 'robotFiles:connection', 'robotFiles:password']);
 ipcMain.handle = (channel, listener) => handle(channel, async (event, ...args) => {
   if (/^(robot|robotFiles):/.test(channel) && !localRobotReads.has(channel)) {
     result.robotCalls.push(channel); void fail(new Error('Local lifecycle attempted forbidden robot action: ' + channel));
