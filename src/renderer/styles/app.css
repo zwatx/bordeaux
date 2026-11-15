@@ -640,6 +640,25 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .cmd-toggle-input:checked+.cmd-toggle-track>span{transform:translateX(14.5px);background:var(--on-accent)}
 .cmd-toggle-input:focus-visible+.cmd-toggle-track{outline:2px solid var(--focus);outline-offset:2px}
 .cmd-empty-params{color:var(--txt-3);font-size:11.5px;line-height:1.4}
+/* Event command loops and groups: a numbered, flat list; the open command edits in place below its row. */
+.cmd-group-add{margin-top:14px}
+.cmd-group-adder{display:flex;flex-direction:column;gap:8px;margin-top:14px}.cmd-group-adder>.qbtn{align-self:flex-end}
+.cmd-group-list{margin:12px 0 0;padding:0;list-style:none;border-top:1px solid var(--line)}
+.cmd-group-item{border-bottom:1px solid var(--line)}
+.cmd-group-row{display:flex;align-items:center;gap:6px;min-height:44px}
+.cmd-group-name{display:flex;flex:1;align-items:center;gap:8px;min-width:0;padding:8px 0;color:var(--txt-2);text-align:left;border-radius:var(--r-s)}
+.cmd-group-num{flex:none;min-width:12px;color:var(--txt-3);font:11px/16px var(--mono)}
+.cmd-group-copy{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0}
+.cmd-group-copy strong{color:var(--txt);font-size:12.5px;font-weight:550;line-height:1.35;overflow-wrap:anywhere}
+.cmd-group-copy small{color:var(--txt-3);font-size:11.5px;line-height:1.35}.cmd-group-copy small.missing{color:var(--bad-txt)}
+.cmd-group-name>svg{flex:none;color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
+.cmd-group-item.open .cmd-group-name>svg{transform:none}
+.cmd-group-acts{display:flex;flex:none;gap:2px}
+.cmd-group-act{display:grid;place-items:center;width:26px;height:26px;border-radius:var(--r-s);color:var(--txt-3);transition:background-color .14s,color .14s}
+.cmd-group-act.up svg{transform:rotate(180deg)}.cmd-group-act:disabled{opacity:.3}
+.cmd-group-name:focus-visible,.cmd-group-act:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.cmd-group-editor{padding:0 0 14px}.cmd-group-editor>.choice-browser{margin-top:2px}
+@media (hover:hover){.cmd-group-name:hover strong{color:var(--txt)}.cmd-group-name:hover>svg{color:var(--txt-2)}.cmd-group-act:hover:not(:disabled){background:var(--bg-3);color:var(--txt)}}
 
 /* Pickers: one trigger and one floating list for every choice. */
 .cmd-picker{position:relative;min-width:0}.cmd-picker>.fieldlabel{margin-top:0}
@@ -698,6 +717,13 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .choice-result[aria-selected="true"]{background:var(--accent-soft)}
 .choice-result:disabled{opacity:.5}
 .choice-empty{margin:0;padding:12px;color:var(--txt-3);font-size:12px;line-height:1.5}
+.choice-sec{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:8px 9px 4px;color:var(--txt-3);font-size:11.5px;font-weight:550}
+.choice-sec small{font:10.5px var(--mono);font-weight:400;white-space:nowrap}
+.choice-result.dim strong{color:var(--txt-3)}
+.choice-go{display:flex}
+/* The open subsystem in a command search (Add and Change); pressing it returns to every command. */
+.choice-crumb,.rt-add-crumb{display:inline-flex;flex:none;align-items:center;gap:3px;max-width:45%;height:24px;padding:0 6px 0 8px;border-radius:var(--r-s);background:var(--bg-4);color:var(--txt);font-size:12px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.choice-crumb svg,.rt-add-crumb svg,.choice-go,.rt-ch-go{flex:none;transform:rotate(-90deg);color:var(--txt-3)}
 @media (hover:hover){.cmd-picker-trigger:hover:not(:disabled):not([aria-expanded="true"]){background:var(--ctl-hover)}.cmd-picker-option:not([aria-selected="true"]):hover{background:var(--bg-3);color:var(--txt)}.cmd-check-row:hover strong,.cmd-toggle-row:hover strong{color:var(--txt)}.cmd-choice input:not(:checked)+span:hover{background:var(--bg-3);color:var(--txt)}}
 
 /* Keyboard, touch, and assistive-technology affordances for the shipped editor. */

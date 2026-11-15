@@ -1,4 +1,6 @@
 import React from 'react';
+import * as commandSearch from '../src/renderer/lib/commandIndex';
+import { commandCatalog187 } from './fixtures/commandCatalog187';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
 import { loadRendererExport } from './helpers/loadRendererExport';
@@ -448,7 +450,7 @@ describe('routine command chooser', () => {
   function inspector(node) {
     const env = environment(), marker = (name) => name;
     const StepInspector = loadRendererExport(new URL('../src/renderer/components/RoutineInspector.jsx', import.meta.url), 'StepInspector', {
-      context: { ...env.context, AUTO, deletionInput, robotValueSchemasEqual, UnitPrefs: { format: String }, CommandBranches: 'CommandBranches', CommandParameterEditor: 'CommandParameterEditor',
+      context: { ...env.context, ...commandSearch, AUTO, deletionInput, robotValueSchemasEqual, UnitPrefs: { format: String }, CommandBranches: 'CommandBranches', CommandParameterEditor: 'CommandParameterEditor',
         commandArguments: () => ({}), parameterValueError: () => '', safeControlId: String, LabviewProjectPanel: 'LabviewProjectPanel', Glyph: 'Glyph', continuityText: String, describeStop: String, stepTitle: String,
         UI: { Icon: marker('Icon'), Dropdown: 'Dropdown', ChoiceBrowser: 'ChoiceBrowser', DraftText: 'DraftText', Seg: 'Seg', Toggle: 'Toggle' } },
       replacements: [['export function StepInspector', 'window.StepInspector = function StepInspector'], ['export function RoutineTransport', 'function RoutineTransport']],
@@ -466,5 +468,36 @@ describe('routine command chooser', () => {
     expect(Object.keys(ui.branches)).toEqual(['node', 'command', 'acq']);
     ui = inspector(commandNode(commandNode().outputBranch.routes.map((route) => ({ ...route, nodes: [] }))));
     expect(ui.chooser.note).toBeUndefined();
+  });
+});
+
+describe('ChoiceBrowser ranked search with subsystems', () => {
+  const index = commandSearch.commandIndex(commandCatalog187.commands);
+  const id = (label) => commandCatalog187.commands.find((command) => command.label === label).id;
+  const browse = () => choiceBrowser({ value: id('Shooter Feed'), items: commandSearch.commandChoiceItems(commandCatalog187.commands), onChoose: vi.fn(() => 'applied'),
+    search: (query, scope) => commandSearch.commandChoiceRows(index, query, scope, null), openScope: 'shooter', scopeName: (key) => index.bySubsystem.get(key).name });
+  const crumb = (ui) => ui.view.find((element) => element.props.className === 'choice-crumb');
+  const labels = (ui) => { const out = []; const visit = (element) => { if (!element || typeof element !== 'object') return; if (element.props?.role === 'option') out.push(element.children[0].children[0].children[0]); element.children?.forEach(visit); }; visit(ui.view.tree); return out; };
+  it('opens Change on the current subsystem, leaves it with Backspace and enters another with ArrowRight', () => {
+    const ui = browse();
+    expect(ui.view.find((element) => element.props.className === 'choice-current').children[1].children[1].children[0]).toBe('Shooter');
+    ui.expand();
+    expect(crumb(ui).children[0]).toBe('Shooter');
+    expect(ui.search().props.placeholder).toBe('Search Shooter');
+    expect(labels(ui).slice(0, 3)).toEqual(['Spin Up', 'Spin Up Speaker', 'Spin Up Amp']);
+    ui.search().props.onKeyDown(press({ key: 'Backspace' })); ui.view.render();
+    expect(crumb(ui)).toBeNull();
+    expect(labels(ui).slice(0, 3)).toEqual(['Arm', 'Climber', 'Drive']);
+    ui.type('ele');
+    expect(labels(ui)[0]).toBe('Elevator');
+    ui.search().props.onKeyDown(press({ key: 'ArrowDown' })); ui.view.render();
+    ui.search().props.onKeyDown(press({ key: 'ArrowRight', target: { selectionStart: 3 } })); ui.view.render();
+    expect(crumb(ui).children[0]).toBe('Elevator');
+    expect(ui.search().props.value).toBe('');
+    ui.type('mid');
+    expect(labels(ui)).toEqual(['Mid']);
+    ui.search().props.onKeyDown(press({ key: 'ArrowDown' })); ui.view.render();
+    ui.search().props.onKeyDown(press({ key: 'Enter' }));
+    expect(ui.view.props.onChoose).toHaveBeenCalledExactlyOnceWith(id('Elevator Mid'));
   });
 });

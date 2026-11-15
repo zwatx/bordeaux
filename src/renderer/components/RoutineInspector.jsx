@@ -9,7 +9,9 @@ import { UI } from "./ui";
 import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
 import { Glyph, continuityText, describeStop, stepTitle } from "./RoutinePanel";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";
-import { niceStep } from "./pathTimelineModel";
+import { commandChoiceItems, commandChoiceRows, commandIndex, commandUsage, openSubsystem } from "../lib/commandIndex";
+import { labelWidth, layoutCommandLane, niceStep } from "./pathTimelineModel";
+import { ChipGlyph, LOOP_GLYPH } from "./PathTimeline";
 import { PointerDrag } from "../hooks/usePointerDrag";
 
 // Routine step inspector (right rail) and the bottom preview transport.
@@ -109,6 +111,65 @@ function RepeatStop({ node, catalog, set }) {
     stop && Hint('Checked after each pass, using that pass’s completed command result.'));
 }
 
+const LOOP_SECONDS = { min: 0.02, max: 3600 };
+
+/**
+ * "Loop": start the command again each time it finishes, until a time from its first start (after which it isn't
+ * started again; the run in progress finishes) or until its own completed output matches. A command that branches on its output cannot loop.
+ */
+function LoopSection({ node, command, set }) {
+  const invocation = node.invocation || {};
+  const until = invocation.loop?.until;
+  const write = (loop) => {
+    const { loop: _previous, ...rest } = invocation;
+    set({ invocation: loop ? { ...rest, loop } : rest });
+  };
+  const outputs = A.branchOutputs(command);
+  const branched = Boolean(node.outputBranch);
+  const mode = !until ? 'off' : until.kind === 'time' ? 'time' : until.kind === 'output' ? 'output' : 'path';
+  const output = until?.kind === 'output' ? outputs.find((item) => item.name === until.output) : null;
+  const numeric = until?.kind === 'output' && until.schema && !['boolean', 'enum'].includes(until.schema.kind);
+  const condition = (item) => ({ until: { kind: 'output', output: item.name, schema: item.schema, operator: 'eq', value: outputValueDefault(item.schema) } });
+  const choose = (next) => {
+    if (next === mode) return;
+    if (next === 'off') write(undefined);
+    else if (next === 'time') write({ until: { kind: 'time', seconds: 5 } });
+    else if (outputs.length) write(condition(outputs[0]));
+  };
+  const noOutputs = 'This command has no outputs to check';
+  return Section('Loop',
+    FieldLabel('Loop until'),
+    h(Seg, { ariaLabel: 'Loop until', value: mode, onChange: choose, options: [
+      { v: 'off', label: 'Off' },
+      { v: 'time', label: 'Time', disabled: branched && mode !== 'time', title: branched ? 'Remove the output branch to loop this command.' : 'Stop after a time from the first start' },
+      { v: 'output', label: 'Condition', disabled: (branched || !outputs.length) && mode !== 'output', title: branched ? 'Remove the output branch to loop this command.' : outputs.length ? 'Stop when a completed run reports a value' : noOutputs },
+    ] }),
+    branched && mode === 'off' && Hint('A command that branches on its output runs once. Remove its branch to loop it.'),
+    mode === 'off' && !branched && Hint('Runs once.'),
+    mode === 'path' && h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Path-only loop' },
+      h('p', { className: 'rt-insp-problem' }, 'Distance and path end loops apply only to path commands.'),
+      h('button', { type: 'button', className: 'qbtn wide', onClick: () => write({ until: { kind: 'time', seconds: 5 } }) }, 'Loop for a time instead')),
+    mode === 'time' && h(React.Fragment, null,
+      h(CommandParameterEditor, { key: node.id + ':loop-time', id: 'routine-loop-time-' + safeControlId(node.id), label: 'Loop for seconds', schema: { kind: 'number' }, parameter: LOOP_SECONDS,
+        value: until.seconds, onChange: (seconds) => write({ until: { kind: 'time', seconds } }) }),
+      Hint('Starts again each time it finishes. After the limit it isn’t started again; the last run finishes.')),
+    mode === 'output' && h(React.Fragment, null,
+      h(Dropdown, { id: 'routine-loop-output', label: 'Result', value: until.output || '',
+        items: [...(until.output && !output ? [{ value: until.output, label: until.output, meta: 'Output unavailable · sync commands or choose another', badge: 'Missing' }] : []),
+          ...outputs.map((item) => ({ value: item.name, label: item.label || item.name, meta: item.schema.kind === 'enum' ? 'Named outcomes' : item.schema.kind }))],
+        onChange: (name) => { const next = outputs.find((item) => item.name === name); if (next && name !== until.output) write(condition(next)); } }),
+      until.schema && output && !robotValueSchemasEqual(output.schema, until.schema) && h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Result type changed' },
+        h('p', { className: 'rt-insp-problem' }, until.schema.valueType !== output.schema.valueType
+          ? 'Saved as ' + until.schema.valueType + '; the command now reports ' + output.schema.valueType + '.'
+          : 'This result’s values changed since it was saved.'),
+        h('button', { type: 'button', className: 'qbtn wide', onClick: () => write(condition(output)) }, 'Use ' + (output.schema.valueType || 'the new type') + ' and reset the value')),
+      until.schema && h('div', { className: 'rt-stop-compare' },
+        numeric && h(Dropdown, { id: 'routine-loop-operator', label: 'Comparison', value: until.operator, items: OPERATORS, onChange: (operator) => write({ until: { ...until, operator } }) }),
+        h(CommandParameterEditor, { key: node.id + ':loop:' + until.output, id: 'routine-loop-value-' + safeControlId(node.id), label: numeric ? 'Value' : 'Stop when it is', schema: until.schema,
+          parameter: output || {}, value: until.value, onChange: (value) => write({ until: { ...until, value } }) })),
+      Hint('Checked after each completed run. Starts again until it matches.')));
+}
+
 function Problems({ issues, jumps }) {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity !== 'error');
@@ -125,9 +186,11 @@ export function StepInspector(props) {
   const catalog = robotProject && robotProject.catalog;
   const [unwrapReason, setUnwrapReason] = React.useState('');
   React.useEffect(() => setUnwrapReason(''), [node?.id]);
+  // Change command ranks and groups commands exactly like Add, including use in this routine and project.
+  const usage = React.useMemo(() => commandUsage(props.routines, paths, routine), [props.routines, paths, routine]);
   if (!node) return null;
   // Command and output problems are explained once, beside their recovery control (picker or branch editor).
-  const OWNED = node.type === 'function' ? ['command-unavailable', 'output-unavailable', 'output-schema-changed'] : node.type === 'repeat' ? ['stop-schema-changed'] : [];
+  const OWNED = node.type === 'function' ? ['command-unavailable', 'output-unavailable', 'output-schema-changed', 'loop-output-unavailable', 'loop-schema-changed', 'loop-path-only'] : node.type === 'repeat' ? ['stop-schema-changed'] : [];
   const issues = (props.issues || []).filter((issue) => issue.nodeId === node.id && !OWNED.includes(issue.code));
   const set = (patch) => acq.set(node.id, patch);
   const seg = (run?.segs || []).find((s) => s.nodeId === node.id);
@@ -207,6 +270,25 @@ export function StepInspector(props) {
       unwrapReason && h('p', { className: 'rt-insp-problem', role: 'status' }, unwrapReason),
       remove('Delete repeat'));
 
+  } else if (node.type === 'group') {
+    title = A.groupLabel(node.mode);
+    const parallel = node.mode !== 'sequential';
+    const span = (run?.groupSpans || []).find((item) => item.nodeId === node.id);
+    body = h(React.Fragment, null,
+      FieldLabel('Name'),
+      h(DraftText, { className: 'textinput', 'aria-label': 'Group name', value: node.title || '', placeholder: A.groupLabel(node.mode), owner: node.id + ':title', spellCheck: false,
+        onCommit: (raw) => { const next = raw.trim(); if (next !== (node.title || '')) set({ title: next || undefined }); } }),
+      FieldLabel('Runs'),
+      h(Seg, { ariaLabel: 'Runs', value: parallel ? 'parallel' : 'sequential', options: [{ v: 'parallel', label: 'In parallel' }, { v: 'sequential', label: 'In sequence' }],
+        onChange: (mode) => acq.edit({ kind: 'setGroupMode', nodeId: node.id, mode }) }),
+      Hint(parallel ? 'Every step starts together. The group finishes when all of them finish.' : 'Each step starts when the one before it finishes.'),
+      h('div', { className: 'rt-stat' },
+        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, String(node.nodes.length)), h('span', { className: 'rt-stat-k' }, node.nodes.length === 1 ? 'Step' : 'Steps')),
+        span && h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, A.groupTiming(node) === 'unknown' ? 'Untimed' : (A.groupTiming(node) === 'upperBound' ? '≤ ' : '') + fmt(span.t1 - span.t0)), h('span', { className: 'rt-stat-k' }, 'In this preview'))),
+      Hint('A group holds commands without branches, waits and other groups.'),
+      h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.edit({ kind: 'unwrapGroup', nodeId: node.id }) }, h(Glyph, { name: parallel ? 'parallel' : 'sequential', size: 14 }), 'Remove group, keep steps'),
+      remove('Delete group'));
+
   } else if (node.type === 'end') {
     if (node.scope === 'repeat') {
       title = 'Exit repeat';
@@ -233,6 +315,9 @@ export function StepInspector(props) {
     const parameters = selected ? (selected.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
     const saved = node.invocation && node.invocation.arguments || {};
     const branchSteps = A.routeSteps(node.outputBranch?.routes || []);
+    // Groups and loops never branch; the branch section says why instead of offering outputs.
+    const branchBlocked = A.locate(routine, node.id)?.groupIds?.length ? 'Commands in a group run without branches. Move it out of the group to branch on its output.'
+      : node.invocation?.loop ? 'A looping command can’t branch on its output, since each run could pick a different route. Turn off Loop to add routes.' : '';
     // A command reporting the same output with the same value type keeps the routes; the note names that output.
     const branchOutput = node.outputBranch && (A.branchOutputs(selected).find((output) => output.name === node.outputBranch.output)?.label || node.outputBranch.output);
     const argumentsValue = selected ? Object.fromEntries(parameters.map((parameter) => {
@@ -242,10 +327,13 @@ export function StepInspector(props) {
     body = h(React.Fragment, null,
       catalog
         ? h(ChoiceBrowser, { id: 'routine-command', resetKey: node.id, label: 'Command', value: invocationId,
-            items: [{ value: '', label: 'Choose a command', meta: 'No command selected' }, ...commands.map((command) => ({
-              value: command.id, label: command.label, meta: (command.parameters || []).filter((parameter) => parameter.role === 'argument').map((parameter) => parameter.label || parameter.name).join(', ') || command.member,
-              searchText: command.id + ' ' + command.member,
-            }))], placeholder: 'Search commands', emptyText: 'No commands found in this project', icon: 'bolt',
+            items: commandChoiceItems(commands), placeholder: 'Search commands', emptyText: 'No commands found in this project', icon: 'bolt',
+            // The same subsystems, ranking and meta line as Add; Change opens on the current command's subsystem.
+            search: (query, scope) => {
+              const rows = commandChoiceRows(commandIndex(commands), query, scope, usage);
+              return invocationId && !scope && !query.trim() ? [...rows, { value: '', label: 'Choose a command', meta: 'No command selected', section: 'No command' }] : rows;
+            },
+            openScope: openSubsystem(commandIndex(commands), invocationId), scopeName: (key) => commandIndex(commands).bySubsystem.get(key)?.name || key,
             note: branchSteps ? 'A command without a matching “' + branchOutput + '” output removes ' + plural(branchSteps, 'branch step') + '.' : undefined,
             onChoose: (value) => acq.branch(node.id, value === invocationId ? { kind: 'keep' } : { kind: 'command', commandId: value }) })
         // Without linked robot code there is no catalog to choose from; the saved command stays as authored.
@@ -264,10 +352,11 @@ export function StepInspector(props) {
               schema: parameter.schema,
               parameter,
               value: argumentsValue[parameter.name],
-              onChange: (value) => set({ invocation: { commandId: selected.id, arguments: { ...argumentsValue, [parameter.name]: value } } }),
+              onChange: (value) => set({ invocation: { ...node.invocation, commandId: selected.id, arguments: { ...argumentsValue, [parameter.name]: value } } }),
             }))),
+      selected && h(LoopSection, { node, command: selected, set }),
       h(EndsSection, { node, routine, catalog, set }),
-      (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, acq }),
+      (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, acq, ...(branchBlocked ? { blocked: branchBlocked } : {}) }),
       remove('Delete command'));
 
   } else {
@@ -295,6 +384,34 @@ export function StepInspector(props) {
 /** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, untimed commands as markers.
  * The scrubber is a slider over a time scale: drag the handle or press anywhere on the lane to seek (seeking pauses),
  * hover to read a time and the step there, and use the arrows (Shift for 1 s), Page Up/Down for step starts, Home/End. */
+// The routine scrubber's rows: the seconds scale, block rows from LANE_TOP, then chip rows for instant commands.
+const LANE_TOP = 22, LANE_ROW = 20, CHIP_ROW = 21, MAX_BLOCK_ROWS = 4, NL = String.fromCharCode(10);
+function routineLane(run, width) {
+  const x = (t) => 10 + (width - 20) * (run.total ? t / run.total : 0);
+  const rowEnds = [];
+  const placed = run.steps.filter((step) => step.t1 > step.t0 && step.kind !== 'repeat').sort((a, b) => a.t0 - b.t0).map((step) => {
+    let row = rowEnds.findIndex((end) => end <= step.t0 + 1e-9);
+    if (row < 0) row = rowEnds.length;
+    rowEnds[row] = step.t1;
+    return { step, row };
+  });
+  const rows = Math.max(1, rowEnds.length);
+  // Every simultaneous step keeps its own row. Past four rows they share the four-row height instead of overlapping;
+  // rows too thin for a label keep the name in the block's tooltip.
+  const rowH = rows > MAX_BLOCK_ROWS ? Math.max(6, Math.floor((MAX_BLOCK_ROWS * LANE_ROW) / rows)) : LANE_ROW;
+  const blocks = placed.map(({ step, row }) => ({ step, row, wide: rowH >= LANE_ROW - 2 && x(step.t1) - x(step.t0) >= 34 }));
+  const groups = (run.groupSpans || []).filter((group) => group.t1 > group.t0).map((group) => ({ ...group,
+    rows: 1 + Math.max(0, ...blocks.filter(({ step }) => step.t0 >= group.t0 - 1e-9 && step.t1 <= group.t1 + 1e-9).map(({ row }) => row)) }));
+  const instant = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'event' || step.kind === 'dynamic')).map((step, index) => {
+    const label = step.label || A.nodeTitle(step.node), loop = step.node?.invocation?.loop ? 15 : 0;
+    return { step, t: step.t0, key: step.occurrenceId || step.node.id + ':' + index, label, w: Math.min(168, Math.ceil(labelWidth(label)) + 28 + loop), minW: 46 + loop };
+  });
+  const { chips, rows: chipRows } = run.total > 0 ? layoutCommandLane(instant, { x, left: 2, right: width - 2, rows: 2, stackWidth: (count) => Math.ceil(labelWidth('+' + count)) + 34 })
+    : { chips: [], rows: 0 };
+  const chipTop = LANE_TOP + rows * rowH + 2;
+  return { blocks, rows, rowH, groups, chips, chipTop, height: chipTop + chipRows * CHIP_ROW + 4 };
+}
+
 export function RoutineTransport(props) {
   const { run, time, playing, controls, running } = props;
   const occurrences = run.steps.filter((step) => step.kind !== 'repeat');
@@ -327,8 +444,8 @@ export function RoutineTransport(props) {
   const color = (step) => step.kind === 'path' || step.kind === 'gen' ? 'var(--accent)' : step.kind === 'wait' ? 'var(--warn)' : step.kind === 'event' ? 'var(--cmd)' : 'var(--txt-3)';
   const at = (t) => `calc(10px + (100% - 20px) * ${run.total ? t / run.total : 0})`;
   const width = (d) => `calc((100% - 20px) * ${run.total ? d / run.total : 0})`;
-  const marks = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'decision' || step.kind === 'end' || step.kind === 'event' || (step.kind === 'repeat' && step.pass > 1)));
-  const markClass = (step) => step.kind === 'decision' ? 'rt-timeline-event' : step.kind === 'end' ? 'rt-timeline-end' : step.kind === 'repeat' ? 'rt-timeline-pass' : 'rt-timeline-untimed';
+  const marks = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'decision' || step.kind === 'end'));
+  const markClass = (step) => step.kind === 'decision' ? 'rt-timeline-event' : 'rt-timeline-end';
   const editorRef = React.useRef(null), scrubRef = React.useRef(null);
   const [editorWidth, setEditorWidth] = React.useState(0);
   const [hover, setHover] = React.useState(null);
@@ -342,16 +459,12 @@ export function RoutineTransport(props) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  // Pass numbers only where there is room for them; every mark keeps its descriptive title.
-  const labelledPasses = new Set();
-  if (editorWidth && run.total > 0) {
-    let lastX = -Infinity;
-    marks.filter((step) => step.kind === 'repeat').forEach((step) => {
-      const x = 10 + (editorWidth - 20) * (step.t0 / run.total);
-      if (x - lastX >= 16) { labelledPasses.add(step.occurrenceId); lastX = x; }
-    });
-  }
-  const markLabel = (step) => step.kind === 'repeat' ? A.nodeTitle(step.node) + ', pass ' + step.pass : step.kind === 'event' ? A.nodeTitle(step.node) + ' (untimed)' : step.label || A.nodeTitle(step.node);
+  const markLabel = (step) => step.label || A.nodeTitle(step.node);
+  // Steps with a duration are labelled blocks on the seconds scale; steps that overlap (a parallel group's children)
+  // stack in rows over the same span. Instant and untimed commands are chips like the Paths command lane: a diamond
+  // on their time, the name facing into the lane, crowds shortened or gathered into "+N".
+  const lane = React.useMemo(() => routineLane(run, editorWidth || 600), [run, editorWidth]);
+  const activeAt = (step) => (running || time > 0) && step.t0 <= time && time < step.t1;
   // Seconds scale, spaced like the Paths timeline's time axis.
   const tickStep = timedPlayable && editorWidth > 40 ? niceStep(run.total, Math.max(2, (editorWidth - 20) / 84)) : 0;
   const tickDigits = tickStep ? Math.max(0, Math.min(2, -Math.floor(Math.log10(tickStep) + 1e-9))) : 0;
@@ -396,12 +509,32 @@ export function RoutineTransport(props) {
       h('div', { className: 'rt-timeline-step', title: now ? stepName(now.step) : undefined },
         now ? h(React.Fragment, null, h('span', { className: 'rt-timeline-now' }, stepName(now.step)), h('small', null, now.ordinal + ' of ' + occurrences.length))
           : occurrences.length > 0 && h('small', null, plural(occurrences.length, 'step')))),
-    h('div', { className: 'rt-timeline-editor' + (dragging ? ' dragging' : ''), ref: editorRef, style: { '--routine-progress': pct } },
+    h('div', { className: 'rt-timeline-editor' + (dragging ? ' dragging' : ''), ref: editorRef, style: { '--routine-progress': pct, height: lane.height } },
       ticks.map((t, i) => h('span', { key: 'tick' + i, className: 'rt-timeline-tick' + (t / run.total > 0.97 ? ' end' : ''), style: { left: at(t) }, 'aria-hidden': true }, t === 0 ? '0' : t.toFixed(tickDigits))),
-      h('span', { className: 'rt-timeline-track' }),
-      run.steps.filter((step) => step.t1 > step.t0).map((step) => h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : '') + (now?.step === step ? ' on' : ''),
-        title: (step.timing === 'upperBound' ? 'Up to ' : '') + (step.label || A.nodeTitle(step.node)), style: { left: at(step.t0), width: width(step.t1 - step.t0), '--step-color': color(step) } })),
-      timedPlayable && marks.map((step) => h('span', { key: 'm' + (step.occurrenceId || step.node.id), className: markClass(step), title: markLabel(step), style: { left: at(step.t0) } }, step.kind === 'repeat' && labelledPasses.has(step.occurrenceId) ? step.pass : null)),
+      h('span', { className: 'rt-timeline-track', style: { height: lane.rows * lane.rowH - 2 } }),
+      lane.groups.map((group) => h('span', { key: 'g' + group.occurrenceId, className: 'rt-timeline-group', title: A.groupLabel(group.mode),
+        style: { left: at(group.t0), width: width(group.t1 - group.t0), height: group.rows * lane.rowH + 2 } })),
+      lane.blocks.map(({ step, row, wide }) => {
+        const pass = step.passStack?.length ? step.passStack.at(-1).pass : 0;
+        const loop = step.node?.invocation?.loop;
+        const name = stepName(step);
+        return h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : '') + (now?.step === step || activeAt(step) ? ' on' : ''),
+          title: (step.timing === 'upperBound' ? 'Up to ' : '') + name + (pass ? ', pass ' + pass : '') + (loop ? ', loops ' + A.loopSummary(loop) : ''),
+          style: { left: at(step.t0), width: width(step.t1 - step.t0), top: LANE_TOP + row * lane.rowH, ...(lane.rowH < LANE_ROW ? { height: lane.rowH - 2 } : {}), '--step-color': color(step) } },
+          wide && h('span', { className: 'rt-timeline-name' }, name),
+          wide && pass > 0 && h('small', null, pass),
+          wide && loop && h(ChipGlyph, { className: 'rt-timeline-glyph', d: LOOP_GLYPH }));
+      }),
+      timedPlayable && marks.map((step) => h('span', { key: 'm' + (step.occurrenceId || step.node.id), className: markClass(step), title: markLabel(step), style: { left: at(step.t0) } })),
+      timedPlayable && lane.chips.map((chip) => {
+        const top = lane.chipTop + chip.row * CHIP_ROW, side = chip.dir === 'left' ? ' left' : '';
+        if (chip.stack) return h('span', { key: 's' + chip.members[0].key, className: 'rt-timeline-chip stack' + side, title: chip.members.map((member) => member.label).join(NL),
+          style: { left: chip.left, width: chip.w, top } }, h('span', { className: 'pt-stack-glyph' }), h('span', { className: 'rt-timeline-name' }, '+' + chip.members.length));
+        const loop = chip.step.node?.invocation?.loop;
+        return h('span', { key: chip.key, className: 'rt-timeline-chip' + side + (now?.step === chip.step ? ' on' : ''),
+          title: chip.label + (loop ? ', loops ' + A.loopSummary(loop) : chip.step.timing === 'unknown' ? ' (untimed)' : ''), style: { left: chip.left, width: chip.w, top } },
+          h('span', { className: 'pt-diamond' }), h('span', { className: 'rt-timeline-name' }, chip.label), loop && h(ChipGlyph, { className: 'rt-timeline-glyph', d: LOOP_GLYPH }));
+      }),
       !timedPlayable && h('span', { className: 'rt-timeline-empty' }, run.blocked ? 'Preview unavailable' : 'Nothing to scrub: no step in this preview has a duration'),
       timedPlayable && hover != null && !dragging && h('span', { className: 'rt-timeline-hover', style: { left: at(hover) }, 'aria-hidden': true }),
       timedPlayable && h('span', { className: 'rt-timeline-playhead', 'aria-hidden': true }),

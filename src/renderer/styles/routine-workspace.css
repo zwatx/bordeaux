@@ -37,6 +37,16 @@
 .rt-block{display:flex;flex-direction:column;padding:4px 0 4px 20px;border-top:1px solid var(--line)}
 .rt-group>.rt-step{border-radius:var(--r-l) var(--r-l) 0 0}
 .rt-branch{display:flex;flex-direction:column;margin:2px 0 4px;border-left:2px solid var(--line-3)}
+/* A command group. Its steps hang off a rail: one line for a sequence (in order), two for parallel steps, each joined
+   to the rail by a short tick so they read as starting together. Their time bars overlap on the shared axis. */
+.rt-group.cgroup>.rt-block{position:relative;padding-left:26px}
+.rt-group.cgroup>.rt-block::before{content:'';position:absolute;left:14px;top:8px;bottom:10px;border-left:1px solid var(--line-3);pointer-events:none}
+.rt-group.cgroup.par>.rt-block::before{width:3px;border-left-color:var(--txt-3);border-right:1px solid var(--txt-3)}
+.rt-group.cgroup.par>.rt-block>.rt-step-wrap>.rt-step::before,.rt-group.cgroup.par>.rt-block>.rt-step-wrap.rt-group::before{content:'';position:absolute;left:-8px;top:17px;width:8px;border-top:1px solid var(--txt-3);pointer-events:none}
+.rt-group.cgroup.par>.rt-block>.rt-step-wrap.rt-group{position:relative}
+.rt-step.grp :is(.rt-step-ic,.rt-collapse-kind){color:var(--txt-2)}
+.rt-step-kind{flex:none;color:var(--txt-3);font-size:11.5px;line-height:17px}
+.rt-step-loop{display:inline-flex;align-items:center;height:17px;margin-left:6px;vertical-align:top;color:var(--cmd)}
 .rt-branch.live{border-left-color:var(--txt-2)}
 
 .rt-step{position:relative;display:grid;grid-template-columns:14px 20px 22px minmax(0,1fr) var(--tw) 60px 28px;align-items:center;column-gap:6px;
@@ -73,6 +83,7 @@
 .rt-step-time i{--c:var(--txt-2);position:absolute;top:0;bottom:0;min-width:2px;border-radius:2px;background:var(--c)}
 .rt-step-time .wait{--c:var(--warn)}
 .rt-step-time .event{--c:var(--cmd)}
+.rt-step-time .group{--c:var(--line-3)}
 .rt-step-time .upper{background:repeating-linear-gradient(135deg,var(--c) 0 2px,transparent 2px 4px)}
 .rt-step-dur{color:var(--txt-2);font:11.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .rt-step-dur.unknown{color:var(--txt-3);font-family:var(--ui)}
@@ -150,6 +161,35 @@
 .rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
 .rt-ch-d{grid-column:2;color:var(--txt-3);font-size:11px;text-align:left;overflow-wrap:anywhere}
 .rt-add-none{padding:16px 12px;color:var(--txt-3);font-size:12px}
+/* Subsystems, ranked matches and the detail column. A row inside a subsystem drops its repeated name. */
+.rt-add-menu.wide{width:640px}
+.rt-add-body{display:flex;flex:1;min-height:0}
+.rt-add-body>.rt-add-list,.rt-add-body>.rt-add-none{flex:1;min-width:0}
+.rt-ch-sec{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.rt-ch-sec small{color:var(--txt-3);font:10.5px var(--mono);font-weight:400;white-space:nowrap}
+.rt-ch-row.sub{grid-template-columns:18px minmax(0,1fr) 14px}
+.rt-ch-go{grid-column:3;grid-row:1 / span 2;display:flex}
+.rt-ch-row.dim:not(.active){color:var(--txt-3)}
+.rt-ch-row.dim .rt-ch-ic{opacity:.6}
+.rt-ch-pre{color:var(--txt-3)}
+.rt-ch-row.active .rt-ch-pre{color:var(--txt-2)}
+.rt-ch-t mark{background:none;color:var(--txt);font-weight:600}
+.rt-add-added{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px 0;color:var(--txt-2);font-size:11.5px;line-height:1.4}
+.rt-add-added svg{flex:none;color:var(--good)}
+.rt-add-added:empty{padding:0}
+.rt-add-detail{display:flex;flex:none;flex-direction:column;gap:12px;width:250px;min-height:0;overflow:auto;padding:12px 14px;border-left:1px solid var(--line);scrollbar-width:thin}
+.rt-add-detail h3{margin:0;color:var(--txt);font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.rt-add-detail p{margin:0;color:var(--txt-2);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
+.rt-add-detail .rt-add-dpath{margin-top:-6px;color:var(--txt-3);font:10.5px/1.5 var(--mono)}
+.rt-add-detail .rt-add-ddesc{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.rt-add-detail .rt-add-dnote{color:var(--txt-3)}
+.rt-add-dlabel{margin-bottom:5px;color:var(--txt-2);font-size:11.5px;font-weight:550}
+.rt-add-dsec dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;margin:0;font-size:11.5px}
+.rt-add-dsec dt{min-width:0;color:var(--txt-2);overflow-wrap:anywhere}
+.rt-add-dsec dd{margin:0;color:var(--txt-3);font:10.5px/1.6 var(--mono);text-align:right}
+.rt-add-keys{display:flex;flex:none;flex-wrap:wrap;gap:4px 12px;padding:7px 12px;border-top:1px solid var(--line);color:var(--txt-3);font-size:11px}
+.rt-add-keys span{display:inline-flex;align-items:center;gap:5px}
+.rt-add-keys kbd{padding:1px 5px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:10.5px var(--mono)}
 .rt-row-menu .rt-menu-label{display:flex;flex-direction:column;gap:2px;min-width:0}
 .rt-row-menu .rt-menu-label small{color:var(--txt-3);font-size:11px;line-height:1.35;white-space:normal}
 .rt-row-menu .ctxmenu-i:disabled{color:var(--txt-3);cursor:default}
@@ -175,9 +215,10 @@
 .routine-status-copy b{color:var(--txt);font-size:12.5px;font-weight:600}
 .routine-status-copy span{color:var(--txt-3);font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}
 .routine-status.error .routine-status-icon{background:var(--bad-soft);color:var(--bad-txt)}
-/* The transport: controls and the step playing now, over a seconds scale with a lane of step spans and a playhead
-   handle. The lane is one slider; its focus ring is drawn by the editor. */
-.rt-transport.timeline{position:relative;display:grid;grid-template-rows:34px 56px;height:90px;border-top:1px solid var(--line-2);background:var(--hud-surface)}
+/* The transport: controls and the step playing now, over a seconds scale with rows of labelled step blocks, chips for
+   instant commands and a playhead handle. The editor's height follows its rows; it is one slider, whose focus ring the
+   editor draws. */
+.rt-transport.timeline{position:relative;display:grid;grid-template-rows:34px auto;border-top:1px solid var(--line-2);background:var(--hud-surface)}
 .rt-timeline-toolbar{display:flex;align-items:center;min-width:0;padding:0 12px 0 6px;border-bottom:1px solid var(--line)}
 .rt-tp-ctl{display:flex;align-items:center;gap:2px}
 .rt-tp-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:26px;border-radius:var(--r-s);color:var(--txt-2)}
@@ -193,23 +234,30 @@
 .rt-timeline-tick.end{transform:translateX(-100%)}
 .rt-timeline-tick.end::after{left:auto;right:0}
 .rt-timeline-tick::after{content:'';position:absolute;left:50%;top:13px;width:1px;height:4px;background:var(--line-3)}
-.rt-timeline-track{position:absolute;left:10px;right:10px;top:22px;height:16px;border-radius:var(--r-s);background:var(--bg-2);box-shadow:inset 0 0 0 1px var(--line)}
-/* Each step is its own block with a dark seam at its start; the one playing now is brighter. */
-.rt-timeline-span{position:absolute;top:25px;height:10px;min-width:2px;border-radius:2px;background:color-mix(in srgb,var(--step-color) 40%,transparent);box-shadow:inset 2px 0 0 var(--bg-1);pointer-events:none}
-.rt-timeline-span.on{background:color-mix(in srgb,var(--step-color) 85%,transparent)}
-.rt-timeline-event{position:absolute;top:25px;width:8px;height:8px;border:1.5px solid var(--warn);background:var(--bg-1);transform:translate(-50%,0) rotate(45deg);pointer-events:none}
-/* Preview marks: limits draw hatched as upper bounds; untimed commands are ticks, not spans. */
-.rt-timeline-span.upper{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--step-color) 44%,transparent) 0 3px,transparent 3px 6px)}
-.rt-timeline-end{position:absolute;top:26px;width:8px;height:8px;background:var(--txt-2);transform:translateX(-50%);pointer-events:none}
-.rt-timeline-untimed{position:absolute;top:23px;width:2px;height:14px;border-radius:1px;background:var(--cmd);transform:translateX(-50%);pointer-events:none}
-.rt-timeline-pass{position:absolute;top:43px;color:var(--txt-3);font:9.5px/1 var(--mono);transform:translateX(-50%);pointer-events:none}
-.rt-timeline-pass::before{content:'';position:absolute;left:50%;top:-21px;width:1px;height:19px;background:var(--txt-3)}
+.rt-timeline-track{position:absolute;left:10px;right:10px;top:22px;height:18px;border-radius:4px;background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045)}
+/* Each step with a duration is a labelled block over its seconds; overlapping steps (a parallel group) stack in rows.
+   The step playing now is brighter. Limits draw hatched as upper bounds. */
+.rt-timeline-span{position:absolute;display:flex;align-items:center;gap:5px;height:18px;min-width:2px;padding:0 6px 0 7px;overflow:hidden;border-radius:4px;background:color-mix(in srgb,var(--step-color) 20%,var(--bg-2));box-shadow:inset 2px 0 0 color-mix(in srgb,var(--step-color) 75%,transparent);color:var(--txt-2);font-size:11px;white-space:nowrap;pointer-events:none}
+.rt-timeline-span.on{background:color-mix(in srgb,var(--step-color) 42%,var(--bg-2));box-shadow:inset 2px 0 0 var(--step-color),inset 0 0 0 1px color-mix(in srgb,var(--step-color) 70%,transparent);color:var(--txt)}
+.rt-timeline-span.upper{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--step-color) 30%,transparent) 0 3px,transparent 3px 6px),var(--bg-2)}
+.rt-timeline-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-timeline-span small{flex:none;color:var(--txt-3);font:10px var(--mono)}
+.rt-timeline-glyph{flex:none;color:var(--cmd)}
+/* A group's span outlines the rows its steps use. */
+.rt-timeline-group{position:absolute;top:20px;margin-left:-2px;padding-right:4px;box-sizing:content-box;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
+/* Instant and untimed commands: the Paths command lane's chips, a diamond on their time. */
+.rt-timeline-chip{position:absolute;display:flex;align-items:center;gap:6px;height:19px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11.5px;white-space:nowrap;pointer-events:none}
+.rt-timeline-chip.left{flex-direction:row-reverse;padding:0 6px 0 8px}
+.rt-timeline-chip.on{background:var(--bg-4);box-shadow:inset 0 0 0 1px var(--txt-3);color:var(--txt)}
+.rt-timeline-chip.stack{gap:5px;font:500 10.5px var(--mono);color:var(--txt)}
+.rt-timeline-event{position:absolute;z-index:1;top:13px;width:8px;height:8px;border:1.5px solid var(--warn);background:var(--bg-1);transform:translate(-50%,0) rotate(45deg);pointer-events:none}
+.rt-timeline-end{position:absolute;z-index:1;top:13px;width:8px;height:8px;background:var(--txt-2);transform:translateX(-50%);pointer-events:none}
 .rt-timeline-empty{position:absolute;left:10px;right:10px;top:22px;display:flex;align-items:center;justify-content:center;height:16px;color:var(--txt-3);font-size:11.5px;pointer-events:none}
 /* The playhead: a line across scale and lane with a round handle on the lane, larger while hovered or dragged. */
-.rt-timeline-playhead{position:absolute;z-index:2;left:calc(10px + (100% - 20px) * var(--routine-progress,0));top:18px;width:2px;height:28px;margin-left:-1px;border-radius:1px;background:var(--txt);pointer-events:none}
-.rt-timeline-playhead::before{content:'';position:absolute;left:50%;top:5px;width:12px;height:12px;border-radius:50%;background:var(--txt);box-shadow:0 0 0 2px var(--bg-1),0 1px 4px rgb(0 0 0/.5);transform:translateX(-50%);transition:width .12s ease-out,height .12s ease-out,top .12s ease-out}
-.rt-timeline-editor:is(:hover,.dragging) .rt-timeline-playhead::before{top:4px;width:14px;height:14px}
-.rt-timeline-hover{position:absolute;z-index:1;top:18px;width:1px;height:28px;background:rgb(255 255 255/.35);pointer-events:none}
+.rt-timeline-playhead{position:absolute;z-index:2;left:calc(10px + (100% - 20px) * var(--routine-progress,0));top:16px;bottom:3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--txt);pointer-events:none}
+.rt-timeline-playhead::before{content:'';position:absolute;left:50%;top:-4px;width:12px;height:12px;border-radius:50%;background:var(--txt);box-shadow:0 0 0 2px var(--bg-1),0 1px 4px rgb(0 0 0/.5);transform:translateX(-50%);transition:width .12s ease-out,height .12s ease-out,top .12s ease-out}
+.rt-timeline-editor:is(:hover,.dragging) .rt-timeline-playhead::before{top:-5px;width:14px;height:14px}
+.rt-timeline-hover{position:absolute;z-index:1;top:16px;bottom:3px;width:1px;background:rgb(255 255 255/.35);pointer-events:none}
 .rt-timeline-readout{position:absolute;z-index:4;top:1px;left:clamp(64px,calc(10px + (100% - 20px) * var(--at,0)),calc(100% - 64px));display:flex;align-items:baseline;gap:6px;max-width:min(320px,calc(100% - 24px));padding:1px 7px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--bg-3);box-shadow:var(--elevation);color:var(--txt-2);font-size:11px;line-height:16px;white-space:nowrap;transform:translateX(-50%);pointer-events:none}
 .rt-timeline-readout b{color:var(--txt);font:550 11px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-readout span{min-width:0;overflow:hidden;text-overflow:ellipsis}

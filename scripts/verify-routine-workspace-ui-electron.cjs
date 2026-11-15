@@ -276,12 +276,12 @@ app.whenReady().then(async () => {
         { id: 'completion-step', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } },
       ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
       await load('output-loop'); await planned();
-      // Add: All lists paths, commands and steps; the Commands filter, reached from the search with Tab and arrows,
+      // Add: All lists commands, paths and steps; the Commands filter, reached from the search with Tab and arrows,
       // inserts a catalog command bound with its default arguments in one pick.
       const loopBaseline = await source();
       await click('[data-id="after-loop"] .rt-step-body'); await key('A');
       await wait(() => evaluate(() => document.activeElement?.matches('.rt-add-search input')), 'Add search focused');
-      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(el => el.textContent)), ['Paths', 'Commands', 'Steps']);
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec > span')].map(el => el.textContent)), ['Commands', 'Paths', 'Steps']);
       assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => el.textContent.startsWith('Check whether collection is finished'))), 'All lists catalog commands');
       assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => /^Branch on/.test(el.textContent))), false, 'No Branch-on items');
       await snapshot('add-all-' + width);

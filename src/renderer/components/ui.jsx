@@ -308,21 +308,41 @@ import { filterPickerItems } from "../lib/pickerSearch";
   // Inline choice browser keeps discovery and parameters in one stable inspector.
   // `onChoose` follows Dropdown's opt-in contract; a refusal keeps the list and its query. `note` describes the
   // consequence of choosing, shown only while the choices are.
-  function ChoiceBrowser({ id, label, value, items = [], onChange, onChoose, note, disabled, placeholder = 'Search', emptyText = 'No choices available', actionLabel = 'Change', resetKey }) {
+  // `search(query, scope)` replaces the plain filter with ranked results. Its items may start a `section`, read `dim`,
+  // carry a full-name `title`, or `enter` a scope (a subsystem): → or Tab opens it, shown as a chip in the search, and
+  // Backspace on an empty search leaves it. `openScope` is the scope Change opens on; `scopeName(scope)` labels the chip.
+  function ChoiceBrowser({ id, label, value, items = [], onChange, onChoose, note, disabled, placeholder = 'Search', emptyText = 'No choices available', actionLabel = 'Change', resetKey, search, openScope, scopeName }) {
     const [editing, setEditing] = useState(false);
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
+    const [scope, setScope] = useState(null);
     const rootRef = useRef(null);
     const searchRef = useRef(null);
     const changeRef = useRef(null);
     const optionRefs = useRef([]);
     const selected = useMemo(() => items.find((item) => item.value === value && value !== ''), [items, value]);
     const expanded = editing || !selected;
-    const matches = useMemo(() => expanded ? filterPickerItems(items, query) : items, [items, query, expanded]);
+    const matches = useMemo(() => !expanded ? items : search ? search(query, scope) : filterPickerItems(items, query), [items, query, expanded, search, scope]);
     const visible = matches.slice(0, MAX_RENDERED_PICKER_ITEMS);
-    useEffect(() => { setEditing(false); setQuery(''); setActive(-1); }, [resetKey]);
+    useEffect(() => { setEditing(false); setQuery(''); setActive(-1); setScope(null); }, [resetKey]);
+    const enter = (next) => { setScope(next); setQuery(''); setActive(-1); searchRef.current?.focus(); };
+    // New results for the same search (a background catalog refresh) keep the highlighted choice by value, so Enter
+    // never picks whatever moved into its place. A new query or scope starts over.
+    const tracked = useRef({ matches, key: '', value: null });
+    useEffect(() => {
+      const memo = tracked.current, key = query + '\0' + scope;
+      if (memo.matches !== matches && memo.key === key && memo.value != null) {
+        memo.matches = matches;
+        const kept = visible.findIndex((item) => item.value === memo.value);
+        if (kept !== active) { setActive(kept); return; }
+      }
+      memo.matches = matches; memo.key = key;
+      memo.value = active >= 0 && visible[active] ? visible[active].value : null;
+    }, [matches, active, query, scope]); // eslint-disable-line react-hooks/exhaustive-deps
+    const scopeLabel = scope && (scopeName ? scopeName(scope) : String(scope));
     useEffect(() => { if (editing) searchRef.current?.focus(); }, [editing]);
     const choose = (item) => {
+      if (item.enter) { enter(item.enter); return; }
       if (!onChoose) {
         onChange(item.value); setEditing(false); setQuery(''); setActive(-1);
         requestAnimationFrame(() => (item.value ? changeRef.current : searchRef.current)?.focus());
@@ -346,30 +366,40 @@ import { filterPickerItems } from "../lib/pickerSearch";
     } },
       h('div', { className: 'choice-browser-heading' }, h('span', { className: 'fieldlabel' }, label),
         selected && h('button', { type: 'button', className: 'choice-change', ref: changeRef, disabled,
-          'aria-expanded': expanded, 'aria-controls': id + '-choices', onClick: () => setEditing(!editing) }, expanded ? 'Done' : actionLabel)),
+          'aria-expanded': expanded, 'aria-controls': id + '-choices', onClick: () => { if (!editing) setScope(openScope || null); setEditing(!editing); } }, expanded ? 'Done' : actionLabel)),
       expanded && note && h('p', { id: id + '-note', className: 'seg-hint' }, note),
       selected && !expanded && h('div', { className: 'choice-current' },
         h(Icon, { name: 'check', size: 15 }),
         h('div', null, h('strong', null, selected.label), selected.meta && h('small', null, selected.meta))),
       expanded && h('div', { id: id + '-choices', className: 'choice-browser-body' },
         h('div', { className: 'choice-search' }, h(Icon, { name: 'search', size: 15 }),
+          scope && h('button', { type: 'button', className: 'choice-crumb', tabIndex: -1, title: 'Back to everything (Backspace)', 'aria-label': 'Leave ' + scopeLabel,
+            onMouseDown: (event) => event.preventDefault(), onClick: () => enter(null) }, scopeLabel, h(Icon, { name: 'chevron', size: 12 })),
           h('input', { id, ref: searchRef, type: 'search', role: 'combobox', value: query, disabled,
-            placeholder, 'aria-label': 'Search ' + label.toLowerCase(), 'aria-expanded': true, 'aria-describedby': note ? id + '-note' : undefined,
+            placeholder: scope ? 'Search ' + scopeLabel : placeholder, 'aria-label': 'Search ' + (scope ? scopeLabel + ' ' : '') + label.toLowerCase(), 'aria-expanded': true, 'aria-describedby': note ? id + '-note' : undefined,
             'aria-controls': id + '-results', 'aria-autocomplete': 'list',
             'aria-activedescendant': active >= 0 && visible[active] ? id + '-result-' + active : undefined,
             onChange: (event) => { setQuery(event.target.value); setActive(-1); },
             onKeyDown: (event) => {
+              const opener = visible[active]?.enter, plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+              if (opener && plain && (event.key === 'Tab' || (event.key === 'ArrowRight' && event.target.selectionStart === query.length))) { event.preventDefault(); event.stopPropagation(); enter(opener); return; }
+              if (event.key === 'Backspace' && scope && !query) { event.preventDefault(); event.stopPropagation(); enter(null); return; }
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); event.stopPropagation(); move(active < 0 ? (event.key === 'ArrowDown' ? 0 : visible.length - 1) : active + (event.key === 'ArrowDown' ? 1 : -1)); }
               if (event.key === 'Enter' && active >= 0 && visible[active]) { event.preventDefault(); event.stopPropagation(); choose(visible[active]); }
               if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (query) { setQuery(''); setActive(-1); } else if (selected) { setEditing(false); requestAnimationFrame(() => changeRef.current?.focus()); } }
             } })),
         h('div', { className: 'choice-results', id: id + '-results', role: 'listbox', 'aria-label': label },
-          visible.map((item, index) => h('button', { key: item.value, id: id + '-result-' + index,
-            ref: (node) => { optionRefs.current[index] = node; }, type: 'button', role: 'option', disabled, tabIndex: index === Math.max(0, active) ? 0 : -1,
-            'aria-selected': item.value === value, className: 'choice-result' + (active === index ? ' active' : ''),
-            onFocus: () => setActive(index), onClick: () => choose(item) },
-            h('span', null, h('strong', null, item.label), item.meta && h('small', null, item.meta)),
-            item.value === value && h(Icon, { name: 'check', size: 14 }))),
+          // Keyed by value, so a row keeps its element (and focus) when results shift.
+          visible.map((item, index) => h(React.Fragment, { key: item.value },
+            item.section && h('div', { key: 'section:' + item.section, className: 'choice-sec', role: 'presentation' }, h('span', null, item.section), item.sectionNote && h('small', null, item.sectionNote)),
+            h('button', { key: item.value, id: id + '-result-' + index,
+              ref: (node) => { optionRefs.current[index] = node; }, type: 'button', role: 'option', disabled, tabIndex: index === Math.max(0, active) ? 0 : -1,
+              'aria-selected': item.value === value, className: 'choice-result' + (active === index ? ' active' : '') + (item.dim ? ' dim' : '') + (item.enter ? ' opens' : ''),
+              title: item.title, 'aria-label': item.title ? item.title + (item.meta ? ', ' + item.meta : '') : undefined, 'aria-keyshortcuts': item.enter ? 'ArrowRight Tab' : undefined,
+              onFocus: () => setActive(index), onClick: () => choose(item),
+              onKeyDown: item.enter ? (event) => { if (event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); enter(item.enter); } } : undefined },
+              h('span', null, h('strong', null, item.label), item.meta && h('small', null, item.meta)),
+              item.enter ? h('span', { className: 'choice-go', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 14 })) : item.value === value && h(Icon, { name: 'check', size: 14 })))),
           visible.length === 0 && h('p', { className: 'choice-empty', role: 'status' }, query ? 'No matches. Try another name.' : emptyText)),
         matches.length > visible.length && h('p', { className: 'choice-empty' }, 'Search to narrow ' + matches.length + ' results.')));
   }

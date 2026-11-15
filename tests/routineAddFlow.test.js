@@ -7,6 +7,7 @@ import { AUTO } from '../src/renderer/lib/routineModel';
 import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
 import { enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE } from '../src/renderer/lib/pickerSearch';
 import { routinePathChoices, routinePathUses } from '../src/renderer/lib/routinePathChoices';
+import * as commandSearch from '../src/renderer/lib/commandIndex';
 
 // The actual RoutinePanel source runs with minimal hooks (no DOM library is installed). Its row keys, row menu, Add
 // picks and lane controls are driven directly; the built-app harness covers native focus, pointer and rendering.
@@ -36,7 +37,7 @@ function mountPanel(props) {
   const document = { querySelectorAll: (selector) => (selector === '.routine-insp' ? inspectors : []), querySelector: () => null };
   const window = {};
   vm.runInNewContext(source, { React, createPortal: (element) => element, deletionInput, shiftDeletionInput, PointerDrag: { useController: () => ({ start() {}, cancel() {} }) },
-    AUTO, UnitPrefs, commandArguments, UI: { Icon: 'Icon' }, enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE, routinePathChoices, routinePathUses,
+    AUTO, UnitPrefs, commandArguments, UI: { Icon: 'Icon' }, ...commandSearch, modifierName: () => 'Ctrl', enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE, routinePathChoices, routinePathUses,
     document, window, requestAnimationFrame: (callback) => frames.push(callback), setTimeout, clearTimeout, CSS: { escape: String } });
   let tree;
   const render = (next) => {
@@ -93,9 +94,10 @@ describe('routine Add and insertion from the flow', () => {
     const menu = ui.addMenu().props;
     expect([menu.label, menu.dest]).toEqual(['Add a step before this one', 'Before “Wait”']);
     // Every catalog command is its own choice; branching is not an Add item.
-    expect(menu.steps.filter((item) => item.group === 'commands').map((item) => [item.label, item.meta])).toEqual([['Scan', '1 input · Can branch on Ready'], ['Aim', 'No inputs']]);
+    // The meta line names inputs and the outputs that tell commands apart; a command with neither has none.
+    expect(menu.steps.filter((item) => item.group === 'commands').map((item) => [item.label, item.meta])).toEqual([['Scan', 'Speed · reports ready'], ['Aim', '']]);
     expect(menu.steps.map((item) => item.kind)).not.toContain('commandBranch');
-    expect(menu.steps.filter((item) => item.group === 'steps').map((item) => item.label)).toEqual(['Wait', 'Repeat', 'End routine']);
+    expect(menu.steps.filter((item) => item.group === 'steps').map((item) => item.label)).toEqual(['Wait', 'Repeat', 'Parallel group', 'Sequential group', 'End routine']);
     menu.onPick(menu.steps.find((item) => item.command === scan));
     expect(acq.edit).toHaveBeenCalledOnce();
     const [operation] = acq.edit.mock.calls[0];
@@ -122,10 +124,57 @@ describe('routine Add and insertion from the flow', () => {
   it('keeps the unbound Command placeholder when no robot code is linked', () => {
     const { ui, acq } = panel({ props: { catalog: null } });
     ui.row('w1').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
-    const commands = ui.addMenu().props.steps.filter((item) => item.group === 'commands');
-    expect(commands.map((item) => [item.label, item.meta])).toEqual([['Command', 'Link robot code to list commands']]);
+    // It leads the steps, so Add without commands still opens on paths.
+    const commands = ui.addMenu().props.steps.filter((item) => item.kind === 'command');
+    expect(commands.map((item) => [item.label, item.meta, item.group])).toEqual([['Command', 'Link robot code to list commands', 'steps']]);
     ui.addMenu().props.onPick(commands[0]);
     expect(acq.edit.mock.calls[0][0].node).toMatchObject({ type: 'function', cat: 'command', title: 'Robot command', invocation: null });
+  });
+
+  it('moves focus to the first input of an added command with inputs, and to the new row otherwise', () => {
+    const { ui, acq } = panel();
+    ui.row('w1').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
+    const input = { focus: vi.fn(), scrollIntoView: vi.fn() };
+    const added = () => acq.edit.mock.calls.at(-1)[0].node.id;
+    ui.addMenu().props.onPick(ui.addMenu().props.steps.find((item) => item.command === scan));
+    ui.inspectors.push({ dataset: { stepId: added() }, querySelector: (selector) => (selector.startsWith('.cmd-parameters') ? input : null) });
+    ui.flushFrames();
+    expect(input.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    // Aim has no inputs: the inspector is left alone.
+    ui.render(); ui.row('w1').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
+    ui.addMenu().props.onPick(ui.addMenu().props.steps.find((item) => item.command === aim));
+    ui.inspectors.push({ dataset: { stepId: added() }, querySelector: () => input });
+    ui.flushFrames();
+    expect(input.focus).toHaveBeenCalledOnce();
+  });
+
+  it('Ctrl+Enter adds and keeps Add open, placing each next pick after the last one and naming what was added', () => {
+    // Each edit applies to the routine as last edited, as the app's history does.
+    let current = routine();
+    const { ui, acq } = panel({ routine: current, acq: { edit: vi.fn((operation) => { const result = AUTO.editRoutine(current, operation); if (result.changed) current = result.routine; return result; }) } });
+    ui.row('c3').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
+    const steps = () => ui.addMenu().props.steps;
+    ui.addMenu().props.onPick(steps().find((item) => item.command === scan), { keep: true });
+    const first = acq.edit.mock.calls[0][0];
+    expect(first).toMatchObject({ kind: 'insert', listRef: { kind: 'root' }, index: 4 });
+    // The parent re-renders with the edited routine; Add stays open after the new step.
+    ui.render({ ...ui.props, routine: acq.edit.mock.results[0].value.routine });
+    expect(ui.addMenu().props).toMatchObject({ dest: 'After “Scan”', added: ['Scan'] });
+    ui.addMenu().props.onPick(steps().find((item) => item.kind === 'wait'), { keep: true });
+    expect(acq.edit.mock.calls[1][0]).toMatchObject({ kind: 'insert', index: 5 });
+    ui.render({ ...ui.props, routine: acq.edit.mock.results[1].value.routine });
+    expect(ui.addMenu().props.added).toEqual(['Scan', 'Wait']);
+    expect(acq.edit.mock.results[1].value.routine.nodes.map((node) => node.id)).toEqual(['p1', 'c1', 'c2', 'c3', first.node.id, acq.edit.mock.calls[1][0].node.id, 'w1']);
+  });
+
+  it('names the steps a new one runs alongside inside a parallel group', () => {
+    const source = { id: 'r', name: 'R', nodes: [{ id: 'g', type: 'group', mode: 'parallel', nodes: [
+      { id: 'g1', type: 'function', cat: 'command', title: 'Scan', invocation: { commandId: 'scan', arguments: { speed: 1.5 } } },
+      { id: 'g2', type: 'function', cat: 'command', title: 'Aim', invocation: { commandId: 'aim', arguments: {} } }] }] };
+    const { ui } = panel({ routine: source });
+    ui.row('g2').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
+    expect(ui.addMenu().props.dest).toBe('After “Aim” · runs alongside Scan and Aim');
+    expect(ui.addMenu().props.usage.order).toEqual(['scan', 'aim']);
   });
 
   it('offers Add before, Add after and Branch on output in the row menu, each through the checked insert or the inspector', () => {

@@ -18,6 +18,7 @@ const output=${JSON.stringify(output)};
 app.setPath('userData',path.join(output,'profile'));
 app.commandLine.appendSwitch('force-device-scale-factor','1');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-features','CalculateNativeWinOcclusion');
 app.whenReady().then(async()=>{
  const win=new BrowserWindow({width:1440,height:900,useContentSize:true,show:true,webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false}});
  await win.loadFile(${JSON.stringify(path.join(output,'dist/index.html'))}); win.focus();

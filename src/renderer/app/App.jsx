@@ -59,6 +59,7 @@ import {
 import { normalizeProject as normalizeProjectData } from "../../shared/project/normalize";
 import { promoteRoutineProjectSchema } from "../../shared/project/routineSchema";
 import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
+import { markerInvocations } from "../../shared/markerCommands";
 import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../shared/project/defaults";
 import { blankProject, blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
@@ -697,7 +698,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
     const usedCommandKey = useMemo(() => {
       const ids = new Set();
-      for (const path of project.paths) for (const marker of path.markers || []) if (marker.invocation?.commandId) ids.add(marker.invocation.commandId);
+      for (const path of project.paths) for (const marker of path.markers || []) for (const invocation of markerInvocations(marker)) if (invocation.commandId) ids.add(invocation.commandId);
       for (const routine of project.routines || []) AUTO.walk(routine.nodes, node => { if (node.invocation?.commandId) ids.add(node.invocation.commandId); });
       return JSON.stringify([...ids].sort());
     }, [project]);
@@ -1925,6 +1926,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (commandId !== (was.invocation?.commandId || '') || branch?.output !== saved?.output
         || (branch?.schema !== saved?.schema && !robotValueSchemasEqual(branch?.schema, saved?.schema))) return refused;
       if (intent.kind === 'keep') return { status: 'unchanged', removed: 0, current: owns() };
+      // A looping command, or one inside a group, never branches on its output.
+      if (intent.kind === 'output' && intent.output && (node.invocation?.loop || at.groupIds?.length)) return refused;
       const commands = owner.catalog?.commands || [], outputs = AUTO.branchOutputs(commands.find((command) => command.id === commandId));
       let result, patch;
       if (intent.kind === 'command') {
@@ -1934,7 +1937,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         // A command reporting the same output with the same value type keeps the branch, its routes and their steps.
         const carried = branch && AUTO.carryBranch(branch, AUTO.branchOutputs(next).find((output) => output.name === branch.output));
         result = { status: 'applied', removed: carried ? 0 : AUTO.routeSteps(branch?.routes || []) };
-        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next) } : null, outputBranch: carried ? clone(carried) : undefined };
+        const loop = next ? AUTO.carryLoop(node.invocation?.loop, next) : undefined;
+        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
       } else {
         result = AUTO.branchEdit(branch, outputs, intent);
         patch = { outputBranch: result.branch && clone(result.branch) };
@@ -2990,7 +2994,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             renderLibrary('routines', null),
             h(RoutineWorkspace, {
               routine, run, robot,
-              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
+              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
                 h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths })),
@@ -3004,7 +3008,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   run.planningError && h('span', null, run.planningError)))),
               transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, routine, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,

@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.rt-add').getAttribute('aria-expanded')), 'false');
     // Add after a row (A) and Escape return focus to that row.
     await click('[data-id="path-a"] .rt-step-body'); await key('A');
-    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a path or step');
+    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a command, path or step');
     await key('Escape');
     assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-a');
     // Explicit local deletion offers exact-target Undo; never exercise live robot transports.

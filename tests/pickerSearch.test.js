@@ -3,6 +3,9 @@ import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { commandChoices, inspectorCommandChoices } from '../src/renderer/lib/commandPick';
 import { enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE } from '../src/renderer/lib/pickerSearch';
+import * as commandSearch from '../src/renderer/lib/commandIndex';
+import { addMenuSteps } from '../src/renderer/components/RoutinePanel';
+import { commandCatalog187 } from './fixtures/commandCatalog187';
 
 describe('indexed picker search', () => {
   const items = [{ value: 'a', label: 'Alpha', meta: 'Beta', searchText: 'Speed Torque İntake' }, { value: 'b', label: 'ALPHAbeta', meta: 'velocity m/s' }, { value: 'c', label: 'Other' }];
@@ -65,17 +68,20 @@ function addMenuHarness(initial) {
   const useEffect = (run, deps) => { const cell = slot(() => ({})); if (!cell.deps || deps.some((value, index) => value !== cell.deps[index])) { cell.deps = deps; effects.push(run); } };
   const search = vi.fn(filterPickerItems);
   const scope = { useState, useMemo, useEffect, useRef: current => slot(() => ({ current })),
-    h: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity).filter(child => child && typeof child === 'object') }),
+    h: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity).filter(child => child != null && child !== false && child !== true && child !== '') }),
     createPortal: element => element, document: { body: {} }, Glyph: 'Glyph', Icon: 'Icon', usePlacement: () => ({ left: 0, top: 0, maxHeight: 500 }), useOutside: () => {},
-    enabledPickerIndex, filterPickerItems: search, pickerPage, PICKER_PAGE_SIZE };
+    enabledPickerIndex, filterPickerItems: search, pickerPage, PICKER_PAGE_SIZE, ...commandSearch, rankChoices: vi.fn(commandSearch.rankChoices),
+    plural: (count, word) => count + ' ' + word + (count === 1 ? '' : 's'), modifierName: () => 'Ctrl', addDetail: () => null, React: { Fragment: 'Fragment' } };
+  search.rankChoices = scope.rankChoices;
   const Component = new Function(...Object.keys(scope), 'return (' + declaration.getText().replace(/^export\s+/, '') + ')')(...Object.values(scope));
   const render = next => { props = next || props; for (let pass = 0; pass < 8; pass++) { cursor = 0; dirty = false; effects = []; tree = Component(props); effects.forEach(run => run()); if (!dirty) return; } throw Error('Unsettled AddMenu'); };
-  const all = (predicate, node = tree) => [predicate(node) ? node : null, ...node.children.flatMap(child => all(predicate, child))].filter(Boolean);
-  const key = (key, target = { closest: () => false }, repeat = false, modifiers = {}) => { tree.props.onKeyDown({ key, target, repeat, ...modifiers, preventDefault() {}, stopPropagation() {} }); render(); };
+  const all = (predicate, node = tree) => typeof node !== 'object' ? [] : [predicate(node) ? node : null, ...node.children.flatMap(child => all(predicate, child))].filter(Boolean);
+  const key = (key, target = { closest: () => false }, repeat = false, modifiers = {}) => { const event = { key, target, repeat, ...modifiers, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, stopPropagation() {} }; tree.props.onKeyDown(event); render(); return event; };
   const input = () => all(node => node.type === 'input')[0];
   render();
-  return { render, key, input, search, options: () => all(node => node.props.role === 'option'), button: label => all(node => node.props['aria-label'] === label)[0],
+  return { render, key, input, search: scope.rankChoices, options: () => all(node => node.props.role === 'option'), button: label => all(node => node.props['aria-label'] === label)[0],
     filter: id => all(node => node.props['data-filter'] === id)[0], headings: () => all(node => node.props.className === 'rt-ch-sec').map(node => node.props.key),
+    text: node => { const read = element => typeof element === 'object' ? element.children.map(read).join('') : String(element); return read(node); }, all: predicate => all(predicate),
     query: value => { input().props.onChange({ target: { value } }); render(); } };
 }
 describe('Add menu full-catalog pagination', () => {
@@ -140,32 +146,35 @@ describe('Add menu full-catalog pagination', () => {
 });
 
 describe('Add menu kind filter', () => {
+  // A small catalog (12 commands) lists every command; subsystems only appear for larger catalogs.
+  const commands = Array.from({ length: 12 }, (_, index) => ({ id: 'c' + index, label: 'Intake ' + index, member: 'Intake ' + index + '.vi', parameters: [], outputs: [] }));
   const fixture = () => ({ anchor: {}, onPick: vi.fn(), onClose: vi.fn(), label: 'Add a step',
     paths: Array.from({ length: 8 }, (_, index) => ({ id: 'p' + index, name: 'Approach ' + index })),
-    steps: [...Array.from({ length: 12 }, (_, index) => ({ key: 'command:c' + index, kind: 'command', group: 'commands', label: 'Intake ' + index, command: { id: 'c' + index } })),
+    steps: [...addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, { commands }).filter(item => item.group === 'commands'),
       { key: 'wait', kind: 'wait', group: 'steps', label: 'Wait' }, { key: 'repeat', kind: 'repeat', group: 'steps', label: 'Repeat' }] });
   const keys = view => view.options().map(option => option.props.key);
-  it('shows short Paths and Commands sections in All, each ending in a row that opens its full filter', () => {
+  const allCommands = Array.from({ length: 12 }, (_, index) => 'command:c' + index);
+  it('opens on commands, then a short Paths section ending in a row that opens its full filter, then steps', () => {
     const props = fixture(), view = addMenuHarness(props);
     expect(view.filter('all').props).toMatchObject({ 'aria-pressed': true, tabIndex: 0, type: 'button' });
     expect(view.filter('commands').props).toMatchObject({ 'aria-pressed': false, tabIndex: -1 });
-    expect(view.headings()).toEqual(['section:Paths', 'section:Commands', 'section:Steps']);
-    expect(keys(view)).toEqual(['path:p0', 'path:p1', 'path:p2', 'path:p3', 'path:p4', 'more:paths',
-      'command:c0', 'command:c1', 'command:c2', 'command:c3', 'command:c4', 'more:commands', 'wait', 'repeat']);
-    // Arrow to "Show all 12 commands": Enter switches the filter instead of picking, and the list holds every command.
-    for (let index = 0; index < 11; index++) view.key('ArrowDown');
-    expect(view.input().props['aria-activedescendant']).toBe('rt-add-opt-11');
+    expect(view.headings()).toEqual(['section:Commands', 'section:Paths', 'section:Steps']);
+    expect(keys(view)).toEqual([...allCommands, 'path:p0', 'path:p1', 'path:p2', 'path:p3', 'path:p4', 'more:paths', 'wait', 'repeat']);
+    // Arrow to "Show all 8 paths": Enter switches the filter instead of picking, and the list holds every path.
+    for (let index = 0; index < 17; index++) view.key('ArrowDown');
+    expect(view.input().props['aria-activedescendant']).toBe('rt-add-opt-17');
     view.key('Enter');
     expect(props.onPick).not.toHaveBeenCalled();
-    expect(view.filter('commands').props['aria-pressed']).toBe(true);
-    expect(keys(view)).toEqual(Array.from({ length: 12 }, (_, index) => 'command:c' + index));
+    expect(view.filter('paths').props['aria-pressed']).toBe(true);
+    expect(keys(view)).toEqual(Array.from({ length: 8 }, (_, index) => 'path:p' + index));
     expect(view.headings()).toEqual([]);
-    expect(view.input().props.placeholder).toBe('Search commands');
-    view.key('Enter'); expect(props.onPick).toHaveBeenCalledExactlyOnceWith(props.steps[0]);
+    expect(view.input().props.placeholder).toBe('Search paths');
+    view.key('Enter'); expect(props.onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ key: 'path:p0' }));
   });
-  it('searches within the active filter, keeps the query across filters and changes filter with Left/Right', () => {
+  it('ranks within each kind, puts the best-matching kind first and changes filter with Left/Right', () => {
     const props = fixture(), view = addMenuHarness(props);
     view.query('1');
+    // "Approach 1" and "Intake 1" match a whole word; "Intake 10" and "Intake 11" only a word start.
     expect(keys(view)).toEqual(['path:p1', 'command:c1', 'command:c10', 'command:c11']);
     view.filter('paths').props.onClick(); view.render();
     expect(keys(view)).toEqual(['path:p1']);
@@ -179,13 +188,94 @@ describe('Add menu kind filter', () => {
     view.query(''); expect(keys(view)).toEqual(['wait', 'repeat']);
     // Enter on a focused filter button stays native: it never picks the active option.
     view.key('Enter', inFilter); expect(props.onPick).not.toHaveBeenCalled();
+    // An exact step name outranks partial matches in other kinds.
+    view.filter('all').props.onClick(); view.render(); view.query('wait');
+    expect(keys(view)[0]).toBe('wait');
   });
-  it('labels the Show all row with the matching count while searching', () => {
+  it('keeps a search short in All, with a row that shows every matching command', () => {
     const props = fixture(), view = addMenuHarness(props);
     view.query('intake');
-    expect(keys(view)).toEqual(['command:c0', 'command:c1', 'command:c2', 'command:c3', 'command:c4', 'more:commands']);
-    for (let index = 0; index < 5; index++) view.key('ArrowDown');
+    expect(keys(view)).toEqual([...allCommands.slice(0, 8), 'more:commands']);
+    expect(view.text(view.options().at(-1))).toContain('Show all 12 matching commands');
+    for (let index = 0; index < 8; index++) view.key('ArrowDown');
     view.key('Enter');
     expect(view.filter('commands').props['aria-pressed']).toBe(true); expect(view.options()).toHaveLength(12);
+  });
+});
+
+describe('Add menu subsystems with a 187-command catalog', () => {
+  const routine = { nodes: [{ id: 'a', type: 'function', cat: 'command', invocation: { commandId: 'vi.intake-intake-until-note' } }, { id: 'b', type: 'function', cat: 'command', invocation: { commandId: 'vi.shooter-shooter-spin-up-speaker' } }] };
+  const usage = commandSearch.commandUsage([{ id: 'other', nodes: [{ id: 'c', type: 'function', cat: 'command', invocation: { commandId: 'vi.shooter-shooter-shoot-when-ready' } }] }], [], routine);
+  const fixture = () => ({ anchor: {}, onPick: vi.fn(), onClose: vi.fn(), label: 'Add a step', usage, paths: [{ id: 'p0', name: 'Start to note 1' }],
+    steps: addMenuSteps(routine, { list: { kind: 'root' } }, commandCatalog187) });
+  const labels = view => view.options().map(option => view.text(option.children.find(child => child.props?.className === 'rt-ch-t')));
+  const active = view => view.options().find(option => option.props.id === view.input().props['aria-activedescendant']);
+  it('shows the subsystem name quieter in mixed search results', () => {
+    const view = addMenuHarness(fixture());
+    view.query('spin up');
+    const row = view.options().find(option => view.text(option).includes('Spin Up Speaker'));
+    const title = row.children.find(child => child.props?.className === 'rt-ch-t');
+    const prefix = [].concat(title.children).flat().find(child => child?.props?.className === 'rt-ch-pre');
+    expect(prefix && view.text(prefix)).toBe('Shooter ');
+  });
+  it('opens on this routine’s commands and the subsystems, diagnostics last and dimmed', () => {
+    const view = addMenuHarness(fixture());
+    expect(view.headings()).toEqual(['section:In this routine', 'section:Subsystems', 'section:Paths', 'section:Steps']);
+    const names = labels(view);
+    expect(names.slice(0, 2)).toEqual(['Intake Until Note', 'Shooter Spin Up Speaker']);
+    expect(names.slice(2, 15)).toEqual(['Arm', 'Climber', 'Drive', 'Elevator', 'Indexer', 'Intake', 'LEDs', 'Shooter', 'Superstructure', 'Utilities', 'Vision', 'SysId', 'Test']);
+    const test = view.options().find(option => option.props.key === 'subsystem:test');
+    expect(test.props.className).toContain('dim');
+    expect(view.text(test)).toContain('12 commands · diagnostics');
+    // The meta line carries named inputs with units and distinctive outputs, never the universal completion status.
+    expect(view.text(view.options()[0])).toBe('Intake Until NoteTimeout s · reports has note');
+  });
+  it('ranks a search: the matching subsystem first, then label starts, with old copies and diagnostics last', () => {
+    const view = addMenuHarness(fixture());
+    view.query('shoot');
+    // Shoot When Ready is used elsewhere in the project, so it edges ahead of equally good name matches.
+    expect(labels(view).slice(0, 4)).toEqual(['Shooter', 'Shooter Shoot When Ready', 'Shooter Shoot', 'Shoot Preload']);
+    view.filter('commands').props.onClick(); view.render();
+    const names = labels(view);
+    expect(names.indexOf('Shooter Shoot v2')).toBeGreaterThan(names.indexOf('Shooter Shoot From Stage'));
+    view.query('ssus');
+    expect(labels(view)).toEqual(['Shooter Spin Up Speaker']);
+    view.query('motor');
+    expect(labels(view).every(name => name.startsWith('Test '))).toBe(true);
+  });
+  it('enters a subsystem with → or Tab, drops the repeated name, lists used commands first and leaves with Backspace', () => {
+    const view = addMenuHarness(fixture());
+    view.query('shoo');
+    expect(active(view).props.key).toBe('subsystem:shooter');
+    const right = view.key('ArrowRight', { closest: () => false, value: 'shoo', selectionStart: 4 });
+    expect(right.defaultPrevented).toBe(true);
+    expect(view.input().props).toMatchObject({ value: '', placeholder: 'Search Shooter' });
+    expect(view.filter('all')).toBeUndefined();
+    expect(view.headings()).toEqual(['section:Used in this project', 'section:Other Shooter commands']);
+    expect(labels(view).slice(0, 3)).toEqual(['Spin Up Speaker', 'Shoot When Ready', 'Spin Up']);
+    expect(view.options()[0].props).toMatchObject({ title: 'Shooter Spin Up Speaker', 'aria-label': 'Shooter Spin Up Speaker' });
+    view.query('sp');
+    expect(labels(view).slice(0, 4)).toEqual(['Spin Up Speaker', 'Spin Up', 'Spin Up Amp', 'Spin Up Pass']);
+    view.query(''); view.key('Backspace', { closest: () => false, value: '' });
+    expect(view.filter('all')).toBeDefined();
+    expect(active(view).props.key).toBe('subsystem:shooter');
+    // Tab opens the highlighted subsystem too; Enter on it does the same.
+    view.key('Tab'); expect(view.input().props.placeholder).toBe('Search Shooter');
+    // Inside a subsystem there is no filter: Tab past the search closes.
+    const props = fixture(), closing = addMenuHarness(props);
+    closing.query('arm'); closing.key('Enter'); expect(props.onPick).not.toHaveBeenCalled();
+    expect(closing.input().props.placeholder).toBe('Search Arm');
+    closing.key('Tab'); expect(props.onClose).toHaveBeenCalledExactlyOnceWith(true);
+  });
+  it('Ctrl+Enter picks with keep and clears the search for the next command', () => {
+    const props = fixture(), view = addMenuHarness(props);
+    view.query('leds has');
+    view.key('Enter', undefined, false, { ctrlKey: true });
+    expect(props.onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ key: 'command:vi.leds-leds-has-note' }), { keep: true });
+    expect(view.input().props.value).toBe('');
+    view.render({ ...props, added: ['LEDs Has Note'] });
+    expect(view.text(view.all(node => node.props.className === 'rt-add-added')[0])).toBe('Added LEDs Has Note. Keep adding, or press Esc when done.');
+    view.query('vision w'); view.key('Enter');
+    expect(props.onPick).toHaveBeenLastCalledWith(expect.objectContaining({ key: 'command:vi.vision-vision-wait-for-target' }));
   });
 });

@@ -69,6 +69,7 @@ async function save() { const before = saves; await click('.project-chip'); awai
 async function source() { await wait(() => Boolean(published?.routines), 'published routines'); return structuredClone(published.routines); }
 
 const ROUTINE = 'scrub-routine';
+const command = (id, title, extra = {}) => ({ id, type: 'function', cat: 'command', title, invocation: { commandId: 'intake', arguments: {}, ...extra } });
 async function load(routineId = ROUTINE, expect = '[data-id="leave"]') {
   published = undefined;
   await win.loadFile(path.resolve('dist-renderer/index.html'));
@@ -108,6 +109,20 @@ app.whenReady().then(async () => {
         { id: 'only-command', type: 'function', cat: 'command', title: 'Run the intake until a game piece is seated', invocation: { commandId: 'intake', arguments: {} } }] },
       { id: 'missing-routine', name: 'Uses a deleted path', nodes: [{ id: 'missing', type: 'path', ref: 'deleted-path' }] },
       { id: 'empty-routine', name: 'Nothing yet', nodes: [] },
+      // Groups, loops and instant commands for the scrubber's rows and chips.
+      { id: 'groups-routine', name: 'Groups and loops', nodes: [
+        { id: 'g-leave', type: 'path', ref: wall },
+        { id: 'g-par', type: 'group', mode: 'parallel', nodes: [
+          command('g-spin', 'Spin up the shooter', { loop: { until: { kind: 'time', seconds: 1.5 } } }),
+          { id: 'g-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } },
+          command('g-lights', 'Lights on')] },
+        command('g-aim', 'Aim at the goal'), command('g-feed', 'Feed note'), command('g-stow', 'Arm stow'),
+        { id: 'g-seq', type: 'group', mode: 'sequential', nodes: [
+          { id: 'g-settle', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 0.5 } },
+          command('g-intake', 'Run the intake until a game piece is seated', { loop: { until: { kind: 'time', seconds: 0.8 } } })] },
+        { id: 'g-score', type: 'path', ref: trench },
+        command('g-end', 'Celebrate with every light on the robot'),
+      ] },
     ];
     saved = { ...corpus, schemaVersion: '1.1', paths, pathFolders: [{ id: 'f-collect', name: 'Collection' }, { id: 'f-score', name: 'Scoring' }], pathLinks: [], routines, activeRoutineId: ROUTINE,
       editor: { activePathId: wall, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
@@ -245,8 +260,9 @@ app.whenReady().then(async () => {
       // Add: paths come first with folder, time and use here, and are searchable.
       await click('.rt-list>.rt-addwrap .rt-add');
       await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-menu'))), 'add menu');
-      const options = await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].slice(0, 4).map((el) => el.textContent));
-      assert.ok(options[1].includes('Scoring') && options[1].includes('In this routine'), 'add path context: ' + options[1]);
+      const options = await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].map((el) => el.textContent));
+      const trenchRow = options.find((text) => text.includes('Score from the trench'));
+      assert.ok(trenchRow && trenchRow.includes('Scoring') && trenchRow.includes('In this routine'), 'add path context: ' + trenchRow);
       await snapshot('add-paths-' + width);
       await type('warm'); await key('Enter');
       await wait(async () => { const nodes = (await source())[0].nodes; return nodes.length === 6 && nodes[5].ref === paths[3].id; }, 'added path step');
@@ -280,6 +296,47 @@ app.whenReady().then(async () => {
     await waitRef('missing', paths[3].id, 'repair missing path');
     await snapshot('missing-repaired-1440');
     pass('Deleted path keeps the chooser open with its problem and is repaired by a choice');
+
+    // Groups and loops: overlapping steps stack in rows inside their group's outline, loops show their glyph, instant
+    // commands are chips that never overlap or leave the lane (the last faces left), and every step playing is lit.
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height);
+      await load('groups-routine', '[data-id="g-leave"]'); await planned();
+      await click('.routine-workspace-views .seg-i', 'Field preview'); await delay(300);
+      const laneState = () => evaluate(() => {
+        const editor = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
+        const box = (el) => { const r = el.getBoundingClientRect(); return { x0: r.left, x1: r.right, y0: r.top, y1: r.bottom, text: el.textContent, title: el.title, cls: el.className }; };
+        return { editor: { x0: editor.left, x1: editor.right, y0: editor.top, y1: editor.bottom },
+          blocks: [...document.querySelectorAll('.rt-timeline-span')].map(box), chips: [...document.querySelectorAll('.rt-timeline-chip')].map(box),
+          groups: [...document.querySelectorAll('.rt-timeline-group')].map(box) };
+      });
+      const state = await laneState();
+      const inside = (b) => b.x0 >= state.editor.x0 - 0.5 && b.x1 <= state.editor.x1 + 0.5 && b.y0 >= state.editor.y0 - 0.5 && b.y1 <= state.editor.y1 + 0.5;
+      const overlap = (a, b) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0.5 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 0.5;
+      for (const item of [...state.blocks, ...state.chips]) assert.ok(inside(item), 'inside the scrubber: ' + (item.title || item.text));
+      for (const list of [state.blocks, state.chips]) for (const a of list) for (const b of list) if (a !== b) assert.ok(!overlap(a, b), 'no overlap: ' + a.title + ' / ' + b.title);
+      assert.equal(state.groups.length, 2, 'both groups outlined');
+      const rows = new Set(state.blocks.map((b) => Math.round(b.y0)));
+      assert.ok(rows.size >= 2, 'parallel steps stack in rows');
+      assert.ok(state.blocks.some((b) => b.cls.includes('rt-timeline-span') && b.text.startsWith('Collect along')), 'path block named');
+      assert.ok(state.blocks.some((b) => /Spin up the shooter, loops for 1\.50 s/.test(b.title)), 'time loop block');
+      assert.ok(state.chips.length >= 2, 'instant commands as chips');
+      const last = state.chips.reduce((a, b) => (b.x1 > a.x1 ? b : a));
+      assert.ok(last.cls.includes('left') && /Celebrate/.test(last.title), 'the last chip faces left: ' + last.cls);
+      await snapshot('groups-field-' + width);
+      // Seek into the parallel group: every step running there is lit.
+      const spin = state.blocks.find((b) => /Spin up/.test(b.title));
+      await focusWindow();
+      await mouse('mouseDown', spin.x0 + 6, spin.y0 + 9, false); await mouse('mouseUp', spin.x0 + 6, spin.y0 + 9, false);
+      await wait(() => evaluate(() => document.querySelectorAll('.rt-timeline-span.on').length >= 2), 'parallel steps lit together');
+      assert.match((await sliderState()).text, /s of /);
+      await snapshot('groups-field-seek-' + width);
+      await key('End');
+      await snapshot('groups-field-end-' + width);
+      await click('.routine-workspace-views .seg-i', 'Flow'); await delay(200);
+      await snapshot('groups-flow-' + width);
+    }
+    pass('Groups stack parallel steps in outlined rows, loops are marked, instant commands are unclipped chips, and running steps are lit at both sizes');
 
     // Untimed and empty routines.
     for (const [width, height] of [[1440, 900], [1100, 720]]) {

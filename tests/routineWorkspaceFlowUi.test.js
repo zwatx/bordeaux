@@ -108,7 +108,7 @@ describe('routine flow insertion and empty states', () => {
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {
     const items = addMenuSteps({ nodes: [] }, { list: { kind: 'root' } }, null);
-    expect(items.find((item) => item.kind === 'command')).toMatchObject({ meta: 'Link robot code to list commands', group: 'commands' });
+    expect(items.find((item) => item.kind === 'command')).toMatchObject({ meta: 'Link robot code to list commands', group: 'steps' });
     expect(items.find((item) => item.kind === 'command').command).toBeUndefined();
     expect(items.find((item) => item.kind === 'decision')).toBeUndefined();
     expect(items.find((item) => item.kind === 'wait').disabled).toBeFalsy();

@@ -379,7 +379,7 @@ app.whenReady().then(async () => {
     ]) {
       await pointer(selector);
       await wait(() => evaluate((s) => document.querySelector(s)?.getAttribute('aria-expanded') === 'true', selector), 'step chooser opened');
-      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a path or step');
+      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a command, path or step');
       await key('Enter');
       await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'inserted step receives focus');
       assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-flow .rt-step').length), count);
@@ -387,7 +387,7 @@ app.whenReady().then(async () => {
     // A on a focused row adds directly after it.
     const firstStep = await evaluate(() => document.querySelector('.routine-workspace-flow .rt-step').dataset.id);
     await pointer('.routine-workspace-flow .rt-step .rt-step-body'); await key('A');
-    await wait(() => evaluate(() => document.activeElement.getAttribute('aria-label') === 'Find a path or step'), 'add-after search focused');
+    await wait(() => evaluate(() => document.activeElement.getAttribute('aria-label') === 'Find a command, path or step'), 'add-after search focused');
     await key('Enter');
     await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'inserted step receives focus');
     assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-flow .rt-step').length), 3);

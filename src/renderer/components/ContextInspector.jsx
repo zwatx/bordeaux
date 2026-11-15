@@ -1,5 +1,6 @@
 import { PathLinks } from "../lib/pathLinks";
 import { inspectorCommandChoices } from "../lib/commandPick";
+import { rankCommandChoices } from "../lib/commandIndex";
 import { SharedWaypointPosition } from "./SharedWaypointPosition";
 import * as React from "react";
 import { PM } from "../lib/pathMath";
@@ -7,6 +8,7 @@ import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { FIELD_DIMS } from "./FieldView";
 import { UI } from "./ui";
 import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../shared/robotCommands";
+import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/markerCommands";
 
   const h = React.createElement;
   const { Num, DraftText, Toggle, Seg, TurnDirection, Icon, Dropdown, ChoiceBrowser, constraintRangeSummary } = UI;
@@ -412,6 +414,228 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
     return h(JsonValueEditor, { id, label, value: current, schema, onChange });
   }
 
+  const LOOP_OPTIONS = [
+    { v: 'off', label: 'Off', title: 'Run once' },
+    { v: 'time', label: 'Time', title: 'Restart each time it finishes, until a time after it first started' },
+    { v: 'distance', label: 'Distance', title: 'Restart each time it finishes, until the robot has traveled a distance' },
+    { v: 'pathEnd', label: 'Path end', title: 'Restart each time it finishes, until the path ends' },
+  ];
+  // Five seconds, or five feet (1.5 m), to start with.
+  function defaultLoopUntil(kind, maxDistance) {
+    if (kind === 'time') return { kind, seconds: 5 };
+    if (kind === 'distance') {
+      const preferred = UnitPrefs.current() === 'imperial' ? 1.524 : 1.5;
+      return { kind, meters: maxDistance > 0 ? Math.min(preferred, maxDistance) : preferred };
+    }
+    return { kind };
+  }
+  /** Sets or clears an invocation's loop without leaving an empty key behind. */
+  function withLoop(invocation, loop) {
+    const { loop: _previous, ...rest } = invocation;
+    return loop ? { ...rest, loop } : rest;
+  }
+  function loopSummary(loop) {
+    const until = loop && loop.until;
+    if (!until) return '';
+    if (until.kind === 'time') return 'Loops for ' + UnitPrefs.format(until.seconds, 's', 2);
+    if (until.kind === 'distance') return 'Loops for ' + UnitPrefs.format(until.meters, 'm', 2);
+    if (until.kind === 'pathEnd') return 'Loops until path end';
+    return 'Loops until a condition';
+  }
+
+  /** Loop until Off, a time, a distance or the path end. Limits count from the command's first start. */
+  function CommandLoopEditor({ loop, onChange, kinds = ['time', 'distance', 'pathEnd'], maxDistance }) {
+    const until = loop && loop.until, kind = until ? until.kind : 'off';
+    const options = LOOP_OPTIONS.filter((option) => option.v === 'off' || option.v === kind || kinds.includes(option.v));
+    return h('div', { className: 'cmd-loop' },
+      h('div', { className: 'fieldlabel' }, 'Loop until'),
+      h(Seg, { value: kind, options, ariaLabel: 'Loop until', onChange: (next) => { if (next !== kind) onChange(next === 'off' ? undefined : { until: defaultLoopUntil(next, maxDistance) }); } }),
+      kind === 'time' && h(Num, { label: 'Stop after', value: until.seconds, unit: 's', min: 0.02, max: 3600, step: 0.1, precision: 2, onChange: (seconds) => onChange({ until: { kind: 'time', seconds } }) }),
+      kind === 'distance' && h(Num, { label: 'Stop after', value: until.meters, unit: 'm', min: 0.01, max: maxDistance > 0 ? maxDistance : undefined, step: 0.1, precision: 2, onChange: (meters) => onChange({ until: { kind: 'distance', meters } }) }),
+      kind !== 'off' && h('div', { className: 'seg-hint' }, kind === 'pathEnd'
+        ? 'Restarts each time it finishes until the path ends, then lets the last run finish.'
+        : 'Restarts each time it finishes until the limit, counted from its first start, then lets the last run finish.'));
+  }
+
+  /** One command's choice, arguments and loop; used for a single event command and for each grouped command. */
+  function MarkerCommandEditor({ ids, label = 'Command', invocation, legacyId = '', commands, catalog, robotProject, actionTag, resetKey, allowNone = true, onCommand, onInvocation, maxDistance }) {
+    const invocationId = invocation && invocation.commandId ? invocation.commandId : legacyId;
+    const selectedCommand = commands.find((command) => command.id === invocationId);
+    const unresolved = invocationId && !selectedCommand;
+    const pickerItems = catalog ? inspectorCommandChoices(commands, invocationId, actionTag) : [];
+    const argumentParameters = selectedCommand ? (selectedCommand.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
+    const dependencyParameters = selectedCommand ? (selectedCommand.parameters || []).filter((parameter) => parameter.role === 'dependency') : [];
+    const invocationArguments = invocation && invocation.commandId === invocationId ? (invocation.arguments || {}) : {};
+    const reconciledArguments = Object.fromEntries(argumentParameters.map((parameter) => {
+      const saved = Object.prototype.hasOwnProperty.call(invocationArguments, parameter.name) ? invocationArguments[parameter.name] : undefined;
+      return [parameter.name, parameterValueError(saved, parameter) ? parameterDefaultValue(parameter) : saved];
+    }));
+    const argumentNames = new Set(argumentParameters.map((parameter) => parameter.name));
+    const argumentSchemaMismatch = !!selectedCommand && (
+      Object.keys(invocationArguments).some((name) => !argumentNames.has(name))
+      || argumentParameters.some((parameter) => parameterValueError(invocationArguments[parameter.name], parameter))
+    );
+    const update = (patch) => onInvocation({ ...invocation, commandId: selectedCommand.id, arguments: reconciledArguments, ...patch });
+    return h(React.Fragment, null,
+      h(ChoiceBrowser, {
+        id: ids.command, resetKey, label,
+        value: invocationId,
+        items: allowNone ? pickerItems : pickerItems.filter((item) => item.value !== ''),
+        // Ranked like the routine pickers: name starts first, old copies and diagnostics last.
+        search: (query) => rankCommandChoices(allowNone ? pickerItems : pickerItems.filter((item) => item.value !== ''), commands, query),
+        placeholder: 'Search commands or parameters', emptyText: catalog ? 'No commands found. Check the linked project.' : 'Link a LabVIEW project to discover commands.',
+        icon: 'bolt',
+        searchThreshold: 6,
+        disabled: !catalog || robotProject.status === 'loading',
+        onChange: (commandId) => onCommand(commands.find((candidate) => candidate.id === commandId) || null),
+      }),
+      catalog && commands.length === 0 && h('div', { className: 'seg-hint', role: 'status' }, 'No command VIs found. Check the linked project or refresh commands.'),
+      unresolved && h('div', { className: 'cmd-project-error', role: 'status' }, 'Command missing. Saved arguments are kept.'),
+      selectedCommand && !selectedCommand.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Refresh commands to load this command’s inputs before exporting.'),
+      selectedCommand && h('div', {
+        className: 'cmd-command-summary',
+        title: selectedCommand.source ? selectedCommand.source.file + ':' + selectedCommand.source.line : undefined,
+      },
+        selectedCommand.description && h('p', { className: 'cmd-command-description' }, selectedCommand.description),
+        h('span', { className: 'cmd-command-meta' }, selectedCommand.member)),
+      selectedCommand && dependencyParameters.length > 0 && h('div', { className: 'seg-hint' }, simpleRobotName(dependencyParameters[0].valueType) + (dependencyParameters.length > 1 ? ' and ' + (dependencyParameters.length - 1) + ' more dependencies are supplied by robot code.' : ' is supplied by robot code.')),
+      argumentSchemaMismatch && h('div', { className: 'cmd-schema-warning', role: 'status' },
+        h('span', null, 'Saved arguments no longer match this command.'),
+        h('button', { className: 'qbtn', type: 'button', onClick: () => update({}) }, 'Use current defaults')),
+      selectedCommand && h('form', { className: 'cmd-parameters', onSubmit: (event) => event.preventDefault() },
+        argumentParameters.length === 0
+          ? h('div', { className: 'cmd-empty-params' }, 'No parameters')
+          : argumentParameters.map((parameter) => h(CommandParameterEditor, {
+              key: resetKey + ':' + selectedCommand.id + ':' + parameter.name,
+              id: ids.param + safeControlId(parameter.name),
+              label: parameter.label || parameter.name,
+              schema: parameter.schema,
+              parameter,
+              value: reconciledArguments[parameter.name],
+              onChange: (value) => update({ arguments: { ...reconciledArguments, [parameter.name]: value } }),
+              depth: 0,
+            })),
+        h('label', { className: 'cmd-toggle-row', htmlFor: ids.cancel },
+          h('span', { className: 'cmd-toggle-copy' },
+            h('strong', null, 'Stop when path ends'),
+            h('small', null, 'Cancel this command if it is still running.')),
+          h('input', {
+            id: ids.cancel,
+            className: 'cmd-toggle-input',
+            type: 'checkbox',
+            checked: !!invocation && invocation.cancelOnPathEnd === true,
+            onChange: (event) => update({ cancelOnPathEnd: event.target.checked }),
+          }),
+          h('span', { className: 'cmd-toggle-track', 'aria-hidden': true }, h('span', null)))),
+      selectedCommand && invocation && h(CommandLoopEditor, {
+        loop: invocation.loop, maxDistance,
+        onChange: (loop) => onInvocation(withLoop({ ...invocation, commandId: selectedCommand.id, arguments: reconciledArguments }, loop)),
+      }));
+  }
+
+  /**
+   * An event's commands: one command, or a group that runs them together or in order. Adding a second command
+   * makes a group; removing down to one makes it a plain command again.
+   */
+  function MarkerCommands({ marker: m, setMarker, commands, catalog, robotProject, resetKey, maxDistance }) {
+    const [adding, setAdding] = React.useState(false);
+    const [open, setOpen] = React.useState(-1);
+    const addButton = React.useRef(null);
+    const group = m.commandGroup;
+    const actionTag = m.actionIntent && m.actionIntent.semanticTag;
+    const resolves = (command) => !!command && !!actionTag && (command.semanticTags || []).includes(actionTag);
+    const finishAdding = () => { setAdding(false); requestAnimationFrame(() => addButton.current && addButton.current.focus()); };
+    const add = (command) => {
+      // The first command can be cleared while the adder is open; a group needs it to exist.
+      if (!command || (!group && !m.invocation)) { finishAdding(); return; }
+      const added = { commandId: command.id, arguments: commandArguments(command) };
+      const members = group ? [...group.commands, added] : [m.invocation, added];
+      setMarker({ cmd: undefined, invocation: undefined, commandGroup: { mode: group ? group.mode : 'parallel', commands: members }, actionIntent: resolves(command) ? undefined : m.actionIntent });
+      setOpen(members.length - 1);
+      finishAdding();
+    };
+    // One remaining command is an ordinary event command again.
+    const setMembers = (members) => members.length === 1
+      ? setMarker({ commandGroup: undefined, invocation: members[0], cmd: members[0].commandId })
+      : setMarker({ commandGroup: { ...group, commands: members } });
+    const canAdd = !!catalog && (group ? group.commands.length < MAX_GROUP_COMMANDS : !!(m.invocation && commands.some((command) => command.id === m.invocation.commandId)));
+    const adder = adding
+      ? h('div', { className: 'cmd-group-adder', onKeyDownCapture: (event) => {
+          if (event.key === 'Escape' && event.target.matches('input[type="search"]') && !event.target.value) { event.preventDefault(); event.stopPropagation(); finishAdding(); }
+        } },
+          h(ChoiceBrowser, { id: 'event-add-command', label: 'Add command', value: '', items: inspectorCommandChoices(commands, '', actionTag).filter((item) => item.value !== ''),
+            search: (query) => rankCommandChoices(inspectorCommandChoices(commands, '', actionTag).filter((item) => item.value !== ''), commands, query),
+            placeholder: 'Search commands or parameters', emptyText: 'No commands found. Check the linked project.', onChange: (commandId) => add(commands.find((command) => command.id === commandId)) }),
+          h('button', { type: 'button', className: 'qbtn quiet', onClick: finishAdding }, 'Cancel'))
+      : canAdd && h('button', { ref: addButton, type: 'button', className: 'qbtn wide cmd-group-add', onClick: () => setAdding(true) }, h(Icon, { name: 'plus', size: 14 }), 'Add command');
+    React.useEffect(() => { if (adding) { const search = document.getElementById('event-add-command'); if (search) search.focus(); } }, [adding]);
+    // Choosing No command for the first command removes what the new one would join.
+    React.useEffect(() => { if (adding && !canAdd) setAdding(false); }, [adding, canAdd]);
+
+    if (!group) {
+      return h('section', { className: 'cmd-command-editor', 'aria-label': 'Marker command' },
+        h(MarkerCommandEditor, {
+          ids: { command: 'event-marker-command', param: 'event-command-param-', cancel: 'event-command-cancel' },
+          invocation: m.invocation, legacyId: m.cmd && m.cmd !== 'none' ? m.cmd : '', commands, catalog, robotProject, actionTag, resetKey, maxDistance,
+          onCommand: (command) => setMarker({
+            cmd: command ? command.id : 'none',
+            invocation: command ? withLoop({ commandId: command.id, arguments: commandArguments(command) }, m.invocation && m.invocation.loop) : undefined,
+            actionIntent: resolves(command) ? undefined : m.actionIntent,
+          }),
+          onInvocation: (invocation) => setMarker({ invocation }),
+        }),
+        adder);
+    }
+
+    const members = group.commands;
+    const move = (index, delta) => {
+      const next = members.slice(), [item] = next.splice(index, 1);
+      next.splice(index + delta, 0, item);
+      setMembers(next);
+      if (open === index) setOpen(index + delta); else if (open === index + delta) setOpen(index);
+    };
+    const remove = (index) => {
+      setMembers(members.filter((_, i) => i !== index));
+      setOpen(open === index ? -1 : open > index ? open - 1 : open);
+    };
+    return h('section', { className: 'cmd-command-editor cmd-group', 'aria-label': 'Command group' },
+      h('div', { className: 'fieldlabel' }, 'Run commands'),
+      h(Seg, { value: group.mode, ariaLabel: 'Run commands', options: [
+        { v: 'parallel', label: 'Parallel', title: 'Start every command at this marker' },
+        { v: 'sequential', label: 'Sequential', title: 'Start each command when the one before it finishes' },
+      ], onChange: (mode) => { if (mode !== group.mode) setMarker({ commandGroup: { ...group, mode } }); } }),
+      h('div', { className: 'seg-hint' }, group.mode === 'parallel'
+        ? 'All start together. The group finishes when every command finishes.'
+        : 'Each starts when the one before it finishes.'),
+      group.mode === 'sequential' && members.slice(0, -1).some((item) => item.loop && item.loop.until && item.loop.until.kind === 'pathEnd')
+        && h('div', { className: 'cmd-schema-warning', role: 'status' },
+          h('span', null, 'A command that loops until the path ends never finishes before it, so the commands after it won’t start. Move it last or run in parallel.')),
+      h('ol', { className: 'cmd-group-list', 'aria-label': 'Commands' }, members.map((invocation, index) => {
+        const command = commands.find((candidate) => candidate.id === invocation.commandId);
+        const name = command ? command.label : simpleRobotName(invocation.commandId) || 'Command';
+        const meta = command ? loopSummary(invocation.loop) : 'Not in robot code';
+        const expanded = open === index, editorId = 'event-group-' + index + '-editor';
+        return h('li', { key: index, className: 'cmd-group-item' + (expanded ? ' open' : '') },
+          h('div', { className: 'cmd-group-row' },
+            h('button', { type: 'button', className: 'cmd-group-name', 'aria-expanded': expanded, 'aria-controls': editorId, onClick: () => setOpen(expanded ? -1 : index) },
+              h(Icon, { name: 'chevron', size: 14 }),
+              h('span', { className: 'cmd-group-num', 'aria-hidden': true }, index + 1),
+              h('span', { className: 'cmd-group-copy' }, h('strong', null, name), meta && h('small', { className: command ? undefined : 'missing' }, meta))),
+            h('div', { className: 'cmd-group-acts' },
+              h('button', { type: 'button', className: 'cmd-group-act up', disabled: index === 0, title: 'Move up', 'aria-label': 'Move ' + name + ' up', onClick: () => move(index, -1) }, h(Icon, { name: 'chevron', size: 14 })),
+              h('button', { type: 'button', className: 'cmd-group-act', disabled: index === members.length - 1, title: 'Move down', 'aria-label': 'Move ' + name + ' down', onClick: () => move(index, 1) }, h(Icon, { name: 'chevron', size: 14 })),
+              h('button', { type: 'button', className: 'cmd-group-act', title: 'Remove', 'aria-label': 'Remove ' + name, onClick: () => remove(index) }, h(Icon, { name: 'x', size: 14 })))),
+          expanded && h('div', { id: editorId, className: 'cmd-group-editor' },
+            h(MarkerCommandEditor, {
+              ids: { command: 'event-group-' + index + '-command', param: 'event-group-' + index + '-param-', cancel: 'event-group-' + index + '-cancel' },
+              invocation, commands, catalog, robotProject, actionTag, resetKey: resetKey + ':' + index, allowNone: false, maxDistance,
+              onCommand: (next) => next && setMembers(members.map((item, i) => i === index ? withLoop({ commandId: next.id, arguments: commandArguments(next) }, item.loop) : item)),
+              onInvocation: (next) => setMembers(members.map((item, i) => i === index ? next : item)),
+            })));
+      })),
+      adder || (members.length >= MAX_GROUP_COMMANDS && h('div', { className: 'seg-hint' }, 'A group holds up to ' + MAX_GROUP_COMMANDS + ' commands.')));
+  }
+
   const JIGGLE_DEFAULTS = { distanceM: 0.03, strokes: 8, startDeg: 45, stepDeg: -45, strokeTimeS: 0.08 };
 
   function ContextInspector(props) {
@@ -704,87 +928,14 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
 
 
       const commands = catalog ? catalog.commands || [] : [];
-      const invocationId = m.invocation && m.invocation.commandId ? m.invocation.commandId : (m.cmd && m.cmd !== 'none' ? m.cmd : '');
-      const selectedCommand = commands.find((command) => command.id === invocationId);
-      const unresolved = invocationId && !selectedCommand;
-      const pendingActionTag = m.actionIntent && m.actionIntent.semanticTag;
-      const commandPickerItems = inspectorCommandChoices(commands, invocationId, pendingActionTag);
-      const argumentParameters = selectedCommand ? (selectedCommand.parameters || []).filter((parameter) => parameter.role === 'argument') : [];
-      const dependencyParameters = selectedCommand ? (selectedCommand.parameters || []).filter((parameter) => parameter.role === 'dependency') : [];
-      const invocationArguments = m.invocation && m.invocation.commandId === invocationId ? (m.invocation.arguments || {}) : {};
-      const reconciledArguments = Object.fromEntries(argumentParameters.map((parameter) => {
-        const saved = Object.prototype.hasOwnProperty.call(invocationArguments, parameter.name) ? invocationArguments[parameter.name] : undefined;
-        return [parameter.name, parameterValueError(saved, parameter) ? parameterDefaultValue(parameter) : saved];
-      }));
-      const argumentNames = new Set(argumentParameters.map((parameter) => parameter.name));
-      const argumentSchemaMismatch = !!selectedCommand && (
-        Object.keys(invocationArguments).some((name) => !argumentNames.has(name))
-        || argumentParameters.some((parameter) => parameterValueError(invocationArguments[parameter.name], parameter))
-      );
       const operation = robotProject && robotProject.operation;
       title = m.name || 'Command';
       body = h(React.Fragment, null,
         h('label', { className: 'fieldlabel first', htmlFor: 'event-marker-name' }, 'Name'),
         h(DraftText, { id: 'event-marker-name', className: 'textinput', value: m.name, owner: doc.id + ':' + (m.id || sel.idx), autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setMarker(sel.idx, { name }) }),
 
-        h('section', { className: 'cmd-command-editor', 'aria-label': 'Marker command' },
-          h(ChoiceBrowser, {
-            id: 'event-marker-command', resetKey: doc.id + ':' + sel.idx,
-            label: 'Command',
-            value: invocationId,
-            items: catalog ? commandPickerItems : [],
-            placeholder: 'Search commands or parameters', emptyText: catalog ? 'No commands found. Check the linked project.' : 'Link a LabVIEW project to discover commands.',
-            icon: 'bolt',
-            searchThreshold: 6,
-            disabled: !catalog || robotProject.status === 'loading',
-            onChange: (commandId) => {
-              const command = commands.find((candidate) => candidate.id === commandId);
-              const resolvesAction = command && pendingActionTag && (command.semanticTags || []).includes(pendingActionTag);
-              actions.setMarker(sel.idx, {
-                cmd: command ? command.id : 'none',
-                invocation: command ? { commandId: command.id, arguments: commandArguments(command) } : undefined,
-                actionIntent: resolvesAction ? undefined : m.actionIntent,
-              });
-            },
-          }),
-          catalog && commands.length === 0 && h('div', { className: 'seg-hint', role: 'status' }, 'No command VIs found. Check the linked project or refresh commands.'),
-          unresolved && h('div', { className: 'cmd-project-error', role: 'status' }, 'Command missing. Saved arguments are kept.'),
-          selectedCommand && !selectedCommand.labviewConnector && h('div', { className: 'cmd-project-error', role: 'status' }, 'Refresh commands to load this command’s inputs before exporting.'),
-          selectedCommand && h('div', {
-            className: 'cmd-command-summary',
-            title: selectedCommand.source ? selectedCommand.source.file + ':' + selectedCommand.source.line : undefined,
-          },
-            selectedCommand.description && h('p', { className: 'cmd-command-description' }, selectedCommand.description),
-            h('span', { className: 'cmd-command-meta' }, selectedCommand.member)),
-          selectedCommand && dependencyParameters.length > 0 && h('div', { className: 'seg-hint' }, simpleRobotName(dependencyParameters[0].valueType) + (dependencyParameters.length > 1 ? ' and ' + (dependencyParameters.length - 1) + ' more dependencies are supplied by robot code.' : ' is supplied by robot code.')),
-          argumentSchemaMismatch && h('div', { className: 'cmd-schema-warning', role: 'status' },
-            h('span', null, 'Saved arguments no longer match this command.'),
-            h('button', { className: 'qbtn', type: 'button', onClick: () => actions.setMarker(sel.idx, { invocation: { ...m.invocation, commandId: selectedCommand.id, arguments: reconciledArguments } }) }, 'Use current defaults')),
-          selectedCommand && h('form', { className: 'cmd-parameters', onSubmit: (event) => event.preventDefault() },
-            argumentParameters.length === 0
-              ? h('div', { className: 'cmd-empty-params' }, 'No parameters')
-              : argumentParameters.map((parameter) => h(CommandParameterEditor, {
-                  key: doc.id + ':' + sel.idx + ':' + selectedCommand.id + ':' + parameter.name,
-                  id: 'event-command-param-' + safeControlId(parameter.name),
-                  label: parameter.label || parameter.name,
-                  schema: parameter.schema,
-                  parameter,
-                  value: reconciledArguments[parameter.name],
-                  onChange: (value) => actions.setMarker(sel.idx, { invocation: { ...m.invocation, commandId: selectedCommand.id, arguments: { ...reconciledArguments, [parameter.name]: value } } }),
-                  depth: 0,
-                })),
-            h('label', { className: 'cmd-toggle-row', htmlFor: 'event-command-cancel' },
-              h('span', { className: 'cmd-toggle-copy' },
-                h('strong', null, 'Stop when path ends'),
-                h('small', null, 'Cancel this command if it is still running.')),
-              h('input', {
-                id: 'event-command-cancel',
-                className: 'cmd-toggle-input',
-                type: 'checkbox',
-                checked: m.invocation && m.invocation.cancelOnPathEnd === true,
-                onChange: (event) => actions.setMarker(sel.idx, { invocation: { ...m.invocation, commandId: selectedCommand.id, arguments: reconciledArguments, cancelOnPathEnd: event.target.checked } }),
-              }),
-              h('span', { className: 'cmd-toggle-track', 'aria-hidden': true }, h('span', null))))),
+        h(MarkerCommands, { marker: m, setMarker: (patch) => actions.setMarker(sel.idx, patch), commands, catalog, robotProject, resetKey: doc.id + ':' + sel.idx,
+          maxDistance: Math.max(0, (derived.sample.length || 0) - markerDistance) }),
         m.actionIntent && h('div', { className: 'cmd-project-notice', role: 'status' }, 'Choose a command for ' + m.actionIntent.description + '.'),
         h('div', { className: 'cgroup-h' }, 'Execution'),
         m.group && m.group !== 'sequential' && h('div', { className: 'cmd-schema-warning', role: 'status' }, h('span', null, 'This saved group cannot be exported as BDX.'), h('button', { type: 'button', className: 'qbtn', onClick: () => actions.setMarker(sel.idx, { group: 'sequential' }) }, 'Use single command')),
@@ -797,6 +948,9 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
         h('div', { className: 'inrow' },
           h('span', { className: 'inrow-l' }, 'Repeat command', h('small', null, 'While the window is active')),
           h(Toggle, { on: schedule.repeatEveryS != null, ariaLabel: 'Repeat event', onChange: (on) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: on ? 0.1 : undefined } }) })),
+        schedule.repeatEveryS != null && markerUsesEventExtension(m) && h('div', { className: 'cmd-schema-warning', role: 'status' },
+          h('span', null, (m.commandGroup ? 'A command group' : 'A looping command') + ' can’t also repeat on a schedule.'),
+          h('button', { type: 'button', className: 'qbtn', onClick: () => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: undefined } }) }, 'Turn off repeat')),
         schedule.repeatEveryS != null && h(Num, { label: 'Repeat every', value: schedule.repeatEveryS, unit: 's', min: 0.001, step: 0.02, precision: 3, onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: v } }) }),
         h('div', { className: 'inrow' },
           h('span', { className: 'inrow-l' }, 'End time', h('small', null, 'Expire or stop repeating')),
@@ -854,4 +1008,4 @@ import { compareExactDecimals, robotParameterValueError, robotSchemaValueError }
       h('div', { className: 'ctxinsp-body', key: doc.id + ':' + (sel.kind || 'path') + ':' + sel.idx, inert: props.pending ? '' : undefined }, body));
   }
 
-export { ContextInspector, CommandParameterEditor, commandArguments, parameterValueError, safeControlId };
+export { ContextInspector, CommandLoopEditor, CommandParameterEditor, commandArguments, parameterValueError, safeControlId };

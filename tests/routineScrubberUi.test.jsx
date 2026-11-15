@@ -28,6 +28,51 @@ describe('routine transport scrubber', () => {
     expect(html).toMatch(/class="rt-timeline-span on"[^>]*title="Leave the zone"/);
   });
 
+  it('labels steps, stacks a parallel group in rows inside its outline, and shows instant commands as chips', () => {
+    const node = (id, extra = {}) => ({ id, type: 'function', cat: 'command', invocation: { commandId: 'x', arguments: {} }, ...extra });
+    const run = {
+      total: 6, timedPlayable: true, issues: [], duration: { maxS: 6, unknownCount: 1, usesLimits: false },
+      groupSpans: [{ nodeId: 'g', occurrenceId: 'g:0', mode: 'parallel', t0: 2, t1: 5 }],
+      steps: [
+        { kind: 'path', t0: 0, t1: 2, label: 'Leave the zone', node: { id: 'a', type: 'path' }, occurrenceId: 'a' },
+        { kind: 'event', t0: 2, t1: 5, timing: 'exact', label: 'Spin up', node: node('b', { invocation: { commandId: 'x', arguments: {}, loop: { until: { kind: 'time', seconds: 3 } } } }), occurrenceId: 'b' },
+        { kind: 'wait', t0: 2, t1: 3, label: 'Wait', node: { id: 'c', type: 'builtin' }, occurrenceId: 'c' },
+        { kind: 'event', t0: 5, t1: 5, timing: 'unknown', label: 'Aim', node: node('d'), occurrenceId: 'd' },
+        { kind: 'event', t0: 6, t1: 6, timing: 'unknown', label: 'Celebrate', node: node('e'), occurrenceId: 'e' },
+      ],
+    };
+    const html = renderToStaticMarkup(h(RoutineTransport, { run, time: 2.5, playing: false, running: true, controls: {} }));
+    const blocks = html.match(/<span class="rt-timeline-span[^"]*"[^>]*>/g);
+    expect(blocks).toHaveLength(3);
+    // Both children of the parallel group are lit while it runs, in two rows.
+    expect(blocks.filter((block) => block.includes(' on"'))).toHaveLength(2);
+    expect(new Set(blocks.map((block) => block.match(/top:(\d+)px/)[1]))).toEqual(new Set(['22', '42']));
+    expect(html).toContain('<span class="rt-timeline-name">Leave the zone</span>');
+    expect(html).toContain('title="Spin up, loops for 3.00 s"');
+    expect(html).toMatch(/class="rt-timeline-group" title="Parallel group" style="[^"]*height:42px/);
+    const chips = html.match(/<span class="rt-timeline-chip[^"]*"[^>]*>/g);
+    expect(chips).toHaveLength(2);
+    expect(chips[0]).toContain('title="Aim (untimed)"');
+    // The chip at the end faces left so its name stays inside the lane.
+    expect(chips[1]).toContain('class="rt-timeline-chip left"');
+  });
+
+  it('gives five simultaneous steps their own rows instead of overlapping them', () => {
+    const run = {
+      total: 5, timedPlayable: true, issues: [], duration: { maxS: 5, unknownCount: 0, usesLimits: false },
+      groupSpans: [{ nodeId: 'g', occurrenceId: 'g:0', mode: 'parallel', t0: 0, t1: 5 }],
+      steps: [1, 2, 3, 4, 5].map((n) => ({ kind: 'wait', t0: 0, t1: 5, label: 'Wait ' + n, node: { id: 'w' + n, type: 'builtin' }, occurrenceId: 'w' + n })),
+    };
+    const html = renderToStaticMarkup(h(RoutineTransport, { run, time: 1, playing: false, running: true, controls: {} }));
+    const blocks = html.match(/<span class="rt-timeline-span[^"]*"[^>]*>/g);
+    expect(blocks).toHaveLength(5);
+    const tops = blocks.map((block) => Number(block.match(/top:(\d+)px/)[1]));
+    expect(new Set(tops).size).toBe(5);
+    // Five rows share the four-row height; each is still listed by name in its tooltip.
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(4 * 20);
+    expect(blocks.every((block, i) => block.includes('title="Wait ' + (i + 1) + '"'))).toBe(true);
+  });
+
   it('shows the run size before playback and no handle when nothing is timed', () => {
     const idle = renderToStaticMarkup(h(RoutineTransport, { run: timedRun(), time: 0, playing: false, running: false, controls: {} }));
     expect(idle).toContain('<small>2 steps</small>'); expect(idle).not.toContain('rt-timeline-now');
