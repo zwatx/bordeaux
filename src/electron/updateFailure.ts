@@ -1,5 +1,13 @@
 export const OFFICIAL_RELEASES_URL = "https://github.com/zwatx/bordeaux/releases";
 
+// Release tags are `v<version>`. Only a plain semantic version from main's own update state becomes a tag link; anything
+// else falls back to the release list.
+export function releasePageUrl(version: string | null | undefined): string {
+  return typeof version === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
+    ? `${OFFICIAL_RELEASES_URL}/tag/v${version}`
+    : OFFICIAL_RELEASES_URL;
+}
+
 export function describeUpdateFailure(message: string): string {
   // Response bodies can contain entire proxy error pages. Use only the error
   // prefix for classification and keep the original message for Copy details.

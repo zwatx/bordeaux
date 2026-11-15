@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { firstFact } from '../lib/projectLifecycle';
+import { UI } from './ui';
 import '../styles/app-update.css';
 
 const h = React.createElement;
+const { Icon } = UI;
 export function releaseNoteBlocks(text = '') {
   const blocks = [];
   let code = null;
@@ -122,11 +124,16 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
   shownAttempt.current = attempt;
   const resume = resuming?.attempt === attempt ? resuming : null, waiting = Boolean(resume?.waiting);
   const busy = !stalled && ['checking', 'downloading', 'installing'].includes(phase);
-  const title = stalled ? 'Restart delayed' : ({ available: 'Update ready to download', downloading: 'Downloading update', downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates' })[phase] || 'Software updates';
-  const subtitle = resume?.fact ? 'Couldn’t return to editing · ' + resume.fact : waiting ? 'Returning to editing…'
-    : stalled ? 'Keep working, or install manually from All releases.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? 'Get the installer from All releases.' : '';
   const notes = releaseNoteBlocks(state.releaseNotes);
-  const percent = Number.isFinite(progress?.percent) ? Math.min(100, Math.max(0, progress.percent)) : null;
+  const percent = Number.isFinite(progress?.percent) ? Math.min(100, Math.max(0, Math.floor(progress.percent))) : null;
+  const title = stalled ? 'Restart delayed' : ({ available: 'Update available', downloading: 'Downloading update' + (percent == null ? '' : ` (${percent}%)`), downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates…' })[phase] || 'Software updates';
+  const subtitle = resume?.fact ? 'Couldn’t return to editing · ' + resume.fact : waiting ? 'Returning to editing…'
+    : stalled ? 'Keep working, or download the installer from the release page.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? 'Download the installer from the release page.'
+    : phase === 'downloading' ? [`${updateBytes(progress?.transferred)} of ${updateBytes(progress?.total)}`, progress?.bytesPerSecond > 0 ? `${updateBytes(progress.bytesPerSecond)}/s` : ''].filter(Boolean).join(' · ') : '';
+  // The offered version, its change count and its release page close the panel, like a release card.
+  const offered = Boolean(version && version !== currentVersion);
+  const changes = notes.filter(block => block.kind === 'item').length;
+  const versionLine = [offered ? 'v' + version : `Installed v${currentVersion || '—'}`, changes ? `${changes} ${changes === 1 ? 'change' : 'changes'}` : ''].filter(Boolean).join(' · ');
   // Closing a stalled install hands editing back only once main accepts it for the attempt this panel shows (main
   // revokes that attempt's approval first). Until then the panel stays, busy; a refusal or failure keeps it with Try again.
   const close = () => {
@@ -157,38 +164,39 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
       installConfirmation.fact && h('p', { role: 'alert' }, installConfirmation.fact)),
     h('footer', { className: 'app-update-confirm-footer' }, h('button', { type: 'button', className: 'qbtn', autoFocus: true, disabled: installConfirmation.submitting, onClick: onClose }, 'Cancel'),
       h('button', { type: 'button', className: 'qbtn primary', disabled: installConfirmation.submitting, onClick: onConfirmInstall }, installConfirmation.submitting ? 'Updating…' : 'Update')));
-  const action = stalled ? { label: resume?.fact ? 'Try again' : 'Close', onClick: close } : phase === 'downloading' ? { label: 'Cancel download', onClick: onCancel }
+  const action = stalled ? { label: resume?.fact ? 'Try again' : 'Close', onClick: close } : phase === 'downloading' ? { label: 'Cancel download', onClick: onCancel, quiet: true }
     : phase === 'downloaded' ? { label: 'Restart and install', onClick: onInstall }
     : phase === 'available' ? { label: 'Download update', onClick: onDownload }
     : phase === 'error' ? {
         label: state.errorStage === 'install' ? 'Retry install' : state.errorStage === 'download' ? 'Retry download' : 'Try again',
         onClick: state.errorStage === 'install' ? onInstall : state.errorStage === 'download' ? onDownload : onCheck,
       }
-    : phase === 'upToDate' || phase === 'unsupported' ? { label: 'Done', onClick: close }
-    : !busy ? { label: 'Check for updates', onClick: onCheck } : null;
+    // Up to date offers Check again as a link; nothing else needs a button.
+    : !busy && phase !== 'upToDate' && phase !== 'unsupported' ? { label: 'Check for updates', onClick: onCheck } : null;
+  const notesShown = notes.length > 0 || offered && phase !== 'checking';
   // Escape is handled before the native close request (whose prevention the browser can ignore). An install panel that
   // closes natively anyway while main still shows it is reopened: only main's answer may hide it.
   return h('dialog', { ref: dialog, className: 'app-update-dialog' + (modal ? ' app-update-install' : ''), 'aria-modal': modal, 'aria-labelledby': 'app-update-title', 'aria-busy': waiting || undefined,
     onKeyDown: (event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); close(); } },
     onCancel: (event) => { event.preventDefault(); close(); },
     onClose: () => { if (state.visible && phase === 'installing' && !dialog.current.open) dialog.current.showModal(); } },
-    // The status is the title; the versions and any explanation sit directly beneath it.
+    // The status is the title (with the download percentage); any explanation sits directly beneath it. Download
+    // progress itself lives on the toolbar ring, so a download never adds a bar here.
     h('header', { className: 'app-update-header' },
-      h('h2', { id: 'app-update-title', 'aria-live': phase === 'error' ? undefined : 'polite' }, title),
-      h('button', { type: 'button', className: 'app-update-close', 'aria-label': 'Close updates', disabled: phase === 'installing' && !stalled, 'aria-disabled': waiting || undefined, onClick: close }, '×')),
-    h('div', { className: 'app-update-summary' },
-      h('p', { className: 'app-update-versions', title: `Installed ${currentVersion || '—'}` }, version && version !== currentVersion ? version : `Installed ${currentVersion || '—'}`),
-      !busy && subtitle && h('p', { className: 'app-update-description', role: phase === 'error' || resume?.fact ? 'alert' : waiting ? 'status' : undefined }, subtitle),
-      busy && h('div', { className: 'app-update-transfer', 'aria-busy': true },
-        h('progress', { max: 100, value: phase === 'downloading' && percent != null ? percent : undefined, 'aria-label': phase === 'downloading' ? 'Update download' : phase === 'checking' ? 'Checking for updates' : 'Installing update' }),
-        phase === 'downloading' && h('div', { className: 'app-update-transfer-values' }, h('span', null, `${updateBytes(progress?.transferred)} of ${updateBytes(progress?.total)}`), h('span', null, percent == null ? '' : `${Math.round(percent)}%`), h('span', null, progress?.bytesPerSecond > 0 ? `${updateBytes(progress.bytesPerSecond)}/s` : '')))),
-    h('section', { className: 'app-update-notes', 'aria-label': 'Release notes', tabIndex: 0 },
-      notes.length ? [h('h3', { key: 'label' }, 'What’s changed'), ...noteContent(notes)] : phase !== 'checking' && h('p', { className: 'app-update-empty' }, 'No release notes available.')),
+      h('h2', { id: 'app-update-title', 'aria-live': phase === 'error' || phase === 'downloading' ? undefined : 'polite' }, title),
+      subtitle && h('p', { className: 'app-update-description', role: phase === 'error' || resume?.fact ? 'alert' : waiting ? 'status' : undefined }, subtitle),
+      phase === 'installing' && !stalled && h('progress', { className: 'app-update-installing', max: 100, 'aria-label': 'Installing update' })),
+    notesShown && h('section', { className: 'app-update-notes', 'aria-label': 'Release notes', tabIndex: 0 },
+      notes.length ? [h('h3', { key: 'label' }, 'What’s changed'), ...noteContent(notes)] : h('p', { className: 'app-update-empty' }, 'No release notes available.')),
     h('footer', { className: 'app-update-footer' },
-      h('div', { className: 'app-update-secondary' }, h('button', { type: 'button', 'aria-disabled': waiting || undefined, onClick: hold(onOpenReleases) }, 'All releases'),
-        phase === 'upToDate' && h('button', { type: 'button', onClick: onCheck }, 'Check again'),
-        phase === 'error' && h('button', { type: 'button', onClick: async () => { await onCopyDetails?.(); setCopied(true); } }, copied ? 'Copied' : 'Copy details')),
+      h('div', { className: 'app-update-meta' },
+        h('p', { className: 'app-update-versions', title: `Installed ${currentVersion || '—'}` }, versionLine),
+        h('div', { className: 'app-update-secondary' },
+          h('button', { type: 'button', className: 'app-update-link', 'aria-disabled': waiting || undefined, onClick: hold(() => onOpenReleases?.(offered ? 'release' : 'all')) },
+            offered ? 'View release on GitHub' : 'All releases', h(Icon, { name: 'external', size: 12, sw: 2 })),
+          phase === 'upToDate' && h('button', { type: 'button', onClick: onCheck }, 'Check again'),
+          phase === 'error' && h('button', { type: 'button', onClick: async () => { await onCopyDetails?.(); setCopied(true); } }, copied ? 'Copied' : 'Copy details'))),
       action && h('button', {
-        type: 'button', className: phase === 'downloading' ? undefined : 'app-update-action', onClick: action.onClick, disabled: action.disabled, 'aria-disabled': waiting || undefined,
+        type: 'button', className: action.quiet ? 'app-update-quiet' : 'app-update-action', onClick: action.onClick, disabled: action.disabled, 'aria-disabled': waiting || undefined,
       }, action.label)));
 }

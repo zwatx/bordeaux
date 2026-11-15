@@ -33,3 +33,12 @@ describe("update failure recovery", () => {
     expect(explanation).toContain("releases page");
   });
 });
+
+describe("release page links", () => {
+  it("opens the offered version's tag page and falls back to the release list for anything else", async () => {
+    const { releasePageUrl, OFFICIAL_RELEASES_URL } = await import("../src/electron/updateFailure");
+    expect(releasePageUrl("0.2.0-beta.29")).toBe(`${OFFICIAL_RELEASES_URL}/tag/v0.2.0-beta.29`);
+    expect(releasePageUrl("1.0.0")).toBe(`${OFFICIAL_RELEASES_URL}/tag/v1.0.0`);
+    for (const value of [null, undefined, "", "v1.0.0", "1.0", "1.0.0/../../evil", "1.0.0?x=1", "1.0.0#x"]) expect(releasePageUrl(value)).toBe(OFFICIAL_RELEASES_URL);
+  });
+});

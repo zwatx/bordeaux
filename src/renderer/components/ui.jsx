@@ -47,6 +47,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
     turnshortest: 'M5 16a7 7 0 0 1 14 0 M2.5 13.5L5 16l2.5-2.5 M16.5 13.5L19 16l2.5-2.5',
     panelclose: 'M4 4h16v16H4z M9 4v16 M15.5 9.5L13 12l2.5 2.5',
     panelopen: 'M4 4h16v16H4z M9 4v16 M13.5 9.5L16 12l-2.5 2.5',
+    external: 'M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6',
     download: 'M12 15V3 M7 10l5 5 5-5 M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4',
     refresh: 'M20 7v5h-5 M4 17v-5h5 M18.5 10a7 7 0 0 0-12-3L4 10 M5.5 14a7 7 0 0 0 12 3l2.5-3',
     zones: 'M4 12h16 M4 7h16 M4 17h16',

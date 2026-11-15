@@ -29,7 +29,7 @@ export function useAppUpdates(api = globalThis.window?.bordeauxAPI) {
       try { await api?.installAppUpdate(); setInstallRequest(null); }
       catch { setInstallRequest({ version: installConfirmation.version, fact: 'Could not start the update. Try again.' }); }
     },
-    onOpenReleases: () => api?.openAppUpdateReleases(), onCopyDetails: () => api?.copyAppUpdateDetails(),
+    onOpenReleases: (target) => api?.openAppUpdateReleases(target === 'release' ? 'release' : 'all'), onCopyDetails: () => api?.copyAppUpdateDetails(),
   }), [api, installable, state?.version, installConfirmation]);
   return { state, known, actions };
 }

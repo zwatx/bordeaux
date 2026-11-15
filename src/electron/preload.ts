@@ -34,7 +34,7 @@ const bordeauxAPI = {
   cancelAppUpdateDownload: (): Promise<void> => ipcRenderer.invoke("appUpdates:cancel"),
   installAppUpdate: (): Promise<void> => ipcRenderer.invoke("appUpdates:install"),
   setAppUpdatesVisible: (visible: boolean): Promise<void> => ipcRenderer.invoke("appUpdates:visible", visible),
-  openAppUpdateReleases: (): Promise<void> => ipcRenderer.invoke("appUpdates:releases"),
+  openAppUpdateReleases: (target?: "release" | "all"): Promise<void> => ipcRenderer.invoke("appUpdates:releases", target === "release" ? "release" : "all"),
   copyAppUpdateDetails: (): Promise<void> => ipcRenderer.invoke("appUpdates:copyDetails"),
   copyProjectDetails: (text: string): Promise<void> => ipcRenderer.invoke("project:copyDetails", text),
   onAppUpdateState: (handler: (state: AppUpdateState) => void) => {

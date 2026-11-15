@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
       await click('#update-trigger');
       const initial = await rect();
       await click('dialog.app-update-dialog button', 'Check for updates');
-      assert.ok(await evaluate(() => document.querySelector('progress')?.getAttribute('aria-label') === 'Checking for updates'));
+      assert.equal(await evaluate(() => document.querySelector('#app-update-title').textContent), 'Checking for updates…');
       await capture(`${platform}-${width}-checking`);
       await set({ phase: 'error', error: 'The update request was denied. Try another network or open releases.', errorStage: 'check' });
       await click('dialog.app-update-dialog button', 'Copy details');
@@ -105,7 +105,11 @@ app.whenReady().then(async () => {
       await capture(`${platform}-${width}-available`);
       await click('dialog.app-update-dialog button', 'Download update');
       await set({ progress: { percent: 43, transferred: 45 * 1048576, total: 100 * 1048576, bytesPerSecond: 2 * 1048576 } });
-      assert.equal(await evaluate(() => document.querySelector('progress').value), 43);
+      // The percentage is in the title (and on the toolbar ring); the card has no second progress bar.
+      assert.equal(await evaluate(() => document.querySelector('#app-update-title').textContent), 'Downloading update (43%)');
+      assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog progress')), null);
+      assert.equal(await evaluate(() => document.querySelector('.app-update-versions').textContent), 'v0.2.0-beta.11 · 32 changes');
+      assert.equal(await evaluate(() => document.querySelector('.app-update-link').textContent), 'View release on GitHub');
       await capture(`${platform}-${width}-download`);
       await key('Escape');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), false);
@@ -122,6 +126,14 @@ app.whenReady().then(async () => {
       await capture(`${platform}-${width}-dirty`);
       assert.equal((await rect()).width, initial.width, 'Popover width stays consistent');
       assert.ok((await rect()).height <= 540, 'Notes stay in a compact popover');
+      assert.ok(await evaluate(() => {
+        // Computed colors keep their authored space (e.g. oklch(…)), so paint the actual value and read back sRGB.
+        const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+        context.fillStyle = getComputedStyle(document.querySelector('.app-update-action')).backgroundColor;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+        return alpha === 255 && Math.max(r, g, b) - Math.min(r, g, b) < 16;
+      }), 'Primary action should use a neutral surface');
       await capture(`${platform}-${width}-ready`);
       await evaluate(() => document.querySelector('.app-update-secondary button').focus());
       await key('Tab');
@@ -153,20 +165,13 @@ app.whenReady().then(async () => {
       assert.equal((await rect()).width, initial.width);
       assert.ok(await evaluate(() => document.querySelectorAll('.app-update-notes ul li').length >= 7));
       assert.equal(await evaluate(() => document.querySelector('.app-update-notes code').textContent), '/home/lvuser/natinst/bin/Paths');
-      assert.ok(await evaluate(() => {
-        // Computed colors keep their authored space (e.g. oklch(…)), so paint the actual value and read back sRGB.
-        const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
-        context.fillStyle = getComputedStyle(document.querySelector('.app-update-action')).backgroundColor;
-        context.fillRect(0, 0, 1, 1);
-        const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
-        return alpha === 255 && Math.max(r, g, b) - Math.min(r, g, b) < 16;
-      }), 'Primary action should use a neutral surface');
+      assert.equal(await evaluate(() => document.querySelector('.app-update-action')), null, 'Up to date needs no primary button');
+      assert.equal(await evaluate(() => document.querySelector('.app-update-versions').textContent), 'Installed v0.2.0-beta.11 · 7 changes');
       assert.ok(await evaluate(() => document.querySelector('.app-update-notes').clientHeight >= 300), 'Notes must have useful reading space');
       await capture(`${platform}-${width}-up-to-date`);
       await evaluate(() => [...document.querySelectorAll('.app-update-secondary button')].at(-1).focus());
-      await key('Tab');
-      assert.equal(await evaluate(() => document.activeElement.textContent), 'Done');
-      await key('Return');
+      assert.equal(await evaluate(() => document.activeElement.textContent), 'Check again');
+      await key('Escape');
       assert.equal(await evaluate(() => document.querySelector('dialog.app-update-dialog').open), false);
       assert.equal(await evaluate(() => document.activeElement.id), 'update-trigger');
       pass(`${platform} ${width}×${height}: toolbar chip, safe notes, compact layout, retry, progress, cancel, confirmed unsaved install, modal keyboard and focus`);

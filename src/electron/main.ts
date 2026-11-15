@@ -34,7 +34,7 @@ import { loadProjectFolderSelection, loadProjectSelection, type ProjectSelection
 import { createNamedProjectSelection, createProjectCopyFolder, parseNamedProjectRequest, suggestProjectCopy, StaleCopyDefaults, type ProjectCopyMark } from "./projectCreation";
 import { ensureProjectsHomeForRequest, projectsHomePath } from "./projectsHome";
 import { completeProjectActivation } from "./projectActivation";
-import { describeUpdateFailure, OFFICIAL_RELEASES_URL } from "./updateFailure";
+import { describeUpdateFailure, OFFICIAL_RELEASES_URL, releasePageUrl } from "./updateFailure";
 import { GitHubReleaseProvider } from "./githubReleaseProvider";
 import { listRecentProjects, recentProjectPathById, readRecentProjectFiles, rememberRecentProject, removeRecentProjectById, writeRecentProjectFiles } from "./recentProjectFiles";
 import { revealRecentProject } from "./projectRecentActions";
@@ -1652,7 +1652,12 @@ handle("appUpdates:visible", (_event, visible) => {
   if (typeof visible !== "boolean") throw new Error("Update visibility must be a boolean");
   appUpdates?.setVisible(visible);
 });
-handle("appUpdates:releases", () => shell.openExternal(OFFICIAL_RELEASES_URL));
+// `release` opens the offered version's own page; the version always comes from main's state, never the renderer.
+handle("appUpdates:releases", (_event, target) => {
+  const offered = appUpdates?.snapshot();
+  return shell.openExternal(target === "release" && offered?.version && offered.version !== offered.currentVersion
+    ? releasePageUrl(offered.version) : OFFICIAL_RELEASES_URL);
+});
 handle("appUpdates:copyDetails", () => clipboard.writeText(appUpdates?.snapshot().errorDetails || ""));
 handle("project:copyDetails", (_event, text) => {
   if (typeof text !== "string" || !text.trim() || text.length > 65_536) throw new Error("Project details must contain 1–65536 characters");

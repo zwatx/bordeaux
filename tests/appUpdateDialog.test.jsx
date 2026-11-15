@@ -32,9 +32,10 @@ describe('app update dialog', () => {
     expect(saved).not.toContain('disabled');
     expect(saved).not.toContain('Restart Bordeaux to finish installing');
   });
-  it('shows determinate progress, transfer totals and explicit cancellation', () => {
-    const html = render({ phase: 'downloading', progress: { percent: 43, transferred: 45 * 1048576, total: 100 * 1048576, bytesPerSecond: 2 * 1048576 } });
-    expect(html).toContain('value="43"');
+  it('titles a download with its percentage, transfer totals and explicit cancellation, without a second progress bar', () => {
+    const html = render({ phase: 'downloading', progress: { percent: 43.7, transferred: 45 * 1048576, total: 100 * 1048576, bytesPerSecond: 2 * 1048576 } });
+    expect(html).toContain('>Downloading update (43%)</h2>');
+    expect(html).not.toContain('<progress');
     expect(html).toContain('45.0 MB of 100.0 MB');
     expect(html).toContain('2.0 MB/s');
     expect(html).toContain('Cancel download');
@@ -47,18 +48,28 @@ describe('app update dialog', () => {
   it('offers a dismissible manual recovery state without repeating a pending install', () => {
     const html = render({ phase: 'installing', installStalled: true });
     expect(html).toContain('Restart delayed');
-    expect(html).toContain('All releases');
+    expect(html).toContain('View release on GitHub');
     expect(html).toContain('>Close</button>');
     expect(html).not.toContain('Retry install');
     expect(html).not.toContain('disabled');
     expect(html).not.toContain('<progress');
   });
-  it('renders readable lists and inline code, with a Done action when current', () => {
+  it('closes like a release card: offered version, change count and that release page', () => {
+    const html = render({ releaseNotes: '- **Faster** playback\n- Fixed export' });
+    expect(html).toContain('>Update available</h2>');
+    expect(html).toContain('>v0.2.0-beta.11 · 2 changes</p>');
+    expect(html).toContain('View release on GitHub');
+    expect(html).toContain('>Download update</button>');
+    expect(html).not.toContain('Close updates');
+  });
+  it('renders readable lists and inline code, with Check again and no extra button when current', () => {
     const html = render({ phase: 'upToDate', version: null, releaseNotes: '## Path uploads\n- **Save** the address.\n- Use `/home/lvuser/natinst/bin/Paths`.\n`Unclosed literal' });
     expect(html).toContain('<ul><li><strong>Save</strong>');
     expect(html).toContain('<code>/home/lvuser/natinst/bin/Paths</code>');
     expect(html).toContain('`Unclosed literal');
-    expect(html).toContain('>Done</button>');
+    expect(html).not.toContain('>Done</button>');
+    expect(html).toContain('>Installed v0.2.0-beta.10 · 2 changes</p>');
+    expect(html).toContain('All releases');
     expect(html).toContain('>Check again</button>');
     expect(html).not.toContain('class="primary"');
   });
