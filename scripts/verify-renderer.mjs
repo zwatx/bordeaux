@@ -33,7 +33,11 @@ import path from "node:path";
 // The independent UI review accepted this bounded increment; every application chunk stays counted.
 // The routine Add filter, one-pick catalog commands, lane route focus/preview radios, insert-before and
 // compatible-branch carry add 4,683 B (measured against HEAD at 789,213 B).
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 777 * 1024;
+// Path/routine command groups and loops, the redesigned Commands lane and routine scrubber, and the inline
+// loop/group editors measure 823,261 B (2026-11-14); 808 KiB keeps ~4 KiB headroom.
+// The subsystem-aware command palette (shared command index and ranking, subsystem scope, detail column,
+// keep-open Add and ranked Change command) measures 839,968 B (2026-11-14); 824 KiB keeps ~3.7 KiB headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 824 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -47,7 +51,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
 // The routine Add filter, preview radios and the current route block add 1,082 B.
-const CSS_BUDGET_BYTES = 157 * 1024;
+// Group/loop editors, the redesigned Commands lane and routine scrubber bring CSS to 163,823 B (2026-11-14).
+const CSS_BUDGET_BYTES = 164 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
