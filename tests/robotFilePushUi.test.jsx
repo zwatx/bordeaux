@@ -15,7 +15,7 @@ import { RobotFilePushDialog } from '../src/renderer/components/RobotFilePushDia
 
 const path = (id, waypoints = 3) => ({ id, name: 'Path ' + id, waypoints: Array.from({ length: waypoints }, () => ({})) });
 const controller = (patch = {}) => ({ fileTransfer: true, busy: false, desktopAvailable: true, phase: 'idle', settings: null, requestPush: vi.fn(), openConnection: vi.fn(), ...patch });
-const endpoint = { host: '10.24.68.2', directory: '/home/lvuser/natinst/bin/Paths' };
+const endpoint = { target: 'roborio', host: '10.24.68.2', directory: '/home/lvuser/natinst/bin/Paths' };
 // Expands function components (the menu) so their rendered elements can be searched.
 const find = (node, test) => {
   if (!node || typeof node !== 'object') return null;
@@ -111,11 +111,29 @@ describe('Push split button', () => {
 });
 
 const dialogController = (patch) => ({
-  open: true, phase: 'idle', busy: false, host: '10.24.68.2', port: '22', directory: '/home/lvuser/natinst/bin/Paths', error: '', canRetry: false,
+  open: true, phase: 'idle', busy: false, target: 'roborio', host: '10.24.68.2', port: '22', directory: '/home/lvuser/natinst/bin/Paths', error: '', canRetry: false,
   settings: null, editing: false, connection: null, probe: null, preview: null, result: null, ...patch });
 const dialog = (patch) => renderToStaticMarkup(React.createElement(RobotFilePushDialog, { controller: dialogController(patch) }));
 const actions = (html) => [...html.matchAll(/<button type="button" class="(qbtn[^"]*)"[^>]*>([^<]*)<\/button>/g)].map(([, cls, text]) => text + (cls.includes('primary') ? '*' : ''));
-const saved = { endpoint: { host: '10.24.68.2', port: 22, directory: '/home/lvuser/natinst/bin/Paths' } };
+const saved = { endpoint: { target: 'roborio', host: '10.24.68.2', port: 22, directory: '/home/lvuser/natinst/bin/Paths' } };
+
+describe('Robot connection: robot type', () => {
+  it('offers each robot type as one pressed choice and follows it with the host placeholder', () => {
+    const roborio = dialog({});
+    expect(roborio).toMatch(/<span id="rfp-robot-label">Robot<\/span><div class="seg" role="group" aria-labelledby="rfp-robot-label"/);
+    expect(roborio).toContain('<button type="button" class="seg-i on" aria-pressed="true">roboRIO</button>');
+    expect(roborio).toContain('<button type="button" class="seg-i" aria-pressed="false">Systemcore</button>');
+    expect(roborio).toContain('placeholder="roborio-2468-frc.local"');
+    const systemcore = dialog({ target: 'systemcore', directory: '/home/systemcore/bordeaux/paths' });
+    expect(systemcore).toContain('<button type="button" class="seg-i on" aria-pressed="true">Systemcore</button>');
+    expect(systemcore).toContain('placeholder="robot.local"');
+  });
+  it('names the robot type beside the folder wherever the destination is shown', () => {
+    const settings = { endpoint: { target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' } };
+    expect(dialog({ settings })).toContain('Systemcore · /home/systemcore/bordeaux/paths');
+    expect(dialog({ settings: saved })).toContain('roboRIO · /home/lvuser/natinst/bin/Paths');
+  });
+});
 
 describe('Robot connection: offline Save', () => {
   it('makes Save the primary action when no push is waiting, and says it works without the robot', () => {

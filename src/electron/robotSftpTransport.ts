@@ -179,6 +179,7 @@ export type RobotSftpSessionFactory = (request: RobotConnectRequest) => Promise<
 
 export type RobotTransportErrorCode =
   | "invalid_request"
+  | "auth_rejected"
   | "re_pair_required"
   | "unavailable"
   | "cancelled"

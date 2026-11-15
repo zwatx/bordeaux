@@ -16,7 +16,7 @@ function Destination({ endpoint, onChange, disabled, status }) {
   return h('div', { className: 'rfp-dest' },
     h('div', { className: 'rfp-dest-text' },
       h('strong', null, address(endpoint), status && h('span', { className: 'rfp-dest-status' + (status === 'Verified' ? ' good' : '') }, status)),
-      h('span', null, endpoint.directory)),
+      h('span', null, ROBOT_TARGETS[endpoint.target].label + ' · ' + endpoint.directory)),
     onChange && button('Change', onChange, { className: 'qbtn quiet', disabled }));
 }
 
@@ -70,7 +70,10 @@ export function RobotFilePushDialog({ controller: c }) {
   if (setup) {
     view = 'setup';
     body = [alert, h('div', { key: 'fields', className: 'rfp-fields' },
-      h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: ROBOT_TARGETS.roborio.hostPlaceholder, disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
+      h('div', { className: 'rfp-wide rfp-robot' }, h('span', { id: 'rfp-robot-label' }, 'Robot'),
+        h('div', { className: 'seg', role: 'group', 'aria-labelledby': 'rfp-robot-label', style: { '--seg-count': Object.keys(ROBOT_TARGETS).length } },
+          Object.entries(ROBOT_TARGETS).map(([id, target]) => h('button', { key: id, type: 'button', className: 'seg-i' + (c.target === id ? ' on' : ''), 'aria-pressed': c.target === id, disabled: c.busy, onClick: () => c.chooseTarget(id) }, target.label)))),
+      h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: ROBOT_TARGETS[c.target].hostPlaceholder, disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
       h('label', { className: 'rfp-port' }, 'Port', h('input', { value: c.port, inputMode: 'numeric', disabled: c.busy, onChange: (e) => c.setPort(e.target.value) })),
       h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) }))),
       h('p', { key: 'note', className: 'rfp-note' }, 'Save offline. Connect to verify the robot.')];

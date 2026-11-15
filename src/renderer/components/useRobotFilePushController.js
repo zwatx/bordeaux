@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../../shared/robotFileDelivery';
+import { ROBOT_TARGETS } from '../../shared/robotTargets';
 import { focusIfAvailable } from '../lib/focusReturn';
 import { linkedPathIds } from '../lib/undoHistory';
 
@@ -19,9 +19,10 @@ const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'prepari
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
   const api = window.bordeauxAPI;
   const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, reachability: 'unknown', monitoring: false, probe: null, preview: null, result: null, error: '' });
+  const [target, setTarget] = useState('roborio');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
-  const [directory, setDirectory] = useState(DEFAULT_ROBOT_PATH_DIRECTORY);
+  const [directory, setDirectory] = useState(ROBOT_TARGETS.roborio.defaultDirectory);
   const state = useRef(view);
   const generation = useRef(0);
   const intent = useRef(null);
@@ -50,7 +51,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = generation.current;
     api.getRobotFileConnection().then((settings) => {
       if (!live || request !== generation.current) return;
-      if (settings) { setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory); }
+      if (settings) { setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory); }
       const connection = settings?.hostKeyFingerprint ? settings : null;
       trusted.current = connection;
       update({ settings, connection, phase: 'idle' });
@@ -93,6 +94,15 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     void discard(state.current.preview).catch(() => undefined);
     update({ preview: null, result: null, phase: 'idle', error: 'The project changed. Choose Push again to review the current files.' });
   }, [projectKey, catalogKey, bookmarkKey]);
+  // A folder still at the previous type's default follows the new type; a folder the user typed stays.
+  // A login error is about the previous type, so choosing another one clears it.
+  const chooseTarget = (next) => {
+    if (next === target || !ROBOT_TARGETS[next]) return;
+    const current = directory.trim();
+    if (!current || current === ROBOT_TARGETS[target].defaultDirectory) setDirectory(ROBOT_TARGETS[next].defaultDirectory);
+    setTarget(next);
+    update({ error: '' });
+  };
   const show = () => { if (!state.current.open) origin.current = document.activeElement; update({ open: true }); };
   const returnFocus = () => focusIfAvailable(origin.current);
   const close = () => { update({ open: false }); };
@@ -122,7 +132,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     update({ phase: 'probing', probe: null, error: '', monitoring: false, reachability: 'unknown' });
     try {
-      const probe = await api.probeRobotFiles({ host: host.trim(), port: Number(port), directory: directory.trim() });
+      const probe = await api.probeRobotFiles({ target, host: host.trim(), port: Number(port), directory: directory.trim() });
       if (request !== generation.current) return;
       update({ probe, phase: 'identity' });
       const saved = trusted.current;
@@ -135,12 +145,12 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     update({ phase: 'saving', error: '' });
     try {
-      const settings = await api.saveRobotFileSettings({ host: host.trim(), port: Number(port), directory: directory.trim() });
+      const settings = await api.saveRobotFileSettings({ target, host: host.trim(), port: Number(port), directory: directory.trim() });
       if (request !== generation.current) return;
       const connection = settings.hostKeyFingerprint ? settings : null;
       trusted.current = connection;
       intent.current = null;
-      setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
+      setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
       update({ settings, connection, editing: false, probe: null, preview: null, result: null, phase: 'idle', monitoring: false, reachability: 'unknown' });
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
   };
@@ -220,7 +230,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     try { await discard(previous.preview); if (request === generation.current) update({ preview: null, result: null, phase: 'idle', error: '' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
-  return { ...view, fileTransfer: true, host, setHost, port, setPort, directory, setDirectory,
+  return { ...view, fileTransfer: true, target, chooseTarget, host, setHost, port, setPort, directory, setDirectory,
     busy: working(view.phase), canRetry: Boolean(intent.current), desktopAvailable: true, deliveryAvailable: true,
     pairing: view.settings,
     connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.reachability === 'online' ? ' · connected' : view.reachability === 'offline' ? ' · disconnected' : ' · not connected') : 'Not set up',

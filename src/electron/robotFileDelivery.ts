@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings } from "../shared/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../shared/robotFileDelivery";
+import { LEGACY_ROBOT_TARGET } from "../shared/robotTargets";
 import { writeJsonAtomically } from "./projectFiles";
 import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
 
@@ -21,7 +22,11 @@ export async function readRobotFileConnection(file: string): Promise<RobotFileSe
   try {
     const stat = await fs.lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) throw new Error("Saved robot SSH identity is invalid");
-    const saved = settings(JSON.parse(await fs.readFile(file, "utf8")));
+    const raw: unknown = JSON.parse(await fs.readFile(file, "utf8"));
+    // Files written before robot types existed have no target; they always described a roboRIO.
+    const endpoint = raw && typeof raw === "object" && "endpoint" in raw ? raw.endpoint : null;
+    if (endpoint && typeof endpoint === "object" && !("target" in endpoint)) Object.assign(endpoint, { target: LEGACY_ROBOT_TARGET });
+    const saved = settings(raw);
     // Correct the former default without discarding the remembered SSH identity.
     // The new destination remains visible in every immutable upload review.
     if (saved.endpoint.directory === "/natinst/bin/Paths") saved.endpoint.directory = DEFAULT_ROBOT_PATH_DIRECTORY;
@@ -64,8 +69,9 @@ export class RobotFileDelivery {
   async saveSettings(endpoint: RobotFileEndpoint): Promise<RobotFileSettings> {
     if (this.active || this.trusting) throw new Error("Finish the current robot operation before editing settings");
     const normalized = validateRobotFileEndpoint(endpoint);
+    // Trust covers a login that was tried: the same host, port and robot type (account).
     const fingerprint = this.trusted?.endpoint.host === normalized.host && this.trusted.endpoint.port === normalized.port
-      ? this.trusted.hostKeyFingerprint : undefined;
+      && this.trusted.endpoint.target === normalized.target ? this.trusted.hostKeyFingerprint : undefined;
     const value: RobotFileSettings = { endpoint: normalized, ...(fingerprint ? { hostKeyFingerprint: fingerprint } : {}) };
     this.generation++;
     this.observed = null; this.pending = null;

@@ -12,7 +12,7 @@ const output = process.env.BORDEAUX_FILE_PUSH_UI_OUTPUT
   : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-file-push-ui-'));
 await fs.mkdir(output, { recursive: true });
 const html = path.join(output, 'index.html');
-await fs.writeFile(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="${path.join(root, 'scripts/robot-file-push-ui-harness.jsx')}"></script></body></html>`);
+await fs.writeFile(html, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>/* Captures show settled states, not a fade in progress. */ *,*::before,*::after{transition:none!important}</style></head><body><div id="root"></div><script type="module" src="${path.join(root, 'scripts/robot-file-push-ui-harness.jsx')}"></script></body></html>`);
 await build({
   configFile: false, root: output, base: './', publicDir: false, logLevel: 'error',
   define: { 'process.env.NODE_ENV': JSON.stringify('development') },
@@ -42,7 +42,8 @@ app.whenReady().then(async () => {
           for (const [width, height] of [[1440, 900], [1100, 720]]) {
             win.setContentSize(width, height);
             await win.webContents.executeJavaScript('document.fonts.ready');
-            await new Promise((resolve) => setTimeout(resolve, 80));
+            // Controls fade over 140 ms after a resize; capture once they settle.
+            await new Promise((resolve) => setTimeout(resolve, 200));
             await fs.writeFile(path.join(${JSON.stringify(output)}, request.capture + '-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
           }
         } else if (request.pointer) {

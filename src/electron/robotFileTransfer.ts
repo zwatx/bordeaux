@@ -1,12 +1,11 @@
 import { randomBytes } from "node:crypto";
 import type { RobotFileConnection, RobotFileEndpoint } from "../shared/robotFileDelivery";
-import { ROBOT_TARGETS } from "../shared/robotTargets";
-import { RobotTransportError, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
+import { ROBOT_TARGETS, isRobotTargetId } from "../shared/robotTargets";
+import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
 import { connectRobotSftp, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 
 const MAX_BYTES = 24 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
-const target = ROBOT_TARGETS.roborio;
 
 export function validateRobotFileEndpoint(raw: unknown): RobotFileEndpoint {
   const value = raw as Partial<RobotFileEndpoint> | null;
@@ -15,7 +14,26 @@ export function validateRobotFileEndpoint(raw: unknown): RobotFileEndpoint {
     || !Number.isInteger(value.port) || value.port! < 1 || value.port! > 65535) {
     throw new RobotTransportError("invalid_request", "Robot endpoint must contain a hostname or IP address and valid SSH port");
   }
-  return { host: value.host, port: value.port!, directory: validateRobotFileDirectory(value.directory, target.directoryRoots) };
+  if (!isRobotTargetId(value.target)) {
+    throw new RobotTransportError("invalid_request", `Robot type must be one of ${Object.values(ROBOT_TARGETS).map((target) => target.label).join(", ")}`);
+  }
+  const target = ROBOT_TARGETS[value.target];
+  return { target: value.target, host: value.host, port: value.port!, directory: validateRobotFileDirectory(value.directory, target.directoryRoots) };
+}
+
+/** Logs in with the endpoint's robot account; a refused login names the robot type to check. */
+async function connect(factory: RobotSftpSessionFactory, endpoint: RobotFileEndpoint, request: Omit<RobotConnectRequest, "endpoint" | "credentials">): Promise<RobotSftpSession> {
+  const target = ROBOT_TARGETS[endpoint.target];
+  try {
+    return await factory({ ...request, endpoint, credentials: { username: target.username, password: target.password } });
+  } catch (error) {
+    if (!(error instanceof RobotTransportError) || error.code !== "auth_rejected") throw error;
+    // The dialog shows only the first sentence, so it carries the action.
+    const check = target.password ? "check the robot type and password" : "check the robot type";
+    const detail = target.password ? ` with the default ${target.label} password` : "";
+    throw new RobotTransportError("auth_rejected",
+      `${target.label} login refused; ${check}. The robot rejected SSH login for ${target.username}${detail}.`, { cause: error });
+  }
 }
 
 function requireDirectories(session: RobotSftpSession) {
@@ -30,7 +48,7 @@ export async function probeRobotFiles(
 ): Promise<RobotFileConnection> {
   const validated = validateRobotFileEndpoint(endpoint);
   const signal = AbortSignal.timeout(timeoutMs);
-  const session = await factory({ endpoint: validated, credentials: { username: target.username, password: target.password }, signal, timeoutMs });
+  const session = await connect(factory, validated, { signal, timeoutMs });
   try {
     await requireDirectories(session)(validated.directory, false, signal);
     return { endpoint: validated, hostKeyFingerprint: session.hostKeyFingerprint };
@@ -70,8 +88,7 @@ export async function uploadRobotFiles(
   operation.addEventListener("abort", abortConnect, { once: true });
   let session: RobotSftpSession;
   try {
-    session = await factory({ endpoint, credentials: { username: target.username, password: target.password }, expectedHostKeyFingerprint: connection.hostKeyFingerprint,
-      signal: connecting.signal, timeoutMs: TIMEOUT_MS });
+    session = await connect(factory, endpoint, { expectedHostKeyFingerprint: connection.hostKeyFingerprint, signal: connecting.signal, timeoutMs: TIMEOUT_MS });
   } finally { operation.removeEventListener("abort", abortConnect); }
   let temporary: RobotRemoteFile | undefined;
   const published: string[] = [];
