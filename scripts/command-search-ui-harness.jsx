@@ -82,8 +82,10 @@ try {
     await key('Enter'); assert(range() === '81–160 of 10,000' && !state.picked, 'Pagination Enter changes page without choosing the active option');
     document.querySelector('.rt-add-pages button[aria-label="Next results"]').focus();
     await key('Space'); assert(range() === '161–240 of 10,000' && !state.picked, 'Pagination Space retains native button activation');
-    await key('End'); refreshCatalog(); await wait(() => range() === '1–80 of 10,000', 'new catalog resets a later page');
-    assert(active() && active().getAttribute('aria-posinset') === '1', 'Catalog replacement keeps active DOM/ARIA valid');
+    // A background catalog update for the same search keeps the highlighted command and its page, so Enter never
+    // inserts something else; the highlighted row shows the new definition.
+    await key('End'); refreshCatalog(); await wait(() => active()?.textContent.startsWith(refreshedLabel), 'new catalog keeps the highlighted command');
+    assert(range() === '9,921–10,000 of 10,000' && active().getAttribute('aria-posinset') === '10000', 'Catalog replacement keeps active DOM/ARIA valid');
     await type('Refreshed command label'); await wait(() => options().length === 1, 'Search finds a late refreshed command');
     assert(!document.querySelector('.rt-add-pages') && options().every(option => option.textContent.includes('Refreshed command label')), 'Search spans the full refreshed catalog');
     await capture('add-long-search-' + width);

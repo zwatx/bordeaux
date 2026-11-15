@@ -25,6 +25,13 @@ function row(extraXml = "<DBL><Name>Setpoint</Name><Val>0</Val></DBL>") {
       extendedInformation: [[[]], statusMetadata("Command Info Out"), statusMetadata("Command Info In"), [[]]] as unknown[],
     } };
 }
+/** The report row with its status typedefs at the fixture's real path (absolute on every platform). */
+function fixtureRow(typedef: string) {
+  const vi = row();
+  vi.connector.extendedInformation[1] = [[[["Command Info Out"], typedef, false, 0, []]]];
+  vi.connector.extendedInformation[2] = [[[["Command Info In"], typedef, false, 0, []]]];
+  return vi;
+}
 function addOutput(vi: ReturnType<typeof row>, name: string, xml: string, terminalNumber = 12) {
   vi.connector.numConnections += 1;
   vi.connector.captions.push(name); vi.connector.wireRequirements.push(1); vi.connector.ioStatus.push(1); vi.connector.conNum.push(terminalNumber);
@@ -345,7 +352,7 @@ describe("NI legacy connector discovery", () => {
     const adapter = async (requestFile: string, responseFile: string) => {
       const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
       requests.push(request.sources.map((item: { file: string }) => item.file));
-      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? row()
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? fixtureRow(fixture.typedef)
         : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
       await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
     };
@@ -454,7 +461,7 @@ describe("NI legacy connector discovery", () => {
     await expect(prepareBdxBindings({ ...options, commandIds: [id] })).rejects.toThrow(/Start changed in LabVIEW/);
     const anyAdapter = async (requestFile: string, responseFile: string) => {
       const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
-      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? row()
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? fixtureRow(fixture.typedef)
         : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
       await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
     };
@@ -526,7 +533,7 @@ describe("NI legacy connector discovery", () => {
     const fixture = await cacheFixture();
     const anyAdapter = (dirty: boolean) => async (requestFile: string, responseFile: string) => {
       const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
-      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? { ...row(), modifiedBefore: dirty }
+      const vis = request.sources.map((item: { file: string; target: string }) => item.file === source.file ? { ...fixtureRow(fixture.typedef), modifiedBefore: dirty }
         : { file: item.file, target: item.target, status: "nonCommand", viType: 3, modifiedBefore: false, modifiedAfter: false });
       await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis }));
     };
