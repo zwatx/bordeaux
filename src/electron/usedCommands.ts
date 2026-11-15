@@ -1,6 +1,7 @@
 import type { BordeauxProject, RoutineNode } from "../shared/types";
 import { routineChildLists } from "../shared/routineChildren";
 import { routineCommandIds } from "./routineSelection";
+import { markerInvocations } from "../shared/markerCommands";
 
 /**
  * Command IDs an export actually writes: the markers on the selected paths, or a routine's command steps plus the
@@ -22,7 +23,7 @@ export function projectCommandIds(project: BordeauxProject, selection: { pathIds
   }
   for (const path of project.paths ?? []) {
     if (!pathIds.has(path.id)) continue;
-    for (const marker of path.markers ?? []) if (marker.invocation?.commandId) ids.add(marker.invocation.commandId);
+    for (const marker of path.markers ?? []) for (const invocation of markerInvocations(marker)) if (invocation.commandId) ids.add(invocation.commandId);
   }
   return ids;
 }

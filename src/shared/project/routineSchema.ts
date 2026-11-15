@@ -16,10 +16,11 @@ export function routineFeaturesRequireV11(project: unknown): boolean {
       if (frame.depth > 64 || frame.index >= frame.nodes.length) { pending.pop(); continue; }
       const node: unknown = frame.nodes[frame.index++]; count++;
       if (!record(node)) continue;
-      if (node.type === 'repeat' || node.type === 'end') return true;
+      if (node.type === 'repeat' || node.type === 'end' || node.type === 'group') return true;
       const command = node.type === 'function' && node.cat === 'command';
       const wait = node.type === 'builtin' && node.builtinId === 'bordeaux.wait';
       if ((command || wait) && Object.hasOwn(node, 'ends')) return true;
+      if (command && record(node.invocation) && Object.hasOwn(node.invocation, 'loop')) return true;
       const children: unknown[] = [];
       if (node.type === 'decision') children.push(node.then, node.else);
       if (command && record(node.outputBranch) && Array.isArray(node.outputBranch.routes)) {

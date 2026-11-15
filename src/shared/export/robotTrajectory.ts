@@ -3,7 +3,8 @@ import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
 import { robotInvocationErrors, validateProjectRobotInvocations } from "../robotCommands";
 import { activeRoutine } from "../project/routines";
 import { orderedWaypointSampleIndices } from "../planners/waypointSamples";
-import type { BordeauxProject, CommandInvocation, FollowMode, Marker, RobotCommandCatalog, PathDoc, RoutineFallbackNode, RoutineNode, TrajectorySample } from "../types";
+import { markerInvocations, type PathLoopUntil } from "../markerCommands";
+import type { BordeauxProject, CommandGroup, CommandInvocation, FollowMode, Marker, RobotCommandCatalog, PathDoc, RoutineFallbackNode, RoutineNode, TrajectorySample } from "../types";
 
 const MAX_SAMPLE_COUNT = 100_000;
 const MAX_EVENT_COUNT = 2_000;
@@ -24,6 +25,10 @@ export interface RobotTrajectoryEvent {
   repeatEveryS?: number;
   endTimeS?: number;
   conditionId?: string;
+  /** Present only when the command loops: restart on finish until this limit, then cancel. */
+  loop?: PathLoopUntil;
+  /** Present only for a command in a group; records of one group share `id` and are ordered by `order`. */
+  group?: { id: string; mode: CommandGroup["mode"]; order: number };
 }
 
 export interface RobotTrajectoryPath {
@@ -177,6 +182,9 @@ function deployableRoutine(project: BordeauxProject, pathIds: Set<string>): Robo
       if (node.type === "repeat" || node.type === "end" || ("ends" in node && node.ends !== undefined)) {
         throw new Error(`Routine step ${node.id} uses local repeat/end/ending conditions; robot execution support is not available yet`);
       }
+      // Groups and loops run only from the runtime routine file (.bdr), never this trajectory document.
+      if (node.type === "group") throw new Error(`Routine group ${node.id} runs only from an exported runtime routine file`);
+      if (node.type === "function" && node.invocation?.loop) throw new Error(`Routine command ${node.id} loops; loops run only from an exported runtime routine file`);
       if ("outputBranch" in node && node.outputBranch !== undefined) {
         throw new Error(`Routine command ${node.id} branches on an output; robot execution support is not available yet`);
       }
@@ -225,7 +233,7 @@ function assertRoutineNodeCount(routine: RobotTrajectoryRoutine | null): void {
     if (count > MAX_ROUTINE_NODE_COUNT) {
       throw new Error(`Robot trajectory export exceeds ${MAX_ROUTINE_NODE_COUNT} routine nodes`);
     }
-    if (node.type === "repeat") pending.push(...node.nodes);
+    if (node.type === "repeat" || node.type === "group") pending.push(...node.nodes);
     if (node.type === "decision") pending.push(...node.then, ...node.else);
     if (node.type === "generatedTrajectory" && node.fallback.type === "branch") pending.push(...node.fallback.nodes);
   }
@@ -234,13 +242,17 @@ function assertRoutineNodeCount(routine: RobotTrajectoryRoutine | null): void {
 // Only actual inspected defaults are filled in; missing required values remain validation errors.
 function withArgumentDefaults(project: BordeauxProject, catalog: RobotCommandCatalog): BordeauxProject {
   const commands = new Map(catalog.commands.map((command) => [command.id, command]));
-  const markerWithDefaults = (marker: Marker): Marker => {
-    const command = marker.invocation && commands.get(marker.invocation.commandId);
-    if (!marker.invocation || !command) return marker;
+  const invocationWithDefaults = (invocation: CommandInvocation): CommandInvocation => {
+    const command = commands.get(invocation.commandId);
+    if (!command) return invocation;
     const defaults = Object.fromEntries(command.parameters
       .filter((parameter) => parameter.role === "argument" && parameter.defaultValue !== undefined)
       .map((parameter) => [parameter.name, parameter.defaultValue!]));
-    return { ...marker, invocation: { ...marker.invocation, arguments: { ...defaults, ...marker.invocation.arguments } } };
+    return { ...invocation, arguments: { ...defaults, ...invocation.arguments } };
+  };
+  const markerWithDefaults = (marker: Marker): Marker => {
+    if (marker.commandGroup) return { ...marker, commandGroup: { ...marker.commandGroup, commands: marker.commandGroup.commands.map(invocationWithDefaults) } };
+    return marker.invocation ? { ...marker, invocation: invocationWithDefaults(marker.invocation) } : marker;
   };
   return { ...project, paths: project.paths.map((path) => ({ ...path, markers: path.markers.map(markerWithDefaults) })) };
 }
@@ -248,7 +260,7 @@ function withArgumentDefaults(project: BordeauxProject, catalog: RobotCommandCat
 function projectForStaticPlanning(project: BordeauxProject): BordeauxProject {
   const staticNodes = (nodes: RoutineNode[]): RoutineNode[] => nodes.flatMap((node) => {
     if (node.type === "generatedTrajectory") return node.fallback.type === "branch" ? staticNodes(node.fallback.nodes) : [];
-    if (node.type === "repeat") return staticNodes(node.nodes);
+    if (node.type === "repeat" || node.type === "group") return staticNodes(node.nodes);
     if (node.type === "end") return [];
     if (node.type === "decision") return [{ ...node, then: staticNodes(node.then), else: staticNodes(node.else) }];
     return [node];
@@ -280,7 +292,7 @@ export function buildRobotTrajectory(
   }
   let eventCount = 0;
   for (const path of sourcePaths) {
-    eventCount += path.markers.reduce((count, marker) => count + (marker.invocation ? 1 : 0), 0);
+    eventCount += path.markers.reduce((count, marker) => count + markerInvocations(marker).length, 0);
     if (eventCount > MAX_EVENT_COUNT) throw new Error(`Robot trajectory export exceeds ${MAX_EVENT_COUNT} events`);
   }
   const routine = deployableRoutine(project, new Set(sourcePaths.map((path) => path.id)));
@@ -297,12 +309,12 @@ export function buildRobotTrajectory(
     paths: sourcePaths.map((path) => ({
       id: path.id,
       name: path.name,
-      events: path.markers.flatMap((marker) => marker.invocation ? [{
+      events: path.markers.flatMap((marker) => markerInvocations(marker).map((invocation) => ({
         eventId: marker.id,
         name: marker.name,
-        invocation: marker.invocation,
+        invocation,
         schedule: marker.schedule,
-      }] : []),
+      }))),
     })),
   };
   assertJsonNestingDepth(preflightDocument);
@@ -320,13 +332,22 @@ export function buildRobotTrajectory(
     // Planner markers keep authored order; applied optimizations are validated marker-by-marker.
     const sourceMarkers = sourcePaths[pathIndex].markers;
     const events = path.markers.flatMap((marker, markerIndex) => {
-      const { invocation, schedule } = sourceMarkers[markerIndex];
-      if (!invocation) return [];
+      const source = sourceMarkers[markerIndex], { schedule, commandGroup } = source;
+      const invocations = markerInvocations(source);
+      if (!invocations.length) return [];
       if (schedule?.endTimeS !== undefined && schedule.endTimeS < marker.timeS) {
         throw new Error(`Event ${marker.name} ends before it starts`);
       }
-      return [{
-        eventId: marker.id,
+      // In a sequence, a command that loops until the path ends never finishes before it, so later commands could never start.
+      if (commandGroup?.mode === "sequential") {
+        const blocking = invocations.findIndex((invocation) => invocation.loop?.until?.kind === "pathEnd");
+        if (blocking >= 0 && blocking < invocations.length - 1) {
+          throw new Error(`Event ${marker.name}: command ${blocking + 1} loops until the path ends, so the commands after it in this sequence would never start. Move it last or run the group in parallel.`);
+        }
+      }
+      // A group becomes one event per command at the same time, each with a unique ID and the shared group ID.
+      return invocations.map((invocation, order): RobotTrajectoryEvent => ({
+        eventId: commandGroup ? `${marker.id}#${order}` : marker.id,
         name: marker.name,
         timeS: marker.timeS,
         fraction: marker.fraction,
@@ -337,8 +358,12 @@ export function buildRobotTrajectory(
         ...(schedule?.repeatEveryS === undefined ? {} : { repeatEveryS: schedule.repeatEveryS }),
         ...(schedule?.endTimeS === undefined ? {} : { endTimeS: schedule.endTimeS }),
         ...(schedule?.conditionId ? { conditionId: schedule.conditionId } : {}),
-      }];
-    }).sort((left, right) => left.timeS - right.timeS || (options.requireGeneratedBindings ? left.eventId.localeCompare(right.eventId) : 0));
+        ...(invocation.loop ? { loop: invocation.loop.until as PathLoopUntil } : {}),
+        ...(commandGroup ? { group: { id: marker.id, mode: commandGroup.mode, order } } : {}),
+      }));
+    }).sort((left, right) => left.timeS - right.timeS
+      || (options.requireGeneratedBindings ? (left.group?.id ?? left.eventId).localeCompare(right.group?.id ?? right.eventId) : 0)
+      || (left.group && right.group && left.group.id === right.group.id ? left.group.order - right.group.order : 0));
     paths.push({
       id: path.id,
       name: path.name,

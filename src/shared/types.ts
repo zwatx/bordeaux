@@ -197,6 +197,8 @@ export interface Marker {
     description: string;
   };
   group?: "sequential" | "parallel" | "deadline";
+  /** A group of commands started by this event. Exclusive with `invocation`. */
+  commandGroup?: CommandGroup;
   schedule?: EventSchedule;
   anchor?: "param" | "dist";
   d?: number;
@@ -225,6 +227,34 @@ export interface CommandInvocation {
   commandId: string;
   arguments: Record<string, CommandArgumentValue>;
   cancelOnPathEnd?: boolean;
+  /** Restart the command each time it finishes until the limit, then cancel the run in progress. */
+  loop?: CommandLoop;
+}
+
+/**
+ * When a looping command stops. Limits are measured from the command's first start.
+ * `distance` and `pathEnd` apply only to path commands; `output` (a condition on the command's own output,
+ * checked after each completed run) applies only to routine command steps.
+ */
+export type CommandLoopUntil =
+  | { kind: "time"; seconds: number }
+  | { kind: "distance"; meters: number }
+  | { kind: "pathEnd" }
+  | {
+    kind: "output";
+    output: string;
+    /** Snapshot of the selected output type; retained when the source is unavailable. */
+    schema?: RobotValueSchema;
+    operator: "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
+    value?: boolean | string | number;
+  };
+export interface CommandLoop { until: CommandLoopUntil }
+
+/** Commands started together by one path event: all at once, or one after another as each finishes. */
+export interface CommandGroup {
+  mode: "parallel" | "sequential";
+  /** 2–16 commands. Branching on outputs stays a routine feature. */
+  commands: CommandInvocation[];
 }
 
 export type RobotValueSchemaKind =
@@ -566,6 +596,17 @@ export interface RoutineRepeatNode {
   nodes: RoutineNode[];
 }
 export interface RoutineEndNode { id: string; type: "end"; scope: "routine" | "repeat" }
+/**
+ * Steps run together (parallel: the group finishes when every child finishes) or in order (sequential).
+ * Children are command steps without output branches, waits, and nested groups.
+ */
+export interface RoutineGroupNode {
+  id: string;
+  type: "group";
+  mode: "parallel" | "sequential";
+  title?: string;
+  nodes: RoutineNode[];
+}
 
 export interface RoutineFunctionNode {
   id: string;
@@ -626,7 +667,7 @@ export interface RoutineGeneratedTrajectoryNode {
     | { type: "branch"; nodes: RoutineFallbackNode[] };
 }
 
-export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode | RoutineRepeatNode | RoutineEndNode;
+export type RoutineNode = RoutineFunctionNode | RoutinePathNode | RoutineDecisionNode | RoutineBuiltInNode | RoutineGeneratedTrajectoryNode | RoutineRepeatNode | RoutineEndNode | RoutineGroupNode;
 
 export interface AutonomousRoutine {
   /** Stable project-local identity. */

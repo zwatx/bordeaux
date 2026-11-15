@@ -7,6 +7,7 @@ import { densifyRobotSamples } from "./robotSamples";
 import { portableFileStem } from "../portableFileName";
 import { robotSchemaValueError } from "../robotCommands";
 import { buildModuleForces, type ModuleForcesN } from "./moduleForces";
+import { MAX_LOOP_SECONDS, MIN_LOOP_SECONDS, markerInvocations, markerUsesEventExtension } from "../markerCommands";
 
 export interface BinarySelection { kind: BinaryKind; id: string }
 export interface BdxParameterType { niType: string; choices?: string[] }
@@ -24,6 +25,17 @@ const count = (value: number, min: number, max: number, label: string) => { boun
 const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 const sampleFields: Array<keyof TrajectorySample> = ["t", "s", "f", "x", "y", "headingRad", "velocityMps", "accelerationMps2", "angularVelocityRadps", "curvatureInvM"];
 const DYNAMIC_WRAPPER_PROTOCOL = "bordeaux-dynamic-wrappers/1";
+// BDX 1.2 event extension codes.
+const LOOP_KINDS: Partial<Record<string, number>> = { time: 1, distance: 2, pathEnd: 3 };
+const GROUP_MODES = { parallel: 1, sequential: 2 } as const;
+
+/** Planned path distance at a time, interpolated between samples. */
+function distanceAtTime(samples: readonly TrajectorySample[], time: number): number {
+  const after = samples.findIndex((sample) => sample.t >= time);
+  if (after <= 0) return after === 0 ? samples[0].s : samples.at(-1)!.s;
+  const before = samples[after - 1], next = samples[after];
+  return next.t === before.t ? next.s : before.s + (next.s - before.s) * (time - before.t) / (next.t - before.t);
+}
 
 // Inspection paths are portable Windows or POSIX paths; never derive identity from labels.
 const commandBasename = (command: RobotCommandDescriptor) => command.labviewConnector?.file.split(/[\\/]/).at(-1) ?? "";
@@ -85,10 +97,19 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     if (marker.group && marker.group !== "sequential") throw new Error(`Event ${marker.name}: ${marker.group} groups are not supported by standalone BDX`);
     if (marker.schedule?.trigger && marker.schedule.trigger !== "time") throw new Error(`Event ${marker.name}: only time-triggered markers are supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
     if (marker.schedule?.conditionId) throw new Error(`Event ${marker.name}: conditional markers are not supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
-    if (marker.invocation?.cancelOnPathEnd) throw new Error(`Event ${marker.name}: CancelOnPathEnd must be false; automatic command cancellation is not supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
-    if (marker.invocation && !commands.has(marker.invocation.commandId)) commands.set(marker.invocation.commandId, resolveCommand(bindings.catalog, marker.invocation.commandId, marker.name));
-    if (marker.invocation && !bindings.parameterTypes[marker.invocation.commandId]) throw new Error(`Command ${marker.invocation.commandId} has no saved NI parameter type evidence. Inspect the linked LabVIEW project before exporting BDX.`);
+    const invocations = markerInvocations(marker);
+    // A repeat would restart a group or loop on a fixed interval on top of its own restarts; keep the two schedules apart.
+    if (markerUsesEventExtension(marker) && marker.schedule?.repeatEveryS !== undefined) {
+      throw new Error(`Event ${marker.name}: a ${marker.commandGroup ? "command group" : "looping command"} cannot also repeat on a schedule. Turn off Repeat command.`);
+    }
+    for (const invocation of invocations) {
+      if (invocation.cancelOnPathEnd) throw new Error(`Event ${marker.name}: CancelOnPathEnd must be false; automatic command cancellation is not supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
+      if (invocation.loop && !LOOP_KINDS[invocation.loop.until.kind]) throw new Error(`Event ${marker.name}: loop conditions are routine-only; loop a path command until a time, a distance, or the path end`);
+      if (!commands.has(invocation.commandId)) commands.set(invocation.commandId, resolveCommand(bindings.catalog, invocation.commandId, marker.name));
+      if (!bindings.parameterTypes[invocation.commandId]) throw new Error(`Command ${invocation.commandId} has no saved NI parameter type evidence. Inspect the linked LabVIEW project before exporting BDX.`);
+    }
   }
+  const extended = selected.markers.some(markerUsesEventExtension);
   // Empty wire condition IDs mean unconditional; generic authoring validation uses absence.
   selected.markers = selected.markers.map((marker) => {
     if (marker.schedule?.conditionId !== "") return marker;
@@ -167,9 +188,20 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
       const argument = encodeBdxArgument(type, value);
       output.text(key, "Argument key"); output.integer(argument.tag, 2); output.integer(0, 2); output.integer(argument.bytes.length, 4); output.bytes(argument.bytes);
     }
+    if (extended) {
+      const loop = event.loop, limit = loop?.kind === "time" ? loop.seconds : loop?.kind === "distance" ? loop.meters : 0;
+      if (loop?.kind === "time") bounded(limit, MIN_LOOP_SECONDS, MAX_LOOP_SECONDS, `Event ${event.name}: loop time`);
+      if (loop?.kind === "distance") {
+        // A limit the robot can never travel would leave the command looping after the path ends.
+        const remaining = path.totalDistanceM - distanceAtTime(path.samples, event.timeS);
+        if (!(limit > 0) || limit > remaining + 1e-6) throw new Error(`Event ${event.name}: loop distance must be greater than zero and at most the ${remaining.toFixed(2)} m left on the path`);
+      }
+      output.integer(loop ? LOOP_KINDS[loop.kind]! : 0, 1); output.integer(event.group ? GROUP_MODES[event.group.mode] : 0, 1);
+      output.integer(event.group?.order ?? 0, 2); output.dbl(limit); output.text(event.group?.id ?? "", "Group ID", 256, true);
+    }
     payload.section(output);
   }
-  const bytes = encodeBinaryEnvelope(payload.finish());
+  const bytes = encodeBinaryEnvelope(payload.finish(), extended ? 2 : 1);
   return { bytes, document, travelHeadings, moduleForcesN, sha256: createHash("sha256").update(bytes).digest("hex"), name: selected.name,
     fileName: binaryFileName(selected.name), pathCount: 1, eventCount: path.events.length, sampleCount: path.samples.length };
 }

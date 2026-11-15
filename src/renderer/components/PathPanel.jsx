@@ -189,8 +189,12 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     const t = timed && Number.isFinite(timed.timeS) ? timed.timeS : timeAt(featureFraction(marker, derived));
     title = commandLabel(marker, catalog);
     sub = t != null ? fmt(t) + ' s' : null;
+    const group = marker.commandGroup;
     body = h(React.Fragment, null,
-      catalog
+      // A group's commands are edited in the inspector; the band summarizes them.
+      group ? h(Row, { label: group.commands.length + (group.mode === 'parallel' ? ' parallel' : ' sequential') + ' commands' },
+        h('button', { type: 'button', className: 'pp-text-btn', onClick: onMore }, 'Edit'))
+      : catalog
         // The second Escape, from the closed trigger, clears the selection and leaves focus on this command's chip.
         ? h('div', { className: 'pp-full', onKeyDown: (event) => escapeCommandTrigger(event, actions.escapeSelection,
             () => [event.currentTarget.closest('.path-band')?.querySelector('.pt-chip[data-selection="em:' + i + '"]'), heading.current]) },
@@ -203,13 +207,13 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
               const tag = marker.actionIntent?.semanticTag;
               actions.setMarker(i, {
                 cmd: command ? command.id : 'none',
-                invocation: command ? { commandId: command.id, arguments: commandArguments(command) } : undefined,
+                invocation: command ? { commandId: command.id, arguments: commandArguments(command), ...(marker.invocation?.loop ? { loop: marker.invocation.loop } : {}) } : undefined,
                 actionIntent: command && tag && (command.semanticTags || []).includes(tag) ? undefined : marker.actionIntent,
               });
             } }))
         : h(Row, { label: 'Command' }, h('button', { type: 'button', className: 'pp-text-btn', disabled: !robotProject?.link || robotProject.status === 'loading', onClick: () => robotProject.link() },
             robotProject?.status === 'loading' ? 'Loading…' : 'Link robot code…')),
-      inputs > 0 && h(Row, { label: inputs === 1 ? '1 input' : inputs + ' inputs' }, h('button', { type: 'button', className: 'pp-text-btn', onClick: onMore }, 'Edit')),
+      !group && inputs > 0 && h(Row, { label: inputs === 1 ? '1 input' : inputs + ' inputs' }, h('button', { type: 'button', className: 'pp-text-btn', onClick: onMore }, 'Edit')),
       h('div', { className: 'pp-row pp-text-row' },
         h('label', { className: 'pp-row-label', htmlFor: 'band-marker-name' }, 'Name'),
         h(DraftText, { id: 'band-marker-name', className: 'pp-text', value: marker.name, owner: doc.id + ':' + (marker.id || i), autoComplete: 'off', spellCheck: false, onCommit: (value) => actions.setMarker(i, { name: value }) })),

@@ -9,6 +9,7 @@ import type {
   ValidationIssue,
 } from "./types";
 import { activeRoutine } from "./project/routines";
+import { markerInvocations } from "./markerCommands";
 
 const MAX_SCHEMA_DEPTH = 24;
 const MAX_ARRAY_ITEMS = 1_024;
@@ -247,30 +248,35 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
     if (marker.schedule?.conditionId !== undefined) {
       validateCondition(marker.schedule.conditionId, `${base}.schedule.conditionId`, "Event schedule");
     }
-    if (marker.actionIntent && !marker.invocation) {
+    const invocations = markerInvocations(marker);
+    if (marker.actionIntent && !invocations.length) {
       issues.push({ path: `${base}.actionIntent`, message: `Action ${marker.actionIntent.semanticTag} is still an intent; bind it to a registered robot command before export`, severity: "error" });
       return;
     }
-    if (!marker.invocation && marker.cmd && marker.cmd !== "none") {
+    if (!invocations.length && marker.cmd && marker.cmd !== "none") {
       issues.push({ path: `${base}.cmd`, message: `Legacy command ${marker.cmd} must be replaced with a registered robot invocation before export`, severity: "error" });
       return;
     }
-    if (!marker.invocation) return;
-    const invocationBase = `${base}.invocation`;
-    const command = commands.get(marker.invocation.commandId);
-    if (!command) {
-      issues.push({ path: `${invocationBase}.commandId`, message: `Command ${marker.invocation.commandId} is not in the linked generated catalog`, severity: "error" });
-      return;
-    }
-    if (marker.actionIntent && !command.semanticTags?.includes(marker.actionIntent.semanticTag)) {
+    // A grouped event validates every command it starts; an action intent is met by any one of them.
+    const resolved = invocations.map((invocation, index) => {
+      const invocationBase = marker.commandGroup ? `${base}.commandGroup.commands[${index}]` : `${base}.invocation`;
+      const command = commands.get(invocation.commandId);
+      if (!command) {
+        issues.push({ path: `${invocationBase}.commandId`, message: `Command ${invocation.commandId} is not in the linked generated catalog`, severity: "error" });
+        return null;
+      }
+      for (const message of commandErrors(invocation, command)) {
+        issues.push({ path: invocationBase, message, severity: "error" });
+      }
+      return command;
+    });
+    if (marker.actionIntent && resolved.every(Boolean) && !resolved.some((command) => command!.semanticTags?.includes(marker.actionIntent!.semanticTag))) {
+      const labels = resolved.map((command) => command!.label).join(", ");
       issues.push({
         path: `${base}.actionIntent`,
-        message: `Command ${command.label} does not advertise the required ${marker.actionIntent.semanticTag} capability`,
+        message: `Command ${labels} does not advertise the required ${marker.actionIntent.semanticTag} capability`,
         severity: "error",
       });
-    }
-    for (const message of commandErrors(marker.invocation, command)) {
-      issues.push({ path: invocationBase, message, severity: "error" });
     }
   }));
   // This is the single export boundary for routine nodes. Loading deliberately keeps
@@ -338,6 +344,13 @@ export function validateProjectRobotInvocations(project: BordeauxProject, catalo
       const nodeId = typeof node.id === "string" && node.id ? node.id : "unknown";
       if (node.type === "repeat" || node.type === "end" || node.ends !== undefined) {
         issues.push({ path: base, message: "Routine repeats, end steps, and ending conditions are local authoring and preview only; robot execution support is not available yet", severity: "error" });
+      }
+      if (node.type === "group") {
+        issues.push({ path: base, message: "Routine groups run only from an exported runtime routine file", severity: "error" });
+        validateRoutineNodes(node.nodes, `${base}.nodes`, fallback, depth + 1); return;
+      }
+      if (node.type === "function" && node.invocation && typeof node.invocation === "object" && (node.invocation as { loop?: unknown }).loop !== undefined) {
+        issues.push({ path: `${base}.invocation.loop`, message: "Command loops run only from an exported runtime routine file", severity: "error" });
       }
       if (node.type === "repeat") { validateRoutineNodes(node.nodes, `${base}.nodes`, fallback, depth + 1); return; }
       if (node.type === "end") return;

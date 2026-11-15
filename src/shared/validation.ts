@@ -4,6 +4,8 @@ import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_H, FIELD_W } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
+import { routineGroupChildError } from "./routineChildren";
+import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
 
 type RecordValue = Record<string, unknown>;
 
@@ -183,6 +185,70 @@ function validateCommandArgumentValue(issues: ValidationIssue[], value: unknown,
   issues.push(issue(path, "Command arguments must contain only JSON-compatible values"));
 }
 
+/**
+ * A command loop's limit. Path events loop until a time, a measured distance, or the path end; routine command
+ * steps loop until a time or a condition on the command's own output.
+ */
+export function validateCommandLoop(issues: ValidationIssue[], value: unknown, path: string, scope: "path" | "routine"): void {
+  if (!isRecord(value) || !isRecord(value.until)) {
+    issues.push(issue(path, "Command loop needs an until limit"));
+    return;
+  }
+  const until = value.until, base = `${path}.until`;
+  if (until.kind === "time") {
+    if (!finite(until.seconds) || until.seconds < MIN_LOOP_SECONDS || until.seconds > MAX_LOOP_SECONDS) {
+      issues.push(issue(`${base}.seconds`, `Loop time must be from ${MIN_LOOP_SECONDS} to ${MAX_LOOP_SECONDS} seconds`));
+    }
+  } else if (until.kind === "distance" || until.kind === "pathEnd") {
+    if (scope !== "path") issues.push(issue(`${base}.kind`, "Distance and path end loops apply only to path commands"));
+    else if (until.kind === "distance" && (!finite(until.meters) || until.meters <= 0)) issues.push(issue(`${base}.meters`, "Loop distance must be greater than zero"));
+  } else if (until.kind === "output") {
+    if (scope !== "routine") {
+      issues.push(issue(`${base}.kind`, "Loop conditions are routine-only; loop a path command until a time, a distance, or the path end"));
+      return;
+    }
+    if (typeof until.output !== "string" || !until.output.trim()) issues.push(issue(`${base}.output`, "Loop condition needs a command output"));
+    // The producer is the looping command itself, so only the comparison needs checking.
+    validateRoutineCondition(issues, { ...until, source: "output", nodeId: "" }, base, true);
+  } else {
+    issues.push(issue(`${base}.kind`, "Loop limit must be a time, a distance, the path end, or an output condition"));
+  }
+}
+
+function validateMarkerInvocation(issues: ValidationIssue[], invocation: unknown, path: string): void {
+  if (!isRecord(invocation)) {
+    issues.push(issue(path, "Command invocation must be an object"));
+    return;
+  }
+  if (typeof invocation.commandId !== "string" || !invocation.commandId.trim()) {
+    issues.push(issue(`${path}.commandId`, "Command ID is required"));
+  }
+  if (!isRecord(invocation.arguments)) {
+    issues.push(issue(`${path}.arguments`, "Command arguments must be an object"));
+  } else {
+    validateCommandArgumentValue(issues, invocation.arguments, `${path}.arguments`);
+  }
+  if (invocation.cancelOnPathEnd !== undefined && typeof invocation.cancelOnPathEnd !== "boolean") {
+    issues.push(issue(`${path}.cancelOnPathEnd`, "Cancel on path end must be true or false"));
+  }
+  if (invocation.loop !== undefined) validateCommandLoop(issues, invocation.loop, `${path}.loop`, "path");
+}
+
+function validateMarkerCommandGroup(issues: ValidationIssue[], marker: RecordValue, path: string): void {
+  const group = marker.commandGroup;
+  if (!isRecord(group)) {
+    issues.push(issue(path, "Command group must be an object"));
+    return;
+  }
+  if (marker.invocation !== undefined) issues.push(issue(path, "An event runs either one command or a command group, not both"));
+  if (group.mode !== "parallel" && group.mode !== "sequential") issues.push(issue(`${path}.mode`, "Command group must run in parallel or in sequence"));
+  if (!Array.isArray(group.commands) || group.commands.length < MIN_GROUP_COMMANDS || group.commands.length > MAX_GROUP_COMMANDS) {
+    issues.push(issue(`${path}.commands`, `A command group needs ${MIN_GROUP_COMMANDS} to ${MAX_GROUP_COMMANDS} commands`));
+    return;
+  }
+  group.commands.forEach((command, index) => validateMarkerInvocation(issues, command, `${path}.commands[${index}]`));
+}
+
 function validateRoutineCondition(issues: ValidationIssue[], value: unknown, path: string, allowOutput: boolean) {
   if (!isRecord(value)) { issues.push(issue(path, "Routine condition must be an object")); return; }
   if (value.source === "condition") {
@@ -266,6 +332,16 @@ function validateRoutineNodes(
       validateRoutineNodes(issues, node.nodes, `${base}.nodes`, pathIds, nodeIds, state, depth + 1);
       continue;
     }
+    if (node.type === "group") {
+      if (node.mode !== "parallel" && node.mode !== "sequential") issues.push(issue(`${base}.mode`, "Group must run in parallel or in sequence"));
+      if (node.title !== undefined && (typeof node.title !== "string" || node.title.length > 256)) issues.push(issue(`${base}.title`, "Group name must be text of at most 256 characters"));
+      if (Array.isArray(node.nodes)) node.nodes.forEach((child, childIndex) => {
+        const error = routineGroupChildError(child);
+        if (error) issues.push(issue(`${base}.nodes[${childIndex}]`, error));
+      });
+      validateRoutineNodes(issues, node.nodes, `${base}.nodes`, pathIds, nodeIds, state, depth + 1);
+      continue;
+    }
     if (node.type === "end") {
       if (typeof node.scope !== "string" || !["routine", "repeat"].includes(node.scope)) issues.push(issue(`${base}.scope`, "End scope must be routine or repeat"));
       continue;
@@ -306,6 +382,10 @@ function validateRoutineNodes(
       return;
     }
     if (!["command", "terminate", "sequence", "generate", "velocity"].includes(String(node.cat))) issues.push(issue(`${base}.cat`, "Routine function category is invalid"));
+    if (node.cat === "command" && isRecord(node.invocation) && node.invocation.loop !== undefined) {
+      validateCommandLoop(issues, node.invocation.loop, `${base}.invocation.loop`, "routine");
+      if (node.outputBranch !== undefined) issues.push(issue(`${base}.invocation.loop`, "A looping command cannot branch on its output"));
+    }
     validateOptionalFinite(issues, node.scale, `${base}.scale`, "Velocity scale", { nonnegative: true });
     if (node.outputBranch !== undefined) {
       const branch = node.outputBranch;
@@ -655,23 +735,8 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
             if (typeof marker.schedule.conditionId !== "undefined" && (typeof marker.schedule.conditionId !== "string" || !/^[A-Za-z0-9_.:#()$,-]{1,256}$/.test(marker.schedule.conditionId))) issues.push(issue(`${markerBase}.schedule.conditionId`, "Condition ID is invalid"));
           }
         }
-        if (marker.invocation !== undefined) {
-          if (!isRecord(marker.invocation)) {
-            issues.push(issue(`${markerBase}.invocation`, "Command invocation must be an object"));
-          } else {
-            if (typeof marker.invocation.commandId !== "string" || !marker.invocation.commandId.trim()) {
-              issues.push(issue(`${markerBase}.invocation.commandId`, "Command ID is required"));
-            }
-            if (!isRecord(marker.invocation.arguments)) {
-              issues.push(issue(`${markerBase}.invocation.arguments`, "Command arguments must be an object"));
-            } else {
-              validateCommandArgumentValue(issues, marker.invocation.arguments, `${markerBase}.invocation.arguments`);
-            }
-            if (marker.invocation.cancelOnPathEnd !== undefined && typeof marker.invocation.cancelOnPathEnd !== "boolean") {
-              issues.push(issue(`${markerBase}.invocation.cancelOnPathEnd`, "Cancel on path end must be true or false"));
-            }
-          }
-        }
+        if (marker.invocation !== undefined) validateMarkerInvocation(issues, marker.invocation, `${markerBase}.invocation`);
+        if (marker.commandGroup !== undefined) validateMarkerCommandGroup(issues, marker, `${markerBase}.commandGroup`);
         if (marker.actionIntent !== undefined) {
           if (!isRecord(marker.actionIntent)) {
             issues.push(issue(`${markerBase}.actionIntent`, "Action intent must be an object"));

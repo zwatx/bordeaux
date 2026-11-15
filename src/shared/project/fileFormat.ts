@@ -36,7 +36,7 @@ function hasNumericRoutineReference(nodes: unknown, depth = 0): boolean {
   return nodes.some((node) => {
     if (!isRecord(node)) return false;
     if (node.type === "path") return typeof node.ref === "number";
-    if (node.type === "repeat") return hasNumericRoutineReference(node.nodes, depth + 1);
+    if (node.type === "repeat" || node.type === "group") return hasNumericRoutineReference(node.nodes, depth + 1);
     if (node.type === "decision") {
       return hasNumericRoutineReference(node.then, depth + 1) || hasNumericRoutineReference(node.else, depth + 1);
     }

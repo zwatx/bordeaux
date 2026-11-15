@@ -41,7 +41,7 @@ function normalizeNodes(nodes: unknown, paths: readonly unknown[], depth = 0): u
         const path = paths[node.ref];
         node.ref = isRecord(path) ? path.id ?? "" : "";
       }
-    } else if (node.type === "repeat") {
+    } else if (node.type === "repeat" || node.type === "group") {
       node.nodes = normalizeNodes(node.nodes, paths, depth + 1);
     } else if (node.type === "decision") {
       node.then = normalizeNodes(node.then, paths, depth + 1);

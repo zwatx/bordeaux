@@ -19,7 +19,7 @@ const MODAL = 'dialog:modal,[role="dialog"][aria-modal="true"]';
  * owner as intents with stable IDs; a replacement says what it removes (or that it keeps the routes) before it is chosen.
  * Each route block is the editor a flow lane header opens, and carries the same preview choice as the lanes.
  */
-export function CommandBranches({ node, command, acq }) {
+export function CommandBranches({ node, command, acq, blocked }) {
   const sectionRef = React.useRef(null);
   // The route being edited: set by focus within its block, including focus sent from its lane header in the flow.
   const [openRoute, setOpenRoute] = React.useState(null);
@@ -46,6 +46,10 @@ export function CommandBranches({ node, command, acq }) {
   const numeric = branch && !['boolean', 'enum'].includes(branch.schema.kind);
   const previewing = branch && AUTO.selectedBranch(node, acq.outcomes)?.id;
   const patchRoute = (routeId, patch) => edit({ kind: 'patchRoute', routeId, patch });
+  // Groups and loops never branch; a saved branch stays editable so it can be removed.
+  if (blocked && !branch) return h('section', { ref: sectionRef, className: 'rt-insp-sec command-branches', 'aria-label': 'After this command' },
+    h('h3', { className: 'cgroup-h' }, 'After this command'),
+    h('p', { className: 'seg-hint' }, blocked));
   return h('section', { ref: sectionRef, className: 'rt-insp-sec command-branches', 'aria-label': 'After this command' },
     h('h3', { className: 'cgroup-h' }, 'After this command'),
     h(Dropdown, { id: 'command-branch-output', label: 'Branch on output', value: branch?.output || '',

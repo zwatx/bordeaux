@@ -53,11 +53,12 @@ export class BinaryWriter {
   section(value: BinaryWriter): void { this.integer(value.length, 4); this.bytes(value.finish()); }
   finish(): Buffer { return Buffer.from(this.buffer.subarray(0, this.length)); }
 }
-export function encodeBinaryEnvelope(payload: Uint8Array): Uint8Array {
+/** Minor 1 is the default layout; minor 2 adds the event loop/group extension and is written only when used. */
+export function encodeBinaryEnvelope(payload: Uint8Array, minor: 1 | 2 = 1): Uint8Array {
   if (payload.length > MAX_BINARY_PAYLOAD_BYTES) throw new Error("BDX payload exceeds 16 MiB");
   const header = Buffer.alloc(32);
   header.write("BDXLV1\r\n", 0, "ascii"); header.writeUInt16BE(1, 8); header.writeUInt32BE(32, 12);
-  header.writeUInt16BE(1, 10);
+  header.writeUInt16BE(minor, 10);
   header.writeUInt32BE(payload.length, 16); header.writeUInt32BE(crc32(payload), 20);
   return Buffer.concat([header, payload]);
 }

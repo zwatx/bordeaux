@@ -1,4 +1,4 @@
-import { routineChildLists as childLists } from "../../shared/routineChildren";
+import { routineChildLists as childLists, routineGroupChildError } from "../../shared/routineChildren";
 import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
 import { robotParameterValueError, robotSchemaValueError } from "../../shared/robotCommands";
 import { PM } from "./pathMath";
@@ -20,6 +20,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     { id: 'path', type: 'path', label: 'Path', description: 'Follow a planned trajectory', icon: 'route', color: 'var(--accent)' },
     { id: 'command', type: 'function', cat: 'command', label: 'Command', description: 'Run a generated robot command between paths', icon: 'bolt', color: '#4fbf78' },
     { id: 'repeat', type: 'repeat', label: 'Repeat', icon: 'repeat' },
+    { id: 'group', type: 'group', label: 'Group', icon: 'parallel' },
     { id: 'end', type: 'end', cat: 'routine', label: 'End routine', icon: 'stop' },
     { id: 'wait', type: 'builtin', cat: 'wait', label: 'Wait', description: 'Pause the routine before its next step', icon: 'pause', color: '#cf962f' },
   ];
@@ -30,8 +31,47 @@ import { createRoutineNodeId } from "../../shared/project/ids";
       { id: 'else', label: node.elseLabel || 'False', nodes: node.else || [], operator: 'eq', value: false },
     ];
     if (node.type === "repeat") return [{ id: "body", label: "Repeat", nodes: node.nodes || [] }];
+    if (node.type === "group") return [{ id: "body", label: groupLabel(node.mode), nodes: node.nodes || [] }];
     if (node.type === "generatedTrajectory" && node.fallback?.type === "branch") return [{ id: "fallback", label: "Fallback", nodes: node.fallback.nodes || [], readOnly: true }];
     return node.outputBranch?.routes || [];
+  }
+
+  const groupLabel = (mode) => mode === 'sequential' ? 'Sequential group' : 'Parallel group';
+
+  /** A routine command's loop in words: "for 5.00 s" or "until Ready = true". */
+  function loopSummary(loop, command) {
+    const until = loop?.until;
+    if (!until) return '';
+    if (until.kind === 'time') return 'for ' + (Number.isFinite(until.seconds) ? until.seconds.toFixed(2) + ' s' : '(choose a time)');
+    if (until.kind === 'output') {
+      const output = branchOutputs(command).find((item) => item.name === until.output);
+      if (!until.output) return 'until a result (choose one)';
+      const name = output?.label || until.output;
+      return until.value === undefined ? 'until ' + name + ' (choose a value)' : 'until ' + name + ' ' + routeSummary({ operator: until.operator, value: until.value });
+    }
+    return 'until a path limit';
+  }
+
+  /** How well a group's preview time is known: one untimed step leaves the whole group untimed. */
+  function groupTiming(node) {
+    let timing = 'exact';
+    walk(node?.nodes, (child) => {
+      if (child.type !== 'function') return;
+      const until = child.invocation?.loop?.until;
+      if (child.ends?.timeoutS !== undefined && !until) { if (timing === 'exact') timing = 'upperBound'; } else timing = 'unknown';
+    });
+    return timing;
+  }
+
+  /** The loop a replacement command can keep: a time loop always; an output condition only on an equal output type. */
+  function carryLoop(loop, command) {
+    const until = loop?.until;
+    if (!until) return undefined;
+    if (until.kind === 'time') return { until: { ...until } };
+    if (until.kind !== 'output' || !command) return undefined;
+    const output = branchOutputs(command).find((item) => item.name === until.output);
+    if (!output || !until.schema || !robotValueSchemasEqual(output.schema, until.schema)) return undefined;
+    return until.value === undefined || !robotParameterValueError(until.value, { ...output, schema: until.schema }) ? { until: { ...until } } : undefined;
   }
 
   function selectedBranch(node, outcomes) {
@@ -171,6 +211,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     if (!node || typeof node !== 'object') return { deployable: false, legacy: false, label: 'Unknown step' };
     if ((node.type === 'function' && node.cat === 'command' || node.type === 'builtin' && node.builtinId === 'bordeaux.wait') && node.ends !== undefined) return { deployable: false, legacy: false, editable: true, label: node.type === 'builtin' ? 'Wait' : 'Command' };
     if (node.type === 'repeat' || node.type === 'end') return { deployable: false, legacy: false, editable: true, label: node.type === 'repeat' ? 'Repeat' : 'End' };
+    if (node.type === 'group') return { deployable: true, legacy: false, label: groupLabel(node.mode) };
     if (node.type === 'path' || node.type === 'decision') return { deployable: true, legacy: false };
     if (node.type === 'builtin' && node.builtinId === 'bordeaux.wait') return { deployable: true, legacy: false };
     if (node.type === 'generatedTrajectory') {
@@ -198,6 +239,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     if (!node || typeof node !== 'object') return 'Unknown step';
     if (node.type === 'repeat') return node.times === undefined ? 'Repeat until command result' : `Repeat ${node.times} times`;
     if (node.type === 'end') return node.scope === 'repeat' ? 'Exit repeat' : 'End routine';
+    if (node.type === 'group') return (typeof node.title === 'string' && node.title.trim()) || groupLabel(node.mode);
     if (node.type === 'path') { const p = paths && paths.find((path) => path.id === node.ref); return p ? p.name : node.ref ? 'Unavailable path' : 'Choose a path'; }
     if (node.type === 'decision') return node.cond || 'Choose condition';
     if (node.type === 'builtin') return node.builtinId === 'bordeaux.wait' ? 'Wait' : 'Unsupported built-in';
@@ -215,6 +257,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
   function newNode(type, cat, pathRef) {
     const id = createRoutineNodeId();
     if (type === 'repeat') return { id, type: 'repeat', times: 2, nodes: [] };
+    if (type === 'group') return { id, type: 'group', mode: cat === 'sequential' ? 'sequential' : 'parallel', nodes: [] };
     if (type === 'end') return { id, type: 'end', scope: cat === 'repeat' ? 'repeat' : 'routine' };
     if (type === 'path') return { id, type: 'path', ref: pathRef || '' };
     if (type === 'decision') return { id, type: 'decision', cond: '', thenLabel: 'Yes', elseLabel: 'No', then: [], else: [] };
@@ -333,9 +376,10 @@ import { createRoutineNodeId } from "../../shared/project/ids";
       for (const node of frame.nodes) {
         if (++authored > 100000 || !node || typeof node !== 'object' || typeof node.id !== 'string' || ids.has(node.id)) { invalid('Routine node budget or identity is invalid.'); return result; }
         ids.add(node.id);
-        if (!['path', 'decision', 'builtin', 'function', 'generatedTrajectory', 'repeat', 'end'].includes(node.type)
+        if (!['path', 'decision', 'builtin', 'function', 'generatedTrajectory', 'repeat', 'end', 'group'].includes(node.type)
           || (node.type === 'end' && node.scope !== 'routine' && node.scope !== 'repeat')
-          || (node.type === 'repeat' && !Array.isArray(node.nodes))
+          || ((node.type === 'repeat' || node.type === 'group') && !Array.isArray(node.nodes))
+          || (node.type === 'group' && node.nodes.some((child) => routineGroupChildError(child)))
           || (node.type === 'decision' && (!Array.isArray(node.then) || !Array.isArray(node.else)))
           || (node.outputBranch && !Array.isArray(node.outputBranch.routes))) { invalid('Routine child shape or type is invalid.'); return result; }
         if (node.type === 'path' && !pathsById.has(node.ref)) { invalid(`Referenced path ${node.ref || '(unselected)'} is unavailable.`); return result; }
@@ -346,17 +390,22 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     const plannedValues = plannedPaths?.values || plannedPaths;
     const derivedPaths = new Map(), flat = [];
     const frames = [{ kind: 'list', nodes: routine.nodes, index: 0, depth: 0, passStack: [] }];
+    let emitted = 0;
     const emit = (node, kind, passStack, extra = {}) => {
-      if (flat.length >= 2000) { result.truncated = true; result.stopReason = 'limit'; return false; }
-      flat.push({ node, nodeId: node.id, kind, occurrenceId: `occurrence-${flat.length + 1}`, passStack: passStack.map(pass => ({ ...pass })), ...extra });
+      if (emitted >= 2000) { result.truncated = true; result.stopReason = 'limit'; return false; }
+      emitted++;
+      flat.push({ node, nodeId: node.id, kind, occurrenceId: `occurrence-${emitted}`, passStack: passStack.map(pass => ({ ...pass })), ...extra });
       return true;
     };
+    // A group's bounds in the trace; they time its children and are not steps themselves.
+    const groupMark = (node, kind, passStack) => flat.push({ node, nodeId: node.id, kind, occurrenceId: `${node.id}:${kind}:${flat.length}`, passStack: passStack.map(pass => ({ ...pass })) });
     while (frames.length) {
       const frame = frames.at(-1);
       // Finishing a list consumes no expansion work and allows exactly-bound
       // naturally completed traces to remain complete.
       if (frame.kind === 'list' && frame.index >= frame.nodes.length) { frames.pop(); continue; }
       if (frame.kind === 'repeat' && frame.pass >= frame.passes) { frames.pop(); continue; }
+      if (frame.kind === 'groupEnd') { groupMark(frame.node, 'groupEnd', frame.passStack); frames.pop(); continue; }
       if (++result.workCount > 8000) { result.truncated = true; result.stopReason = 'limit'; break; }
       if (frame.depth > 64) { invalid('Routine nesting exceeds 64 levels.'); break; }
       if (frame.kind === 'repeat') {
@@ -367,6 +416,12 @@ import { createRoutineNodeId } from "../../shared/project/ids";
         continue;
       }
       const node = frame.nodes[frame.index++], passStack = frame.passStack;
+      if (node.type === 'group') {
+        groupMark(node, 'groupStart', passStack);
+        frames.push({ kind: 'groupEnd', node, depth: frame.depth, passStack });
+        frames.push({ kind: 'list', nodes: node.nodes, index: 0, depth: frame.depth + 1, passStack });
+        continue;
+      }
       if (node.type === 'repeat') {
         const requested = viewOptions.repeatPasses?.[node.id];
         const passes = node.until ? Math.max(1, Math.min(node.times ?? 50, Number.isInteger(requested) ? requested : 1)) : node.times;
@@ -390,9 +445,37 @@ import { createRoutineNodeId } from "../../shared/project/ids";
         if (route) frames.push({ kind: 'list', nodes: route.nodes || [], index: 0, depth: frame.depth + 1, passStack });
       }
     }
-    let t = 0, pIdx = 0, lastPose = null, previousPath = null;
+    let t = 0, pIdx = 0, lastPose = null, previousPath = null, exactS = 0, parallel = false;
     const continuityEdges = new Set();
+    // Open groups, innermost last. Each child of a parallel group starts at the group's start; the group ends with
+    // its latest child. A sequential group runs its children one after another.
+    const groups = [];
+    const closeGroup = () => {
+      const group = groups.pop();
+      if (group.mode === 'parallel') { t = group.end; exactS = group.exactEnd; }
+      const parent = groups.at(-1);
+      if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
+      result.groupSpans.push({ nodeId: group.node.id, occurrenceId: group.occurrenceId, passStack: group.passStack, mode: group.mode, t0: group.start, t1: t });
+    };
+    const startChild = () => {
+      const parent = groups.at(-1);
+      if (parent?.mode === 'parallel') { t = parent.start; exactS = parent.exactStart; }
+    };
+    const endChild = () => {
+      const parent = groups.at(-1);
+      if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
+    };
+    result.groupSpans = [];
     for (const it of flat) {
+      if (it.kind === 'groupStart') {
+        startChild();
+        const mode = it.node.mode === 'sequential' ? 'sequential' : 'parallel';
+        if (mode === 'parallel') parallel = true;
+        groups.push({ node: it.node, occurrenceId: it.occurrenceId, passStack: it.passStack, mode, start: t, end: t, exactStart: exactS, exactEnd: exactS });
+        continue;
+      }
+      if (it.kind === 'groupEnd') { if (groups.length) closeGroup(); continue; }
+      startChild();
       let dur = 0, timing = 'instant', extras = { pose: lastPose ? { ...lastPose, speed: 0 } : null };
       if (it.kind === 'path' || it.kind === 'gen') {
         const dp = derivePathNode(it.node, pathsById, robot, plannerId, plannedValues, derivedPaths, derivePath);
@@ -418,16 +501,26 @@ import { createRoutineNodeId } from "../../shared/project/ids";
         dur = Math.max(0, Number.isFinite(it.node.arguments?.durationS) ? it.node.arguments.durationS : 0);
         timing = it.node.ends?.endWhen ? 'upperBound' : 'exact';
       } else if (it.kind === 'event' || it.kind === 'dynamic') {
-        if (Number.isFinite(it.node.ends?.timeoutS)) { dur = it.node.ends.timeoutS; timing = 'upperBound'; }
+        const until = it.node.invocation?.loop?.until;
+        // A time loop runs at least its limit, then its last run finishes on its own: drawn as the limit, but its true
+        // length is unknown like any command's, so totals don't claim it.
+        if (until?.kind === 'time' && Number.isFinite(until.seconds) && until.seconds > 0) { dur = until.seconds; timing = 'unknown'; }
+        else if (Number.isFinite(it.node.ends?.timeoutS)) { dur = it.node.ends.timeoutS; timing = 'upperBound'; }
         else timing = 'unknown';
         if (it.kind === 'dynamic') extras.dynamic = true;
       }
-      if (timing === 'exact') result.duration.minS += dur;
-      if (timing === 'unknown') { result.duration.unknownCount++; result.duration.maxS = null; }
-      else if (result.duration.maxS !== null) result.duration.maxS += dur;
+      if (timing === 'exact') exactS += dur;
+      if (timing === 'unknown') result.duration.unknownCount++;
       if (timing === 'upperBound') result.duration.usesLimits = true;
       result.steps.push({ ...it, t0: t, t1: t + dur, dur, timing, ...extras }); t += dur;
+      endChild();
     }
+    // A truncated trace can stop inside a group.
+    while (groups.length) closeGroup();
+    result.duration.minS = exactS;
+    result.duration.maxS = result.duration.unknownCount ? null : t;
+    // Parallel children overlap; keep steps ordered by end time so time lookup stays a binary search.
+    if (parallel) result.steps = result.steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
     result.total = t; result.timedPlayable = !result.blocked && t > 0;
     return result;
   }
@@ -486,7 +579,7 @@ import { createRoutineNodeId } from "../../shared/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 
@@ -552,16 +645,17 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
   function branchCount(nodes) { let c = 0; walk(nodes || [], () => c++); return c; }
   const sameRef = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   function locate(routine, id) {
-    const stack = [{ nodes: routine?.nodes || [], listRef: { kind: 'root' }, parent: null, repeatIds: [], depth: 0, readOnly: false }];
+    const stack = [{ nodes: routine?.nodes || [], listRef: { kind: 'root' }, parent: null, repeatIds: [], groupIds: [], depth: 0, readOnly: false }];
     let count = 0;
     while (stack.length && count < 100000) {
       const frame = stack.pop();
       if (frame.depth > 64 || !Array.isArray(frame.nodes)) continue;
       for (let index = 0; index < frame.nodes.length; index++) {
         const node = frame.nodes[index]; count++;
-        if (node.id === id) return { node, siblings: frame.nodes, index, listRef: frame.listRef, parent: frame.parent, repeatIds: frame.repeatIds, readOnly: frame.readOnly };
+        if (node.id === id) return { node, siblings: frame.nodes, index, listRef: frame.listRef, parent: frame.parent, repeatIds: frame.repeatIds, groupIds: frame.groupIds, readOnly: frame.readOnly };
         for (const list of childLists(node)) stack.push({ nodes: list.nodes, listRef: list.ref, parent: node,
-          repeatIds: node.type === 'repeat' ? [...frame.repeatIds, node.id] : frame.repeatIds, depth: frame.depth + 1, readOnly: frame.readOnly || Boolean(list.readOnly) });
+          repeatIds: node.type === 'repeat' ? [...frame.repeatIds, node.id] : frame.repeatIds,
+          groupIds: node.type === 'group' ? [...frame.groupIds, node.id] : frame.groupIds, depth: frame.depth + 1, readOnly: frame.readOnly || Boolean(list.readOnly) });
       }
     }
     return null;
@@ -635,6 +729,29 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
       const repeat = { id: operation.repeatId || createRoutineNodeId(), type: 'repeat', times, nodes: first.siblings.splice(first.index, ids.length) };
       if (locate(routine, repeat.id)) return fail('Step IDs must be unique.');
       first.siblings.splice(first.index, 0, repeat); focusId = repeat.id;
+    } else if (operation.kind === 'wrapGroup') {
+      const ids = operation.nodeIds;
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) return fail('Choose a unique contiguous range.');
+      const locations = ids.map(id => locate(result, id));
+      if (locations.some(item => !item || item.readOnly)) return fail('The selected steps no longer exist or are read-only.');
+      const first = locations[0];
+      if (locations.some((item, index) => item.siblings !== first.siblings || item.index !== first.index + index)) return fail('Choose contiguous sibling steps in run order.');
+      if (operation.mode !== 'parallel' && operation.mode !== 'sequential') return fail('Choose parallel or sequential.');
+      const blocked = locations.map(item => routineGroupChildError(item.node)).find(Boolean);
+      if (blocked) return fail(blocked);
+      const group = { id: operation.groupId || createRoutineNodeId(), type: 'group', mode: operation.mode, nodes: first.siblings.splice(first.index, ids.length) };
+      if (locate(routine, group.id)) return fail('Step IDs must be unique.');
+      first.siblings.splice(first.index, 0, group); focusId = group.id;
+    } else if (operation.kind === 'unwrapGroup') {
+      const source = locate(result, operation.nodeId);
+      if (!source || source.node.type !== 'group' || source.readOnly) return fail('The group no longer exists or is read-only.');
+      source.siblings.splice(source.index, 1, ...source.node.nodes); focusId = source.node.nodes[0]?.id;
+    } else if (operation.kind === 'setGroupMode') {
+      const source = locate(result, operation.nodeId);
+      if (!source || source.node.type !== 'group' || source.readOnly) return fail('The group no longer exists or is read-only.');
+      if (operation.mode !== 'parallel' && operation.mode !== 'sequential') return fail('Choose parallel or sequential.');
+      if (source.node.mode === operation.mode) return fail();
+      source.node.mode = operation.mode; focusId = source.node.id;
     } else if (operation.kind === 'unwrapRepeat') {
       const source = locate(result, operation.nodeId);
       if (!source || source.node.type !== 'repeat' || source.readOnly) return fail('The repeat no longer exists or is read-only.');
@@ -648,6 +765,11 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
       for (const node of frame.nodes) {
         if (++count > 100000 || retainedIds.has(node.id)) return fail('This edit would exceed routine size or duplicate step IDs.');
         retainedIds.add(node.id);
+        // Groups only hold commands without branches, waits and groups; an edit never puts anything else inside one.
+        if (node.type === 'group') {
+          const blocked = node.nodes.map(child => routineGroupChildError(child)).find(Boolean);
+          if (blocked) return fail(blocked);
+        }
         for (const list of childLists(node)) pending.push({ nodes: list.nodes, depth: frame.depth + 1 });
       }
     }
@@ -669,7 +791,7 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
   }
   function isResultConsumer(routine, nodeId) {
     const location = locate(routine, nodeId);
-    return Boolean(location?.node.outputBranch || (location?.parent?.type === 'repeat'
+    return Boolean(location?.node.outputBranch || location?.node.invocation?.loop?.until?.kind === 'output' || (location?.parent?.type === 'repeat'
       && location.parent.until?.source === 'output' && location.parent.until.nodeId === nodeId));
   }
   function newCommandEnds(routine, nodeId) { return { timeoutS: 2, onTimeout: isResultConsumer(routine, nodeId) ? 'endRoutine' : 'continue' }; }
@@ -737,6 +859,29 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
           if (!output) add(node, 'output-unavailable', 'The saved command output is unavailable.');
           else if (!robotValueSchemasEqual(output.schema, node.outputBranch.schema)) add(node, 'output-schema-changed', 'The command output type changed; choose or repair its routes.');
         }
+        const until = node.invocation?.loop?.until;
+        if (until) {
+          if (node.outputBranch) add(node, 'loop-branch', 'A looping command cannot branch on its output.');
+          if (until.kind === 'distance' || until.kind === 'pathEnd') add(node, 'loop-path-only', 'Distance and path end loops apply only to path commands.');
+          else if (until.kind === 'time' && !(Number.isFinite(until.seconds) && until.seconds >= 0.02 && until.seconds <= 3600)) add(node, 'loop-time', 'Choose a loop time from 0.02 to 3600 seconds.');
+          else if (until.kind === 'output') {
+            const output = branchOutputs(command).find(output => output.name === until.output);
+            if (!until.output || !until.schema || until.value === undefined) add(node, 'loop-incomplete', 'Choose a result and value to loop until.');
+            else if (!output) add(node, 'loop-output-unavailable', unavailable('loop result'));
+            else if (!robotValueSchemasEqual(output.schema, until.schema)) add(node, 'loop-schema-changed', 'The loop result type changed; repair its comparison.');
+            if (until.schema && until.value !== undefined) {
+              const error = robotSchemaValueError(until.value, until.schema, 'Loop value');
+              if (error) add(node, 'loop-value', error);
+            }
+          }
+        }
+      }
+      if (node.type === 'group') {
+        if (!node.nodes?.length) add(node, 'group-empty', 'Add steps to this group.');
+        for (const child of node.nodes || []) {
+          const error = routineGroupChildError(child);
+          if (error) add(child, 'group-child', error);
+        }
       }
       if (node.type !== 'repeat') return;
       if (!node.nodes?.length) add(node, 'repeat-empty', 'Add steps to this repeat.');
@@ -745,6 +890,7 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
       if (node.until?.source === 'output') {
         const stop = node.until, producer = node.nodes.find(child => child.id === stop.nodeId && child.type === 'function' && child.cat === 'command');
         if (!producer) add(node, 'stop-producer-scope', 'Choose a command directly inside this repeat.');
+        else if (producer.invocation?.loop) add(node, 'stop-producer-loops', 'A repeat stop cannot read a looping command.');
         const command = catalog?.commands?.find(command => command.id === producer?.invocation?.commandId);
         const output = branchOutputs(command).find(output => output.name === stop.output);
         if (!stop.output || !stop.schema || stop.value === undefined) add(node, 'stop-incomplete', 'Choose an output and stop value.');

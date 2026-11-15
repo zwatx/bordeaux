@@ -6,6 +6,10 @@ import { routineChildLists } from '../routineChildren';
 import { binaryFileName, buildRobotBinary, encodeBdxArgument, type BinaryBindings } from './robotBinary';
 
 export const ROUTINE_RUNTIME_SCHEMA = 'bordeaux-routine-runtime/1';
+/** Written only when a routine uses a group or a command loop, so robots that read /1 keep reading older files. */
+export const ROUTINE_RUNTIME_SCHEMA_V2 = 'bordeaux-routine-runtime/2';
+/** `loop` codes in /2 nodes. */
+export const RUNTIME_LOOP = { none: 0, time: 1, output: 4 } as const;
 export const MAX_ROUTINE_BYTES = 16 * 1024 * 1024;
 export interface RuntimeScalar { name: string; terminal: number; niType: string; tag: number; choices: string[] }
 export interface RuntimeInput extends RuntimeScalar { valueHex: string }
@@ -17,10 +21,12 @@ export interface RuntimeCommand {
 export interface RuntimeNode {
   id: string; op: number; parent: number; firstChild: number; nextSibling: number;
   path: number; command: number; wait: number; count: number; stop: number;
+  /** /2 only, on every node: loop kind (0 none, 1 time, 4 output) and its DBL seconds limit (0 when unused). */
+  loop?: number; limit?: number;
 }
 export interface RuntimeComparison { producer: number; output: number; operator: number; tag: number; valueHex: string }
 export interface RoutineRuntimeDocument {
-  schema: typeof ROUTINE_RUNTIME_SCHEMA; name: string; catalogHash: string; root: number;
+  schema: typeof ROUTINE_RUNTIME_SCHEMA | typeof ROUTINE_RUNTIME_SCHEMA_V2; name: string; catalogHash: string; root: number;
   nodes: RuntimeNode[]; paths: Array<{ name: string; sha256: string; bdxHex: string }>;
   commands: RuntimeCommand[]; comparisons: RuntimeComparison[];
 }
@@ -62,20 +68,21 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     return result;
   };
   const selectedPaths = new Set<string>();
-  const pending = [{ nodes: routine.nodes, depth: 0 }]; let budget = 0;
+  const pending = [{ nodes: routine.nodes, depth: 0 }]; let budget = 0, extended = false;
   while (pending.length) {
     const frame = pending.pop()!;
     if (frame.depth > 64 || !Array.isArray(frame.nodes)) throw new Error('Routine exceeds supported depth or has invalid children');
     for (const node of frame.nodes) {
       if (++budget > 4096) throw new Error('Routine exceeds 4096 nodes');
       if (node.type === 'path') selectedPaths.add(node.ref);
+      if (node.type === 'group' || (node.type === 'function' && node.invocation?.loop !== undefined)) extended = true;
       if (node.type === 'function' && node.cat === 'command') node.invocation = materialize(node.invocation!);
       for (const child of routineChildLists(node)) pending.push({ nodes: child.nodes, depth: frame.depth + 1 });
     }
   }
   preflightRoutine(routine, descriptors, new Set(project.paths.filter(item => item.exportable !== false).map(item => item.id)));
   if (selectedPaths.size > 64) throw new Error('Routine exceeds 64 embedded paths');
-  const document: RoutineRuntimeDocument = { schema: ROUTINE_RUNTIME_SCHEMA, name: routine.name,
+  const document: RoutineRuntimeDocument = { schema: extended ? ROUTINE_RUNTIME_SCHEMA_V2 : ROUTINE_RUNTIME_SCHEMA, name: routine.name,
     catalogHash: createHash('sha256').update(bindings.definitionJson).digest('hex'), root: routine.nodes.length ? 0 : -1,
     nodes: [], paths: [], commands: [], comparisons: [] };
   const pathIndices = new Map<string, number>();
@@ -83,7 +90,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
   for (const id of selectedPaths) {
     const paths = project.paths.filter(item => item.id === id);
     if (paths.length !== 1) throw new Error('Routine path is missing or ambiguous');
-    if (paths[0].markers.some(marker => marker.invocation)) throw new Error(`${paths[0].name}: move path marker commands into routine command steps before exporting a routine; embedded path commands do not yet support routine cancellation`);
+    if (paths[0].markers.some(marker => marker.invocation || marker.commandGroup)) throw new Error(`${paths[0].name}: move path marker commands into routine command steps before exporting a routine; embedded path commands do not yet support routine cancellation`);
     const built = buildRobotBinary(project, { kind: 'path', id }, bindings.binary);
     if (built.sampleCount > 4096 || (sampleCount += built.sampleCount) > 16384) throw new Error('Runtime routine paths support at most 4096 samples per path and 16384 samples total');
     pathIndices.set(id, document.paths.length);
@@ -98,7 +105,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     const depth = parent < 0 ? 0 : depths[parent] + 1;
     if (depth > 64) throw new Error('Routine exceeds flattened depth 64');
     depths.push(depth);
-    document.nodes.push({ id, op, parent, firstChild: -1, nextSibling: -1, path: -1, command: -1, wait: 0, count: 0, stop: -1 });
+    document.nodes.push({ id, op, parent, firstChild: -1, nextSibling: -1, path: -1, command: -1, wait: 0, count: 0, stop: -1, ...(extended ? { loop: RUNTIME_LOOP.none, limit: 0 } : {}) });
     return index;
   };
   const comparison = (producer: number, command: RuntimeCommand, output: string, operator: string, value: unknown): number => {
@@ -114,7 +121,8 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
   const list = (nodes: RoutineNode[], parent: number): number => {
     let first = -1, previous = -1;
     for (const node of nodes) {
-      const op = node.type === 'path' ? 1 : node.type === 'function' ? 2 : node.type === 'builtin' ? 3 : node.type === 'repeat' ? 4 : node.type === 'end' && node.scope === 'repeat' ? 5 : 6;
+      const op = node.type === 'path' ? 1 : node.type === 'function' ? 2 : node.type === 'builtin' ? 3 : node.type === 'repeat' ? 4
+        : node.type === 'group' ? (node.mode === 'parallel' ? 8 : 9) : node.type === 'end' && node.scope === 'repeat' ? 5 : 6;
       const index = allocate(node.id, op, parent), target = document.nodes[index];
       if (first < 0) first = index;
       if (previous >= 0) document.nodes[previous].nextSibling = index;
@@ -131,6 +139,13 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
           return { ...input, tag: encoded.tag, valueHex: encoded.bytes.toString('hex') };
         }) };
         target.command = document.commands.length; document.commands.push(command);
+        const until = node.invocation!.loop?.until;
+        if (until?.kind === 'time') { target.loop = RUNTIME_LOOP.time; target.limit = until.seconds; }
+        else if (until?.kind === 'output') {
+          // The looping command is its own producer; preflight already rejected output routes on it.
+          target.loop = RUNTIME_LOOP.output;
+          target.stop = comparison(index, command, until.output, until.operator, until.value);
+        }
         let previousRoute = -1;
         for (const route of node.outputBranch?.routes ?? []) {
           const routeIndex = allocate(route.id, 7, index);
@@ -140,6 +155,8 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
           document.nodes[routeIndex].stop = comparison(index, command, node.outputBranch!.output, route.operator, route.value);
           document.nodes[routeIndex].firstChild = list(route.nodes, routeIndex);
         }
+      } else if (node.type === 'group') {
+        target.firstChild = list(node.nodes, index);
       } else if (node.type === 'repeat') {
         target.count = node.times ?? 0; target.firstChild = list(node.nodes, index);
         if (node.until?.source === 'output') {

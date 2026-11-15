@@ -5,6 +5,7 @@ export type RoutineListRef =
   | { kind: 'decision'; nodeId: string; route: 'then' | 'else' }
   | { kind: 'output'; nodeId: string; routeId: string }
   | { kind: 'repeat'; nodeId: string }
+  | { kind: 'group'; nodeId: string }
   | { kind: 'fallback'; nodeId: string };
 
 export interface RoutineChildList { ref: RoutineListRef; nodes: RoutineNode[]; label: string; readOnly?: boolean }
@@ -12,6 +13,7 @@ export interface RoutineChildList { ref: RoutineListRef; nodes: RoutineNode[]; l
 export function routineChildLists(node: RoutineNode): RoutineChildList[] {
   if (!node || typeof node !== 'object') return [];
   if (node.type === 'repeat') return [{ ref: { kind: 'repeat', nodeId: node.id }, nodes: node.nodes || [], label: 'Repeat' }];
+  if (node.type === 'group') return [{ ref: { kind: 'group', nodeId: node.id }, nodes: node.nodes || [], label: node.mode === 'sequential' ? 'Sequential group' : 'Parallel group' }];
   if (node.type === 'decision') return [
     { ref: { kind: 'decision', nodeId: node.id, route: 'then' }, nodes: node.then || [], label: node.thenLabel || 'True' },
     { ref: { kind: 'decision', nodeId: node.id, route: 'else' }, nodes: node.else || [], label: node.elseLabel || 'False' },
@@ -22,4 +24,24 @@ export function routineChildLists(node: RoutineNode): RoutineChildList[] {
   return node.type === 'function' ? (node.outputBranch?.routes || []).map(route => ({
     ref: { kind: 'output', nodeId: node.id, routeId: route.id } as RoutineListRef, nodes: route.nodes, label: route.label,
   })) : [];
+}
+
+export const ROUTINE_GROUP_CHILD_RULE = 'Groups hold commands without branches, waits and other groups.';
+
+/**
+ * Why `node` cannot sit directly inside a group, or null. Groups never branch, follow paths or change control flow:
+ * their children are command steps without output branches, waits, and nested groups.
+ */
+export function routineGroupChildError(node: unknown): string | null {
+  if (!node || typeof node !== 'object') return ROUTINE_GROUP_CHILD_RULE;
+  const value = node as { type?: unknown; cat?: unknown; builtinId?: unknown; outputBranch?: unknown };
+  if (value.type === 'group') return null;
+  if (value.type === 'builtin' && value.builtinId === 'bordeaux.wait') return null;
+  if (value.type === 'function' && value.cat === 'command') {
+    return value.outputBranch === undefined ? null : 'A command in a group cannot branch on its output.';
+  }
+  if (value.type === 'path') return 'Paths cannot run inside a group.';
+  if (value.type === 'repeat') return 'Repeats cannot go inside a group.';
+  if (value.type === 'end') return 'End routine and Exit repeat cannot go inside a group.';
+  return ROUTINE_GROUP_CHILD_RULE;
 }
