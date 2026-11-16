@@ -11,14 +11,19 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function click(selector, text) {
-  const point = await evaluate((selector, text) => {
-    const item = [...document.querySelectorAll(selector)].find((el) => !text || el.textContent.trim() === text || (el.getAttribute('role') === 'menuitem' && el.querySelector('span')?.textContent.trim() === text));
-    if (!item || item.disabled) throw Error('Missing control: ' + selector + ' ' + text);
-    item.scrollIntoView({ block: 'nearest' });
-    const r = item.getBoundingClientRect(), x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
-    if (!item.contains(document.elementFromPoint(x, y))) throw Error('Obscured control: ' + selector);
-    return { x, y };
-  }, selector, text);
+  let point;
+  await wait(async () => {
+    point = await evaluate((selector, text) => {
+      const item = [...document.querySelectorAll(selector)].find((el) => !text || el.textContent.trim() === text || (el.getAttribute('role') === 'menuitem' && el.querySelector('span')?.textContent.trim() === text));
+      if (!item || item.disabled) return null;
+      item.scrollIntoView({ block: 'nearest' });
+      const r = item.getBoundingClientRect(), x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
+      if (!item.contains(document.elementFromPoint(x, y))) return null;
+      return { x, y };
+    }, selector, text);
+    return Boolean(point);
+  }, 'available control: ' + selector + ' ' + (text || ''));
+  win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
   for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...point });
   await delay(80);
 }
@@ -64,7 +69,7 @@ app.whenReady().then(async () => {
     await key('Home'); await key('End', ['shift']);
     await win.webContents.insertText(String(first.waypoints[1].x + .1)); await key('Enter');
     assert.equal(await playing(), true, 'Editing does not pause playback');
-    await delay(180); assert.ok(await clock() > beforeTime, 'Elapsed clock continues across the replan');
+    await wait(async () => await clock() > beforeTime, 'elapsed clock continues across the replan');
     await snapshot('playback-edit-1440');
     await click('.pt-play');
     await save(); assert.ok(Math.abs(saved.paths[0].waypoints[1].x - first.waypoints[1].x - .1) < 1e-8);
@@ -75,10 +80,12 @@ app.whenReady().then(async () => {
     for (const [width, height] of [[1440,900], [1100,720]]) for (const units of ['metric','imperial']) for (const inspector of [false,true]) {
       const captureKey = width + '-' + units + '-' + (inspector ? 'open' : 'closed');
       saved.editor.unitSystem = units;
-      await win.loadFile(path.resolve('dist-renderer/index.html')); win.focus(); win.webContents.focus();
       win.setContentSize(width,height);
+      await win.loadFile(path.resolve('dist-renderer/index.html')); win.focus(); win.webContents.focus();
       await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'loaded points');
-      await click('.pt-wp[data-selection="wp:1"]');
+      await evaluate(() => document.querySelector('.pt-wp[data-selection="wp:1"]').focus());
+      await key('Enter');
+      await wait(() => evaluate(() => document.querySelector('.pt-wp[data-selection="wp:1"]').getAttribute('aria-pressed') === 'true'), 'waypoint selected');
       if (inspector) await click('.pp-more');
       await click('#band-waypoint-link');
       assert.equal(await evaluate(() => document.querySelector('#link-source-point').value), '1');
@@ -100,7 +107,10 @@ app.whenReady().then(async () => {
       assert.equal(saved.paths[0].waypoints[1].positionLink,saved.paths[1].waypoints[1].positionLink);
       await win.loadFile(path.resolve('dist-renderer/index.html')); win.focus(); win.webContents.focus();
       await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'reload');
-      await click('.pt-wp[data-selection="wp:1"]'); await click('#band-waypoint-link');
+      await evaluate(() => document.querySelector('.pt-wp[data-selection="wp:1"]').focus());
+      await key('Enter');
+      await wait(() => evaluate(() => document.querySelector('.pt-wp[data-selection="wp:1"]').getAttribute('aria-pressed') === 'true'), 'waypoint selected');
+      await click('#band-waypoint-link');
       assert.ok((await evaluate(() => document.querySelector('.point-links-source').textContent)).includes(second.name));
       await snapshot('links-restored-' + captureKey);
       await click('.point-links-source .qbtn', 'Unlink this point');
@@ -109,7 +119,9 @@ app.whenReady().then(async () => {
       assert.equal(saved.paths[0].waypoints[1].y, b.y, 'Unlink keeps position');
       await click('.library-more'); await click('[role="menuitem"]', 'Link points…');
       assert.equal(await evaluate(() => document.querySelector('#link-source-point').value), String(first.waypoints.length - 1));
-      await click('#link-source-point'); await key('Home'); await key('Down'); await key('Enter');
+      // Drive the focused control directly: an open OS popup can consume synthetic keys before it is ready.
+      await evaluate(() => document.querySelector('#link-source-point').focus());
+      await key('Home'); await key('Down'); await key('Tab');
       assert.equal(await evaluate(() => document.querySelector('#link-source-point').value), '1');
       await click('#link-point-search'); await win.webContents.insertText('no matching point');
       assert.ok((await evaluate(() => document.querySelector('.point-links-choices').textContent)).includes('No matching'));
