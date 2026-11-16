@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import type { RobotFileConnection, RobotFileEndpoint } from "../shared/robotFileDelivery";
+import { ROBOT_TARGETS } from "../shared/robotTargets";
 import { RobotTransportError, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
 import { connectRobotSftp, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 
 const MAX_BYTES = 24 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
+const target = ROBOT_TARGETS.roborio;
 
 export function validateRobotFileEndpoint(raw: unknown): RobotFileEndpoint {
   const value = raw as Partial<RobotFileEndpoint> | null;
@@ -13,7 +15,7 @@ export function validateRobotFileEndpoint(raw: unknown): RobotFileEndpoint {
     || !Number.isInteger(value.port) || value.port! < 1 || value.port! > 65535) {
     throw new RobotTransportError("invalid_request", "Robot endpoint must contain a hostname or IP address and valid SSH port");
   }
-  return { host: value.host, port: value.port!, directory: validateRobotFileDirectory(value.directory) };
+  return { host: value.host, port: value.port!, directory: validateRobotFileDirectory(value.directory, target.directoryRoots) };
 }
 
 function requireDirectories(session: RobotSftpSession) {
@@ -28,7 +30,7 @@ export async function probeRobotFiles(
 ): Promise<RobotFileConnection> {
   const validated = validateRobotFileEndpoint(endpoint);
   const signal = AbortSignal.timeout(timeoutMs);
-  const session = await factory({ endpoint: validated, credentials: { username: "admin", password: "" }, signal, timeoutMs });
+  const session = await factory({ endpoint: validated, credentials: { username: target.username, password: target.password }, signal, timeoutMs });
   try {
     await requireDirectories(session)(validated.directory, false, signal);
     return { endpoint: validated, hostKeyFingerprint: session.hostKeyFingerprint };
@@ -68,7 +70,7 @@ export async function uploadRobotFiles(
   operation.addEventListener("abort", abortConnect, { once: true });
   let session: RobotSftpSession;
   try {
-    session = await factory({ endpoint, credentials: { username: "admin", password: "" }, expectedHostKeyFingerprint: connection.hostKeyFingerprint,
+    session = await factory({ endpoint, credentials: { username: target.username, password: target.password }, expectedHostKeyFingerprint: connection.hostKeyFingerprint,
       signal: connecting.signal, timeoutMs: TIMEOUT_MS });
   } finally { operation.removeEventListener("abort", abortConnect); }
   let temporary: RobotRemoteFile | undefined;

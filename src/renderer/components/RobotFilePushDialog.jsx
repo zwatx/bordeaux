@@ -2,6 +2,7 @@ import * as React from 'react';
 import { UI } from './ui';
 import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 import { shortFact } from '../lib/projectLifecycle';
+import { ROBOT_TARGETS } from '../../shared/robotTargets';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
@@ -69,7 +70,7 @@ export function RobotFilePushDialog({ controller: c }) {
   if (setup) {
     view = 'setup';
     body = [alert, h('div', { key: 'fields', className: 'rfp-fields' },
-      h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: 'roborio-2468-frc.local', disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
+      h('label', null, 'Host', h('input', { value: c.host, autoFocus: true, autoComplete: 'off', spellCheck: false, placeholder: ROBOT_TARGETS.roborio.hostPlaceholder, disabled: c.busy, onChange: (e) => c.setHost(e.target.value) })),
       h('label', { className: 'rfp-port' }, 'Port', h('input', { value: c.port, inputMode: 'numeric', disabled: c.busy, onChange: (e) => c.setPort(e.target.value) })),
       h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) }))),
       h('p', { key: 'note', className: 'rfp-note' }, 'Save offline. Connect to verify the robot.')];

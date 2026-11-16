@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { Client, type Callback, type SFTPWrapper, type Stats } from "ssh2";
+import { ROBOT_DIRECTORY_ROOTS } from "../shared/robotTargets";
 import {
   ROBOT_DEPLOYMENT_NAMESPACE,
   RobotTransportError,
@@ -15,14 +16,20 @@ function fingerprint(key: Buffer): string {
   return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
 }
 
-export function validateRobotFileDirectory(directory: unknown): string {
+/**
+ * Normalizes a remote destination and requires it to sit at or below one of `roots`.
+ * Endpoint validation passes the selected target's roots; the session re-checks every
+ * remote path against the roots of all targets.
+ */
+export function validateRobotFileDirectory(directory: unknown, roots: readonly string[] = ROBOT_DIRECTORY_ROOTS): string {
   if (typeof directory === "string") directory = directory.replace(/\/+$/, "");
-  if (typeof directory !== "string" || directory.length > 512
-    || !/^\/(?:home\/lvuser|natinst\/bin\/Paths)(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/.test(directory)
-    || directory.split("/").some((part) => part === "." || part === "..")) {
-    throw new RobotTransportError("invalid_request", "Robot directory must be inside /natinst/bin/Paths or /home/lvuser without traversal");
+  const valid = typeof directory === "string" && directory.length <= 512
+    && roots.some((root) => directory === root || (directory as string).startsWith(`${root}/`))
+    && directory.split("/").slice(1).every((part) => /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part));
+  if (!valid) {
+    throw new RobotTransportError("invalid_request", `Robot directory must be inside ${roots.join(" or ")} without traversal`);
   }
-  return directory;
+  return directory as string;
 }
 
 export function validateRobotFileName(fileName: unknown): string {
