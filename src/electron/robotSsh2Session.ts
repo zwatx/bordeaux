@@ -316,6 +316,7 @@ export async function connectRobotSftp(request: RobotConnectRequest): Promise<Ro
   if (!Number.isInteger(request.timeoutMs) || request.timeoutMs < 1 || request.timeoutMs > 120_000) {
     throw new RobotTransportError("invalid_request", "Robot SFTP timeout must be between 1 and 120000 milliseconds");
   }
+  const username = request.credentials.username ?? "lvuser";
   const client = new Client();
   const controller = new AbortController();
   let expired = false;
@@ -347,7 +348,7 @@ export async function connectRobotSftp(request: RobotConnectRequest): Promise<Ro
       client.connect({
         host: request.endpoint.host,
         port: request.endpoint.port,
-        username: request.credentials.username ?? "lvuser",
+        username,
         readyTimeout: request.timeoutMs,
         keepaliveInterval: Math.min(2_000, Math.max(250, Math.floor(request.timeoutMs / 3))),
         keepaliveCountMax: 2,
@@ -373,6 +374,10 @@ export async function connectRobotSftp(request: RobotConnectRequest): Promise<Ro
       throw new RobotTransportError("re_pair_required", "The robot SSH host key changed; explicitly re-pair this robot before transferring data");
     }
     if (error instanceof RobotTransportError) throw error;
+    // ssh2 marks a refused login (wrong account or password) with this level.
+    if (error && typeof error === "object" && "level" in error && error.level === "client-authentication") {
+      throw new RobotTransportError("auth_rejected", `The robot rejected SSH login for ${username}`, { cause: error });
+    }
     throw operationError(controller.signal, () => expired, error);
   }
 }

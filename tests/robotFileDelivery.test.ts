@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "../src/electron/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection } from "../src/shared/robotFileDelivery";
-const connection: RobotFileConnection = { endpoint: { host: "roborio-2468-frc.local", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvxyz123456789" };
+const connection: RobotFileConnection = { endpoint: { target: "roborio", host: "roborio-2468-frc.local", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvxyz123456789" };
 const file = (): PreparedRobotFile => ({ pathId: "path-1", name: "Opening", fileName: "Opening.bdx", contents: Buffer.from("BDX fixture") });
 function setup(initial: RobotFileConnection | null = connection) {
   const persist = vi.fn(async () => undefined);
@@ -136,7 +136,7 @@ describe("remembered robot destination", () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-offline-ip-"));
     try {
       const filePath = path.join(directory, "connection.json");
-      const endpoint = { host: "10.24.68.2", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
+      const endpoint = { target: "roborio" as const, host: "10.24.68.2", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
       const { transport } = setup(null);
       const delivery = new RobotFileDelivery(null, value => writeRobotFileConnection(filePath, value), transport);
       await delivery.saveSettings(endpoint);
@@ -147,9 +147,10 @@ describe("remembered robot destination", () => {
     } finally { await fs.rm(directory, { recursive: true, force: true }); }
   });
 
-  it.each([{ host: "" }, { host: "user@robot" }, { port: 0 }, { port: 65536 }, { directory: "/etc" }])("rejects invalid offline settings %j before persisting or connecting", async (change) => {
+  it.each([{ host: "" }, { host: "user@robot" }, { port: 0 }, { port: 65536 }, { directory: "/etc" }, { target: "nxt" }, { directory: "/home/systemcore/bordeaux/paths" }])("rejects invalid offline settings %j before persisting or connecting", async (change) => {
     const { delivery, transport, persist } = setup();
-    await expect(delivery.saveSettings({ ...connection.endpoint, ...change })).rejects.toThrow();
+    // Settings arrive over IPC as untrusted values; main validates every field.
+    await expect(delivery.saveSettings({ ...connection.endpoint, ...change } as RobotFileConnection["endpoint"])).rejects.toThrow();
     expect(delivery.settings()).toEqual(connection); expect(delivery.current()).toEqual(connection);
     expect(persist).not.toHaveBeenCalled(); expect(transport.probe).not.toHaveBeenCalled(); expect(transport.upload).not.toHaveBeenCalled();
   });
@@ -175,5 +176,33 @@ describe("remembered robot destination", () => {
       await writeRobotFileConnection(file, { ...connection, endpoint: { ...connection.endpoint, directory: stored } });
       expect(await readRobotFileConnection(file)).toEqual({ ...connection, endpoint: { ...connection.endpoint, directory: expected } });
     } finally { await fs.rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ["/natinst/bin/Paths", "/home/lvuser/natinst/bin/Paths"],
+    ["/home/lvuser/practice", "/home/lvuser/practice"],
+  ])("loads %s saved before robot types existed as a roboRIO without forgetting SSH identity", async (stored, expected) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-legacy-connection-"));
+    try {
+      const file = path.join(directory, "connection.json");
+      const { target: _target, ...legacy } = connection.endpoint;
+      await fs.writeFile(file, JSON.stringify({ endpoint: { ...legacy, directory: stored }, hostKeyFingerprint: connection.hostKeyFingerprint }));
+      expect(await readRobotFileConnection(file)).toEqual({ ...connection, endpoint: { ...connection.endpoint, directory: expected } });
+    } finally { await fs.rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("checks the folder against a newly chosen robot type before saving", async () => {
+    const { delivery, persist } = setup();
+    await expect(delivery.saveSettings({ ...connection.endpoint, target: "systemcore" })).rejects.toThrow(/inside \/home\/systemcore/);
+    expect(persist).not.toHaveBeenCalled(); expect(delivery.current()).toEqual(connection);
+  });
+
+  it("asks to connect again when only the robot type changes, because that login was never tried", async () => {
+    const { delivery, persist } = setup();
+    const endpoint = { ...connection.endpoint, target: "systemcore" as const, directory: "/home/systemcore/bordeaux/paths" };
+    expect(await delivery.saveSettings(endpoint)).toEqual({ endpoint });
+    expect(delivery.current()).toBeNull();
+    expect(() => delivery.prepare([file()], async () => undefined)).toThrow(/Connect/);
+    expect(persist).toHaveBeenCalledOnce();
   });
 });

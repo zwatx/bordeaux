@@ -9,7 +9,7 @@ import { PushControl } from '../src/renderer/components/PushControl';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const results = [], root = createRoot(document.getElementById('root'));
-const endpoint = { host: 'roborio-2468-frc.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
+const endpoint = { target: 'roborio', host: 'roborio-2468-frc.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
 const connection = { endpoint, hostKeyFingerprint: 'SHA256:' + 'a'.repeat(43) };
 const files = ['A', 'B'].map((id) => ({ pathId: id, name: id === 'A' ? 'Left-side scoring approach with obstacle clearance' : 'Return to pickup', fileName: id + '-path.bdx', size: 48128, sha256: 'c'.repeat(64) }));
 const preview = { operationId: 'upload-1', connection, files };
@@ -72,8 +72,11 @@ await test('Pointer and keyboard connect, trust identity, review multiple files,
   await action(() => controller.setHost(endpoint.host));
   await native({ capture: 'connection' });
   document.querySelector('.robot-push-close').focus();
+  // Visual order: the robot type choice sits above Host, so Tab reaches its two options first.
   await act(async () => native({ key: 'Tab' }));
-  assert(document.activeElement.tagName === 'INPUT', 'Tab reaches robot host field');
+  assert(document.activeElement.textContent === 'roboRIO', 'Tab reaches the robot type choice');
+  await act(async () => native({ key: 'Tab' })); await act(async () => native({ key: 'Tab' }));
+  assert(document.activeElement.tagName === 'INPUT', 'Tab then reaches robot host field');
   await pointer('Connect'); await resolve(mock.probes[0], connection);
   assert(controller.phase === 'identity', 'Identity review required');
   await native({ capture: 'identity' });
@@ -94,6 +97,24 @@ await test('Pointer and keyboard connect, trust identity, review multiple files,
   await act(async () => native({ key: 'Escape' }));
   assert(!controller.open, 'Escape closes dialog');
   assert(document.activeElement.id === 'origin', 'Focus returns to initiating button');
+}, null);
+await test('Choosing Systemcore by keyboard moves the default folder, is sent with Connect and is reviewed with the destination', async () => {
+  await pointer('Push selection');
+  const systemcore = [...document.querySelectorAll('dialog .seg-i')].find((item) => item.textContent === 'Systemcore');
+  systemcore.focus(); await act(async () => native({ key: 'Enter' }));
+  assert(controller.target === 'systemcore' && controller.directory === '/home/systemcore/bordeaux/paths', 'Keyboard chooses Systemcore and its default folder');
+  assert(systemcore.getAttribute('aria-pressed') === 'true' && document.activeElement === systemcore, 'Pressed state follows the choice and focus stays on it');
+  assert(document.querySelector('dialog input').placeholder === 'robot.local', 'Host placeholder follows the robot type');
+  await action(() => controller.setHost('robot.local'));
+  await native({ capture: 'systemcore-connection' });
+  await pointer('Connect');
+  assert(mock.probes[0].args[0].target === 'systemcore', 'Connect sends the robot type');
+  const chosen = { endpoint: { target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' }, hostKeyFingerprint: connection.hostKeyFingerprint };
+  await resolve(mock.probes[0], chosen);
+  await pointer('Trust host key'); await resolve(mock.trusts[0], chosen);
+  await resolve(mock.prepares[0], { ...preview, connection: chosen });
+  assert(document.querySelector('dialog').textContent.includes('Systemcore · /home/systemcore/bordeaux/paths'), 'Review names the robot type beside the folder');
+  await native({ capture: 'systemcore-review' });
 }, null);
 await test('Trust failure keeps reviewed identity and retry available', async () => {
   await pointer('Push selection'); await action(() => controller.setHost(endpoint.host));

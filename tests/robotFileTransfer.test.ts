@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "../src/electron/robotFileTransfer";
-import type { RobotConnectRequest, RobotRemoteFile, RobotSftpSession } from "../src/electron/robotSftpTransport";
+import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession } from "../src/electron/robotSftpTransport";
 
-const endpoint = { host: "roborio-2468-frc.local", port: 22, directory: "/natinst/bin/Paths" };
+const endpoint = { target: "roborio" as const, host: "roborio-2468-frc.local", port: 22, directory: "/natinst/bin/Paths" };
+const systemcore = { target: "systemcore" as const, host: "robot.local", port: 22, directory: "/home/systemcore/bordeaux/paths" };
 const fingerprint = `SHA256:${"a".repeat(43)}`;
 function fixture() {
   const stored = new Map<string, Buffer>([["unrelated.bdx", Buffer.from("preserve")]]);
@@ -149,6 +150,61 @@ describe("direct robot SFTP path delivery", () => {
 
   it.each(["/etc", "/home/lvuser/../etc", "/home/lvuser/link/../../etc", "/home/lvuser\\escape", "/home/lvuser/a\0b"])("rejects directory %s", (directory) => {
     expect(() => validateRobotFileEndpoint({ ...endpoint, directory })).toThrow();
+  });
+
+  it.each([
+    [systemcore, "/home/systemcore/bordeaux/paths"],
+    [{ ...systemcore, directory: "/home/systemcore/" }, "/home/systemcore"],
+  ])("accepts Systemcore folders below /home/systemcore (%j)", (value, expected) => {
+    expect(validateRobotFileEndpoint(value).directory).toBe(expected);
+  });
+
+  it.each([
+    { ...systemcore, directory: "/home/lvuser/natinst/bin/Paths" },
+    { ...systemcore, directory: "/natinst/bin/Paths" },
+    { ...systemcore, directory: "/home/systemcorex" },
+    { ...endpoint, directory: "/home/systemcore/bordeaux/paths" },
+    { ...endpoint, target: "nxt" },
+    { ...endpoint, target: "toString" },
+    { host: endpoint.host, port: endpoint.port, directory: endpoint.directory },
+  ])("rejects a folder outside the chosen robot type or an unknown type %j", (value) => {
+    expect(() => validateRobotFileEndpoint(value)).toThrow();
+  });
+
+  it("logs in with each robot type's account", async () => {
+    const f = fixture();
+    await probeRobotFiles(systemcore, f.factory);
+    await uploadRobotFiles({ endpoint: systemcore, hostKeyFingerprint: fingerprint }, files, undefined, f.factory);
+    await probeRobotFiles(endpoint, f.factory);
+    expect(f.requests.map((request) => request.credentials)).toEqual([
+      { username: "systemcore", password: "systemcore" },
+      { username: "systemcore", password: "systemcore" },
+      { username: "admin", password: "" },
+    ]);
+  });
+
+  it.each([
+    [endpoint, "roboRIO login refused; check the robot type. The robot rejected SSH login for admin."],
+    [systemcore, "Systemcore login refused; check the robot type and password. The robot rejected SSH login for systemcore with the default Systemcore password."],
+  ])("names the robot type to check when the login is rejected (%j)", async (value, message) => {
+    const rejected = async () => { throw new RobotTransportError("auth_rejected", "rejected"); };
+    for (const attempt of [probeRobotFiles(value, rejected), uploadRobotFiles({ endpoint: value, hostKeyFingerprint: fingerprint }, files, undefined, rejected)]) {
+      const failure = await attempt.catch((error) => error);
+      expect(failure).toBeInstanceOf(RobotTransportError);
+      expect(failure.code).toBe("auth_rejected");
+      expect(failure.message).toBe(message);
+    }
+  });
+
+  it("cancels a Systemcore upload before publication and removes its temporary file", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    const write = f.session.write;
+    f.session.write = async (...args) => { await write(...args); controller.abort(); };
+    await expect(uploadRobotFiles({ endpoint: systemcore, hostKeyFingerprint: fingerprint }, files, controller.signal, f.factory)).rejects.toThrow("cancelled");
+    expect(f.stored.has("opening.bdx")).toBe(false);
+    expect(f.removed).toHaveLength(1);
+    expect(f.closed()).toBe(1);
   });
 
   it.each(["../evil.bdx", "a/b.bdx", "a\\b.bdx", "a\0b.bdx", ".hidden.bdx", "wrong.json"])("rejects filename %s before connecting", async (fileName) => {

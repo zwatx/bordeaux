@@ -110,6 +110,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-fields{display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:12px 10px}
 .rfp-fields label{display:grid;gap:6px;min-width:0;color:var(--txt-2);font-size:12px;font-weight:500}
 .rfp-fields .rfp-wide{grid-column:1/-1}
+.rfp-fields .rfp-robot{display:grid;gap:6px;color:var(--txt-2);font-size:12px;font-weight:500}
 .rfp-fields input{min-width:0;height:32px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font:12.5px var(--mono);outline:none}
 .rfp-fields input:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
 .rfp-fields input:disabled{opacity:.55}

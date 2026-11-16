@@ -73,7 +73,7 @@ describe("direct file SSH session confinement", () => {
   it.each(["/natinst", "/natinst/bin", "/home", "/home/lvuser"])("rejects missing required parent %s during read-only probe and upload", async (missing) => {
     const entries = { "/natinst": "dir", "/natinst/bin": "dir", "/home": "dir", "/home/lvuser": "dir" } as const;
     const f = setup(Object.fromEntries(Object.entries(entries).filter(([name]) => name !== missing)));
-    const endpoint = { host: "robot.local", port: 22, directory: missing.startsWith("/natinst") ? "/natinst/bin/Paths" : "/home/lvuser/natinst/bin/Paths" };
+    const endpoint = { target: "roborio" as const, host: "robot.local", port: 22, directory: missing.startsWith("/natinst") ? "/natinst/bin/Paths" : "/home/lvuser/natinst/bin/Paths" };
     await expect(probeRobotFiles(endpoint)).rejects.toThrow(`Required robot directory ${missing} is unavailable`);
     const session = await connect();
     const connection = { endpoint, hostKeyFingerprint: session.hostKeyFingerprint };
@@ -88,7 +88,7 @@ describe("direct file SSH session confinement", () => {
     const directory = "/home/lvuser/natinst/bin/Paths";
     const f = setup({ "/home": "dir", "/home/lvuser": "dir", "/home/lvuser/unrelated.bdx": "file" });
     f.stored.set("/home/lvuser/unrelated.bdx", Buffer.from("preserve"));
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
     expect(f.mkdir).not.toHaveBeenCalled();
     const contents = Buffer.from([0, 1, 255, 128]);
     expect(await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents }])).toEqual({ directoryCreated: true });
@@ -133,7 +133,7 @@ describe("direct file SSH session confinement", () => {
       if (kind === "file") entries[target] = "file";
       callback(Object.assign(new Error(kind === "denied" ? "Permission denied" : "Cannot create"), { code: kind === "denied" ? 3 : 4 }));
     });
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
     const failure = await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("bdx") }]).catch(error => error);
     expect(failure).toBeInstanceOf(Error);
     expect(failure.message).not.toContain("Created robot folder");
@@ -144,7 +144,7 @@ describe("direct file SSH session confinement", () => {
     setup({ "/natinst": "dir", "/natinst/bin": "dir" });
     const cancel = new AbortController();
     mock.sftp.mkdir = vi.fn((_target, _options, callback) => { cancel.abort(); callback(); });
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory: "/natinst/bin/Paths" });
     const failure = await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("bdx") }], cancel.signal).catch(error => error);
     expect(failure.code).toBe("cancelled");
     expect(failure.message).not.toContain("Created robot folder");
@@ -214,7 +214,7 @@ describe("direct file compatibility", () => {
   const entries = () => ({ "/home": "dir", "/home/lvuser": "dir", "/home/lvuser/natinst": "link", "/home/lvuser/natinst/bin": "dir", [directory]: "dir" } as const);
   it("follows a linked LabVIEW directory without creating anything during probe", async () => {
     const f = setup(entries());
-    await expect(probeRobotFiles({ host: "robot.local", port: 22, directory })).resolves.toMatchObject({ endpoint: { directory } });
+    await expect(probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory })).resolves.toMatchObject({ endpoint: { directory } });
     expect(mock.sftp.stat).toHaveBeenCalledWith("/home/lvuser/natinst", expect.any(Function));
     expect(f.mkdir).not.toHaveBeenCalled();
   });
@@ -223,7 +223,7 @@ describe("direct file compatibility", () => {
     f.stored.set(`${directory}/other.bdx`, Buffer.from("keep"));
     if (exists) f.stored.set(`${directory}/one.bdx`, Buffer.from("old"));
     mock.sftp.ext_openssh_rename = vi.fn(() => { throw new Error("Server does not support this extended request"); });
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
     await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("new") }]);
     expect(f.stored).toEqual(new Map([[`${directory}/other.bdx`, Buffer.from("keep")], [`${directory}/one.bdx`, Buffer.from("new")]]));
     expect(mock.sftp.rename).toHaveBeenCalledTimes(exists ? 0 : 1);
@@ -234,7 +234,7 @@ describe("direct file compatibility", () => {
   it.each([3, 4, 7, "ECONNRESET", "AUTH_FAILED"])("does not fall back on SFTP error %s", async (code) => {
     setup(entries());
     mock.sftp.ext_openssh_rename = vi.fn((_from, _to, callback) => callback(Object.assign(new Error(code === 3 ? "Server does not support this extended request" : "Denied operation"), { code })));
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
     await expect(uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("new") }])).rejects.toThrow();
     expect(mock.sftp.rename).not.toHaveBeenCalled();
     expect(vi.mocked(mock.sftp.writeFile as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
@@ -247,7 +247,7 @@ describe("direct file compatibility", () => {
       if (name === `${directory}/one.bdx`) callback(Object.assign(new Error("Disk full"), { code: 4 }));
       else originalWrite(name, contents, options, callback);
     });
-    const connection = await probeRobotFiles({ host: "robot.local", port: 22, directory });
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
     await expect(uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("new") }])).rejects.toThrow(/Disk full.*may have been replaced/);
     expect(vi.mocked(mock.sftp.unlink as ReturnType<typeof vi.fn>).mock.calls.every(([name]) => name.includes(".bordeaux-"))).toBe(true);
   });

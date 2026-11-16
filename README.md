@@ -38,7 +38,7 @@ Saving a path writes a local `.bdx` file. Binary export requires saved NI type e
 
 **File → Export active routine…** saves the selected authored routine as a self-contained `.bdr` with embedded paths. **Push routine** uploads that selected routine through the reviewed SFTP flow. Compatible LabVIEW code preloads the whole graph and runs paths, typed commands, waits, branches and repeats; successful delivery does not confirm robot acceptance or execution. Commands require matching owned start/cancel callbacks. See the [runtime format and command contract](src/shared/export/README.md).
 
-Robot push is a separate explicit action. Saving and local deletion do not connect to a robot or remove robot contents. Revision review, readback and matching disabled-runtime acknowledgment remain required where the configured robot receiver supports deployment.
+Robot push is a separate explicit action. Saving and local deletion do not connect to a robot or remove robot contents. Choose the robot type in **Robot connection**. A roboRIO receives files as `admin` in `/home/lvuser/natinst/bin/Paths`. A Systemcore receives them as `systemcore` with its default password in `/home/systemcore/bordeaux/paths`, which the first upload creates; the LabVIEW container reads `/home` at the same path. Robot code must read paths from the folder you push to. Revision review, readback and matching disabled-runtime acknowledgment remain required where the configured robot receiver supports deployment.
 
 ## Project files
 

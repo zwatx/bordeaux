@@ -23,10 +23,26 @@ export const ROBOT_TARGETS = {
     defaultDirectory: "/home/lvuser/natinst/bin/Paths",
     hostPlaceholder: "roborio-2468-frc.local",
   },
+  // LabVIEW runs in a container that mounts the host's /home at the same path, so files
+  // below /home/systemcore are visible to the robot code unchanged.
+  systemcore: {
+    label: "Systemcore",
+    username: "systemcore",
+    password: "systemcore",
+    directoryRoots: ["/home/systemcore"],
+    defaultDirectory: "/home/systemcore/bordeaux/paths",
+    hostPlaceholder: "robot.local",
+  },
 } as const satisfies Record<string, RobotTarget>;
 
 export type RobotTargetId = keyof typeof ROBOT_TARGETS;
 export type RobotTargetUsername = (typeof ROBOT_TARGETS)[RobotTargetId]["username"];
+
+/** Settings saved before robot types existed always described a roboRIO. */
+export const LEGACY_ROBOT_TARGET: RobotTargetId = "roborio";
+
+export const isRobotTargetId = (value: unknown): value is RobotTargetId =>
+  typeof value === "string" && Object.hasOwn(ROBOT_TARGETS, value);
 
 /** Every root any target allows: the SFTP session's last guard against arbitrary remote paths. */
 export const ROBOT_DIRECTORY_ROOTS: readonly string[] = [...new Set(Object.values(ROBOT_TARGETS).flatMap((target) => target.directoryRoots))];

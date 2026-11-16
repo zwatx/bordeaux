@@ -22,7 +22,7 @@ vi.mock('react', async (original) => ({
 import { MAX_PUSH_PATHS, linkedOutside, useRobotFilePushController } from '../src/renderer/components/useRobotFilePushController';
 import { useRobotPushController } from '../src/renderer/components/useRobotPushController';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/shared/robotFileDelivery';
-const connection = { endpoint: { host: 'robot.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: 'SHA256:test' };
+const connection = { endpoint: { target: 'roborio', host: 'robot.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: 'SHA256:test' };
 const preview = { operationId: 'one', connection, files: [{ pathId: 'A', name: 'A', fileName: 'A.bdx', size: 64, sha256: 'abc' }] };
 let bridge, project, props;
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
@@ -91,11 +91,44 @@ describe('SFTP file push controller', () => {
     expect(render()).toMatchObject({ reachability: 'online', phase: 'transferred' });
     expect(bridge.confirmRobotFiles).toHaveBeenCalledTimes(2);
   });
+  it('moves a default folder to the new robot type and sends the type with Connect and Save', async () => {
+    await ready(); await render().chooseAnotherRobot();
+    render().chooseTarget('systemcore');
+    expect(render()).toMatchObject({ target: 'systemcore', directory: '/home/systemcore/bordeaux/paths' });
+    render().setHost('robot.local');
+    await render().probeRobot();
+    expect(bridge.probeRobotFiles).toHaveBeenCalledExactlyOnceWith({ target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' });
+    await render().chooseAnotherRobot();
+    await render().saveSettings();
+    expect(bridge.saveRobotFileSettings).toHaveBeenCalledExactlyOnceWith({ target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' });
+  });
+  it('clears a login error when another robot type is chosen', async () => {
+    await ready(); await render().chooseAnotherRobot();
+    bridge.probeRobotFiles = vi.fn(async () => { throw new Error('roboRIO login refused; check the robot type. The robot rejected SSH login for admin.'); });
+    render().setHost('robot.local');
+    await render().probeRobot();
+    expect(render().error).toMatch(/roboRIO login refused/);
+    render().chooseTarget('systemcore');
+    expect(render().error).toBe('');
+  });
+  it('keeps a typed folder when the robot type changes', async () => {
+    await ready(); await render().chooseAnotherRobot();
+    render().setDirectory('/home/lvuser/practice');
+    render().chooseTarget('systemcore');
+    expect(render()).toMatchObject({ target: 'systemcore', directory: '/home/lvuser/practice' });
+    render().chooseTarget('roborio');
+    expect(render()).toMatchObject({ target: 'roborio', directory: '/home/lvuser/practice' });
+  });
+  it('restores the saved robot type', async () => {
+    const systemcore = { endpoint: { target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' }, hostKeyFingerprint: 'SHA256:test' };
+    bridge.getRobotFileConnection = vi.fn(async () => systemcore);
+    expect(await ready()).toMatchObject({ target: 'systemcore', directory: '/home/systemcore/bordeaux/paths' });
+  });
   it('saves edited settings without probing, trusting, preparing or transmitting', async () => {
     await ready(); await render().chooseAnotherRobot();
     render().setHost('other.local'); render().setPort('2222'); render().setDirectory('/home/lvuser/practice');
     await render().saveSettings();
-    expect(bridge.saveRobotFileSettings).toHaveBeenCalledExactlyOnceWith({ host: 'other.local', port: 2222, directory: '/home/lvuser/practice' });
+    expect(bridge.saveRobotFileSettings).toHaveBeenCalledExactlyOnceWith({ target: 'roborio', host: 'other.local', port: 2222, directory: '/home/lvuser/practice' });
     expect(render()).toMatchObject({ editing: false, connection: null, settings: { endpoint: { host: 'other.local', port: 2222 } } });
     for (const name of ['probeRobotFiles', 'trustRobotFiles', 'prepareRobotFiles', 'confirmRobotFiles']) expect(bridge[name]).not.toHaveBeenCalled();
   });

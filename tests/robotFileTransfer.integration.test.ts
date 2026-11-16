@@ -6,6 +6,7 @@ import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTran
 
 const { STATUS_CODE: S, OPEN_MODE: O } = utils.sftp;
 const directory = "/home/lvuser/natinst/bin/Paths";
+const systemcoreDirectory = "/home/systemcore/bordeaux/paths";
 // ssh2's Ed25519 generator strips genuine leading zero public-key bytes, intermittently
 // producing an unparsable fixture. Node's PEM encoder avoids that generator entirely.
 const hostKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" });
@@ -14,10 +15,16 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 
 // A real SSH/SFTP v3 server, deliberately without OpenSSH rename extensions.
 // Its filesystem models the selected runtime directory, including a linked parent.
-async function robot({ linked = false, denyWrite = false, missingFolder = false, denyMkdir = false } = {}) {
-  const files = new Map<string, Buffer>(missingFolder ? [] : [[`${directory}/existing.bdx`, Buffer.from("old")], [`${directory}/unrelated.bdx`, Buffer.from("untouched")]]);
-  const directories = new Set(["/home", "/home/lvuser", "/home/lvuser/natinst", "/home/lvuser/natinst/bin", directory]);
-  if (missingFolder) directories.delete(directory);
+// A roboRIO accepts `admin` with no password; a Systemcore accepts `systemcore` with its password.
+async function robot({ kind = "roborio" as "roborio" | "systemcore", password = "systemcore", missingHome = false, linked = false, denyWrite = false, missingFolder = false, denyMkdir = false } = {}) {
+  const folder = kind === "systemcore" ? systemcoreDirectory : directory;
+  const files = new Map<string, Buffer>(missingFolder ? [] : [[`${folder}/existing.bdx`, Buffer.from("old")], [`${folder}/unrelated.bdx`, Buffer.from("untouched")]]);
+  const directories = new Set(kind === "systemcore"
+    ? ["/home", "/home/systemcore", "/home/systemcore/bordeaux", folder]
+    : ["/home", "/home/lvuser", "/home/lvuser/natinst", "/home/lvuser/natinst/bin", folder]);
+  // A fresh Systemcore has no Bordeaux folder at all.
+  if (missingFolder) { directories.delete(folder); if (kind === "systemcore") directories.delete("/home/systemcore/bordeaux"); }
+  if (missingHome) directories.delete("/home/systemcore");
   const created: string[] = [];
   const writes: string[] = [];
   const writeModes: Array<number | undefined> = [];
@@ -27,7 +34,9 @@ async function robot({ linked = false, denyWrite = false, missingFolder = false,
     client.on("error", () => {});
     client.on("close", () => clients.delete(client));
     client.on("authentication", (ctx) => {
-      if (ctx.username === "admin" && (ctx.method === "none" || (ctx.method === "password" && ctx.password === ""))) ctx.accept();
+      const roborio = kind === "roborio" && ctx.username === "admin" && (ctx.method === "none" || (ctx.method === "password" && ctx.password === ""));
+      const systemcore = kind === "systemcore" && ctx.username === "systemcore" && ctx.method === "password" && ctx.password === password;
+      if (roborio || systemcore) ctx.accept();
       else ctx.reject();
     });
     client.on("ready", () => client.on("session", (accept) => {
@@ -86,7 +95,7 @@ async function robot({ linked = false, denyWrite = false, missingFolder = false,
     for (const client of clients) client.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  return { files, writes, writeModes, created, endpoint: { host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory } };
+  return { files, writes, writeModes, created, endpoint: { target: kind, host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory: folder } };
 }
 
 describe("path delivery against a real SSH/SFTP connection", () => {
@@ -137,5 +146,48 @@ describe("path delivery against a real SSH/SFTP connection", () => {
       .rejects.toThrow(/permission denied\. The robot's SSH account needs access/i);
     expect(r.files.get(`${directory}/existing.bdx`)?.toString()).toBe("old");
     expect(r.writes).toEqual([]);
+  }, 15_000);
+});
+
+describe("Systemcore path delivery against a real SSH/SFTP connection", () => {
+  it("creates the Bordeaux folder on first upload and delivers a path and a routine readable by the robot", async () => {
+    const r = await robot({ kind: "systemcore", missingFolder: true });
+    const connection = await probeRobotFiles(r.endpoint);
+    expect(r.created).toEqual([]); expect(r.writes).toEqual([]);
+    const path = Buffer.from([0, 255, 128, 10]), routine = Buffer.from('{"schema":"bordeaux-routine-runtime/1"}');
+    expect(await uploadRobotFiles(connection, [{ fileName: "Opening.bdx", contents: path }, { fileName: "Opening.bdr", contents: routine }])).toEqual({ directoryCreated: true });
+    expect(r.created).toEqual(["/home/systemcore/bordeaux", systemcoreDirectory]);
+    expect(r.files).toEqual(new Map([[`${systemcoreDirectory}/Opening.bdx`, path], [`${systemcoreDirectory}/Opening.bdr`, routine]]));
+    expect(r.writeModes).toEqual([0o644, 0o644]);
+  }, 15_000);
+
+  it("replaces an existing path and leaves unrelated files", async () => {
+    const r = await robot({ kind: "systemcore" });
+    const contents = Buffer.from("new");
+    expect(await uploadRobotFiles(await probeRobotFiles(r.endpoint), [{ fileName: "existing.bdx", contents }])).toEqual({ directoryCreated: false });
+    expect(r.files.get(`${systemcoreDirectory}/existing.bdx`)).toEqual(contents);
+    expect(r.files.get(`${systemcoreDirectory}/unrelated.bdx`)?.toString()).toBe("untouched");
+  }, 15_000);
+
+  it("reports a changed Systemcore password without writing", async () => {
+    const r = await robot({ kind: "systemcore", password: "changed" });
+    const failure = await probeRobotFiles(r.endpoint).catch((error) => error);
+    expect(failure.code).toBe("auth_rejected");
+    expect(failure.message).toBe("Systemcore login refused; check the robot type and password. The robot rejected SSH login for systemcore with the default Systemcore password.");
+    expect(r.writes).toEqual([]); expect(r.created).toEqual([]);
+  }, 15_000);
+
+  it("tells a roboRIO login that reached a Systemcore to check the robot type", async () => {
+    const r = await robot({ kind: "systemcore" });
+    const failure = await probeRobotFiles({ ...r.endpoint, target: "roborio", directory }).catch((error) => error);
+    expect(failure.code).toBe("auth_rejected");
+    expect(failure.message).toBe("roboRIO login refused; check the robot type. The robot rejected SSH login for admin.");
+    expect(r.writes).toEqual([]);
+  }, 15_000);
+
+  it("never creates the systemcore home when it is missing", async () => {
+    const r = await robot({ kind: "systemcore", missingFolder: true, missingHome: true });
+    await expect(probeRobotFiles(r.endpoint)).rejects.toThrow("Required robot directory /home/systemcore is unavailable");
+    expect(r.created).toEqual([]); expect(r.writes).toEqual([]);
   }, 15_000);
 });
