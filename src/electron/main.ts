@@ -1629,6 +1629,7 @@ handle("robotFiles:check", () => robotFileDelivery.checkConnection());
 handle("robotFiles:password", () => robotFileDelivery.passwordStatus());
 handle("robotFiles:save", (_event, endpoint, password) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint, password));
 handle("robotFiles:probe", (_event, endpoint, password) => robotFileDelivery.probe(endpoint as RobotFileEndpoint, password));
+handle("robotFiles:cancelProbe", () => robotFileDelivery.cancelProbe());
 handle("robotFiles:trust", (_event, fingerprint) => {
   if (typeof fingerprint !== "string") throw new Error("Review the robot SSH identity first");
   return robotFileDelivery.trust(fingerprint);

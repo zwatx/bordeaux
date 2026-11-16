@@ -16,6 +16,23 @@ function fingerprint(key: Buffer): string {
   return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
 }
 
+/** Observes a host key without allowing SSH to proceed to authentication. */
+export async function discoverRobotSshIdentity(endpoint: { host: string; port: number }, timeoutMs = 60_000): Promise<string> {
+  const client = new Client();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      timer = setTimeout(() => reject(new RobotTransportError("unavailable", UNAVAILABLE_MESSAGE)), timeoutMs);
+      timer.unref();
+      client.on("error", reject);
+      client.once("close", () => reject(new RobotTransportError("unavailable", UNAVAILABLE_MESSAGE)));
+      client.connect({ host: endpoint.host, port: endpoint.port, username: "", readyTimeout: timeoutMs,
+        hostVerifier: (key: Buffer) => { resolve(fingerprint(key)); return false; },
+      });
+    });
+  } finally { clearTimeout(timer); client.destroy(); }
+}
+
 /**
  * Normalizes a remote destination and requires it to sit at or below one of `roots`.
  * Endpoint validation passes the selected target's roots; the session re-checks every

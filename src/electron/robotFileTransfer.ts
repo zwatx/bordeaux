@@ -56,11 +56,12 @@ export async function probeRobotFiles(
   factory: RobotSftpSessionFactory = connectRobotSftp,
   timeoutMs = TIMEOUT_MS,
   password: string | null = null,
+  expectedHostKeyFingerprint?: string,
 ): Promise<RobotFileConnection> {
   const validated = validateRobotFileEndpoint(endpoint);
   requirePasswordSupport(validated, password);
   const signal = AbortSignal.timeout(timeoutMs);
-  const session = await connect(factory, validated, { signal, timeoutMs }, password);
+  const session = await connect(factory, validated, { signal, timeoutMs, expectedHostKeyFingerprint }, password);
   try {
     await requireDirectories(session)(validated.directory, false, signal);
     return { endpoint: validated, hostKeyFingerprint: session.hostKeyFingerprint };

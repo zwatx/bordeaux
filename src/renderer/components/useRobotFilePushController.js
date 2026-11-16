@@ -14,11 +14,13 @@ export function linkedOutside(project, pathIds) {
   return project.paths.filter((path) => linked.has(path.id) && !chosen.has(path.id))
     .map((path) => ({ id: path.id, name: path.name, pushable: (path.waypoints?.length || 0) >= 2 }));
 }
+const disconnected = { monitoring: false, reachability: 'unknown' };
+const emptyReview = { preview: null, result: null };
 const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading'].includes(phase);
 
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
   const api = window.bordeauxAPI;
-  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, reachability: 'unknown', monitoring: false, probe: null, preview: null, result: null, error: '', passwordStatus: { custom: false, persistent: false } });
+  const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, ...disconnected, probe: null, ...emptyReview, error: '', passwordStatus: { custom: false, persistent: false } });
   const [target, setTarget] = useState('roborio');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
@@ -50,7 +52,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (!intent.current) return;
     const request = ++generation.current;
     const captured = intent.current;
-    update({ phase: 'preparing', preview: null, result: null, error: '' });
+    update({ phase: 'preparing', ...emptyReview, error: '' });
     try {
       const preview = captured.scope.kind === 'routine'
         ? await api.prepareRobotRoutine(captured.project, captured.scope.routineId)
@@ -107,7 +109,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (!captured || state.current.phase === 'uploading' || state.current.phase === 'saving') return;
     generation.current += 1;
     void discard(state.current.preview).catch(() => undefined);
-    update({ preview: null, result: null, phase: 'idle', error: 'The project changed. Choose Push again to review the current files.' });
+    update({ ...emptyReview, phase: 'idle', error: 'The project changed. Choose Push again to review the current files.' });
   }, [projectKey, catalogKey, bookmarkKey]);
   // A folder still at the previous type's default follows the new type; a folder the user typed stays.
   // A login error is about the previous type, so choosing another one clears it.
@@ -120,14 +122,22 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   };
   const show = () => { if (!state.current.open) origin.current = document.activeElement; update({ open: true }); };
   const returnFocus = () => focusIfAvailable(origin.current);
-  const close = () => { discardPasswordDraft(); update({ open: false }); };
+  const close = () => {
+    discardPasswordDraft();
+    if (['probing', 'identity'].includes(state.current.phase)) {
+      generation.current += 1;
+      void api.cancelRobotFileProbe().catch(() => {});
+      update({ probe: null, phase: 'idle' });
+    }
+    update({ open: false });
+  };
   const requestPush = async (scope) => {
     show();
     if (working(state.current.phase) && state.current.phase !== 'loading') return;
     if (!['paths', 'routine'].includes(scope?.kind)) {
       intent.current = null;
       void discard(state.current.preview).catch(() => undefined);
-      update({ error: 'Choose paths or one routine to push.', phase: 'unsupported', preview: null, result: null }); return;
+      update({ error: 'Choose paths or one routine to push.', phase: 'unsupported', ...emptyReview }); return;
     }
     if (scope.kind === 'paths' ? !scope.pathIds?.length : !scope.routineId) { intent.current = null; update({ error: 'Select paths or one routine to push.', phase: 'failed', preview: null }); return; }
     const previous = state.current.preview;
@@ -135,7 +145,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const captured = intent.current = { project, scope: structuredClone(scope), pathIds, projectKey, linked: scope.kind === 'paths' ? linkedOutside(project, pathIds) : [] };
     const request = generation.current;
     const wasLoading = state.current.phase === 'loading';
-    update({ preview: null, result: null, error: '', phase: wasLoading ? 'loading' : 'preparing' });
+    update({ ...emptyReview, error: '', phase: wasLoading ? 'loading' : 'preparing' });
     try { await discard(previous); }
     catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); return; }
     if (request !== generation.current || intent.current !== captured) return;
@@ -145,7 +155,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const probeRobot = async () => {
     if (working(state.current.phase)) return;
     const request = ++generation.current;
-    update({ phase: 'probing', probe: null, error: '', monitoring: false, reachability: 'unknown' });
+    update({ phase: 'probing', probe: null, error: '', ...disconnected });
     try {
       const probe = await api.probeRobotFiles({ target, host: host.trim(), port: Number(port), directory: directory.trim() }, passwordChange());
       if (request !== generation.current) return;
@@ -166,7 +176,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       trusted.current = connection;
       intent.current = null;
       setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
-      update({ settings, connection, editing: false, probe: null, preview: null, result: null, phase: 'idle', monitoring: false, reachability: 'unknown' });
+      update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', ...disconnected });
       await committedPassword();
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
   };
@@ -225,7 +235,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (pathIds.length > MAX_PUSH_PATHS) { update({ error: 'Push sends at most ' + MAX_PUSH_PATHS + ' paths at once. Including these would make ' + pathIds.length + '.' }); return; }
     const next = intent.current = { project: captured.project, scope: { kind: 'paths', pathIds }, pathIds, projectKey: captured.projectKey, linked: linkedOutside(captured.project, pathIds) };
     const request = ++generation.current;
-    update({ phase: 'preparing', preview: null, result: null, error: '' });
+    update({ phase: 'preparing', ...emptyReview, error: '' });
     try { await discard(reviewed); }
     catch (error) { if (request === generation.current && intent.current === next) update({ phase: 'failed', error: message(error) }); return; }
     if (request === generation.current && intent.current === next) await prepare();
@@ -235,7 +245,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     const previous = state.current;
     update({ phase: 'preparing' });
-    try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, preview: null, result: null, phase: 'idle', error: '', monitoring: false, reachability: 'unknown' }); }
+    try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
   // Edit from the summary starts a fresh form. Back from identity and Change in a review keep the drafts,
@@ -247,7 +257,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     const previous = state.current;
     update({ phase: 'preparing' });
-    try { await discard(previous.preview); if (request === generation.current) update({ preview: null, result: null, phase: 'idle', error: '' }); }
+    try { await discard(previous.preview); if (request === generation.current) update({ ...emptyReview, phase: 'idle', error: '' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
   return { ...view, fileTransfer: true, target, chooseTarget, host, setHost, port, setPort, directory, setDirectory, password, setPassword, useDefault, useDefaultPassword, keepSavedPassword,

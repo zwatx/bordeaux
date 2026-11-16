@@ -30,7 +30,14 @@ export function sessionRobotPasswordStore(): RobotPasswordStore {
 /** Opens the keychain-backed store at `file`, or a session store when the keychain is unavailable. */
 export async function openRobotPasswordStore(file: string, storage: SafeStorage): Promise<RobotPasswordStore> {
   // Linux falls back to "basic_text" without a keyring, which is plaintext with extra steps.
-  if (!storage.isEncryptionAvailable() || storage.getSelectedStorageBackend?.() === "basic_text") return sessionRobotPasswordStore();
+  if (!storage.isEncryptionAvailable() || storage.getSelectedStorageBackend?.() === "basic_text") {
+    let password: string | null = null;
+    return { persistent: false, current: () => password, replace: async (next) => {
+      // A committed session credential must supersede ciphertext from an earlier keychain session.
+      await fs.rm(file, { force: true });
+      password = next;
+    } };
+  }
   let password: string | null = null;
   try { password = storage.decryptString(await fs.readFile(file)); }
   catch { /* Missing or undecryptable (a changed keychain): use the default password. */ }

@@ -38,7 +38,7 @@ beforeEach(() => {
   props = { getProject: () => project, projectKey: 'project', catalogKey: 'catalog' };
   bridge = { getRobotFileConnection: vi.fn(async () => connection), saveRobotFileSettings: vi.fn(async endpoint => ({ endpoint })), prepareRobotFiles: vi.fn(async () => preview),
     confirmRobotFiles: vi.fn(async () => ({ state: 'transferred', files: preview.files, directory: connection.endpoint.directory })),
-    cancelRobotFiles: vi.fn(async () => ({ canceled: true })), probeRobotFiles: vi.fn(async () => connection), trustRobotFiles: vi.fn(async () => connection) };
+    cancelRobotFileProbe: vi.fn(async () => undefined), cancelRobotFiles: vi.fn(async () => ({ canceled: true })), probeRobotFiles: vi.fn(async () => connection), trustRobotFiles: vi.fn(async () => connection) };
   vi.stubGlobal('window', { bordeauxAPI: bridge }); vi.stubGlobal('document', { activeElement: null });
   vi.stubGlobal('requestAnimationFrame', (callback) => callback());
 });
@@ -145,6 +145,29 @@ describe('SFTP file push controller', () => {
     expect(render().password).toBe('team-2468');
     await render().probeRobot();
     expect(bridge.probeRobotFiles.mock.calls[1][1]).toEqual({ kind: 'custom', password: 'team-2468' });
+  });
+  it('closing a delayed Connect invalidates automatic trust and its typed password', async () => {
+    await ready();
+    bridge.cancelRobotFileProbe = vi.fn(async () => undefined);
+    const pending = deferred(); bridge.probeRobotFiles.mockReturnValueOnce(pending.promise);
+    render().openConnection(); render().setPassword('draft');
+    const connecting = render().probeRobot();
+    render().close(); render().openConnection();
+    pending.resolve(connection); await connecting;
+    expect(bridge.trustRobotFiles).not.toHaveBeenCalled();
+    expect(bridge.cancelRobotFileProbe).toHaveBeenCalledOnce();
+    expect(render()).toMatchObject({ phase: 'idle', probe: null, password: '', open: true });
+  });
+  it('closing identity discards the pending login across reopen', async () => {
+    await ready();
+    bridge.cancelRobotFileProbe = vi.fn(async () => undefined);
+    bridge.probeRobotFiles.mockResolvedValueOnce({ ...connection, hostKeyFingerprint: 'SHA256:different' });
+    render().setPassword('draft'); await render().probeRobot();
+    expect(render().phase).toBe('identity');
+    render().close(); render().openConnection(); await render().confirmPairing();
+    expect(bridge.trustRobotFiles).not.toHaveBeenCalled();
+    expect(bridge.cancelRobotFileProbe).toHaveBeenCalledOnce();
+    expect(render()).toMatchObject({ phase: 'idle', probe: null, password: '', open: true });
   });
   it('discards password drafts when the dialog closes or Edit opens, and clears a login error on typing', async () => {
     await ready(); await render().chooseAnotherRobot();

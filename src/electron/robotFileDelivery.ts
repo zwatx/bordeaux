@@ -6,6 +6,7 @@ import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../shared/robotFileDelivery";
 import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../shared/robotTargets";
 import { writeJsonAtomically } from "./projectFiles";
 import { sessionRobotPasswordStore, type RobotPasswordStore } from "./robotPasswordStore";
+import { discoverRobotSshIdentity } from "./robotSsh2Session";
 import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
 
 /** Validates a password change arriving over IPC; omitted means keep the password in effect. */
@@ -52,6 +53,12 @@ export async function writeRobotFileConnection(file: string, value: RobotFileSet
   await writeJsonAtomically(file, normalized);
 }
 
+interface RobotFileTransport {
+  probe(endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string): Promise<RobotFileConnection>;
+  discover?(endpoint: RobotFileEndpoint): Promise<RobotFileConnection>;
+  upload(connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null): Promise<{ directoryCreated: boolean }>;
+}
+
 /**
  * Reviewed bytes and SSH destination are immutable until this single-use transfer completes.
  * A custom SSH password takes effect only when Save or Trust commits it; probes never do.
@@ -61,13 +68,15 @@ export class RobotFileDelivery {
   private saved: RobotFileSettings | null;
   private observed: RobotFileConnection | null = null;
   private observedPassword: string | null = null;
+  private observedNeedsLogin = false;
   private generation = 0;
   private trusting = false;
   private pending: { preview: RobotFilePreview; files: PreparedRobotFile[]; validate: () => Promise<void> } | null = null;
   private active: { id: string; controller: AbortController; done: Promise<RobotFileResult> } | null = null;
   constructor(initial: RobotFileSettings | null, private readonly persist: (value: RobotFileSettings) => Promise<void>,
-    private readonly transport = {
-      probe: (endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null) => probeRobotFiles(endpoint, undefined, timeoutMs, password ?? null),
+    private readonly transport: RobotFileTransport = {
+      discover: async (endpoint) => ({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) }),
+      probe: (endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string) => probeRobotFiles(endpoint, undefined, timeoutMs, password ?? null, expectedHostKeyFingerprint),
       upload: (connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null) =>
         uploadRobotFiles(connection, files, signal, undefined, password ?? null),
     },
@@ -84,17 +93,21 @@ export class RobotFileDelivery {
       if (!allowsCustomPassword(endpoint.target)) throw new Error(`${ROBOT_TARGETS[endpoint.target].label} logs in without a password`);
       return change.password;
     }
+    if (change.kind === "keep" && allowsCustomPassword(endpoint.target) && this.passwords.current() !== null
+      && (this.saved?.endpoint.host !== endpoint.host || this.saved.endpoint.port !== endpoint.port || this.saved.endpoint.target !== endpoint.target)) {
+      throw new Error("Enter the SSH password or choose the default before connecting a different robot");
+    }
     return change.kind === "keep" && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
   }
   private async commitPassword(password: string | null): Promise<void> {
-    if (password !== this.passwords.current()) await this.passwords.replace(password);
+    await this.passwords.replace(password);
   }
   /** Read-only liveness check: never changes SSH trust, a file review, or an upload. */
   async checkConnection(): Promise<RobotFileConnection | null> {
     const trusted = this.trusted, generation = this.generation;
     if (!trusted || this.trusting) return null;
     try {
-      const observed = connection(await this.transport.probe(trusted.endpoint, 5_000, this.passwordFor(trusted.endpoint, { kind: "keep" })));
+      const observed = connection(await this.transport.probe(trusted.endpoint, 5_000, this.passwordFor(trusted.endpoint, { kind: "keep" }), trusted.hostKeyFingerprint));
       if (generation !== this.generation || trusted !== this.trusted || observed.hostKeyFingerprint !== trusted.hostKeyFingerprint
         || observed.endpoint.host !== trusted.endpoint.host || observed.endpoint.port !== trusted.endpoint.port) return null;
       return structuredClone(trusted);
@@ -110,13 +123,10 @@ export class RobotFileDelivery {
       && this.trusted.endpoint.target === normalized.target && password === this.passwords.current() ? this.trusted.hostKeyFingerprint : undefined;
     const value: RobotFileSettings = { endpoint: normalized, ...(fingerprint ? { hostKeyFingerprint: fingerprint } : {}) };
     this.generation++;
-    this.observed = null; this.pending = null;
+    this.observed = null; this.observedPassword = null; this.pending = null;
     this.trusting = true;
     try {
-      await this.persist(value);
-      this.saved = value;
-      this.trusted = fingerprint ? connection(value) : null;
-      await this.commitPassword(password);
+      await this.commitSettings(value, password);
       return structuredClone(value);
     } finally { this.trusting = false; }
   }
@@ -127,9 +137,11 @@ export class RobotFileDelivery {
     const password = this.passwordFor(normalized, change);
     const generation = ++this.generation;
     this.observed = null; this.observedPassword = null; this.pending = null;
-    const result = connection(await this.transport.probe(normalized, undefined, password));
+    const needsLogin = password !== null;
+    if (needsLogin && !this.transport.discover) throw new Error("SSH identity discovery is unavailable");
+    const result = connection(needsLogin ? await this.transport.discover!(normalized) : await this.transport.probe(normalized, undefined, password));
     if (generation !== this.generation) throw new Error("A newer connection replaced this probe");
-    this.observed = result; this.observedPassword = password;
+    this.observed = result; this.observedPassword = password; this.observedNeedsLogin = needsLogin;
     return structuredClone(result);
   }
   async trust(fingerprint: string): Promise<RobotFileConnection> {
@@ -137,11 +149,42 @@ export class RobotFileDelivery {
     this.trusting = true;
     const value = structuredClone(this.observed);
     try {
-      await this.persist(value); this.saved = value; this.trusted = value; this.observed = null; this.pending = null;
-      await this.commitPassword(this.observedPassword);
+      if (this.observedNeedsLogin) {
+        const authenticated = connection(await this.transport.probe(value.endpoint, undefined, this.observedPassword, value.hostKeyFingerprint));
+        if (authenticated.hostKeyFingerprint !== value.hostKeyFingerprint) throw new Error("The robot SSH host key changed; connect and review its identity again");
+        this.observedNeedsLogin = false;
+      }
+      await this.commitSettings(value, this.observedPassword);
+      this.observed = null; this.observedPassword = null; this.pending = null;
       return structuredClone(value);
     }
     finally { this.trusting = false; }
+  }
+  private async commitSettings(value: RobotFileSettings, password: string | null): Promise<void> {
+    // Revoke the old identity before replacing credentials. Clear its password before moving
+    // the saved endpoint, so a crash or rejected write cannot associate an old secret with a new robot.
+    const previous = this.saved ? { endpoint: this.saved.endpoint } : null;
+    if (previous) {
+      await this.persist(previous);
+      this.saved = previous; this.trusted = null;
+    }
+    await this.commitPassword(null);
+    const unverified = { endpoint: value.endpoint };
+    if (!previous || JSON.stringify(previous.endpoint) !== JSON.stringify(value.endpoint)) {
+      await this.persist(unverified);
+      this.saved = unverified;
+    }
+    this.trusted = null;
+    if (password !== null) await this.commitPassword(password);
+    if (value.hostKeyFingerprint) await this.persist(value);
+    this.saved = value;
+    this.trusted = value.hostKeyFingerprint ? connection(value) : null;
+  }
+
+  cancelProbe(): void {
+    if (this.trusting) return;
+    this.generation++;
+    this.observed = null; this.observedPassword = null;
   }
   prepare(files: PreparedRobotFile[], validate: () => Promise<void>): RobotFilePreview {
     if (!this.trusted || this.active || this.trusting) throw new Error("Connect a robot before preparing this transfer");
@@ -173,5 +216,5 @@ export class RobotFileDelivery {
     if (this.active?.id === id) { this.active.controller.abort(); return { canceled: true }; }
     return { canceled: false };
   }
-  async stop(): Promise<void> { this.generation++; this.pending = null; this.observed = null; this.active?.controller.abort(); await this.active?.done.catch(() => undefined); }
+  async stop(): Promise<void> { this.generation++; this.pending = null; this.observed = null; this.observedPassword = null; this.active?.controller.abort(); await this.active?.done.catch(() => undefined); }
 }

@@ -74,6 +74,22 @@ describe("remembered robot SSH password", () => {
     expect((await openRobotPasswordStore(target, keychain("basic_text"))).current()).toBeNull();
   });
 
+  it.each([null, "replacement"])("invalidates old ciphertext on session commit %s", async (next) => {
+    const target = await file();
+    await (await openRobotPasswordStore(target, keychain())).replace("old");
+    const fallback = await openRobotPasswordStore(target, keychain("basic_text"));
+    await fallback.replace(next);
+    expect(fallback.current()).toBe(next);
+    expect((await openRobotPasswordStore(target, keychain())).current()).toBeNull();
+  });
+
+  it("removes undecryptable ciphertext when committing the default", async () => {
+    const target = await file();
+    await fs.writeFile(target, Buffer.from([0xff, 1]));
+    await (await openRobotPasswordStore(target, keychain())).replace(null);
+    await expect(fs.access(target)).rejects.toThrow();
+  });
+
   it("offers a session-only store for callers without a keychain", async () => {
     const store = sessionRobotPasswordStore();
     expect(store.persistent).toBe(false);

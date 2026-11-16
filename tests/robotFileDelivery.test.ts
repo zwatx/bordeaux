@@ -28,7 +28,7 @@ describe("reviewed robot file delivery", () => {
     const { delivery, transport, persist } = setup();
     const preview = delivery.prepare([file()], async () => undefined);
     expect(await delivery.checkConnection()).toEqual(connection);
-    expect(transport.probe).toHaveBeenCalledWith(connection.endpoint, 5_000, null);
+    expect(transport.probe).toHaveBeenCalledWith(connection.endpoint, 5_000, null, connection.hostKeyFingerprint);
     transport.probe.mockRejectedValueOnce(new Error("unplugged"));
     expect(await delivery.checkConnection()).toBeNull();
     transport.probe.mockResolvedValueOnce({ ...connection, hostKeyFingerprint: "SHA256:anotherabcdefghijklmnopqr" });
@@ -54,7 +54,7 @@ describe("reviewed robot file delivery", () => {
     const endpoint = { ...connection.endpoint, directory: "/home/lvuser/practice" };
     expect(await delivery.saveSettings(endpoint)).toEqual({ ...connection, endpoint });
     expect(delivery.current()).toEqual({ ...connection, endpoint });
-    expect(persist).toHaveBeenCalledExactlyOnceWith({ ...connection, endpoint });
+    expect(persist).toHaveBeenLastCalledWith({ ...connection, endpoint });
     await expect(delivery.confirm(preview.operationId)).rejects.toThrow(/Review/);
     expect(transport.probe).not.toHaveBeenCalled(); expect(transport.upload).not.toHaveBeenCalled();
   });
@@ -85,7 +85,7 @@ describe("reviewed robot file delivery", () => {
     observed.endpoint.host = "changed.local";
     await expect(delivery.trust("SHA256:wrong")).rejects.toThrow(/review/);
     expect(await delivery.trust(connection.hostKeyFingerprint)).toEqual(connection);
-    expect(persist).toHaveBeenCalledExactlyOnceWith(connection);
+    expect(persist).toHaveBeenLastCalledWith(connection);
     expect(transport.upload).not.toHaveBeenCalled();
   });
   it.each([false, true])("uploads immutable reviewed bytes and forwards actual creation (%s) only once", async (directoryCreated) => {
@@ -204,7 +204,7 @@ describe("remembered robot destination", () => {
     expect(await delivery.saveSettings(endpoint)).toEqual({ endpoint });
     expect(delivery.current()).toBeNull();
     expect(() => delivery.prepare([file()], async () => undefined)).toThrow(/Connect/);
-    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -214,6 +214,7 @@ describe("custom Systemcore SSH password", () => {
     const passwords = sessionRobotPasswordStore();
     const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
     const transport = {
+      discover: vi.fn(async (endpoint: RobotFileConnection["endpoint"]) => ({ endpoint, hostKeyFingerprint: systemcore.hostKeyFingerprint })),
       probe: vi.fn(async (endpoint: RobotFileConnection["endpoint"], _timeoutMs?: number, _password?: string | null) => ({ endpoint, hostKeyFingerprint: systemcore.hostKeyFingerprint })),
       upload: vi.fn(async (_connection: RobotFileConnection, _files: Array<{ fileName: string; contents: Buffer }>, _signal?: AbortSignal, _password?: string | null) => ({ directoryCreated: false })),
     };
@@ -221,15 +222,136 @@ describe("custom Systemcore SSH password", () => {
   }
   const push = async (delivery: RobotFileDelivery) => delivery.confirm(delivery.prepare([file()], async () => undefined).operationId);
 
+  it("discovers known custom identities and refuses to forward saved secrets to another endpoint", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    await delivery.probe(systemcore.endpoint);
+    expect(transport.discover).toHaveBeenLastCalledWith(systemcore.endpoint);
+    await expect(delivery.probe({ ...systemcore.endpoint, host: "other.local" })).rejects.toThrow(/different robot/);
+    expect(transport.probe).not.toHaveBeenCalled();
+  });
+
+  it("permits explicit identity review when a robot at the saved address is reimaged", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    const replacement = { ...systemcore, hostKeyFingerprint: `SHA256:${"z".repeat(43)}` };
+    transport.discover.mockResolvedValueOnce(replacement);
+    expect(await delivery.probe(systemcore.endpoint)).toEqual(replacement);
+    expect(transport.probe).not.toHaveBeenCalled();
+    transport.probe.mockResolvedValueOnce(replacement);
+    await delivery.trust(replacement.hostKeyFingerprint);
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved", replacement.hostKeyFingerprint);
+    expect(delivery.current()).toEqual(replacement);
+  });
+
+  it("discards completed and inflight probe credentials without changing committed trust", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup();
+    await passwords.replace("saved");
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "draft" });
+    delivery.cancelProbe();
+    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow(/Connect/);
+    let finish!: (value: RobotFileConnection) => void;
+    transport.discover.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const probing = delivery.probe(systemcore.endpoint, { kind: "custom", password: "late" });
+    const rejected = expect(probing).rejects.toThrow(/newer connection/);
+    delivery.cancelProbe(); finish(systemcore); await rejected;
+    expect(passwords.current()).toBe("saved");
+    expect(delivery.current()).toEqual(systemcore);
+  });
+
+  it.each(["save", "trust"])("leaves safely unverified settings and permits retry after a %s credential failure", async (mode) => {
+    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    let password: string | null = "old";
+    const replace = vi.fn(async (next: string | null) => { password = next; });
+    const store = { persistent: true, current: () => password, replace };
+    const delivery = new RobotFileDelivery(systemcore, persist, undefined, store);
+    // Trust requires an observed login; a separate fixture supplies that without a real connection.
+    const transport = { discover: vi.fn(async () => systemcore), probe: vi.fn(async () => systemcore), upload: vi.fn(async () => ({ directoryCreated: false })) };
+    const tested = mode === "trust" ? new RobotFileDelivery(systemcore, persist, transport, store) : delivery;
+    if (mode === "trust") await tested.probe(systemcore.endpoint, { kind: "custom", password: "new" });
+    replace.mockRejectedValueOnce(new Error("keychain failed"));
+    const attempt = () => mode === "trust" ? tested.trust(systemcore.hostKeyFingerprint) : tested.saveSettings(systemcore.endpoint, { kind: "custom", password: "new" });
+    await expect(attempt()).rejects.toThrow("keychain failed");
+    expect(tested.current()).toBeNull();
+    expect(tested.settings()).toEqual({ endpoint: systemcore.endpoint });
+    expect(persist).toHaveBeenLastCalledWith({ endpoint: systemcore.endpoint });
+    expect(password).toBe("old");
+    await attempt(); expect(password).toBe("new");
+  });
+
+  it("uses an offline-saved custom password for explicit first Connect without re-entry", async () => {
+    const { delivery, passwords, transport } = systemcoreSetup(null);
+    await delivery.saveSettings(systemcore.endpoint, { kind: "custom", password: "saved" });
+    expect(passwords.current()).toBe("saved");
+    await delivery.probe(systemcore.endpoint);
+    expect(transport.discover).toHaveBeenCalledWith(systemcore.endpoint);
+    expect(transport.probe).not.toHaveBeenCalled();
+    await delivery.trust(systemcore.hostKeyFingerprint);
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved", systemcore.hostKeyFingerprint);
+  });
+
+  it("authenticates a first custom login only after identity review, with its fingerprint pinned", async () => {
+    const { delivery, passwords, transport, persist } = systemcoreSetup(null);
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "new" });
+    expect(transport.probe).not.toHaveBeenCalled();
+    transport.probe.mockRejectedValueOnce(new Error("host key changed"));
+    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow("host key changed");
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "new", systemcore.hostKeyFingerprint);
+    expect(persist).not.toHaveBeenCalled();
+    expect(passwords.current()).toBeNull();
+    await delivery.trust(systemcore.hostKeyFingerprint);
+    expect(passwords.current()).toBe("new");
+  });
+
+  it("does not change credentials when the initial settings write fails", async () => {
+    const { delivery, passwords, persist } = systemcoreSetup();
+    await passwords.replace("old");
+    persist.mockRejectedValueOnce(new Error("disk full"));
+    await expect(delivery.saveSettings(systemcore.endpoint, { kind: "custom", password: "new" })).rejects.toThrow("disk full");
+    expect(delivery.current()).toEqual(systemcore);
+    expect(passwords.current()).toBe("old");
+  });
+
+  it("does not send the old credential after a failed save to a new endpoint", async () => {
+    const endpoint = { ...systemcore.endpoint, host: "other.local" };
+    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    const transport = { discover: vi.fn(async () => systemcore), probe: vi.fn(async () => systemcore), upload: vi.fn(async () => ({ directoryCreated: false })) };
+    const store = { persistent: true, current: () => "old", replace: vi.fn(async () => { throw new Error("keychain failed"); }) };
+    const delivery = new RobotFileDelivery(systemcore, persist, transport, store);
+    await expect(delivery.saveSettings(endpoint, { kind: "custom", password: "new" })).rejects.toThrow("keychain failed");
+    await expect(delivery.probe(endpoint)).rejects.toThrow(/different robot/);
+    expect(transport.probe).not.toHaveBeenCalled();
+  });
+
+  it("commits an explicit default even if the loaded store already reports null", async () => {
+    const store = { persistent: true, current: () => null, replace: vi.fn(async (_password: string | null) => undefined) };
+    const delivery = new RobotFileDelivery(systemcore, async () => undefined, undefined, store);
+    await delivery.saveSettings(systemcore.endpoint, { kind: "default" });
+    expect(store.replace).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it("retains the observed identity for retry when final trust persistence fails", async () => {
+    const { delivery, passwords, persist } = systemcoreSetup();
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "new" });
+    persist.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("disk full"));
+    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow("disk full");
+    expect(delivery.current()).toBeNull();
+    expect(delivery.settings()).toEqual({ endpoint: systemcore.endpoint });
+    expect(passwords.current()).toBe("new");
+    await delivery.trust(systemcore.hostKeyFingerprint);
+    expect(delivery.current()).toEqual(systemcore);
+  });
+
   it("connects with a typed password, remembers it only after trust, then uses it for checks and uploads", async () => {
     const { delivery, passwords, transport } = systemcoreSetup(null);
     await delivery.probe(systemcore.endpoint, { kind: "custom", password: "team-2468" });
-    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "team-2468");
+    expect(transport.discover).toHaveBeenCalledWith(systemcore.endpoint);
+    expect(transport.probe).not.toHaveBeenCalled();
     expect(passwords.current()).toBeNull();
     await delivery.trust(systemcore.hostKeyFingerprint);
     expect(passwords.current()).toBe("team-2468");
     await delivery.checkConnection();
-    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, 5_000, "team-2468");
+    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, 5_000, "team-2468", systemcore.hostKeyFingerprint);
     await push(delivery);
     expect(transport.upload.mock.calls[0][3]).toBe("team-2468");
   });
@@ -239,11 +361,11 @@ describe("custom Systemcore SSH password", () => {
     await passwords.replace("saved");
     await delivery.probe(systemcore.endpoint, { kind: "custom", password: "abandoned" });
     transport.probe.mockRejectedValueOnce(new Error("Systemcore login refused"));
-    await expect(delivery.probe(systemcore.endpoint, { kind: "custom", password: "wrong" })).rejects.toThrow("refused");
-    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow(/Connect/);
+    await delivery.probe(systemcore.endpoint, { kind: "custom", password: "wrong" });
+    await expect(delivery.trust(systemcore.hostKeyFingerprint)).rejects.toThrow("refused");
     expect(passwords.current()).toBe("saved");
     await delivery.probe(systemcore.endpoint);
-    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved");
+    expect(transport.discover).toHaveBeenLastCalledWith(systemcore.endpoint);
   });
 
   it("saves a typed password offline without writing it to the settings file, and returns to the default on request", async () => {
@@ -269,7 +391,7 @@ describe("custom Systemcore SSH password", () => {
     await delivery.saveSettings(systemcore.endpoint, { kind: "keep" });
     expect(passwords.current()).toBe("saved");
     await delivery.probe(systemcore.endpoint, { kind: "keep" });
-    expect(transport.probe).toHaveBeenLastCalledWith(systemcore.endpoint, undefined, "saved");
+    expect(transport.discover).toHaveBeenLastCalledWith(systemcore.endpoint);
   });
 
   it("clears a custom password when the robot type changes to one without passwords", async () => {

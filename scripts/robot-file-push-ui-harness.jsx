@@ -34,6 +34,7 @@ async function mount(saved = connection) {
     getRobotFilePassword: async () => window.__passwordStatus ?? { custom: false, persistent: true },
     checkRobotFileConnection: (...args) => enqueue('checks', args),
     saveRobotFileSettings: (...args) => enqueue('saves',args),
+    cancelRobotFileProbe: async () => {},
     probeRobotFiles: (...args) => enqueue('probes',args), trustRobotFiles: (...args) => enqueue('trusts',args),
     prepareRobotFiles: (...args) => enqueue('prepares',args), confirmRobotFiles: (...args) => enqueue('confirms',args),
     prepareRobotRoutine: (...args) => enqueue('preparesRoutine',args),

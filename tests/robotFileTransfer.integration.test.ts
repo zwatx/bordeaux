@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Server, utils, type Connection } from "ssh2";
 import type { AddressInfo } from "node:net";
 import { generateKeyPairSync } from "node:crypto";
+import { RobotFileDelivery } from "../src/electron/robotFileDelivery";
 import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTransfer";
 
 const { STATUS_CODE: S, OPEN_MODE: O } = utils.sftp;
@@ -28,12 +29,14 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
   const created: string[] = [];
   const writes: string[] = [];
   const writeModes: Array<number | undefined> = [];
+  const authentication: string[] = [];
   const clients = new Set<Connection>();
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     clients.add(client);
     client.on("error", () => {});
     client.on("close", () => clients.delete(client));
     client.on("authentication", (ctx) => {
+      authentication.push(ctx.method);
       const roborio = kind === "roborio" && ctx.username === "admin" && (ctx.method === "none" || (ctx.method === "password" && ctx.password === ""));
       const systemcore = kind === "systemcore" && ctx.username === "systemcore" && ctx.method === "password" && ctx.password === password;
       if (roborio || systemcore) ctx.accept();
@@ -95,7 +98,7 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
     for (const client of clients) client.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  return { files, writes, writeModes, created, endpoint: { target: kind, host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory: folder } };
+  return { files, writes, writeModes, created, authentication, endpoint: { target: kind, host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory: folder } };
 }
 
 describe("path delivery against a real SSH/SFTP connection", () => {
@@ -150,6 +153,25 @@ describe("path delivery against a real SSH/SFTP connection", () => {
 });
 
 describe("Systemcore path delivery against a real SSH/SFTP connection", () => {
+  it("reviews the host identity before authenticating with a custom password", async () => {
+    const r = await robot({ kind: "systemcore", password: "test-custom" });
+    const delivery = new RobotFileDelivery(null, async () => {});
+    const identity = await delivery.probe(r.endpoint, { kind: "custom", password: "test-custom" });
+    expect(r.authentication).toEqual([]);
+    expect(delivery.current()).toBeNull();
+    await delivery.trust(identity.hostKeyFingerprint);
+    expect(r.authentication).toContain("password");
+    expect(delivery.current()).toEqual(identity);
+    expect(r.writes).toEqual([]);
+  }, 15_000);
+
+  it("rejects a changed host key before the server receives password authentication", async () => {
+    const r = await robot({ kind: "systemcore", password: "test-custom" });
+    await expect(probeRobotFiles(r.endpoint, undefined, 5000, "test-custom", `SHA256:${"a".repeat(43)}`))
+      .rejects.toThrow(/identity|host key/i);
+    expect(r.authentication).toEqual([]);
+  }, 15_000);
+
   it("creates the Bordeaux folder on first upload and delivers a path and a routine readable by the robot", async () => {
     const r = await robot({ kind: "systemcore", missingFolder: true });
     const connection = await probeRobotFiles(r.endpoint);

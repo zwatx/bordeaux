@@ -53,6 +53,7 @@ const bordeauxAPI = {
   prepareRobotFiles: (project: BordeauxProject, pathIds: string[]): Promise<RobotFilePreview> => ipcRenderer.invoke("robotFiles:prepare", project, pathIds),
   prepareRobotRoutine: (project: BordeauxProject, routineId: string): Promise<RobotFilePreview> => ipcRenderer.invoke("robotFiles:prepareRoutine", project, routineId),
   confirmRobotFiles: (operationId: string): Promise<RobotFileResult> => ipcRenderer.invoke("robotFiles:confirm", operationId),
+  cancelRobotFileProbe: (): Promise<void> => ipcRenderer.invoke("robotFiles:cancelProbe"),
   cancelRobotFiles: (operationId: string): Promise<{ canceled: boolean }> => ipcRenderer.invoke("robotFiles:cancel", operationId),
   exportBdx: (project: BordeauxProject, pathId: string) => ipcRenderer.invoke("project:exportBdx", project, pathId),
   exportRoutine: (project: BordeauxProject, routineId: string) => ipcRenderer.invoke("project:exportRoutine", project, routineId),

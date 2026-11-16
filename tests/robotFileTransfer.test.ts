@@ -52,6 +52,11 @@ describe("direct robot SFTP path delivery", () => {
     expect(validateRobotFileEndpoint({ ...endpoint, directory: "/natinst/bin/Paths///" })).toEqual(endpoint);
     expect(validateRobotFileEndpoint({ ...endpoint, directory: "/home/lvuser/" }).directory).toBe("/home/lvuser");
   });
+  it("passes a known identity to SSH before password authentication", async () => {
+    const f = fixture();
+    await probeRobotFiles(systemcore, f.factory, 5000, "custom", fingerprint);
+    expect(f.requests[0]).toMatchObject({ expectedHostKeyFingerprint: fingerprint, credentials: { password: "custom" } });
+  });
   it("probes SSH and directories without a receiver or writes", async () => {
     const f = fixture();
     expect(await probeRobotFiles(endpoint, f.factory)).toEqual(connection);
