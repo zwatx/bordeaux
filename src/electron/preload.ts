@@ -1,6 +1,6 @@
 import type { AppUpdateState } from "../shared/appUpdates";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState, WindowMenuEntry } from "../shared/windowChrome";
-import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings } from "../shared/robotFileDelivery";
+import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../shared/robotFileDelivery";
 import type { RobotPushScope, RobotDeploymentComparison } from "../shared/export/robotDeployment";
 import { contextBridge, ipcRenderer } from "electron";
 import type { BordeauxProject, RobotDeliveryCapabilities } from "../shared/types";
@@ -45,12 +45,15 @@ const bordeauxAPI = {
   robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: true, fileTransfer: true } satisfies RobotDeliveryCapabilities),
   getRobotFileConnection: (): Promise<RobotFileSettings | null> => ipcRenderer.invoke("robotFiles:connection"),
   checkRobotFileConnection: (): Promise<RobotFileConnection | null> => ipcRenderer.invoke("robotFiles:check"),
-  saveRobotFileSettings: (endpoint: RobotFileEndpoint): Promise<RobotFileSettings> => ipcRenderer.invoke("robotFiles:save", endpoint),
-  probeRobotFiles: (endpoint: RobotFileEndpoint): Promise<RobotFileConnection> => ipcRenderer.invoke("robotFiles:probe", endpoint),
+  /** Never the password itself; see RobotPasswordStatus. */
+  getRobotFilePassword: (): Promise<RobotPasswordStatus> => ipcRenderer.invoke("robotFiles:password"),
+  saveRobotFileSettings: (endpoint: RobotFileEndpoint, password?: RobotPasswordChange): Promise<RobotFileSettings> => ipcRenderer.invoke("robotFiles:save", endpoint, password),
+  probeRobotFiles: (endpoint: RobotFileEndpoint, password?: RobotPasswordChange): Promise<RobotFileConnection> => ipcRenderer.invoke("robotFiles:probe", endpoint, password),
   trustRobotFiles: (fingerprint: string): Promise<RobotFileConnection> => ipcRenderer.invoke("robotFiles:trust", fingerprint),
   prepareRobotFiles: (project: BordeauxProject, pathIds: string[]): Promise<RobotFilePreview> => ipcRenderer.invoke("robotFiles:prepare", project, pathIds),
   prepareRobotRoutine: (project: BordeauxProject, routineId: string): Promise<RobotFilePreview> => ipcRenderer.invoke("robotFiles:prepareRoutine", project, routineId),
   confirmRobotFiles: (operationId: string): Promise<RobotFileResult> => ipcRenderer.invoke("robotFiles:confirm", operationId),
+  cancelRobotFileProbe: (): Promise<void> => ipcRenderer.invoke("robotFiles:cancelProbe"),
   cancelRobotFiles: (operationId: string): Promise<{ canceled: boolean }> => ipcRenderer.invoke("robotFiles:cancel", operationId),
   exportBdx: (project: BordeauxProject, pathId: string) => ipcRenderer.invoke("project:exportBdx", project, pathId),
   exportRoutine: (project: BordeauxProject, routineId: string) => ipcRenderer.invoke("project:exportRoutine", project, routineId),

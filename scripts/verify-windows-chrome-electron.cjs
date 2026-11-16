@@ -18,7 +18,7 @@ async function fail(error) { if (finished) return; finished = true; result.statu
 process.on('uncaughtException', fail); process.on('unhandledRejection', fail);
 const realHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, listener) => realHandle(channel, async (event, ...args) => {
-  if (/^(robot|robotFiles|robotProject):/.test(channel) && !['robot:getPairing', 'robotFiles:connection', 'robotProject:restore', 'robotProject:listRecent'].includes(channel)) { result.robotCalls.push(channel); throw Error('Forbidden robot/NI call: ' + channel); }
+  if (/^(robot|robotFiles|robotProject):/.test(channel) && !['robot:getPairing', 'robotFiles:connection', 'robotFiles:password', 'robotProject:restore', 'robotProject:listRecent'].includes(channel)) { result.robotCalls.push(channel); throw Error('Forbidden robot/NI call: ' + channel); }
   if (channel === 'project:session' && holdStartup) await startupGate;
   const value = await listener(event, ...args);
   if (channel === 'project:saveWithCheckpoint') saveCount++;

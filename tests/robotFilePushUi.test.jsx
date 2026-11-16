@@ -135,6 +135,37 @@ describe('Robot connection: robot type', () => {
   });
 });
 
+describe('Robot connection: SSH password', () => {
+  const systemcore = (patch) => dialog({ target: 'systemcore', directory: '/home/systemcore/bordeaux/paths', password: '', passwordStatus: { custom: false, persistent: true }, ...patch });
+  it('asks for a masked password only for robot types that use one', () => {
+    expect(dialog({})).not.toContain('SSH password');
+    const html = systemcore({});
+    expect(html).toMatch(/<label for="rfp-password">SSH password<\/label><div class="rfp-password"><input id="rfp-password" type="password" autoComplete="off" placeholder="Default password" value=""/);
+    expect(html).not.toContain('Use default');
+  });
+  it('names where a custom password comes from without showing it, and offers the default', () => {
+    expect(systemcore({ passwordStatus: { custom: true, persistent: true } })).toContain('placeholder="Saved on this computer"');
+    expect(systemcore({ passwordStatus: { custom: true, persistent: true } })).toContain('aria-label="Use default password">Use default</button>');
+    expect(systemcore({ password: 'typed' })).toContain('aria-label="Use default password">Use default</button>');
+  });
+  it('shows a pending return to the default as uncommitted, with Keep saved to undo it', () => {
+    const html = systemcore({ passwordStatus: { custom: true, persistent: true }, useDefault: true });
+    expect(html).toContain('placeholder="Default password after Save or Connect"');
+    expect(html).toContain('aria-label="Keep saved password">Keep saved</button>');
+    expect(html).not.toContain('>Use default</button>');
+  });
+  it('warns before saving as a robot type that forgets the custom password', () => {
+    expect(dialog({ passwordStatus: { custom: true, persistent: true } })).toContain('Saving or connecting as roboRIO forgets the custom SSH password.');
+    expect(dialog({ passwordStatus: { custom: false, persistent: true } })).not.toContain('forgets the custom SSH password');
+  });
+  it('warns that a password without secure storage lasts only until Bordeaux closes', () => {
+    const html = systemcore({ passwordStatus: { custom: true, persistent: false } });
+    expect(html).toContain('placeholder="Saved until Bordeaux closes"');
+    expect(html).toContain('This computer has no secure password storage, so Bordeaux forgets the password when it closes.');
+    expect(systemcore({ passwordStatus: { custom: false, persistent: false } })).not.toContain('no secure password storage');
+  });
+});
+
 describe('Robot connection: offline Save', () => {
   it('makes Save the primary action when no push is waiting, and says it works without the robot', () => {
     const html = dialog({});

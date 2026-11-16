@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
-import { connectRobotSftp } from "../src/electron/robotSsh2Session";
+import { connectRobotSftp, discoverRobotSshIdentity } from "../src/electron/robotSsh2Session";
 import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTransfer";
 import type { RobotRemoteFile } from "../src/electron/robotSftpTransport";
 
@@ -53,6 +53,23 @@ const signal = new AbortController().signal;
 const connect = () => connectRobotSftp({ endpoint: { host: "robot.local", port: 22 }, credentials: { password: "" }, signal, timeoutMs: 2000 });
 
 describe("direct file SSH session confinement", () => {
+  it("discovers identity without providing authentication credentials", async () => {
+    setup({});
+    expect(await discoverRobotSshIdentity({ host: "robot.local", port: 22 }, 2000)).toMatch(/^SHA256:/);
+    const options = mock.connect.mock.lastCall![0];
+    expect(options).not.toHaveProperty("password");
+    expect(options).not.toHaveProperty("privateKey");
+    expect(options.hostVerifier(Buffer.from("host key"))).toBe(false);
+    expect(mock.sftp.lstat).not.toHaveBeenCalled();
+  });
+
+  it("rejects a changed pinned host key during a password probe before SSH becomes ready", async () => {
+    setup({});
+    await expect(probeRobotFiles({ target: "systemcore", host: "robot.local", port: 22, directory: "/home/systemcore/bordeaux/paths" },
+      undefined, 2000, "custom", `SHA256:${"a".repeat(43)}`)).rejects.toThrow(/identity|host key/i);
+    expect(mock.sftp.lstat).not.toHaveBeenCalled();
+  });
+
   it.each(["admin", undefined] as const)("connects to the specified endpoint with account %s", async (username) => {
     setup({});
     const session = await connectRobotSftp({ endpoint: { host: "10.24.68.2", port: 2222 }, credentials: { username, password: "" }, signal, timeoutMs: 2000 });

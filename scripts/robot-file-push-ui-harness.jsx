@@ -31,8 +31,10 @@ async function mount(saved = connection) {
   window.bordeauxAPI = { robotDeliveryCapabilities: { fileTransfer: true, pathPush: true, routinePush: true },
     previewBetaDiagnostic: async () => ({ previewId: 'diagnostic', contents: '{}' }),
     getRobotFileConnection: async () => saved,
+    getRobotFilePassword: async () => window.__passwordStatus ?? { custom: false, persistent: true },
     checkRobotFileConnection: (...args) => enqueue('checks', args),
     saveRobotFileSettings: (...args) => enqueue('saves',args),
+    cancelRobotFileProbe: async () => {},
     probeRobotFiles: (...args) => enqueue('probes',args), trustRobotFiles: (...args) => enqueue('trusts',args),
     prepareRobotFiles: (...args) => enqueue('prepares',args), confirmRobotFiles: (...args) => enqueue('confirms',args),
     prepareRobotRoutine: (...args) => enqueue('preparesRoutine',args),
@@ -115,6 +117,34 @@ await test('Choosing Systemcore by keyboard moves the default folder, is sent wi
   await resolve(mock.prepares[0], { ...preview, connection: chosen });
   assert(document.querySelector('dialog').textContent.includes('Systemcore · /home/systemcore/bordeaux/paths'), 'Review names the robot type beside the folder');
   await native({ capture: 'systemcore-review' });
+}, null);
+await test('A custom Systemcore password is typed masked, sent with Connect, and afterwards shown only as saved', async () => {
+  window.__passwordStatus = { custom: false, persistent: true };
+  await pointer('Push selection');
+  await pointer('Systemcore');
+  await action(() => { controller.setHost('robot.local'); controller.setPassword('team-2468'); });
+  const field = document.querySelector('dialog input[type="password"]');
+  assert(field && field.value === 'team-2468' && field.placeholder === 'Default password', 'Typed password is masked in a password field');
+  assert(button('Use default'), 'A typed password can be abandoned for the default');
+  await native({ capture: 'systemcore-password-typed' });
+  await pointer('Connect');
+  assert(mock.probes[0].args[1].kind === 'custom' && mock.probes[0].args[1].password === 'team-2468', 'Connect sends the typed password');
+  const chosen = { endpoint: { target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' }, hostKeyFingerprint: connection.hostKeyFingerprint };
+  await resolve(mock.probes[0], chosen);
+  window.__passwordStatus = { custom: true, persistent: true };
+  await pointer('Trust host key'); await resolve(mock.trusts[0], chosen);
+  await resolve(mock.prepares[0], { ...preview, connection: chosen });
+  await pointer('Change');
+  const saved = document.querySelector('dialog input[type="password"]');
+  assert(saved.value === '' && saved.placeholder === 'Saved on this computer', 'Saved password is never shown, only its source');
+  await native({ capture: 'systemcore-password-saved' });
+  button('Use default').focus(); await act(async () => native({ key: 'Enter' }));
+  assert(document.activeElement === saved, 'Focus moves to the password field, not the page');
+  assert(saved.placeholder === 'Default password after Save or Connect' && button('Keep saved'), 'The pending default is shown as uncommitted and can be undone');
+  await native({ capture: 'systemcore-password-pending-default' });
+  await pointer('Keep saved');
+  assert(document.activeElement === saved && saved.placeholder === 'Saved on this computer', 'Keep saved restores the saved password');
+  window.__passwordStatus = undefined;
 }, null);
 await test('Trust failure keeps reviewed identity and retry available', async () => {
   await pointer('Push selection'); await action(() => controller.setHost(endpoint.host));
