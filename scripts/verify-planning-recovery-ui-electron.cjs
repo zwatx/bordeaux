@@ -240,15 +240,13 @@ app.whenReady().then(async () => {
         return Math.abs((summary.top + summary.bottom - action.top - action.bottom) / 2) <= 0.5;
       });
     }
-    const hasSuccess = () => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'BDX exported');
+    const hasSuccess = () => evaluate(() => document.querySelector('.field-confirmation .field-status-label')?.firstChild?.textContent === 'BDX exported');
     const moveAway = () => win.webContents.sendInputEvent({ type: 'mouseMove', x: 10, y: 180 });
     async function exportSuccess() {
       win.webContents.send('branches:menu', { command: 'export-bdx' });
       await wait(hasSuccess, 'successful export notice');
     }
     exportSucceeds = true;
-    await exportSuccess();
-    await click('.field-status summary');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       for (const inspector of [false, true]) {
@@ -257,35 +255,23 @@ app.whenReady().then(async () => {
           if (isOpen) await click('[aria-label="Hide inspector"]');
           else await click('.pp-more');
         }
-        assert.ok(await actionCentered(), 'Dismiss centered beside expanded Details');
-        await snapshot('export-success-' + width + '-inspector-' + inspector + '-expanded');
-        await click('.field-status summary');
-        assert.ok(await actionCentered(), 'Dismiss centered beside collapsed Details');
-        await snapshot('export-success-' + width + '-inspector-' + inspector + '-collapsed');
-        await click('.field-status summary');
-        assert.equal(await evaluate(() => document.querySelector('.field-status details').open), true);
+        await exportSuccess();
+        assert.ok(await evaluate(() => {
+          const notice = document.querySelector('.field-confirmation');
+          const { left, right, height } = notice.getBoundingClientRect();
+          return left >= 0 && right <= innerWidth && height <= 32
+            && notice.querySelector('[role="status"]') && !notice.querySelector('details, button, [tabindex]');
+        }), 'Success is a compact, noninteractive status at ' + width);
+        await snapshot('export-success-' + width + '-inspector-' + inspector);
       }
     }
-    moveAway();
-    await click('.toolbar .place[aria-current="page"]');
-    await delay(5200);
-    assert.ok(await hasSuccess(), 'Expanded details stay readable after the expiry time, without pointer or keyboard focus');
-    await click('.field-status summary');
-    moveAway();
-    for (let i = 0; i < 100 && !(await evaluate(() => document.activeElement?.matches('.field-status summary'))); i++) await key('Tab');
-    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status summary')), true);
-    await delay(5200);
-    assert.ok(await hasSuccess(), 'Keyboard focus pauses expiry even when details are collapsed');
-    await key('Tab');
-    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status-action')), true);
-    await key('Enter');
-    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'keyboard dismisses success');
-
     await exportSuccess();
-    await click('.field-status-action');
-    await wait(() => evaluate(() => !document.querySelector('.field-status')), 'pointer dismisses success');
-    // A new surface under the pointer must not inherit the dismissed surface's pause state.
-    await exportSuccess();
+    const center = await evaluate(() => {
+      const r = document.querySelector('.field-confirmation').getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    });
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...center });
+    await wait(() => evaluate(() => document.querySelector('.field-confirmation')?.matches(':hover')), 'pointer hovers confirmation');
     await delay(5200);
     assert.ok(await hasSuccess(), 'Hover pauses expiry');
     moveAway();
@@ -301,7 +287,7 @@ app.whenReady().then(async () => {
     await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await delay(100);
     await snapshot('export-success-expired');
-    console.log('PASS Success auto-dismisses after five idle seconds; hover, focus and expanded details pause; repeated exports renew; native pointer/keyboard Dismiss; centered at both sizes and inspector states');
+    console.log('PASS Compact success at both sizes and inspector states; hover pauses, repeat renews, and expiry preserves focus');
     }
 
     await key('Escape');
