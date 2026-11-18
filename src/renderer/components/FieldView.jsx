@@ -6,6 +6,7 @@ import { FIELD_W, FIELD_H } from "../../shared/math/fieldBounds";
 import { FIELD_IMAGE, FIELD_IMAGE_SCALE, worldToFieldImage, fieldImageToWorld } from "../../shared/field/imageCalibration";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
+import { tangentHandleUse } from "../lib/pathEditing";
 import { wheelZoomFactor } from "../lib/zoom";
 import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
@@ -817,8 +818,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
             reserveSegmentSpace(c, end, P(8));
           }
           if (showHandles && sel.kind === 'wp' && sel.idx === i) {
-            [['prevC', isStart], ['nextC', isEnd]].forEach(([key, hidden]) => {
-              if (hidden) return;
+            ['prevC', 'nextC'].forEach((key) => {
+              if (!tangentHandleUse(doc.waypoints, i, key).direction) return;
               const handle = W2P(wp[key]);
               reserveSegmentSpace(c, handle, P(7));
               reserveLabelSpace(handle.x, handle.y, P(18), P(18));
@@ -1060,8 +1061,9 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
           group.push(h('g', { key: 'th' }, headArrow(c.x, c.y, waypointHeadingDeg(i) + (isStart && derived.rev ? 180 : 0), col, P(26), isStart || (!wpTangent && !wpTracksPoint) ? i : null)));
         }
         if (isSel && showHandles) {
+          // Endpoints and segments that ignore a handle (straight, an arc's end) draw no handle for it.
           [['prevC', 0], ['nextC', 1]].forEach(([key, b]) => {
-            if ((isStart && key === 'prevC') || (isEnd && key === 'nextC')) return;
+            if (!tangentHandleUse(doc.waypoints, i, key).direction) return;
             const cc = W2P(w[key]);
             group.push(h('line', { key: 'hl' + b, x1: c.x, y1: c.y, x2: cc.x, y2: cc.y, stroke: accent, strokeWidth: P(1.2), strokeOpacity: 0.65 }));
             group.push(h('circle', { key: 'hc' + b, cx: cc.x, cy: cc.y, r: P(5), fill: '#0c0d10', stroke: accent, strokeWidth: P(1.8), 'data-role': 'ct', 'data-idx': i * 2 + b, style: { cursor: 'grab' } }));

@@ -36,8 +36,8 @@ async function copyText(text) {
   return copied;
 }
 
-// The project is a quiet name with an asterisk for changes. Its menu holds the save fixes, project commands and
-// the linked robot code, which stays a separate thing from the project and from the robot destination.
+// The project is a quiet name with an asterisk for changes. Its menu holds the save fixes, this project's file commands,
+// its linked robot code (a separate thing from the robot destination; Push stays in the toolbar) and, last, other projects.
 export function ProjectChip({ name, folderPath, status, writing, saveError, attempt, sourceChange, reloadError, showFailure, reloadKept, notice, recovery, recoveredFrom, bdxPending, bdxError, bdxDetails, robotCode, actions }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState('');
@@ -157,13 +157,12 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
         bdxCause && h('span', { className: 'project-menu-cause' }, bdxCause)),
       bdxError && !bdxPending && h('div', { className: 'project-menu-fixes', role: 'presentation' }, item('Retry BDX', actions.retrySave, null, { 'data-fix': true }), copyDetails(bdxError)),
       status === 'recovered' && h('div', { className: 'project-menu-fixes', role: 'presentation' }, item('Save copy…', actions.saveCopy, null, { 'data-fix': true })),
-      item('Projects…', actions.projects, shortcutLabel('O')),
-      item('New project…', actions.create, shortcutLabel('N')),
+      // The menu reads from this project outward: its file, then its robot code, then other projects. Everything directly
+      // under the name acts on it, so Save is the first item and switching projects is never mistaken for an action on this one.
       // A recovered draft's one save action is its fix row's Save copy….
-      status !== 'recovered' && h('hr'),
       status !== 'recovered' && item(folderPath ? 'Save' : 'Save…', actions.save, shortcutLabel('S'), { 'data-action': 'save' }),
       status !== 'recovered' && item('Save copy…', actions.saveCopy, shortcutLabel('S', { shift: true })),
-      h('hr'),
+      status !== 'recovered' && h('hr'),
       // The robot code's state is the Link/Change item's second line, so it reads as status rather than a dimmed row.
       h('button', { type: 'button', role: 'menuitem', tabIndex: -1, className: 'project-menu-code', disabled: codeLoading, onClick: () => { close(true); actions.linkCode(); } },
         h('span', null, linked ? 'Change robot code…' : 'Link robot code…'),
@@ -171,20 +170,25 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
           'data-problem': (!codeWork && (robotCode.status === 'missing' || robotCode.status === 'error')) || undefined }, codeWork
           || (linked ? [robotCode.name, Number.isFinite(robotCode.commands) && robotCode.commands + ' command' + (robotCode.commands === 1 ? '' : 's')].filter(Boolean).join(' · ') || 'Linked'
           : robotCode.status === 'missing' ? 'Missing' : robotCode.status === 'error' ? 'Couldn’t load' : 'Not linked'))),
+      // A problem sits under the code it describes and above its fix (Refresh commands), as save failures do.
+      codeFact && h('div', { className: 'project-menu-fact', role: robotCode.error ? 'alert' : 'status', title: codeFact }, firstFact(codeFact)),
+      robotCode.notice && h('div', { className: 'project-menu-fact', role: 'status' }, robotCode.notice),
+      // Other code to link stays beside Change; upkeep of the linked code follows.
       robotCode.suggestion && item('Use ' + robotCode.suggestion.name, actions.useCode, null, { disabled: !!robotCode.operation }),
-      linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
-      linked && actions.rescanCode && item('Rescan command inputs', actions.rescanCode, null, { disabled: !!robotCode.operation }),
-      linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
-      linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog:modal')) setSources(robotCode.catalog); }),
-      robotCode.recentProjects?.length > 0 && h('button', { type: 'button', role: 'menuitem', tabIndex: -1, 'aria-expanded': showRecentCode,
-        onClick: () => setShowRecentCode(!showRecentCode) }, 'Recent robot code'),
+      robotCode.recentProjects?.length > 0 && h('button', { type: 'button', role: 'menuitem', tabIndex: -1, className: 'project-menu-disclosure', 'aria-expanded': showRecentCode,
+        onClick: () => setShowRecentCode(!showRecentCode) }, h('span', null, 'Recent robot code'), h('span', { className: 'project-menu-chevron', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 12 }))),
       // Clones share a project name, so each recent shows its file and when it was last linked, visibly and in its name.
       showRecentCode && (robotCode.recentProjects || []).filter(project => project.id !== robotCode.bookmarkId).map(project => {
         const detail = [homeRelative(project.locationHint || project.folderName), project.lastLinkedAt && 'linked ' + receiptTime(project.lastLinkedAt)].filter(Boolean).join(' · ');
         return h(React.Fragment, { key: project.id }, item(project.projectName, () => actions.recentCode(project.id), detail,
           { className: 'project-menu-recent', disabled: !!robotCode.operation, 'aria-label': [project.projectName, detail].filter(Boolean).join(', ') }));
       }),
-      codeFact && h('div', { className: 'project-menu-fact', role: robotCode.error ? 'alert' : 'status', title: codeFact }, firstFact(codeFact)),
-      robotCode.notice && h('div', { className: 'project-menu-fact', role: 'status' }, robotCode.notice)));
+      linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
+      linked && actions.rescanCode && item('Rescan command inputs', actions.rescanCode, null, { disabled: !!robotCode.operation }),
+      linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
+      linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog:modal')) setSources(robotCode.catalog); }),
+      h('hr'),
+      item('Projects…', actions.projects, shortcutLabel('O')),
+      item('New project…', actions.create, shortcutLabel('N'))));
 
 }

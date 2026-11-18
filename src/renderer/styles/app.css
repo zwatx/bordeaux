@@ -815,6 +815,9 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .field-status-disclosure{margin-left:auto;padding-left:4px;color:var(--txt-3);white-space:nowrap}
 .field-status button{padding:4px 10px;border-radius:var(--r-s);color:var(--txt);font:inherit}
 .field-status .field-status-action{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;height:28px;margin:4px 5px 4px 0;padding:0 10px;border:1px solid var(--line-3);background:var(--bg-3);font-weight:550}
+/* Ordinary success: a quiet HUD line that leaves on its own; the full detail is its tooltip. */
+.field-status.field-confirmation{align-items:center;gap:7px;min-height:30px;padding:5px 12px 5px 10px;border:0;box-shadow:var(--hud-ring);backdrop-filter:blur(12px)}
+.field-confirmation>svg{flex-shrink:0;color:var(--good)}
 .field-status-details{width:100%;min-width:0;max-width:440px;max-height:min(240px,40vh);overflow:auto;overscroll-behavior:contain;padding:4px 12px;border-top:1px solid var(--line-2)}
 .field-status-item{padding:9px 0;overflow-wrap:anywhere}
 .field-status-item+.field-status-item{border-top:1px solid var(--line)}

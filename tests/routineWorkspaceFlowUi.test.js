@@ -97,13 +97,22 @@ describe('routine flow insertion and empty states', () => {
     expect(html).toContain('aria-label="Add step at the end"');
   });
 
-  it('explains an empty routine, a project without paths and missing robot code', () => {
-    const empty = (paths_, catalog_) => text(renderToStaticMarkup(React.createElement(RoutinePanel, {
-      routine: { id: 'r', name: 'R', nodes: [] }, run: AUTO.buildRun({ nodes: [] }, [], {}, {}), paths: paths_, time: 0, running: false, acq: { outcomes: {} }, catalog: catalog_ })));
-    expect(empty(paths, catalog)).toContain('Add a path, command, Wait or repeat.');
-    expect(empty(paths, catalog)).not.toContain('linked robot code');
-    expect(empty([], null)).toContain('Create a path in Paths, then add it here.');
-    expect(empty([], null)).toContain('Wait works offline.');
+  it('opens an empty routine on its first step’s Add, in place, without an empty-state explanation', () => {
+    const empty = (paths_, catalog_) => renderToStaticMarkup(React.createElement(RoutinePanel, {
+      routine: { id: 'r', name: 'R', nodes: [] }, run: AUTO.buildRun({ nodes: [] }, [], {}, {}), paths: paths_, time: 0, running: false, acq: { outcomes: {} }, catalog: catalog_ }));
+    const ready = empty(paths, catalog);
+    // The first step's Add sits where step 1 goes: a search field, then the paths and steps themselves.
+    expect(ready).toMatch(/<div class="rt-list rt-empty"[^>]*><div class="rt-addwrap empty open" data-list="\{&quot;kind&quot;:&quot;root&quot;\}"[^>]*><div class="rt-add-menu first" role="group" aria-label="Add the first step"/);
+    expect(ready).toMatch(/<input class="rt-empty-add"[^>]*placeholder="Add a path, command or step"/);
+    expect(text(ready)).toContain('Score path');
+    expect(text(ready)).toContain('Wait');
+    expect(text(ready)).not.toMatch(/No steps yet|Steps run top to bottom|Add first step/);
+    expect(ready).toContain('id="rt-add-dest" class="sr-only">First step of the routine<');
+    // Without paths or robot code, the rows that matter say so once, in place.
+    const bare = text(empty([], null));
+    expect(bare).toContain('No paths yet. Create one in Paths.');
+    expect(bare).toContain('Link robot code to list commands');
+    expect(bare).not.toContain('Wait works offline');
   });
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {
@@ -180,10 +189,12 @@ describe('preview boundary is stated once', () => {
     expect(help).not.toMatch(/routine_node_7f0c|previews 2 passes|Saving|Poses|Untimed/);
   });
 
-  it('names the routine once, without a kicker repeating the Routines place', () => {
+  it('names the workspace accessibly without repeating the library title in its header', () => {
     const name = 'Collect until full, choose a route, then return to the alliance zone along the protected crossing';
     const workspace = renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine: { id: 'r', name, nodes: [] }, flow: null, field: null, transport: null, status: null }));
-    expect(workspace).toContain('<div class="routine-workspace-title"><strong>' + name + '</strong></div>');
+    expect(workspace).toContain('aria-label="Routine workspace: ' + name + '"');
+    expect(workspace).not.toContain('routine-workspace-title');
+    expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toContain(name);
     expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toMatch(/^Routine\b/);
   });
 

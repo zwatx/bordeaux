@@ -33,6 +33,9 @@
 /* Second lines (a recent's file, the robot code's state) sit under the label and wrap rather than squeeze it. */
 .project-menu .project-menu-recent,.project-menu .project-menu-code{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;padding-block:5px}
 .project-menu-recent .project-menu-shortcut{max-width:100%;font-size:11.5px;letter-spacing:0;line-height:16px;white-space:normal;overflow-wrap:anywhere}
+.project-menu-chevron{display:flex;flex:none;color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
+.project-menu-disclosure[aria-expanded="true"] .project-menu-chevron{transform:none}
+@media(prefers-reduced-motion:reduce){.project-menu-chevron{transition:none}}
 .project-menu-detail{max-width:100%;color:var(--txt-3);font-size:11.5px;line-height:16px;overflow-wrap:anywhere}
 .project-menu-detail[data-problem]{color:var(--warn-txt)}
 .project-menu-fact{margin:0;padding:6px 8px 4px;color:var(--warn-txt);font-size:12px;font-weight:550;line-height:17px;overflow-wrap:anywhere}

@@ -1,8 +1,6 @@
 /* The routine workspace: a run-order flow beside the library, with field preview and playback. */
 .routine-workspace{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;background:var(--bg);container:routine-workspace / inline-size}
-.routine-workspace-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;min-height:52px;padding:8px 16px 8px 24px;border-bottom:1px solid var(--line)}
-.routine-workspace-title{min-width:0}
-.routine-workspace-title>strong{display:block;font-size:14px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.routine-workspace-head{display:flex;align-items:center;justify-content:flex-end;gap:16px;flex-shrink:0;min-height:52px;padding:8px 16px 8px 24px;border-bottom:1px solid var(--line)}
 .routine-workspace-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .routine-workspace-views{min-height:32px}
 .routine-workspace-views .seg-i{padding-inline:10px;white-space:nowrap}
@@ -23,7 +21,7 @@
 /* A timed run sheet. One line per step: name, its spans on the routine's time axis (--tw wide, 104px from the row's
    right edge in every row, so the playhead is one line), and duration. Repeats and branches are bounded groups that
    indent on the left only; a branch's routes are lanes whose left edge is bright for the previewed route. */
-.stage-auto,.rt-add-menu{--cmd:oklch(.86 .1 300)}
+.stage-auto{--cmd:oklch(.86 .1 300)}
 .rt-panel{--tw:96px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
 @container routine-workspace (max-width:640px){.rt-panel{--tw:56px}}
 .rt-panel.dragging,.rt-panel.dragging *{cursor:grabbing!important;user-select:none}
@@ -128,68 +126,53 @@
 .rt-block .rt-add{gap:6px;min-height:24px;font-size:11.5px}
 .rt-block .rt-addwrap:not(.empty) .rt-add{opacity:.6}
 .rt-step-wrap:is(:hover,:focus-within)>.rt-block>.rt-addwrap .rt-add,.rt-step-wrap:is(:hover,:focus-within)>.rt-block>.rt-branch>.rt-addwrap .rt-add,.rt-block .rt-add:is(:focus,[aria-expanded=true]),.rt-panel.dragging .rt-add{opacity:1}
-.rt-addwrap .rt-add:is(.on,[aria-expanded=true]){background:var(--bg-3);color:var(--txt)}
 .rt-range-bar{display:flex;align-items:center;gap:10px;flex-shrink:0;min-height:44px;padding:6px 24px;border-bottom:1px solid var(--line);background:var(--bg-1);font-size:12.5px}
 .rt-range-bar>span{margin-right:auto;color:var(--txt-2)}
 .rt-flow-note{position:absolute;left:50%;bottom:12px;z-index:6;max-width:calc(100% - 48px);transform:translateX(-50%);color:var(--txt);font-size:12px;pointer-events:none}
 .rt-flow-note:not(:empty){padding:7px 12px;border-radius:var(--r);background:var(--bg-3);box-shadow:var(--elevation)}
 
-.rt-empty{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:400px;margin:min(16vh,128px) auto 0;text-align:center}
-.rt-empty-t{color:var(--txt);font-size:15px;font-weight:600}
-.rt-empty p{margin:0;color:var(--txt-3);font-size:12.5px;line-height:1.5;text-wrap:pretty}
-.rt-empty .rt-empty-add{min-height:34px;margin:12px 0 0;padding:0 18px}
-.rt-empty .rt-empty-note{font-size:12px}
-
-/* Add: a searchable popover anchored to its row; the first line names where the step lands. */
-.rt-add-menu{position:fixed;z-index:200;display:flex;flex-direction:column;width:360px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}
-.rt-add-dest{flex:none;padding:9px 12px 0;color:var(--txt-3);font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}
-.rt-add-search{display:flex;align-items:center;gap:8px;flex:none;height:40px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--txt-3)}
+/* Add opens in place of its Add line, or between the rows where the step lands: one column under one search. The plus
+   stays where the line's plus was; kinds are told apart by icon, blocks by a rule, and a heading only adds a fact. */
+.rt-add-menu{--cmd:oklch(.86 .1 300);display:flex;flex-direction:column;max-width:560px;overflow:hidden;container:rt-add / inline-size;
+  border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1)}
+.rt-add-menu:focus-within{border-color:var(--line-3)}
+.rt-addwrap.open{padding:2px 4px 6px 44px}
+.rt-list>.rt-addwrap.open:not(.at){padding-top:10px}
+.rt-addwrap.open.at{padding-top:4px}
+.rt-add-search{display:flex;align-items:center;gap:8px;flex:none;height:36px;padding:0 10px 0 7px;border-bottom:1px solid var(--line);color:var(--txt-3)}
 .rt-add-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:none;color:var(--txt);font-size:13px}
 .rt-add-search input::placeholder{color:var(--txt-3)}
-/* The kind filter under the search: the shared segmented control, compact. */
-.rt-add-filter{flex:none;min-height:30px;margin:8px 8px 2px}
-.rt-add-filter .seg-i{min-height:24px;white-space:nowrap}
-.rt-add-list{flex:1;min-height:0;overflow:auto;padding:4px;scrollbar-width:thin}
-.rt-ch-sec{padding:8px 8px 4px;color:var(--txt-3);font-size:11.5px;font-weight:550}
-.rt-ch-row{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;column-gap:10px;row-gap:2px;min-height:32px;padding:5px 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12.5px;cursor:pointer}
-.rt-ch-row.active{background:var(--bg-4);color:var(--txt)}
+.rt-add-hint{display:inline-flex;flex:none;align-items:center;gap:5px;color:var(--txt-3);font-size:11px;white-space:nowrap}
+.rt-add-hint kbd{padding:1px 5px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:10.5px var(--mono)}
+.rt-add-menu:not(:focus-within) .rt-add-hint{visibility:hidden}
+@container rt-add (max-width:360px){.rt-add-hint{display:none}}
+.rt-add-note{flex:none;margin:0;padding:8px 12px 2px;color:var(--txt-3);font-size:11.5px;line-height:1.45}
+.rt-add-list{flex:1;min-height:0;max-height:min(320px,46vh);overflow:auto;padding:4px;scrollbar-width:thin}
+.rt-add-menu.first .rt-add-list{max-height:min(480px,58vh)}
+.rt-add-none{padding:12px;color:var(--txt-3);font-size:12px;overflow-wrap:anywhere}
+.rt-ch-sep{height:1px;margin:4px 8px;background:var(--line)}
+.rt-ch-sec{padding:8px 8px 3px;color:var(--txt-3);font-size:11.5px;font-weight:550}
+.rt-ch-sep+.rt-ch-sec,.rt-ch-sec:first-child{padding-top:6px}
+/* One line per choice: icon, name, then its context on the right, which wraps before the name gives way. */
+.rt-ch-row{display:grid;grid-template-columns:18px minmax(40%,1fr) minmax(0,max-content);align-items:center;column-gap:10px;min-height:30px;padding:4px 8px;
+  border-radius:var(--r-s);color:var(--txt-2);font-size:12.5px;line-height:1.35;cursor:pointer}
+.rt-ch-row.sub{grid-template-columns:18px minmax(40%,1fr) minmax(0,max-content) 14px}
+.rt-ch-row.active{background:var(--bg-3);color:var(--txt)}
 .rt-ch-row.disabled{opacity:.5}
 .rt-ch-row.more{color:var(--txt-3)}
 .rt-ch-row.more.active{color:var(--txt)}
-.rt-ch-ic{grid-column:1;grid-row:1 / span 2;display:flex;flex:none;justify-content:center;width:18px;color:var(--txt-3)}
-.rt-ch-ic.cmd{color:var(--cmd)}.rt-ch-ic.wait{color:var(--warn)}
-.rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
-.rt-ch-d{grid-column:2;color:var(--txt-3);font-size:11px;text-align:left;overflow-wrap:anywhere}
-.rt-add-none{padding:16px 12px;color:var(--txt-3);font-size:12px}
-/* Subsystems, ranked matches and the detail column. A row inside a subsystem drops its repeated name. */
-.rt-add-menu.wide{width:640px}
-.rt-add-body{display:flex;flex:1;min-height:0}
-.rt-add-body>.rt-add-list,.rt-add-body>.rt-add-none{flex:1;min-width:0}
-.rt-ch-sec{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
-.rt-ch-sec small{color:var(--txt-3);font:10.5px var(--mono);font-weight:400;white-space:nowrap}
-.rt-ch-row.sub{grid-template-columns:18px minmax(0,1fr) 14px}
-.rt-ch-go{grid-column:3;grid-row:1 / span 2;display:flex}
 .rt-ch-row.dim:not(.active){color:var(--txt-3)}
 .rt-ch-row.dim .rt-ch-ic{opacity:.6}
+.rt-ch-ic{grid-column:1;display:flex;justify-content:center;width:18px;color:var(--txt-3)}
+.rt-ch-ic.cmd{color:var(--cmd)}.rt-ch-ic.wait{color:var(--warn)}
+.rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
+.rt-ch-t mark{background:none;color:var(--txt);font-weight:600}
 .rt-ch-pre{color:var(--txt-3)}
 .rt-ch-row.active .rt-ch-pre{color:var(--txt-2)}
-.rt-ch-t mark{background:none;color:var(--txt);font-weight:600}
-.rt-add-added{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px 0;color:var(--txt-2);font-size:11.5px;line-height:1.4}
-.rt-add-added svg{flex:none;color:var(--good)}
-.rt-add-added:empty{padding:0}
-.rt-add-detail{display:flex;flex:none;flex-direction:column;gap:12px;width:250px;min-height:0;overflow:auto;padding:12px 14px;border-left:1px solid var(--line);scrollbar-width:thin}
-.rt-add-detail h3{margin:0;color:var(--txt);font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
-.rt-add-detail p{margin:0;color:var(--txt-2);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
-.rt-add-detail .rt-add-dpath{margin-top:-6px;color:var(--txt-3);font:10.5px/1.5 var(--mono)}
-.rt-add-detail .rt-add-ddesc{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-.rt-add-detail .rt-add-dnote{color:var(--txt-3)}
-.rt-add-dlabel{margin-bottom:5px;color:var(--txt-2);font-size:11.5px;font-weight:550}
-.rt-add-dsec dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;margin:0;font-size:11.5px}
-.rt-add-dsec dt{min-width:0;color:var(--txt-2);overflow-wrap:anywhere}
-.rt-add-dsec dd{margin:0;color:var(--txt-3);font:10.5px/1.6 var(--mono);text-align:right}
-.rt-add-keys{display:flex;flex:none;flex-wrap:wrap;gap:4px 12px;padding:7px 12px;border-top:1px solid var(--line);color:var(--txt-3);font-size:11px}
-.rt-add-keys span{display:inline-flex;align-items:center;gap:5px}
-.rt-add-keys kbd{padding:1px 5px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:10.5px var(--mono)}
+.rt-ch-d{grid-column:3;min-width:0;color:var(--txt-3);font-size:11px;text-align:right;overflow-wrap:anywhere}
+.rt-ch-go{grid-column:4;display:flex}
+/* Keep-open adds already show in the flow above Add; the sentence is for assistive technology. */
+.rt-add-added{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rt-row-menu .rt-menu-label{display:flex;flex-direction:column;gap:2px;min-width:0}
 .rt-row-menu .rt-menu-label small{color:var(--txt-3);font-size:11px;line-height:1.35;white-space:normal}
 .rt-row-menu .ctxmenu-i:disabled{color:var(--txt-3);cursor:default}

@@ -123,8 +123,9 @@ app.whenReady().then(async () => {
     assert.ok(await sheetOpen(), 'A cancelled folder pick keeps the Projects sheet');
     await key('Escape');
     check('Open folder… from Projects selects a folder and cancel preserves the project');
-    win.webContents.send('fixture:menu', 'open-project'); await delay(150);
-    assert.equal(calls.at(-1), 'folder');
+    const beforeNativeOpen = calls.length;
+    win.webContents.send('fixture:menu', 'open-project');
+    await wait(() => calls.slice(beforeNativeOpen).includes('folder'), 'native folder picker');
     check('Native Open project folder… still uses the folder picker');
     const beforeNew = calls.length;
     win.webContents.send('fixture:menu', 'new-project');
@@ -234,9 +235,13 @@ app.whenReady().then(async () => {
     assert.equal(calls.at(-1), 'save');
     check('Retry BDX save regenerates through explicit Save');
     await pointer('.project-chip');
-    assert.equal(await evaluate(() => document.activeElement.textContent.startsWith('Projects')), true);
-    await key('Down'); await key('Down');
-    assert.equal(await evaluate(() => document.activeElement.textContent.startsWith('Save')), true);
+    // The menu reads from this project outward, so its first item is Save; Down and Up move through Save copy… and back.
+    const focusedLabel = () => evaluate(() => document.activeElement.querySelector('span')?.textContent);
+    assert.equal(await focusedLabel(), 'Save');
+    await key('Down');
+    assert.equal(await focusedLabel(), 'Save copy…');
+    await key('Up');
+    assert.equal(await focusedLabel(), 'Save');
     await key('Enter');
     assert.equal(calls.at(-1), 'save');
     assert.equal(await evaluate(() => document.activeElement.classList.contains('project-chip')), true);
@@ -245,8 +250,14 @@ app.whenReady().then(async () => {
     await key('Escape');
     assert.equal(await evaluate(() => document.activeElement.classList.contains('project-chip')), true);
     await key('Down'); await key('End');
-    assert.equal(await evaluate(() => document.activeElement.textContent.startsWith('Link robot code')), true);
-    await key('Home'); await key('Tab');
+    assert.equal(await focusedLabel(), 'New project…');
+    await key('Up');
+    assert.equal(await focusedLabel(), 'Projects…');
+    await key('Up');
+    assert.equal(await focusedLabel(), 'Link robot code…');
+    await key('Home');
+    assert.equal(await focusedLabel(), 'Save');
+    await key('Tab');
     assert.equal(await evaluate(() => !!document.querySelector('#project-menu')), false);
     check('Project menu supports pointer, arrows, Enter, Space, Escape and Tab with focus return');
     saveMode = 'cancel'; await projectAction('Save copy…');
@@ -374,12 +385,11 @@ app.whenReady().then(async () => {
     await key('Escape');
     await wait(() => evaluate(() => !document.querySelector('.library-rename') && document.activeElement.matches('.library-pick')), 'new routine name dismissed');
     for (const [selector, count] of [
-      ['.routine-workspace-flow .rt-add', 1],
+      ['.routine-workspace-flow input.rt-empty-add', 1],
       ['.routine-workspace-flow .rt-list > .rt-addwrap .rt-add', 2],
     ]) {
       await pointer(selector);
-      await wait(() => evaluate((s) => document.querySelector(s)?.getAttribute('aria-expanded') === 'true', selector), 'step chooser opened');
-      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a command, path or step');
+      await wait(() => evaluate(() => document.activeElement.matches('.rt-add-menu input[role="combobox"]')), 'inline step search focused');
       await key('Enter');
       await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'inserted step receives focus');
       assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-flow .rt-step').length), count);
@@ -398,7 +408,7 @@ app.whenReady().then(async () => {
     await key('End'); await key('Enter');
     assert.equal(await evaluate(() => document.activeElement.matches('.library-blocked button')), true);
     await key('Escape');
-    assert.equal(await evaluate(() => document.activeElement.dataset.libraryItem), 'opening');
+    await wait(() => evaluate(() => document.activeElement.dataset.libraryItem === 'opening'), 'Escape restores focus to the affected path');
     assert.equal(await evaluate(() => !!document.querySelector('.library-blocked')), false);
     check('Blocked deletion focuses recovery and Escape returns to the affected path');
     assert.deepEqual(errors, []);

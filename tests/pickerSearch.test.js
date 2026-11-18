@@ -80,7 +80,8 @@ function addMenuHarness(initial) {
   const input = () => all(node => node.type === 'input')[0];
   render();
   return { render, key, input, search: scope.rankChoices, options: () => all(node => node.props.role === 'option'), button: label => all(node => node.props['aria-label'] === label)[0],
-    filter: id => all(node => node.props['data-filter'] === id)[0], headings: () => all(node => node.props.className === 'rt-ch-sec').map(node => node.props.key),
+    crumb: () => all(node => node.props.className === 'rt-add-crumb')[0], rules: () => all(node => node.props.className === 'rt-ch-sep').length,
+    headings: () => all(node => node.props.className === 'rt-ch-sec').map(node => node.children.join('')),
     text: node => { const read = element => typeof element === 'object' ? element.children.map(read).join('') : String(element); return read(node); }, all: predicate => all(predicate),
     query: value => { input().props.onChange({ target: { value } }); render(); } };
 }
@@ -136,16 +137,23 @@ describe('Add menu full-catalog pagination', () => {
     view.key('Enter', undefined, true); expect(props.onPick).not.toHaveBeenCalled();
     view.button('Next results').props.onClick(); view.render();
     expect(view.options()[0].props['aria-posinset']).toBe(81);
-    // Tab moves from the search to the filter (native); Tab past the filter, Shift+Tab before the search and Escape close.
-    const inFilter = { closest: selector => selector === '.rt-add-filter' };
-    view.key('Tab'); expect(props.onClose).not.toHaveBeenCalled();
-    view.key('Tab', inFilter, false, { shiftKey: true }); expect(props.onClose).not.toHaveBeenCalled();
-    view.key('Tab', inFilter); view.key('Tab', undefined, false, { shiftKey: true }); view.key('Escape');
+    // Add is one field: Tab, Shift+Tab and Escape each close it and return focus to where it opened.
+    expect(view.key('Tab').defaultPrevented).toBe(true);
+    view.key('Tab', undefined, false, { shiftKey: true }); view.key('Escape');
     expect(props.onClose.mock.calls).toEqual([[true], [true], [true]]);
+  });
+  it('keeps the first step’s Add open: Escape clears it and Tab moves on natively', () => {
+    const props = { ...fixture(), persistent: true, inputClass: 'rt-empty-add' }, view = addMenuHarness(props);
+    expect(view.input().props.className).toBe('rt-empty-add');
+    view.query('exit');
+    expect(view.key('Escape').defaultPrevented).toBe(true); expect(view.input().props.value).toBe('');
+    expect(view.key('Escape').defaultPrevented).toBe(false);
+    expect(view.key('Tab').defaultPrevented).toBe(false);
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 });
 
-describe('Add menu kind filter', () => {
+describe('Add menu quick picks and scopes', () => {
   // A small catalog (12 commands) lists every command; subsystems only appear for larger catalogs.
   const commands = Array.from({ length: 12 }, (_, index) => ({ id: 'c' + index, label: 'Intake ' + index, member: 'Intake ' + index + '.vi', parameters: [], outputs: [] }));
   const fixture = () => ({ anchor: {}, onPick: vi.fn(), onClose: vi.fn(), label: 'Add a step',
@@ -154,52 +162,61 @@ describe('Add menu kind filter', () => {
       { key: 'wait', kind: 'wait', group: 'steps', label: 'Wait' }, { key: 'repeat', kind: 'repeat', group: 'steps', label: 'Repeat' }] });
   const keys = view => view.options().map(option => option.props.key);
   const allCommands = Array.from({ length: 12 }, (_, index) => 'command:c' + index);
-  it('opens on commands, then a short Paths section ending in a row that opens its full filter, then steps', () => {
+  const active = view => view.options().find(option => option.props.id === view.input().props['aria-activedescendant']);
+  it('opens on a short list of paths, then the routine’s steps, then the commands, separated by rules instead of headings', () => {
     const props = fixture(), view = addMenuHarness(props);
-    expect(view.filter('all').props).toMatchObject({ 'aria-pressed': true, tabIndex: 0, type: 'button' });
-    expect(view.filter('commands').props).toMatchObject({ 'aria-pressed': false, tabIndex: -1 });
-    expect(view.headings()).toEqual(['section:Commands', 'section:Paths', 'section:Steps']);
-    expect(keys(view)).toEqual([...allCommands, 'path:p0', 'path:p1', 'path:p2', 'path:p3', 'path:p4', 'more:paths', 'wait', 'repeat']);
-    // Arrow to "Show all 8 paths": Enter switches the filter instead of picking, and the list holds every path.
-    for (let index = 0; index < 17; index++) view.key('ArrowDown');
-    expect(view.input().props['aria-activedescendant']).toBe('rt-add-opt-17');
+    expect(view.headings()).toEqual([]);
+    expect(view.rules()).toBe(2);
+    expect(view.crumb()).toBeUndefined();
+    expect(view.input().props.placeholder).toBe('Add a path, command or step');
+    expect(keys(view)).toEqual(['path:p0', 'path:p1', 'path:p2', 'path:p3', 'path:p4', 'more:paths', 'wait', 'repeat', ...allCommands]);
+  });
+  it('opens "Show all" as a scope with Enter, → or Tab, shown as a chip, and leaves it with Backspace or ←', () => {
+    const props = fixture(), view = addMenuHarness(props);
+    for (let index = 0; index < 5; index++) view.key('ArrowDown');
+    expect(active(view).props.key).toBe('more:paths');
     view.key('Enter');
     expect(props.onPick).not.toHaveBeenCalled();
-    expect(view.filter('paths').props['aria-pressed']).toBe(true);
+    expect(view.text(view.crumb())).toBe('Paths');
     expect(keys(view)).toEqual(Array.from({ length: 8 }, (_, index) => 'path:p' + index));
-    expect(view.headings()).toEqual([]);
+    expect(view.rules()).toBe(0);
     expect(view.input().props.placeholder).toBe('Search paths');
+    // Backspace on the empty search returns to everything, on the row that opened the scope.
+    view.key('Backspace', { closest: () => false, value: '' });
+    expect(view.crumb()).toBeUndefined(); expect(active(view).props.key).toBe('more:paths');
+    expect(view.key('ArrowRight', { closest: () => false, value: '', selectionStart: 0 }).defaultPrevented).toBe(true);
+    expect(view.text(view.crumb())).toBe('Paths');
+    view.key('ArrowLeft', { closest: () => false, value: '' }); expect(view.crumb()).toBeUndefined();
+    view.key('Tab'); expect(view.text(view.crumb())).toBe('Paths'); expect(props.onClose).not.toHaveBeenCalled();
     view.key('Enter'); expect(props.onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ key: 'path:p0' }));
   });
-  it('ranks within each kind, puts the best-matching kind first and changes filter with Left/Right', () => {
+  it('ranks within each kind and puts the best-matching kind first', () => {
     const props = fixture(), view = addMenuHarness(props);
     view.query('1');
     // "Approach 1" and "Intake 1" match a whole word; "Intake 10" and "Intake 11" only a word start.
     expect(keys(view)).toEqual(['path:p1', 'command:c1', 'command:c10', 'command:c11']);
-    view.filter('paths').props.onClick(); view.render();
-    expect(keys(view)).toEqual(['path:p1']);
-    expect(view.input().props.value).toBe('1');
-    const inFilter = { closest: selector => selector === '.rt-add-filter' };
-    view.key('ArrowRight', inFilter); expect(view.filter('commands').props['aria-pressed']).toBe(true);
-    expect(keys(view)).toEqual(['command:c1', 'command:c10', 'command:c11']);
-    view.key('ArrowRight', inFilter); view.key('ArrowRight', inFilter); expect(view.filter('all').props['aria-pressed']).toBe(true);
-    view.key('ArrowLeft', inFilter); expect(view.filter('steps').props['aria-pressed']).toBe(true);
-    expect(view.options()).toEqual([]);
-    view.query(''); expect(keys(view)).toEqual(['wait', 'repeat']);
-    // Enter on a focused filter button stays native: it never picks the active option.
-    view.key('Enter', inFilter); expect(props.onPick).not.toHaveBeenCalled();
     // An exact step name outranks partial matches in other kinds.
-    view.filter('all').props.onClick(); view.render(); view.query('wait');
+    view.query('wait');
     expect(keys(view)[0]).toBe('wait');
+    view.query('zzz');
+    expect(view.options()).toEqual([]);
   });
-  it('keeps a search short in All, with a row that shows every matching command', () => {
+  it('keeps a search short, with a row that shows every matching command in its own scope', () => {
     const props = fixture(), view = addMenuHarness(props);
     view.query('intake');
     expect(keys(view)).toEqual([...allCommands.slice(0, 8), 'more:commands']);
     expect(view.text(view.options().at(-1))).toContain('Show all 12 matching commands');
     for (let index = 0; index < 8; index++) view.key('ArrowDown');
     view.key('Enter');
-    expect(view.filter('commands').props['aria-pressed']).toBe(true); expect(view.options()).toHaveLength(12);
+    expect(view.text(view.crumb())).toBe('Commands'); expect(view.options()).toHaveLength(12);
+    expect(view.input().props.value).toBe('intake');
+  });
+  it('names a group’s choices without paths and says why a project has none', () => {
+    const view = addMenuHarness({ ...fixture(), paths: [], pathsNote: 'No paths yet. Create one in Paths.' });
+    expect(view.text(view.all(node => node.props.className === 'rt-add-note')[0])).toBe('No paths yet. Create one in Paths.');
+    view.query('x'); expect(view.all(node => node.props.className === 'rt-add-note')).toEqual([]);
+    const grouped = addMenuHarness({ ...fixture(), paths: [] });
+    expect(grouped.input().props.placeholder).toBe('Add a command or step');
   });
 });
 
@@ -218,24 +235,28 @@ describe('Add menu subsystems with a 187-command catalog', () => {
     const prefix = [].concat(title.children).flat().find(child => child?.props?.className === 'rt-ch-pre');
     expect(prefix && view.text(prefix)).toBe('Shooter ');
   });
-  it('opens on this routine’s commands and the subsystems, diagnostics last and dimmed', () => {
+  it('opens on paths, this routine’s commands and steps, then browses the subsystems, diagnostics last and dimmed', () => {
     const view = addMenuHarness(fixture());
-    expect(view.headings()).toEqual(['section:In this routine', 'section:Subsystems', 'section:Paths', 'section:Steps']);
+    // Only the fact the rows cannot show gets a heading; kinds are separated by rules.
+    expect(view.headings()).toEqual(['In this routine']);
+    expect(view.rules()).toBe(2);
     const names = labels(view);
-    expect(names.slice(0, 2)).toEqual(['Intake Until Note', 'Shooter Spin Up Speaker']);
-    expect(names.slice(2, 15)).toEqual(['Arm', 'Climber', 'Drive', 'Elevator', 'Indexer', 'Intake', 'LEDs', 'Shooter', 'Superstructure', 'Utilities', 'Vision', 'SysId', 'Test']);
+    expect(names.slice(0, 3)).toEqual(['Start to note 1', 'Intake Until Note', 'Shooter Spin Up Speaker']);
+    expect(names.slice(3, 8)).toEqual(['Wait', 'Repeat', 'Parallel group', 'Sequential group', 'End routine']);
+    expect(names.slice(8, 21)).toEqual(['Arm', 'Climber', 'Drive', 'Elevator', 'Indexer', 'Intake', 'LEDs', 'Shooter', 'Superstructure', 'Utilities', 'Vision', 'SysId', 'Test']);
     const test = view.options().find(option => option.props.key === 'subsystem:test');
     expect(test.props.className).toContain('dim');
     expect(view.text(test)).toContain('12 commands · diagnostics');
     // The meta line carries named inputs with units and distinctive outputs, never the universal completion status.
-    expect(view.text(view.options()[0])).toBe('Intake Until NoteTimeout s · reports has note');
+    expect(view.text(view.options()[1])).toBe('Intake Until NoteTimeout s · reports has note');
   });
   it('ranks a search: the matching subsystem first, then label starts, with old copies and diagnostics last', () => {
     const view = addMenuHarness(fixture());
     view.query('shoot');
     // Shoot When Ready is used elsewhere in the project, so it edges ahead of equally good name matches.
     expect(labels(view).slice(0, 4)).toEqual(['Shooter', 'Shooter Shoot When Ready', 'Shooter Shoot', 'Shoot Preload']);
-    view.filter('commands').props.onClick(); view.render();
+    view.options().find(option => option.props.key === 'more:commands').props.onClick({}); view.render();
+    expect(view.text(view.crumb())).toBe('Commands');
     const names = labels(view);
     expect(names.indexOf('Shooter Shoot v2')).toBeGreaterThan(names.indexOf('Shooter Shoot From Stage'));
     view.query('ssus');
@@ -250,18 +271,19 @@ describe('Add menu subsystems with a 187-command catalog', () => {
     const right = view.key('ArrowRight', { closest: () => false, value: 'shoo', selectionStart: 4 });
     expect(right.defaultPrevented).toBe(true);
     expect(view.input().props).toMatchObject({ value: '', placeholder: 'Search Shooter' });
-    expect(view.filter('all')).toBeUndefined();
-    expect(view.headings()).toEqual(['section:Used in this project', 'section:Other Shooter commands']);
+    expect(view.text(view.crumb())).toBe('Shooter');
+    expect(view.headings()).toEqual(['Used in this project']);
+    expect(view.rules()).toBe(1);
     expect(labels(view).slice(0, 3)).toEqual(['Spin Up Speaker', 'Shoot When Ready', 'Spin Up']);
     expect(view.options()[0].props).toMatchObject({ title: 'Shooter Spin Up Speaker', 'aria-label': 'Shooter Spin Up Speaker' });
     view.query('sp');
     expect(labels(view).slice(0, 4)).toEqual(['Spin Up Speaker', 'Spin Up', 'Spin Up Amp', 'Spin Up Pass']);
     view.query(''); view.key('Backspace', { closest: () => false, value: '' });
-    expect(view.filter('all')).toBeDefined();
+    expect(view.crumb()).toBeUndefined();
     expect(active(view).props.key).toBe('subsystem:shooter');
     // Tab opens the highlighted subsystem too; Enter on it does the same.
     view.key('Tab'); expect(view.input().props.placeholder).toBe('Search Shooter');
-    // Inside a subsystem there is no filter: Tab past the search closes.
+    // On a command, Tab closes Add like everywhere else.
     const props = fixture(), closing = addMenuHarness(props);
     closing.query('arm'); closing.key('Enter'); expect(props.onPick).not.toHaveBeenCalled();
     expect(closing.input().props.placeholder).toBe('Search Arm');

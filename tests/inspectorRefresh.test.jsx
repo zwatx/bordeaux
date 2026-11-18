@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { ContextInspector, parameterValueError } from '../src/renderer/components/ContextInspector';
 import { UI } from '../src/renderer/components/ui';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
 import { PM } from '../src/renderer/lib/pathMath';
 
 const h = React.createElement;
@@ -69,5 +69,45 @@ describe('planning recovery inspector', () => {
     expect(html).not.toContain('inert=');
     expect(html).not.toContain('Anchor position');
     expect(html).not.toContain('>Distance<');
+  });
+});
+
+describe('waypoint tangent inspector', () => {
+  const setup = (types) => {
+    const project = createDemoProject(), doc = project.paths[0];
+    doc.waypoints = buildWaypoints([{ x: 2, y: 2 }, { x: 4, y: 3 }, { x: 6, y: 2 }].map((w, i) => ({ ...w, segType: types[i] })));
+    return { project, doc };
+  };
+  const render = ({ project, doc }, idx) => renderToStaticMarkup(h(ContextInspector, { project, doc, derived: PM.derivePath(doc, project.robot, project.perSegmentConstraints, project.plannerId),
+    sel: { kind: 'wp', idx }, actions: {}, robot: project.robot }));
+  // The markup from one side's label up to the next control group.
+  const side = (html, name) => {
+    const start = html.indexOf('>' + name + ' segment<');
+    if (start < 0) return '';
+    const next = html.indexOf('role="group"', start);
+    return html.slice(start, next < 0 ? undefined : html.indexOf('role="group"', next + 1));
+  };
+
+  it('shows the segment type, direction and length on each side of a curved interior waypoint', () => {
+    const html = render(setup(['bezier', 'bezier']), 1);
+    for (const name of ['Incoming', 'Outgoing']) {
+      expect(html).toContain('aria-label="' + name + ' segment type"');
+      expect(side(html, name)).toContain('>Direction<');
+      expect(side(html, name)).toContain('>Length<');
+    }
+    expect(html).toContain('Directions stay aligned through this waypoint.');
+    expect(html).not.toContain('Incoming tangent');
+  });
+
+  it('hides tangent values that a straight segment or an arc end ignores', () => {
+    const fixture = setup(['line', 'arc']), html = render(fixture, 1);
+    expect(side(html, 'Incoming')).not.toContain('>Direction<');
+    expect(side(html, 'Outgoing')).toContain('>Direction<');
+    expect(side(html, 'Outgoing')).not.toContain('>Length<');
+    expect(html).not.toContain('Directions stay aligned');
+    const end = render(fixture, 2);
+    expect(end).toContain('aria-label="Incoming segment type"');
+    expect(end).not.toContain('aria-label="Outgoing segment type"');
+    expect(side(end, 'Incoming')).not.toContain('>Direction<');
   });
 });

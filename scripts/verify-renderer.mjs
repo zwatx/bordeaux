@@ -37,7 +37,8 @@ import path from "node:path";
 // loop/group editors measure 823,261 B (2026-11-14); 808 KiB keeps ~4 KiB headroom.
 // The subsystem-aware command palette (shared command index and ranking, subsystem scope, detail column,
 // keep-open Add and ranked Change command) measures 839,968 B (2026-11-14); 824 KiB keeps ~3.7 KiB headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 824 * 1024;
+// Tangent editing, inline routine insertion, and compact status and Power reports use about 845 KB.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 828 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -46,7 +47,8 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 824 * 1024;
 // module limits) measures 215,130 worker bytes.
 // Load-dependent traction and force allocation bring the worker to 226,971 bytes.
 // Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 230 * 1024;
+// Dense trajectory validation preserves waypoint correspondence across sample grids (235,619 B).
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.

@@ -137,8 +137,9 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id === 'path-b'), 'focus follows deletion to next step');
     await key('Delete');
     await assertStepNotice();
-    assert.equal(await evaluate(() => document.activeElement.classList.contains('rt-add')), true);
-    await key('Enter'); await key('Enter');
+    await wait(() => evaluate(() => document.activeElement.matches('input.rt-empty-add')), 'focus follows the last deletion to first-step search');
+    await key('Enter');
+    await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'first step inserted and focused');
     console.log('PASS Routine close/delete and Escape on add-step choosers restore usable keyboard focus');
     await wait(() => evaluate(() => !!document.querySelector('button[aria-label="Play routine"]:not(:disabled)')), 'routine preview ready');
     await evaluate(() => document.querySelector('button[aria-label="Play routine"]').focus());

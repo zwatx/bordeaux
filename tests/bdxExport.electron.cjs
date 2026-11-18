@@ -71,17 +71,8 @@ app.whenReady().then(async () => {
     assert.deepEqual(fs.readFileSync(path.join(output, 'selected.bdx')), expected);
     await wait(() => evaluate(() => document.body.textContent.includes('BDX exported')), 'local export notice');
     for (const [w, h] of [[1440, 900], [1100, 720]]) { win.setContentSize(w, h); await delay(150); await capture('exported-' + w); }
-    // Actual pointer and keyboard interaction with notice and settings, not DOM click simulation.
-    await pointer('.field-status summary');
-    await wait(() => evaluate(() => !!document.querySelector('.field-status details[open]')), 'expanded export details');
-    await capture('export-details-1100');
-    await key('Tab');
-    await key('Tab', ['shift']);
-    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status summary')), true);
-    await key(' ');
-    await key(' ');
-    assert.equal(await evaluate(() => !!document.querySelector('.field-status details[open]')), true);
-    await capture('export-keyboard-1100');
+    // Successful exports are transient confirmations, with no expandable or focusable controls.
+    assert.equal(await evaluate(() => document.querySelectorAll('.field-confirmation details, .field-confirmation button').length), 0);
     await pointer('.pp-more'); await capture('inspector-open-1100');
     await pointer('.pp-more'); await capture('inspector-closed-1100');
     await pointer('.places .place', 'Settings'); await pointer('[aria-label="Display units"] button', 'Imperial'); await pointer('.places .place', 'Paths'); await key('Tab'); await key('Escape'); await capture('imperial-1100');
@@ -97,10 +88,8 @@ app.whenReady().then(async () => {
     assert.deepEqual(fs.readFileSync(path.join(output, 'selected.bdr')), expectedRoutine);
     await wait(() => evaluate(() => document.body.textContent.includes('Routine exported')), 'local routine export notice');
     for (const [w, h] of [[1440, 900], [1100, 720]]) { win.setContentSize(w, h); await delay(150); await capture('routine-exported-' + w); }
-    await pointer('.field-status summary'); await capture('routine-export-details-1100');
-    await key('Tab'); await key('Tab', ['shift']);
-    assert.equal(await evaluate(() => document.activeElement?.matches('.field-status summary')), true);
-    await key(' ');
+    assert.equal(await evaluate(() => !!document.querySelector('.routine-export-notices .field-confirmation')), true);
+    assert.equal(await evaluate(() => document.querySelectorAll('.field-confirmation details, .field-confirmation button').length), 0);
     await pointer('.push-button');
     await wait(() => evaluate(() => document.querySelector('.robot-push-dialog')?.open), 'routine setup dialog');
     await wait(() => evaluate(() => document.querySelector('.robot-push-dialog')?.textContent.includes('Upload 1 routine')), 'command-free routine prepares despite unavailable saved NI link');

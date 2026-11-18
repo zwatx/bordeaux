@@ -8,8 +8,40 @@ export function orderNotices(notices) {
   return [...notices.filter((notice) => notice.error), ...notices.filter((notice) => !notice.error)];
 }
 
+/** Ordinary success that expires on its own (an export). Its action is how it retires, not a choice to offer. */
+export function isConfirmation(notice) {
+  return !notice.error && notice.autoDismissMs > 0 && typeof notice.action?.onClick === 'function';
+}
+
 export function FieldStatus({ notices }) {
-  return notices.length ? h(VisibleFieldStatus, { notices: orderNotices(notices) }) : null;
+  if (!notices.length) return null;
+  // Only confirmations: a quiet line that leaves by itself. Anything else gets the full status, with the confirmation
+  // listed in its details. Distinct components, so switching remounts and the full status's focus return still runs.
+  return notices.every(isConfirmation)
+    ? h(FieldConfirmation, { key: 'confirmation', notice: notices[0] })
+    : h(VisibleFieldStatus, { key: 'status', notices: orderNotices(notices) });
+}
+
+function FieldConfirmation({ notice }) {
+  const root = React.useRef(null);
+  const latest = React.useRef(notice);
+  const [hovered, setHovered] = React.useState(false);
+  React.useLayoutEffect(() => { latest.current = notice; });
+  React.useEffect(() => {
+    // Hover pauses expiry so the detail tooltip can be read; nothing here takes focus, so focus never blocks it.
+    if (hovered) return;
+    const timer = setTimeout(() => {
+      const current = latest.current;
+      // An old export must never dismiss its replacement.
+      if (current.id === notice.id && current.dismissKey === notice.dismissKey && !root.current?.matches(':hover')) current.action.onClick();
+    }, notice.autoDismissMs);
+    return () => clearTimeout(timer);
+  }, [notice.id, notice.dismissKey, notice.autoDismissMs, hovered]);
+  return h('div', { ref: root, className: 'field-status field-confirmation', title: notice.detail || undefined,
+    onPointerEnter: () => setHovered(true), onPointerLeave: () => setHovered(false) },
+    h(UI.Icon, { name: 'check', size: 14 }),
+    h('span', { key: notice.id, className: 'field-status-label', role: 'status' }, notice.label,
+      notice.detail && h('span', { className: 'sr-only' }, '. ' + notice.detail)));
 }
 
 function VisibleFieldStatus({ notices }) {
@@ -18,7 +50,7 @@ function VisibleFieldStatus({ notices }) {
   // Where keyboard focus came from, so an action that retires its own notice does not drop focus to the page.
   const origin = React.useRef(null);
   const [interaction, setInteraction] = React.useState({ pointer: false, focus: false, expanded: false });
-  const transient = notices.find((notice) => notice.autoDismissMs > 0 && notice.action);
+  const transient = notices.find(isConfirmation);
   React.useLayoutEffect(() => { latest.current = notices; });
   React.useEffect(() => {
     if (!transient || interaction.pointer || interaction.focus || interaction.expanded) return;
@@ -52,8 +84,10 @@ function VisibleFieldStatus({ notices }) {
   };
   // The label and its severity come from the leading notice, and so does the outside action when it has one. A notice
   // without one (automatic work) lends the place to the next action, which then names its own notice.
+  // A confirmation's action only retires it, so it is never offered as a button.
   const primary = notices[0];
-  const owner = primary.action ? primary : notices.find((notice) => notice.action);
+  const actionable = (notice) => notice.action && !isConfirmation(notice);
+  const owner = actionable(primary) ? primary : notices.find(actionable);
   const action = owner?.action;
   return h('div', { ref: root, className: 'field-status ' + (primary.error ? 'error' : ''),
     onPointerEnter: () => setInteraction((current) => ({ ...current, pointer: true })),
@@ -82,7 +116,7 @@ function VisibleFieldStatus({ notices }) {
           h('strong', null, notice.label),
           h('p', null, notice.detail),
           // The action beside the summary is not listed a second time.
-          notice !== owner && notice.action && h('button', { type: 'button', onClick: run(notice.action) }, notice.action.label))))),
+          notice !== owner && actionable(notice) && h('button', { type: 'button', onClick: run(notice.action) }, notice.action.label))))),
     action && h('button', { key: owner.id, type: 'button', className: 'field-status-action', onClick: run(action),
       'aria-label': owner === primary ? undefined : action.label + ': ' + owner.label }, action.label));
 }

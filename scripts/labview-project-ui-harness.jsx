@@ -47,6 +47,9 @@ async function mount(platform='win32', linked=true) {
   props={catalog:linked?structuredClone(catalog):null,bookmarkId:'current',operation:null,status:linked?'ready':'unlinked',error:'',recentProjects:[{id:'other',projectName:'Practice robot with a very long descriptive project name',folderName:'C:/Robots/Practice Robot',lastLinkedAt:'2026-10-15T12:00:00.000Z'}]}; await render();
 }
 async function menu() { if (!document.querySelector('#project-menu')) await pointer(document.querySelector('.project-chip')); }
+// The menu's reading order: items by label, rules as '—' and facts as 'fact'.
+const menuOrder = () => [...document.querySelectorAll('#project-menu :is(button,hr,.project-menu-fact)')].map(el => el.tagName === 'HR' ? '—' : el.matches('.project-menu-fact') ? 'fact' : el.querySelector('span')?.textContent ?? el.textContent);
+const sameOrder = (expected, label) => { const actual = menuOrder(); assert(JSON.stringify(actual) === JSON.stringify(expected), label + ': ' + JSON.stringify(actual)); };
 async function test(name, fn) { try { await fn(); results.push({name,ok:true}); } catch(error) { results.push({name,ok:false,error:error.message}); } }
 await test('Quiet saved name, change asterisk and centered navigation stay stable', async()=>{
   await mount();
@@ -74,11 +77,14 @@ await test('Quiet saved name, change asterisk and centered navigation stay stabl
 });
 await test('Unlinked chip exposes the explicit Link action', async()=>{
   await mount('win32',false); await menu(); assert(document.querySelector('.project-menu-code').textContent.includes('Not linked'),'Unlinked fact');
+  // This project's file, then its robot code, then other projects; the first item takes focus.
+  sameOrder(['Save','Save copy…','—','Link robot code…','Recent robot code','—','Projects…','New project…'],'Unlinked menu order'); assert(document.activeElement===button('Save'),'Save takes first focus');
   await pointer('Link robot code…'); assert(calls[0]==='link','Link callback'); assert(!document.querySelector('.labview-project-panel'),'No retired panel'); await menu(); await native({capture:'unlinked'});
 });
 await test('Windows platform fixture retains Change and Refresh with keyboard focus return', async()=>{
   await mount(); props.catalog.labviewDiscovery.inspection.status='available'; props.catalog.labviewDiscovery.inspection.reason="Live inspection only; no saved-source cache: NI did not provide the inspection instance's saved-state metadata; NI did not provide VI saved-state metadata"; await render(); await menu();
   assert(!document.querySelector('#project-menu').textContent.includes('Live inspection only'),'Successful live inspection stays quiet');
+  sameOrder(['Save','Save copy…','—','Change robot code…','Recent robot code','Refresh commands','Rescan command inputs','Build catalog for conditions','View sources…','—','Projects…','New project…'],'Linked menu order');
   await pointer('Refresh commands'); assert(calls[0]==='refresh','Refresh callback'); assert(document.activeElement.matches('.project-chip'),'Refresh returns chip focus');
   await key('ArrowDown'); await ready(()=>!!document.querySelector('#project-menu'),'chip keyboard open'); await key('End'); await key('Home'); await key('Escape'); assert(document.activeElement.matches('.project-chip'),'Escape returns chip');
   await menu(); await pointer('Change robot code…'); assert(calls[1]==='link','Change callback'); await menu(); assert(document.querySelector('.project-menu-code').textContent.includes(catalog.projectName),'Cancel fixture retains code'); await native({capture:'windows-ready'});
@@ -91,10 +97,13 @@ await test('Loading and build progress disable their actual competing actions', 
   props.operation='refresh'; await render(); assert(button('Change robot code…').disabled&&button('Refresh commands').disabled&&button('View sources…'),'Refresh keeps linked rows, disabled'); assert(document.querySelector('.project-menu-code').textContent.includes('Loading…'),'Refresh progress');
 });
 await test('Failure keeps the fact and a usable Refresh retry', async()=>{
-  await mount(); props.status='stale'; props.error='LabVIEW is not running. Open the robot project in LabVIEW, then refresh commands.'; await render(); await menu(); assert(document.querySelector('#project-menu [role="alert"]'),'Visible code error'); assert(!button('Refresh commands').disabled,'Refresh retry enabled'); await native({capture:'sync-error'}); await pointer('Refresh commands'); assert(calls[0]==='refresh','Retry callback');
+  await mount(); props.status='stale'; props.error='LabVIEW is not running. Open the robot project in LabVIEW, then refresh commands.'; await render(); await menu(); assert(document.querySelector('#project-menu [role="alert"]'),'Visible code error');
+  sameOrder(['Save','Save copy…','—','Change robot code…','fact','Recent robot code','Refresh commands','Rescan command inputs','Build catalog for conditions','View sources…','—','Projects…','New project…'],'The code fact sits under its code, above Refresh'); assert(!button('Refresh commands').disabled,'Refresh retry enabled'); await native({capture:'sync-error'}); await pointer('Refresh commands'); assert(calls[0]==='refresh','Retry callback');
 });
 await test('Recent code includes visible accessible folder metadata', async()=>{
-  await mount(); await menu(); await pointer('Recent robot code'); const recent=button(props.recentProjects[0].projectName);
+  await mount(); await menu(); const disclosure=button('Recent robot code'); assert(disclosure.getAttribute('aria-expanded')==='false'&&disclosure.querySelector('.project-menu-chevron svg'),'Collapsed disclosure shows its chevron');
+  await pointer('Recent robot code'); assert(disclosure.getAttribute('aria-expanded')==='true','Disclosure expands in place'); const recent=button(props.recentProjects[0].projectName);
+  assert(menuOrder().indexOf(props.recentProjects[0].projectName)===menuOrder().indexOf('Recent robot code')+1,'Recents follow their disclosure');
   assert(recent.textContent.includes(props.recentProjects[0].folderName),'Visible folder'); assert(recent.getAttribute('aria-label').includes(props.recentProjects[0].folderName),'Accessible folder'); await native({capture:'recent-projects'});
   await pointer(recent); assert(calls[0]==='other','Recent ID callback');
 });

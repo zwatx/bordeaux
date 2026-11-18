@@ -67,18 +67,69 @@ app.whenReady().then(async () => {
     const load = async () => {
       await win.loadFile(path.resolve('dist-renderer/index.html'));
       await focusWindow();
-      await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable path');
+      await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'editable path');
     };
     const openInspector = async () => { if (await evaluate(() => !document.querySelector('.ctxinsp'))) await click('.pp-more'); await wait(() => evaluate(() => !!document.querySelector('.ctxinsp')), 'inspector'); };
     const selectTarget = async () => {
-      if (await evaluate(() => document.querySelector('.pt-target')?.getAttribute('aria-pressed') !== 'true')) await click('.pt-target');
+      if (await evaluate(() => document.querySelector('.pt-target')?.getAttribute('aria-pressed') !== 'true')) {
+        await evaluate(() => document.querySelector('.pt-target').focus()); await key('Enter');
+      }
+      await wait(() => evaluate(() => document.querySelector('.pt-target')?.getAttribute('aria-pressed') === 'true'), 'selected target');
       await openInspector(); await wait(() => evaluate((g) => !!document.querySelector(g), TARGET_GROUP), 'target direction');
     };
     const selectWaypoint = async (index) => {
-      if (await evaluate((i) => document.querySelector(`.pt-wp[data-selection="wp:${i}"]`)?.getAttribute('aria-pressed') !== 'true', index)) await click(`.pt-wp[data-selection="wp:${index}"]`);
+      if (await evaluate((i) => document.querySelector(`.pt-wp[data-selection="wp:${i}"]`)?.getAttribute('aria-pressed') !== 'true', index)) {
+        await evaluate((i) => document.querySelector(`.pt-wp[data-selection="wp:${i}"]`).focus(), index);
+        await key('Enter');
+      }
+      await wait(() => evaluate((i) => document.querySelector(`.pt-wp[data-selection="wp:${i}"]`)?.getAttribute('aria-pressed') === 'true', index), 'selected waypoint');
       await openInspector();
     };
 
+    // Tangent direction and straight segments, in both supported layouts and unit systems.
+    const original = structuredClone(saved);
+    const outgoing = '[role="group"][aria-label="Outgoing segment type"]';
+    const tangent = '[role="group"][aria-labelledby="wp-tangent-nextC"]';
+    for (const [width, height] of [[1440, 900], [1100, 720]]) for (const units of ['metric', 'imperial']) {
+      saved = structuredClone(original); saved.editor.unitSystem = units;
+      saved.paths[0].waypoints[0].segType = 'bezier';
+      win.setContentSize(width, height);
+      await load(); await selectWaypoint(0);
+      const directionInput = await evaluate((scope) => {
+        const label = [...document.querySelectorAll(scope + ' label')].find(el => el.textContent === 'Direction');
+        return '#' + CSS.escape(label.htmlFor);
+      }, tangent);
+      await click(directionInput);
+      await key('a', [primary]); await win.webContents.insertText('42'); await key('Enter');
+      await save();
+      const w = saved.paths[0].waypoints[0];
+      assert.ok(Math.abs(Math.atan2(w.nextC.y - w.y, w.nextC.x - w.x) * 180 / Math.PI - 42) < 1e-8, 'tangent angle commits');
+      assert.equal(w.theta, original.paths[0].waypoints[0].theta, 'tangent direction keeps robot facing');
+      await click(directionInput); await key('a', [primary]); await win.webContents.insertText('90'); await key('Escape');
+      await key('Tab'); await save();
+      assert.deepEqual(saved.paths[0].waypoints[0].nextC, w.nextC, 'Escape discards tangent angle');
+      assert.equal(await evaluate((s) => Number(document.querySelector(s).value), directionInput), 42, 'visible direction matches saved angle after cancel');
+      await snapshot('tangent-curve-' + width + '-' + units);
+      await click(outgoing + ' .seg-i', 'Straight');
+      assert.equal(await evaluate((scope) => document.querySelectorAll(scope + ' input').length, tangent), 0, 'straight segment hides tangent fields');
+      assert.equal(await evaluate(() => document.querySelectorAll('[data-role="ct"][data-idx="1"]').length), 0, 'straight segment hides handle');
+      await save(); assert.equal(saved.paths[0].waypoints[0].segType, 'line');
+      await snapshot('tangent-straight-' + width + '-' + units);
+      await click('[aria-label="Undo"]');
+      assert.deepEqual(await pressedIn(outgoing), ['Bézier'], 'Undo restores curve');
+      await key('z', [primary, 'shift']);
+      assert.deepEqual(await pressedIn(outgoing), ['Straight'], 'Redo restores straight');
+      await save(); await load(); await selectWaypoint(0);
+      assert.deepEqual(await pressedIn(outgoing), ['Straight'], 'straight survives reload');
+      await click(outgoing + ' .seg-i', 'Bézier');
+      await key('Tab'); await key('Enter');
+      await evaluate(() => document.querySelector('.fieldsvg').focus()); await key('3');
+      assert.equal(await evaluate(() => document.body.textContent.includes('Click the path to set a rotation target')), false, 'rotation banner removed');
+      await key('Escape');
+      await click('[aria-label="Hide inspector"]');
+      await snapshot('tangent-inspector-closed-' + width + '-' + units);
+    }
+    saved = original; win.setContentSize(1440, 900);
     await load();
     // Rotation target: pointer, keyboard, Undo/Redo, save and reload.
     await selectTarget();
@@ -147,7 +198,7 @@ app.whenReady().then(async () => {
       await openInspector(); await snapshot('focus-on-inspector-' + width);
       await click('.library-restore-btn');
       await wait(() => evaluate(() => !document.querySelector('.library-rail').hidden && !document.querySelector('.library-restore')), 'restored library');
-      assert.equal(await evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), true, 'restore moves focus to the current path');
+      await wait(() => evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), 'restore moves focus to the current path');
       assert.equal(await evaluate((s) => document.querySelector(s).getAttribute('aria-pressed'), focus), 'false');
       await snapshot('focus-restored-' + width);
       await click('[aria-label="Hide inspector"]');
@@ -163,7 +214,7 @@ app.whenReady().then(async () => {
     await evaluate(() => document.querySelector('.library-restore-btn').focus());
     await key('Enter');
     await wait(() => evaluate(() => !document.querySelector('.library-rail').hidden), 'Enter restores the library');
-    assert.equal(await evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), true);
+    await wait(() => evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), 'keyboard restore moves focus to the current path');
     await evaluate(() => document.querySelector('.viewctl .field-focus').focus());
     await key('Enter');
     assert.equal(await evaluate(() => document.querySelector('.library-rail').hidden), true, 'Enter on Focus hides the library');

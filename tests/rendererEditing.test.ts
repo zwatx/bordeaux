@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, reorderWaypoint, reversePath } from "../src/renderer/lib/pathEditing";
+import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, reorderWaypoint, reversePath, setTangentDirection, tangentDirectionDeg, tangentHandleUse } from "../src/renderer/lib/pathEditing";
+import { sample } from "../src/shared/math/geometry";
 import { blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../src/renderer/lib/editorProject";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
 import { normalizeProject } from "../src/shared/project/normalize";
@@ -88,6 +89,75 @@ describe("editor waypoint operations", () => {
     const normalized = normalizeProject(project);
     expect(normalized).toMatchObject({ paths: [{ waypoints: [expect.anything(), waypoint, expect.anything(), expect.anything()] }] });
     expect(normalizeProject(normalized)).toEqual(normalized);
+  });
+});
+
+describe("waypoint tangent editing", () => {
+  const length = (w: { x: number; y: number }, h: { x: number; y: number }) => Math.hypot(h.x - w.x, h.y - w.y);
+
+  it("reports only the handle values each adjacent segment uses", () => {
+    const waypoints = path().waypoints;
+    waypoints[2].segType = "arc";
+    // Segments: 0 bezier, 1 line, 2 arc.
+    expect(tangentHandleUse(waypoints, 0, "prevC")).toEqual({ direction: false, length: false });
+    expect(tangentHandleUse(waypoints, 0, "nextC")).toEqual({ direction: true, length: true });
+    expect(tangentHandleUse(waypoints, 1, "nextC")).toEqual({ direction: false, length: false });
+    expect(tangentHandleUse(waypoints, 2, "prevC")).toEqual({ direction: false, length: false });
+    expect(tangentHandleUse(waypoints, 2, "nextC")).toEqual({ direction: true, length: false });
+    expect(tangentHandleUse(waypoints, 3, "prevC")).toEqual({ direction: false, length: false });
+    expect(tangentHandleUse(waypoints, 3, "nextC")).toEqual({ direction: false, length: false });
+    waypoints[2].segType = "clothoid";
+    expect(tangentHandleUse(waypoints, 3, "prevC")).toEqual({ direction: true, length: true });
+    delete waypoints[2].segType;
+    expect(tangentHandleUse(waypoints, 3, "prevC")).toEqual({ direction: true, length: true });
+  });
+
+  it("measures travel direction through both handles", () => {
+    const waypoint = { x: 2, y: 2, prevC: { x: 2, y: 1 }, nextC: { x: 1, y: 2 } };
+    expect(tangentDirectionDeg(waypoint, "prevC")).toBeCloseTo(90);
+    expect(tangentDirectionDeg(waypoint, "nextC")).toBe(180);
+    // A handle level with the waypoint yields a signed zero; the reading stays 180, not -180.
+    expect(tangentDirectionDeg({ ...waypoint, prevC: { x: 3, y: 2 } }, "prevC")).toBe(180);
+    expect(Object.is(tangentDirectionDeg({ ...waypoint, prevC: { x: 1, y: 2 } }, "prevC"), 0)).toBe(true);
+  });
+
+  it("turns both handles of a linked interior waypoint and keeps their lengths", () => {
+    const draft = path(), waypoint = draft.waypoints[2];
+    waypoint.prevC = { x: 5, y: 2 }; waypoint.nextC = { x: 8, y: 2 };
+    setTangentDirection(draft, 2, "prevC", 90);
+    expect(waypoint.prevC.x).toBeCloseTo(6); expect(waypoint.prevC.y).toBeCloseTo(1);
+    expect(waypoint.nextC.x).toBeCloseTo(6); expect(waypoint.nextC.y).toBeCloseTo(4);
+    expect(tangentDirectionDeg(waypoint, "nextC")).toBeCloseTo(90);
+    expect(waypoint).toMatchObject({ linked: true, corner: false });
+  });
+
+  it("keeps stopped and endpoint handles independent", () => {
+    const draft = path();
+    const stopped = draft.waypoints[2]; stopped.stop = true; stopped.linked = false;
+    const before = structuredClone(stopped.prevC);
+    setTangentDirection(draft, 2, "nextC", -45);
+    expect(stopped.prevC).toEqual(before);
+    expect(tangentDirectionDeg(stopped, "nextC")).toBeCloseTo(-45);
+    expect(stopped.linked).toBe(false);
+
+    const start = draft.waypoints[0], prevBefore = structuredClone(start.prevC);
+    start.nextC = { x: start.x + 0.05, y: start.y };
+    const outLength = length(start, start.nextC);
+    setTangentDirection(draft, 0, "nextC", 30);
+    expect(start.prevC).toEqual(prevBefore);
+    expect(length(start, start.nextC)).toBeCloseTo(outLength);
+    expect(tangentDirectionDeg(start, "nextC")).toBeCloseTo(30);
+    // The sampled path leaves the start along the authored direction.
+    expect(sample(draft.waypoints, 60).pts[0].heading * 180 / Math.PI).toBeCloseTo(30, 6);
+  });
+
+  it("gives a zero-length handle the minimum length so it has a direction", () => {
+    const draft = path(), end = draft.waypoints[3];
+    end.prevC = { x: end.x, y: end.y };
+    setTangentDirection(draft, 3, "prevC", 0);
+    expect(end.prevC.x).toBeCloseTo(end.x - 0.1); expect(end.prevC.y).toBeCloseTo(end.y);
+    expect(setTangentDirection(draft, 3, "prevC", Number.NaN)).toBe(draft);
+    expect(end.prevC.x).toBeCloseTo(end.x - 0.1);
   });
 });
 

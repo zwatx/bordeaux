@@ -4,6 +4,7 @@ import { rankCommandChoices } from "../lib/commandIndex";
 import { SharedWaypointPosition } from "./SharedWaypointPosition";
 import * as React from "react";
 import { PM } from "../lib/pathMath";
+import { tangentDirectionDeg, tangentHandleUse } from "../lib/pathEditing";
 import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { FIELD_DIMS } from "./FieldView";
 import { UI } from "./ui";
@@ -25,6 +26,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/marke
 
   const handleLen = (w, key) => Math.hypot(w[key].x - w.x, w[key].y - w.y);
   const segNorm = (t) => (t === 'line' || t === 'arc' || t === 'clothoid') ? t : 'bezier';
+  const segmentTypeOptions = () => PM.SEGTYPES.map((type) => ({ v: type.id, label: type.label, title: type.hint }));
   const wpName = (i, n) => i === 0 ? 'Start' : i === n - 1 ? 'End' : 'Waypoint ' + i;
 
   function ConstraintsBody({ c, robot, setC, moreLimits, setMoreLimits }) {
@@ -765,6 +767,18 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/marke
           h(Toggle, { on: !!w.thetaOn, ariaLabel: 'Pin heading at waypoint', onChange: (v) => actions.toggleTheta(i, v) })),
         w.thetaOn && h(Num, { label: 'Heading \u03b8', value: w.theta || 0, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: v }) }),
         w.thetaOn && headingDirection);
+      // Each side edits the shape of its adjacent segment and only the handle values that shape uses.
+      const tangentEditor = (key) => {
+        const incoming = key === 'prevC', segment = incoming ? i - 1 : i, side = incoming ? 'Incoming' : 'Outgoing';
+        const type = segNorm(wps[segment].segType), use = tangentHandleUse(wps, i, key), labelId = 'wp-tangent-' + key;
+        return h('div', { key, role: 'group', 'aria-labelledby': labelId },
+          h('div', { className: 'fieldlabel', id: labelId }, side + ' segment'),
+          h(Seg, { value: type, options: segmentTypeOptions(), ariaLabel: side + ' segment type', onChange: (v) => { if (v !== type) actions.setSegMeta(segment, { segType: v }); } }),
+          use.direction && h('div', { className: 'grid2' },
+            h(Num, { label: 'Direction', value: tangentDirectionDeg(w, key), unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setHandleDir(i, key, v) }),
+            use.length && h(Num, { label: 'Length', value: handleLen(w, key), unit: 'm', min: 0.1, onChange: (v) => actions.setHandleLen(i, key, v) })));
+      };
+      const alignedTangents = !isAnchor && !w.stop && tangentHandleUse(wps, i, 'prevC').direction && tangentHandleUse(wps, i, 'nextC').direction;
       const headingDirection = h(TurnDirection, { value: w.rotationDirection, values: AUTHORED_DIRECTION, label: 'Turn into heading', ariaLabel: 'Turn direction into heading',
         onChange: (rotationDirection) => actions.setWp(i, { rotationDirection }) });
       title = waypointLabel(i);
@@ -812,9 +826,9 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/marke
         isAnchor && endpointSpeed(i),
         isAnchor && h('div', { className: 'seg-hint' }, 'Speed along the path; 0 means stopped.'),
 
-        h('div', { className: !isStart && !isEnd ? 'grid2' : '' },
-          !isStart && h(Num, { label: 'Incoming tangent', value: handleLen(w, 'prevC'), unit: 'm', min: 0.1, onChange: (v) => actions.setHandleLen(i, 'prevC', v) }),
-          !isEnd && h(Num, { label: 'Outgoing tangent', value: handleLen(w, 'nextC'), unit: 'm', min: 0.1, onChange: (v) => actions.setHandleLen(i, 'nextC', v) })),
+        !isStart && tangentEditor('prevC'),
+        !isEnd && tangentEditor('nextC'),
+        alignedTangents && h('div', { className: 'seg-hint' }, 'Directions stay aligned through this waypoint.'),
 
         isEnd && !isTank && h(React.Fragment, null,
           h('div', { className: 'inrow' },
@@ -868,7 +882,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/marke
           { v: UnitPrefs.format(dur, 's', 2), k: 'Duration' },
         ]),
         h('div', { className: 'fieldlabel' }, 'Path type'),
-        h(Seg, { value: st, options: PM.SEGTYPES.map((type) => ({ v: type.id, label: type.label, title: type.hint })), ariaLabel: 'Path type', onChange: (v) => actions.setSegMeta(i, { segType: v }) }),
+        h(Seg, { value: st, options: segmentTypeOptions(), ariaLabel: 'Path type', onChange: (v) => actions.setSegMeta(i, { segType: v }) }),
         h('div', { className: 'fieldlabel' }, 'Timing'),
         h(Seg, { value: wps[i].segmentFollowMode || 'inherit', ariaLabel: 'Segment follow mode', options: [
           { v: 'inherit', label: 'Use path', title: 'Use the path timing' },

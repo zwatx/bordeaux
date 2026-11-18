@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FieldStatus, orderNotices } from '../src/renderer/components/FieldStatus';
+import { FieldStatus, isConfirmation, orderNotices } from '../src/renderer/components/FieldStatus';
 
 const render = (notices) => renderToStaticMarkup(React.createElement(FieldStatus, { notices }));
 const summary = (markup) => markup.match(/<summary>([\s\S]*?)<\/summary>/)?.[1];
 
 const preparing = { id: 'loading', label: 'Preparing trajectory…', detail: 'Preview timing is provisional until planning finishes.' };
+const exported = { id: 'bdx-export', label: 'BDX exported', detail: 'Saved paths/Path.bdx.', autoDismissMs: 5000, dismissKey: {}, action: { label: 'Dismiss', onClick() {} } };
 const stale = { id: 'optimization', label: 'Optimization out of date', detail: 'The path changed after optimization.', action: { label: 'Optimize', onClick() {} } };
 
 describe('compact field status', () => {
@@ -45,7 +46,6 @@ describe('compact field status', () => {
 
   it('leads with a failure that arrives beside a success, with that failure’s own action', () => {
     // App lists an export success first; a planning failure that coexists with it must not hide under it.
-    const exported = { id: 'bdx-export', label: 'BDX exported', detail: 'Saved paths/Path.bdx.', autoDismissMs: 5000, action: { label: 'Dismiss', onClick() {} } };
     const planning = { id: 'planning', error: true, label: 'Couldn’t time this path', detail: 'Controlled planning failure.', action: { label: 'Try again', onClick() {} } };
     const markup = render([exported, planning]);
     expect(summary(markup)).toContain('Couldn’t time this path');
@@ -53,9 +53,43 @@ describe('compact field status', () => {
     expect(markup).not.toContain('role="status"');
     expect(markup).toMatch(/class="field-status error"/);
     expect(markup).toMatch(/<\/details><button[^>]*class="field-status-action"[^>]*>Try again<\/button>/);
-    // The success's Dismiss is inside its own details row; Try again is not repeated there.
+    // The success is listed in the details without a Dismiss of its own (it still expires); Try again is not repeated.
     expect(markup.match(/>Try again<\/button>/g)).toHaveLength(1);
-    expect(markup).toMatch(/<strong>BDX exported<\/strong><p>Saved paths\/Path.bdx.<\/p><button[^>]*>Dismiss<\/button>/);
+    expect(markup).toMatch(/<strong>BDX exported<\/strong><p>Saved paths\/Path.bdx.<\/p><\/div>/);
+    expect(markup).not.toContain('Dismiss');
+  });
+
+  it('shows an ordinary success alone as one quiet line without details or buttons', () => {
+    const markup = render([exported]);
+    expect(markup).toMatch(/^<div class="field-status field-confirmation" title="Saved paths\/Path.bdx.">/);
+    expect(markup).not.toContain('<details');
+    expect(markup).not.toContain('<button');
+    expect(markup).not.toContain('Details');
+    expect(markup).not.toContain('Dismiss');
+    expect(markup.match(/role="status"/g)).toHaveLength(1);
+    expect(markup).not.toContain('role="alert"');
+    // Assistive technology hears the detail that sighted users get as the tooltip.
+    expect(markup).toMatch(/role="status">BDX exported<span class="sr-only">\. Saved paths\/Path.bdx.<\/span><\/span>/);
+  });
+
+  it('keeps the full status when a success coexists with persistent information, offering only real actions', () => {
+    const markup = render([exported, stale]);
+    expect(summary(markup)).toContain('BDX exported');
+    expect(summary(markup)).toContain('Details (2)');
+    expect(markup).toMatch(/aria-label="Optimize: Optimization out of date"[^>]*>Optimize<\/button><\/div>$/);
+    expect(markup).not.toContain('Dismiss');
+    // Automatic work without an action does not lend its place to the confirmation's retirement.
+    expect(render([preparing, exported])).not.toContain('<button');
+  });
+
+  it('treats only an expiring non-error notice with a retirement callback as a confirmation', () => {
+    expect(isConfirmation(exported)).toBe(true);
+    expect(isConfirmation({ ...exported, error: true })).toBe(false);
+    expect(isConfirmation({ ...exported, autoDismissMs: 0 })).toBe(false);
+    expect(isConfirmation({ ...exported, action: undefined })).toBe(false);
+    expect(isConfirmation(stale)).toBe(false);
+    // A persistent failure keeps its Dismiss.
+    expect(render([{ id: 'export', error: true, label: 'Export failed', detail: 'x', action: { label: 'Dismiss', onClick() {} } }])).toMatch(/class="field-status-action"[^>]*>Dismiss<\/button>/);
   });
 
   it('orders errors before other notices without reordering within each group', () => {

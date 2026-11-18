@@ -62,7 +62,7 @@ import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
 import { markerInvocations } from "../../shared/markerCommands";
 import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../shared/project/defaults";
 import { blankProject, blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
-import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
+import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setTangentDirection, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";
 import { createPathHoverStore } from "../lib/pathHoverStore";
 import { useRoutinePlanning } from "../hooks/useRoutinePlanning";
@@ -1042,6 +1042,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // A path with fewer than two waypoints is unfinished authoring (a blank first-use path, or one being drawn), not
     // a failure: no problem marks or failure notice, a placement hint instead, and Push stays unavailable.
     const unfinishedPath = (doc.waypoints?.length || 0) < 2;
+    const stageHint = (tool !== 'select' || unfinishedPath) ? toolHint(tool, doc.waypoints?.length || 0) : '';
     const editingFailure = editing.status === 'error' && !unfinishedPath ? editing.error : null;
     const planIssues = comparing || unfinishedPath ? [] : editing.issues;
     const derivedValue = derivation.value || PENDING_PATH_PREVIEW;
@@ -1433,6 +1434,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     const toggleTheta = useCallback((i, on) => commit((d) => { d.waypoints[i].thetaOn = on; return d; }), [commit]);
     const setHandleLen = useCallback((i, key, len) => commit((d) => { const w = d.waypoints[i]; const a = Math.atan2(w[key].y - w.y, w[key].x - w.x); w[key] = { x: w.x + Math.cos(a) * len, y: w.y + Math.sin(a) * len }; return d; }), [commit]);
+    const setHandleDir = useCallback((i, key, deg) => commit((d) => setTangentDirection(d, i, key, deg)), [commit]);
     // Resolve the owning draft before field, timeline or inspector deletion. Invalid drafts
     // retain their owner; a valid draft renders before the deletion reads the path.
     const deleteFeature = useCallback((remove) => {
@@ -1672,7 +1674,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const hi = derived.wpFrac && Number.isFinite(derived.wpFrac[i + 1]) ? derived.wpFrac[i + 1] : (i + 1) / Math.max(1, doc.waypoints.length - 1);
       addWaypoint(PM.pointAtFraction((lo + hi) / 2, pts), i, true);
     }, [addWaypoint, derived, doc.waypoints.length]);
-    const inspActions = { setWp, toggleTheta, setHandleLen, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
+    const inspActions = { setWp, toggleTheta, setHandleLen, setHandleDir, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
       addTargetMid, addMarkerMid, addRangeMid,
       setSegMeta, setSegmentHeadingMode, setSegmentLookAt, setJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
       setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward, moveWpOrder,
@@ -3021,7 +3023,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
-              (tool !== 'select' || unfinishedPath) && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: toolHint(tool, doc.waypoints?.length || 0) } }),
+              stageHint && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: stageHint } }),
               waypointPreview && h('div', { className: 'insert-preview', inert: derivationCurrent ? undefined : '', role: 'region', 'aria-label': 'Preview waypoint insertion' },
                 h('div', { className: 'insert-preview-copy' },
                   h('b', null, waypointPreview.pending ? 'Preparing waypoint preview' : waypointPreview.error ? 'Waypoint preview unavailable' : 'Preview waypoint'),
@@ -3082,7 +3084,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     if (waypoints < 2) return tool === 'waypoint' ? 'Click the field to place the <b>' + (waypoints ? 'next waypoint' : 'first waypoint') + '</b>'
       : 'Press <b>W</b>, then click the field to ' + (waypoints ? 'continue' : 'start') + ' this path';
     if (tool === 'waypoint') return '';
-    if (tool === 'rotation') return 'Click the path to set a <b>rotation target</b>';
     if (tool === 'marker') return 'Click the path to place a <b>command</b>';
     if (tool === 'range') return 'Drag along the path to add a <b>zone</b>, then set its limits';
     return '';

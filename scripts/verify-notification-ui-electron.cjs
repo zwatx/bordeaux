@@ -1,4 +1,4 @@
-// Built-App check for notices and status: field status order and action ownership, auto-dismiss pauses, focus return,
+// Built-App check for notices and status: quiet export confirmations, field status order and action ownership, auto-dismiss pauses, focus return,
 // routine export notices, deletion Undo, save failure recovery, the update panel, playback Space under a hover tooltip,
 // and the compact properties header. Mocked bridge only (verify-notification-ui-preload.cjs): no robot transport.
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -55,10 +55,12 @@ async function snapshot(name) {
 const pass = (label) => { passed.push(label); console.log('PASS ' + label); };
 const status = () => evaluate(() => {
   const root = document.querySelector('.fieldcol:not([hidden]) .field-status, .routine-export-notices .field-status');
-  return root && { error: root.classList.contains('error'), label: root.querySelector('.field-status-label')?.textContent, role: root.querySelector('.field-status-label')?.getAttribute('role'),
+  const label = root?.querySelector('.field-status-label');
+  return root && { confirmation: root.classList.contains('field-confirmation'), error: root.classList.contains('error'), label: label?.firstChild?.textContent, role: label?.getAttribute('role'),
     disclosure: root.querySelector('.field-status-disclosure')?.textContent, action: root.querySelector('.field-status-action')?.textContent,
-    actionName: root.querySelector('.field-status-action')?.getAttribute('aria-label'), open: root.querySelector('details').open,
-    inner: [...root.querySelectorAll('.field-status-item button')].map((b) => b.textContent) };
+    actionName: root.querySelector('.field-status-action')?.getAttribute('aria-label'), open: root.querySelector('details')?.open,
+    inner: [...root.querySelectorAll('.field-status-item button')].map((b) => b.textContent),
+    focusable: root.querySelectorAll('button, summary, a[href], input, select, textarea, [tabindex]').length };
 });
 const active = () => evaluate(() => { const el = document.activeElement; return el && el !== document.body ? (el.getAttribute('aria-label') || el.className || el.tagName) + '|' + el.textContent.trim().slice(0, 40) : 'body'; });
 async function tabTo(test, label) {
@@ -181,14 +183,37 @@ app.whenReady().then(async () => {
       await key('Escape');
       await park();
 
-      // A successful export is one quiet notice with its own Dismiss.
+      // A successful export is one quiet line: no Details, no Dismiss, nothing to focus. Its detail is the tooltip.
       await exportFromLibrary(); await park();
       await wait(async () => (await status())?.label === 'BDX exported', 'export success');
-      const exportDetail = () => evaluate(() => document.querySelector('.fieldcol:not([hidden]) .field-status-item, .routine-export-notices .field-status-item')?.textContent || '');
+      const exportDetail = () => evaluate(() => document.querySelector('.fieldcol:not([hidden]) .field-confirmation, .routine-export-notices .field-confirmation')?.title || '');
       assert.match(await exportDetail(), /312 samples, 1 event\./, 'Counts read as words (one event)');
       let current = await status();
-      assert.deepEqual([current.error, current.role, current.action, current.disclosure], [false, 'status', 'Dismiss', 'Details']);
+      assert.deepEqual([current.confirmation, current.error, current.role, current.action, current.disclosure, current.open, current.focusable],
+        [true, false, 'status', undefined, undefined, undefined, 0], 'Success is a compact confirmation without controls');
+      const compact = await evaluate(() => {
+        const box = document.querySelector('.fieldcol .field-confirmation').getBoundingClientRect(), field = document.querySelector('.fieldcol').getBoundingClientRect();
+        const tools = document.querySelector('.field-view-tools').getBoundingClientRect();
+        return { height: box.height, width: box.width, inside: box.left >= field.left && box.right <= field.right, clearOfTools: box.bottom <= tools.top };
+      });
+      assert.ok(compact.height <= 32 && compact.width <= 200, 'Confirmation stays compact: ' + JSON.stringify(compact));
+      assert.deepEqual([compact.inside, compact.clearOfTools], [true, true], 'Confirmation sits within the field, above the view tools');
       await snapshot('export-success-' + width);
+      // Pointer: hovering shows the full detail and holds the confirmation past its lifetime.
+      await hover('.fieldcol .field-confirmation');
+      await wait(() => evaluate(() => document.querySelector('#app-tooltip')?.matches(':popover-open') && /312 samples, 1 event\./.test(document.querySelector('#app-tooltip').textContent)), 'detail tooltip');
+      await snapshot('export-success-detail-' + width);
+      await delay(5400);
+      assert.equal((await status())?.label, 'BDX exported', 'Hover pauses the confirmation expiry');
+      // Leaving it lets it expire on its own without moving keyboard focus.
+      await click('.toolbar .place[aria-current="page"]'); await park();
+      await wait(async () => !(await status()), 'confirmation expires', 120);
+      assert.equal(await evaluate(() => document.activeElement?.matches('.toolbar .place[aria-current="page"]')), true, 'Expiry keeps focus');
+      pass(width + ': export success is a compact confirmation without controls; hover shows detail and pauses; expiry keeps focus');
+
+      // A second export: a failure that arrives while it shows leads it.
+      await exportFromLibrary(); await park();
+      await wait(async () => (await status())?.label === 'BDX exported', 'second export success');
 
       // Planning fails while that success is still shown: the failure leads, with its own Try again.
       await injectPlanningFailure();
@@ -197,13 +222,11 @@ app.whenReady().then(async () => {
       await park();
       current = await status();
       assert.deepEqual([current.error, current.role, current.action, current.actionName, current.disclosure], [true, 'alert', 'Try again', null, 'Details (2)']);
-      for (const open of [false, true]) {
-        await inspector(open);
-        await snapshot('failure-over-success-inspector-' + (open ? 'open' : 'closed') + '-' + width);
-      }
       await click('.fieldcol .field-status summary'); await park();
       current = await status();
-      assert.equal(current.open, true); assert.deepEqual(current.inner, ['Dismiss'], 'Only the success keeps an inner Dismiss; Try again is not repeated');
+      assert.equal(current.open, true); assert.equal(current.disclosure, 'Details (2)');
+      assert.deepEqual(current.inner, [], 'The listed success has no Dismiss; Try again is not repeated');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.fieldcol .field-status button')].some((b) => b.textContent === 'Dismiss')), false, 'No Dismiss for the success anywhere');
       const geometry = await evaluate(() => {
         const box = document.querySelector('.fieldcol .field-status').getBoundingClientRect(), field = document.querySelector('.fieldcol').getBoundingClientRect();
         const tools = document.querySelector('.field-view-tools').getBoundingClientRect();
@@ -219,6 +242,10 @@ app.whenReady().then(async () => {
       await wait(async () => (await status())?.disclosure === 'Details', 'success expires behind the failure', 120);
       assert.equal((await status()).label, 'Couldn’t time this path', 'The failure never expires');
       assert.equal(await evaluate(() => document.activeElement?.matches('.toolbar .place[aria-current="page"]')), true, 'Expiry keeps focus');
+      for (const open of [false, true]) {
+        await inspector(open);
+        await snapshot('planning-failure-inspector-' + (open ? 'open' : 'closed') + '-' + width);
+      }
 
       // Keyboard: reach the summary, then its own action; Try again recovers and focus returns to where it came from.
       await evaluate(() => window.restorePlanner());
@@ -337,6 +364,8 @@ app.whenReady().then(async () => {
       win.webContents.send('notices:menu', { command: 'export-routine' });
       await wait(async () => (await status())?.label === 'Routine exported', 'routine export success');
       assert.match(await exportDetail(), /2 steps, 2 embedded paths\./, 'Routine counts read as words');
+      current = await status();
+      assert.deepEqual([current.confirmation, current.role, current.action, current.disclosure, current.focusable], [true, 'status', undefined, undefined, 0], 'Routine success is a compact confirmation');
       assert.equal(await transportTop(), top, 'Transport stays put');
       await snapshot('routine-export-success-' + width);
       exportMode = 'fail';

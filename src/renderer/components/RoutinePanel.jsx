@@ -316,14 +316,13 @@ function useDnd(routine, edit, report) {
   return { drag, start };
 }
 
-// ---- popovers live in the body: the workspace's container query would otherwise contain fixed positioning ----
-function usePlacement(anchor, ref, width, align, revision) {
+// ---- the step menu lives in the body: the workspace's container query would otherwise contain fixed positioning ----
+function usePlacement(anchor, ref, width, align) {
   const [pos, setPos] = useState(null);
   useLayoutEffect(() => {
     const place = () => {
       if (!anchor?.isConnected || !ref.current) return;
-      const r = anchor.getBoundingClientRect(), list = ref.current.querySelector('.rt-add-list');
-      const height = ref.current.offsetHeight + (list ? Math.max(0, list.scrollHeight - list.clientHeight) : 0);
+      const r = anchor.getBoundingClientRect(), height = ref.current.offsetHeight;
       const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
       const down = below >= height || below >= above;
       const left = Math.max(8, Math.min(align === 'end' ? r.right - width : r.left, window.innerWidth - width - 8));
@@ -332,11 +331,13 @@ function usePlacement(anchor, ref, width, align, revision) {
     place();
     window.addEventListener('resize', place); window.addEventListener('scroll', place, true);
     return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
-  }, [anchor, ref, width, align, revision]);
+  }, [anchor, ref, width, align]);
   return pos;
 }
+/** A press outside `ref` (and its anchor) closes without moving focus; without `close` nothing is watched. */
 function useOutside(ref, anchor, close) {
   useEffect(() => {
+    if (!close) return undefined;
     const away = (event) => { if (!ref.current?.contains(event.target) && !anchor?.contains(event.target)) close(false); };
     window.addEventListener('pointerdown', away, true);
     return () => window.removeEventListener('pointerdown', away, true);
@@ -344,21 +345,24 @@ function useOutside(ref, anchor, close) {
 }
 
 /**
- * Searchable Add: one search over commands, paths and steps, with a filter under it (All, Paths, Commands, Steps).
- * With an empty search, commands open on "In this routine" and the catalog's subsystems; a subsystem row opens with
- * → or Tab (a chip in the search box shows it, Backspace on an empty search leaves it), and its rows drop the repeated
- * subsystem name. Typing gives one ranked list per kind, the best-matching kind first and a matching subsystem leading
- * the commands. Enter adds; Ctrl/⌘+Enter adds and keeps Add open for the next pick. At wide sizes a detail column
- * describes the highlighted command. `steps` holds the commands (`group: 'commands'`, each with its index `entry`)
- * and the routine's own steps; `pathMeta` gives each path its context line. Tab order inside is search, then the
- * filter; Tab past the filter, Shift+Tab before the search, or Escape closes.
+ * Inline Add: opens inside the flow where the step will land, as one column under one search. With an empty search it
+ * offers the quick picks first (paths, this routine's commands, the routine's own steps) and the command catalog last,
+ * as subsystems once the catalog is large. Icons tell the kinds apart; a heading appears only where it states a fact
+ * the rows do not ("In this routine", "Used in this project"). A "Show all" row or a subsystem row narrows the list
+ * (Enter, → or Tab) and shows that scope as a chip in the search; Backspace or ← on an empty search, or the chip,
+ * leaves it. Typing ranks each kind and puts the best-matching kind first. Enter adds; Ctrl/⌘+Enter adds and keeps Add
+ * open just after the step it added. `steps` holds the commands (`group: 'commands'`, each with its index `entry`) and
+ * the routine's own steps; `pathMeta` gives each path its context line; `pathsNote` says why no path is offered.
+ * `dest` names the place for assistive technology, since the flow already shows it. Escape, Tab and Shift+Tab close
+ * Add and return focus to where it opened. A `persistent` Add (an empty routine's first step) is always shown: it does
+ * not take focus when it appears, Escape only clears it, and Tab moves on.
  */
-export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pathMeta, pathsNote, usage, added }) {
-  const FILTERS = [['all', 'All'], ['paths', 'Paths'], ['commands', 'Commands'], ['steps', 'Steps']];
+export function AddMenu({ paths, steps, onPick, onClose, label, dest, pathMeta, pathsNote, usage, added, persistent, inputClass }) {
   const SECTION_LIMIT = 5, COMMAND_LIMIT = 8;
+  const SCOPES = { paths: 'Paths', commands: 'Commands', steps: 'Steps' };
   const ref = useRef(null), input = useRef(null), returnKey = useRef(null);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('all'); // 'all', or the one kind a "Show all" row opened
   const [scope, setScope] = useState(null); // the open subsystem's key
   const [announcement, setAnnouncement] = useState('');
   const pathChoices = useMemo(() => paths.map(path => ({ key: 'path:' + path.id, kind: 'path', group: 'paths', ref: path.id, label: path.name, icon: 'route', meta: pathMeta?.get(path.id) || undefined })), [paths, pathMeta]);
@@ -376,7 +380,7 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
   const subsystem = scope ? index.bySubsystem.get(scope) || null : null;
   // A catalog refresh that removes the open subsystem returns to every command.
   useEffect(() => { if (scope && !subsystem) setScope(null); }, [scope, subsystem]);
-  // Options in display order, and the option index where each section starts (its heading).
+  // Options in display order, and where each block after the first starts: a quiet rule, or a heading with a fact.
   const view = useMemo(() => {
     const blocks = [], searching = Boolean(query.trim());
     const more = (kind, count) => ({ key: 'more:' + kind, kind: 'more', filter: kind, icon: 'more', label: 'Show all ' + count.toLocaleString() + (searching ? ' matching ' : ' ') + kind });
@@ -389,7 +393,9 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
         // All keeps a search's commands short so paths and steps stay in view; the best matches come first.
         const count = section.rows.filter((row) => row.type === 'command').length;
         if (filter === 'all' && !subsystem && searching && count > COMMAND_LIMIT + 1) rows = [...rows.slice(0, rows.length - count + COMMAND_LIMIT), more('commands', count)];
-        blocks.push({ kind: 'commands', order: 0, title: section.title, note: section.note, best: section.best, rows });
+        // Commands already in this routine are quick picks; the rest of the catalog is browsed last.
+        const recent = section.title === 'In this routine';
+        blocks.push({ kind: 'commands', order: recent ? 1 : 3, title: recent || section.title === 'Used in this project' ? section.title : '', best: section.best, rows });
       }
     }
     const kind = (choices, name, order, limit) => {
@@ -397,15 +403,15 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
       if (!ranked.length) return;
       let rows = ranked.map((match) => match.item);
       if (limit && filter === 'all' && rows.length > limit) rows = [...rows.slice(0, limit), more(name, rows.length)];
-      blocks.push({ kind: name, order, title: name === 'paths' ? 'Paths' : 'Steps', best: ranked[0].score, rows });
+      blocks.push({ kind: name, order, title: '', best: ranked[0].score, rows });
     };
-    if (!subsystem && (filter === 'all' || filter === 'paths')) kind(pathChoices, 'paths', 1, SECTION_LIMIT);
+    if (!subsystem && (filter === 'all' || filter === 'paths')) kind(pathChoices, 'paths', 0, SECTION_LIMIT);
     if (!subsystem && (filter === 'all' || filter === 'steps')) kind(stepChoices, 'steps', 2, 0);
     // A search puts the kind with the best match first, so an exact name such as "Wait" is the first result.
-    if (searching) blocks.sort((a, b) => b.best - a.best || a.order - b.order);
+    blocks.sort((a, b) => (searching ? b.best - a.best : 0) || a.order - b.order);
     const items = [], headings = new Map();
     for (const block of blocks) {
-      if (blocks.length > 1 || block.kind === 'commands') headings.set(items.length, block);
+      if (block.title || items.length) headings.set(items.length, { key: block.kind + ':' + (block.title || items.length), title: block.title });
       items.push(...block.rows);
     }
     return { items, headings };
@@ -416,9 +422,9 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
   const shown = pickerPage(items, page);
   const activeVisible = active >= shown.start && active < shown.end && !items[active]?.disabled;
   const current = activeVisible ? items[active] : null;
-  // A new query, filter or subsystem starts at the first result (leaving a subsystem returns to its row). Replacement
-  // items for the same search (a background catalog update) keep the highlighted item by key, so Enter never inserts
-  // something else; a vanished item falls back.
+  // A new query, filter or subsystem starts at the first result (leaving a scope returns to the row that opened it).
+  // Replacement items for the same search (a background catalog update) keep the highlighted item by key, so Enter
+  // never inserts something else; a vanished item falls back.
   const prevItems = useRef(items), prevSearch = useRef(query + '\0' + filter + '\0' + scope);
   useEffect(() => {
     const search = query + '\0' + filter + '\0' + scope, kept = returnKey.current ?? (prevSearch.current === search ? prevItems.current[active]?.key : undefined);
@@ -427,14 +433,14 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
     const next = keep >= 0 ? keep : enabledPickerIndex(items, 0);
     setActive(next); setPage(next > 0 ? Math.floor(next / PICKER_PAGE_SIZE) : 0);
   }, [items]);
-  // The detail column needs room; below 1300 px the meta line under each name carries the essentials.
-  const wide = (globalThis.innerWidth || 0) >= 1300;
-  const pos = usePlacement(anchor, ref, wide ? 640 : 380, 'start', added?.length || 0);
-  const placed = Boolean(pos);
-  // A hidden element cannot take focus; focus once placed.
-  useEffect(() => { if (placed) input.current?.focus(); }, [placed]);
+  // Add opened from a row or an Add line takes focus where it appears; the first step's Add waits to be used.
+  useEffect(() => {
+    if (persistent) return;
+    input.current?.focus({ preventScroll: true });
+    ref.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { ref.current?.querySelector('.rt-ch-row.active')?.scrollIntoView({ block: 'nearest' }); }, [active, shown.page, items]);
-  useOutside(ref, anchor, onClose);
+  useOutside(ref, null, persistent ? null : onClose);
   const activate = (index) => { setActive(index); if (index >= 0) setPage(Math.floor(index / PICKER_PAGE_SIZE)); };
   const step = (direction) => {
     const from = activeVisible ? active : direction > 0 ? shown.start - 1 : shown.end;
@@ -450,36 +456,40 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
     setAnnouncement(group.name + ', ' + plural(group.entries.length, 'command') + '. Backspace returns to all commands.');
     input.current?.focus();
   };
-  const leave = () => { returnKey.current = 'subsystem:' + scope; setScope(null); setAnnouncement('All commands'); input.current?.focus(); };
-  // "Show all" switches the filter and keeps the query; a subsystem opens; anything else is the pick. Keep-open
-  // picks clear the search for the next command and stay in the subsystem.
+  const widen = (kind) => {
+    setFilter(kind);
+    setAnnouncement('All ' + SCOPES[kind].toLowerCase() + '. Backspace returns to everything.');
+    input.current?.focus();
+  };
+  // Leaving goes up one level: a subsystem returns to its list, a "Show all" list to everything, each at its own row.
+  const leave = () => {
+    if (scope) { returnKey.current = 'subsystem:' + scope; setScope(null); setAnnouncement(filter === 'all' ? 'All commands' : 'All ' + SCOPES[filter].toLowerCase()); }
+    else if (filter !== 'all') { returnKey.current = 'more:' + filter; setFilter('all'); setAnnouncement('Paths, commands and steps'); }
+    input.current?.focus();
+  };
+  // "Show all" and a subsystem open their scope; anything else is the pick. Keep-open picks clear the search for the
+  // next step and stay in the scope.
   const choose = (item, keep) => {
-    if (item.kind === 'more') { setFilter(item.filter); input.current?.focus(); return; }
+    if (item.kind === 'more') { widen(item.filter); return; }
     if (item.kind === 'subsystem') { enter(item.subsystem); return; }
     if (!keep) { onPick(item.item || item); return; }
     onPick(item.item || item, { keep: true }); setQuery(''); input.current?.focus();
   };
   const onKeyDown = (event) => {
-    const inFilter = Boolean(event.target?.closest?.('.rt-add-filter'));
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); return; }
-    // → (at the end of the search) or Tab opens the highlighted subsystem; Backspace on an empty search leaves it.
-    const caretAtEnd = !event.target?.value || event.target.selectionStart === event.target.value.length;
-    if (!inFilter && current?.kind === 'subsystem' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd))) {
-      event.preventDefault(); event.stopPropagation(); enter(current.subsystem); return;
+    const plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+    if (event.key === 'Escape') {
+      // The first step's Add stays: Escape clears its search, then its scope.
+      if (persistent) { if (query || scope || filter !== 'all') { event.preventDefault(); event.stopPropagation(); if (query) setQuery(''); else leave(); } return; }
+      event.preventDefault(); event.stopPropagation(); onClose(true); return;
     }
-    if (event.key === 'Backspace' && scope && !query && !inFilter) { event.preventDefault(); leave(); return; }
-    // Without the filter (inside a subsystem), Tab past the search closes like Tab past the filter.
-    if (event.key === 'Tab') { if (inFilter !== Boolean(event.shiftKey) || (scope && !event.shiftKey)) { event.preventDefault(); event.stopPropagation(); onClose(true); } return; }
-    if (inFilter) {
-      // The filter is one stop: Left/Right change it, Up/Down return to the results, and typing returns to the search.
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-        const at = FILTERS.findIndex(([id]) => id === filter), next = FILTERS[(at + (event.key === 'ArrowRight' ? 1 : -1) + FILTERS.length) % FILTERS.length][0];
-        setFilter(next); ref.current?.querySelector('[data-filter="' + next + '"]')?.focus();
-      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); input.current?.focus(); step(event.key === 'ArrowDown' ? 1 : -1); }
-      else if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) input.current?.focus();
-      return;
+    // → (at the end of the search) or Tab opens the highlighted subsystem or "Show all"; Backspace or ← on an empty
+    // search leaves it.
+    const value = event.target?.value, caretAtEnd = !value || event.target.selectionStart === value.length;
+    if ((current?.kind === 'subsystem' || current?.kind === 'more') && plain && (event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd))) {
+      event.preventDefault(); event.stopPropagation(); choose(current); return;
     }
+    if ((event.key === 'Backspace' || (event.key === 'ArrowLeft' && plain)) && !query && (scope || filter !== 'all')) { event.preventDefault(); leave(); return; }
+    if (event.key === 'Tab') { if (!persistent) { event.preventDefault(); event.stopPropagation(); onClose(true); } return; }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); step(event.key === 'ArrowDown' ? 1 : -1); }
     else if (event.key === 'PageDown' || event.key === 'PageUp') { event.preventDefault(); goPage(shown.page + (event.key === 'PageDown' ? 1 : -1)); }
     else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); activate(enabledPickerIndex(items, event.key === 'Home' ? 0 : items.length - 1, event.key === 'Home' ? 1 : -1)); }
@@ -489,90 +499,59 @@ export function AddMenu({ anchor, paths, steps, onPick, onClose, label, dest, pa
   const marked = (text) => markMatches(text, query).map((part, index) => (part.mark ? h('mark', { key: index }, part.text) : part.text));
   const option = (item, position) => {
     const entry = item.kind === 'command' ? item.entry : null, hidden = entry && entry.prefix && !item.showPrefix;
+    const opens = item.kind === 'subsystem' || item.kind === 'more';
     return h('div', { key: item.key, id: 'rt-add-opt-' + position, role: 'option', 'aria-selected': position === active, 'aria-disabled': item.disabled || undefined, 'aria-posinset': position + 1, 'aria-setsize': items.length,
       // A row without its subsystem name still has its full name for the tooltip and assistive technology.
       title: hidden ? entry.label : undefined, 'aria-label': hidden ? entry.label + (entry.meta ? ', ' + entry.meta : '') : undefined,
-      'aria-keyshortcuts': item.kind === 'subsystem' ? 'ArrowRight Tab' : undefined,
-      className: 'rt-ch-row' + (item.kind === 'more' ? ' more' : '') + (item.kind === 'subsystem' ? ' sub' : '') + (item.dim ? ' dim' : '') + (position === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
+      'aria-keyshortcuts': opens ? 'ArrowRight Tab' : undefined,
+      className: 'rt-ch-row' + (item.kind === 'more' ? ' more' : '') + (opens ? ' sub' : '') + (item.dim ? ' dim' : '') + (position === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
+      // Pointer presses keep focus in the search, so typing continues after a pick that keeps Add open.
+      onMouseDown: (event) => event.preventDefault(),
       onPointerMove: () => !item.disabled && setActive(position), onClick: (event) => !item.disabled && choose(item, event.ctrlKey || event.metaKey) },
       h('span', { className: 'rt-ch-ic ' + (item.tone || '') }, h(Glyph, { name: item.icon, size: 15 })),
       // The subsystem name is quieter only where subsystems are offered; a small catalog reads as plain names.
       h('span', { className: 'rt-ch-t' }, entry && entry.prefix && item.showPrefix && index.browsable ? [h('span', { key: 'prefix', className: 'rt-ch-pre' }, marked(entry.prefix), ' '), ...marked(entry.rest)]
         : entry ? marked(hidden ? entry.rest : entry.label) : marked(item.label)),
       item.meta && h('span', { className: 'rt-ch-d' }, item.meta),
-      item.kind === 'subsystem' && h('span', { className: 'rt-ch-go', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 14 })));
+      opens && h('span', { className: 'rt-ch-go', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 14 })));
   };
   const rows = [];
   shown.items.forEach((item, offset) => {
     const index = shown.start + offset, heading = view.headings.get(index);
-    if (heading) rows.push(h('div', { key: 'section:' + heading.title, className: 'rt-ch-sec', role: 'presentation' }, h('span', null, heading.title), heading.note && h('small', null, heading.note)));
+    if (heading) rows.push(h('div', { key: 'section:' + heading.key, className: heading.title ? 'rt-ch-sec' : 'rt-ch-sep', role: 'presentation' }, heading.title || null));
     rows.push(option(item, index));
   });
   const kinds = { all: 'path, command or step', paths: 'path', commands: 'command', steps: 'step' };
   const keepKey = modifierName();
-  const placeholder = subsystem ? 'Search ' + subsystem.name : filter === 'all' ? 'Search commands, paths and steps' : 'Search ' + filter;
-  const empty = query.trim() ? 'No ' + (subsystem ? subsystem.name + ' command' : kinds[filter]) + ' matches “' + query + '”'
-    : filter === 'paths' ? (pathsNote || 'No paths yet. Create one in Paths.') : 'Nothing to add here';
-  return createPortal(h('div', { ref, className: 'rt-add-menu' + (wide ? ' wide' : ''), role: 'dialog', 'aria-label': label, onKeyDown,
-    style: pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : { visibility: 'hidden' } },
-    // Where the pick lands, stated before choosing it.
-    dest && h('div', { className: 'rt-add-dest' }, dest),
-    // The live region is always present, so screen readers announce the first add too.
-    h('div', { className: 'rt-add-added', role: 'status' }, added?.length > 0 && [h(Icon, { key: 'icon', name: 'check', size: 14 }),
-      h('span', { key: 'text' }, 'Added ' + added.at(-1) + (added.length > 1 ? ' and ' + plural(added.length - 1, 'more step') : '') + '. Keep adding, or press Esc when done.')]),
+  const scopeName = subsystem ? subsystem.name : filter !== 'all' ? SCOPES[filter] : '';
+  const home = !query.trim() && !scopeName;
+  const placeholder = scopeName ? 'Search ' + (subsystem ? subsystem.name : scopeName.toLowerCase()) : pathChoices.length || pathsNote ? 'Add a path, command or step' : 'Add a command or step';
+  const empty = query.trim() ? 'No ' + (subsystem ? subsystem.name + ' command' : kinds[filter]) + ' matches “' + query + '”' : 'Nothing to add here';
+  const opens = current?.kind === 'subsystem' || current?.kind === 'more';
+  return h('div', { ref, className: 'rt-add-menu' + (persistent ? ' first' : ''), role: 'group', 'aria-label': label, onKeyDown },
     h('div', { className: 'rt-add-search' },
-      h(Icon, { name: 'search', size: 14 }),
-      // The open subsystem; pressing it (or Backspace on an empty search) returns to every command.
-      subsystem && h('button', { type: 'button', className: 'rt-add-crumb', tabIndex: -1, title: 'Back to all commands (Backspace)', 'aria-label': 'Leave ' + subsystem.name,
-        onMouseDown: (event) => event.preventDefault(), onClick: leave }, subsystem.name, h(Icon, { name: 'chevron', size: 12 })),
-      h('input', { ref: input, value: query, onChange: (event) => setQuery(event.target.value), 'aria-label': subsystem ? 'Find a ' + subsystem.name + ' command' : 'Find a command, path or step',
+      h(Icon, { name: 'plus', size: 14 }),
+      // The open scope; pressing it (or Backspace on an empty search) goes back up one level.
+      scopeName && h('button', { type: 'button', className: 'rt-add-crumb', tabIndex: -1, title: 'Back (Backspace)', 'aria-label': 'Leave ' + scopeName,
+        onMouseDown: (event) => event.preventDefault(), onClick: leave }, scopeName, h(Icon, { name: 'chevron', size: 12 })),
+      h('input', { ref: input, className: inputClass, value: query, onChange: (event) => setQuery(event.target.value), 'aria-label': subsystem ? 'Find a ' + subsystem.name + ' command' : 'Find a command, path or step',
         placeholder, role: 'combobox', 'aria-expanded': true, 'aria-controls': 'rt-add-list', 'aria-activedescendant': activeVisible ? 'rt-add-opt-' + active : undefined,
-        'aria-describedby': shown.last > 0 ? 'rt-add-pages' : undefined, 'aria-keyshortcuts': 'ArrowUp ArrowDown ArrowRight PageUp PageDown Home End Control+Enter', spellCheck: false, autoComplete: 'off' })),
-    // Pointer presses keep focus in the search, so typing continues under the new filter.
-    !subsystem && h('div', { className: 'seg rt-add-filter', role: 'group', 'aria-label': 'Show', style: { '--seg-count': FILTERS.length } },
-      FILTERS.map(([id, text]) => h('button', { key: id, type: 'button', 'data-filter': id, className: 'seg-i' + (filter === id ? ' on' : ''), 'aria-pressed': filter === id,
-        tabIndex: filter === id ? 0 : -1, 'aria-keyshortcuts': 'ArrowLeft ArrowRight', onMouseDown: (event) => event.preventDefault(), onClick: () => setFilter(id) }, text))),
-    h('div', { className: 'rt-add-body' },
-      items.length
-        ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': subsystem ? subsystem.name + ' commands' : filter === 'all' ? 'Commands, paths and steps' : FILTERS.find(([id]) => id === filter)[1] }, rows)
-        : h('div', { className: 'rt-add-none' }, empty),
-      wide && h('div', { className: 'rt-add-detail', 'aria-hidden': true }, current && addDetail(current, usage))),
+        'aria-describedby': ['rt-add-dest', shown.last > 0 && 'rt-add-pages'].filter(Boolean).join(' '), 'aria-keyshortcuts': 'ArrowUp ArrowDown ArrowRight ArrowLeft PageUp PageDown Home End Control+Enter', spellCheck: false, autoComplete: 'off' }),
+      // One key hint for the highlighted row: how to open it, or how to keep adding.
+      items.length > 0 && h('span', { className: 'rt-add-hint', 'aria-hidden': true }, opens ? [h('kbd', { key: 'k' }, '→'), 'open'] : [h('kbd', { key: 'k' }, keepKey + ' ↵'), 'add more'])),
+    // Where the pick lands, for assistive technology; the flow shows it in place.
+    h('span', { id: 'rt-add-dest', className: 'sr-only' }, dest),
+    // The live region is always present, so screen readers announce the first keep-open add too.
+    h('div', { className: 'rt-add-added', role: 'status' }, added?.length > 0 && 'Added ' + added.at(-1) + (added.length > 1 ? ' and ' + plural(added.length - 1, 'more step') : '') + '. Keep adding, or press Esc when done.'),
+    home && !pathChoices.length && pathsNote && h('p', { className: 'rt-add-note' }, pathsNote),
+    items.length
+      ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': subsystem ? subsystem.name + ' commands' : filter === 'all' ? 'Paths, commands and steps' : 'All ' + SCOPES[filter].toLowerCase() }, rows)
+      : h('div', { className: 'rt-add-none' }, empty),
     shown.last > 0 && h('div', { className: 'qrow rt-add-pages', id: 'rt-add-pages', role: 'group', 'aria-label': 'Result pages. Use Page Up or Page Down to change pages.' },
       h('button', { type: 'button', className: 'qbtn quiet', tabIndex: -1, disabled: shown.page === 0, 'aria-label': 'Previous results', title: 'Previous results (Page Up)', onClick: () => goPage(shown.page - 1) }, 'Previous'),
       h('span', { role: 'status', 'aria-live': 'polite', 'aria-atomic': true }, (shown.start + 1).toLocaleString() + '–' + shown.end.toLocaleString() + ' of ' + items.length.toLocaleString()),
       h('button', { type: 'button', className: 'qbtn quiet', tabIndex: -1, disabled: shown.page === shown.last, 'aria-label': 'Next results', title: 'Next results (Page Down)', onClick: () => goPage(shown.page + 1) }, 'Next')),
-    h('div', { className: 'rt-add-keys', 'aria-hidden': true },
-      wide && h('span', null, h('kbd', null, '↑↓'), 'move'),
-      subsystem ? h('span', null, h('kbd', null, '⌫'), 'all commands') : index.browsable && h('span', null, h('kbd', null, '→'), 'open subsystem'),
-      wide && h('span', null, h('kbd', null, '↵'), 'add'),
-      h('span', null, h('kbd', null, keepKey + ' ↵'), 'add and keep open'),
-      wide && h('span', null, h('kbd', null, 'Esc'), 'close')),
-    h('span', { className: 'sr-only', role: 'status', 'aria-live': 'polite' }, announcement)), document.body);
-}
-
-const VALUE_KINDS = { boolean: 'yes or no', enum: 'choice', integer: 'whole number', number: 'number', string: 'text' };
-/** The detail column: what the highlighted command takes and reports, where it lives and whether it is used. */
-function addDetail(item, usage) {
-  const list = (title, rows, none) => h('div', { className: 'rt-add-dsec' }, h('div', { className: 'rt-add-dlabel' }, title),
-    rows.length ? h('dl', null, rows.map(([name, value], index) => h(React.Fragment, { key: index }, h('dt', null, name), h('dd', null, value)))) : h('p', null, none));
-  if (item.kind === 'subsystem') {
-    const group = item.subsystem, used = group.entries.filter((entry) => usage?.counts?.get(entry.id)?.project);
-    return h(React.Fragment, null,
-      h('h3', null, group.name),
-      h('p', { className: 'rt-add-dpath' }, plural(group.entries.length, 'command') + (group.folder ? ' in ' + group.folder + '/' : '')),
-      used.length > 0 && h('div', { className: 'rt-add-dsec' }, h('div', { className: 'rt-add-dlabel' }, 'Used in this project'), h('p', null, used.map((entry) => entry.rest).join(', '))),
-      h('p', { className: 'rt-add-dnote' }, 'Press → or Tab to look inside. Typing still searches every command.'));
-  }
-  if (item.kind !== 'command' || !item.entry) return h(React.Fragment, null, h('h3', null, item.label), item.meta && h('p', { className: 'rt-add-dnote' }, item.meta));
-  const { command, inputs, outputs } = item.entry;
-  return h(React.Fragment, null,
-    h('h3', null, item.entry.label),
-    h('p', { className: 'rt-add-dpath' }, command.member),
-    command.description && h('p', { className: 'rt-add-ddesc' }, command.description),
-    list('Inputs', inputs.map((parameter) => [parameter.label || parameter.name, parameter.unit || VALUE_KINDS[parameter.schema?.kind] || '']), 'None'),
-    // Every LabVIEW command reports its completion status, so only the outputs that tell commands apart are listed.
-    list('Reports', outputs.map((output) => [output.label || output.name, output.unit || VALUE_KINDS[output.schema?.kind] || '']), 'Completion status only'),
-    h('p', { className: 'rt-add-dnote' }, usageText(usage, command.id)));
+    h('span', { className: 'sr-only', role: 'status', 'aria-live': 'polite' }, announcement));
 }
 
 /** Step actions, in the app's context-menu shape. Unavailable actions say why in one line. */
@@ -630,7 +609,7 @@ export function RoutinePanel(props) {
     const next = new Set(collapsed); next.has(id) ? next.delete(id) : next.add(id);
     if (props.onCollapsedIdsChange) props.onCollapsedIdsChange([...next]); else setLocalCollapsed(next);
   };
-  const [add, setAdd] = useState(null); // { where, anchor, label }
+  const [add, setAdd] = useState(null); // { where, anchor, navKey, label, added }
   const [menu, setMenu] = useState(null); // { id, anchor }
   const [range, setRange] = useState([]); // contiguous sibling IDs, anchored at the selected step
   const [keyboard, setKeyboard] = useState(false);
@@ -700,14 +679,28 @@ export function RoutinePanel(props) {
     inspector.addEventListener('keydown', keydown); inspector.addEventListener('click', click, true); inspector.addEventListener('focusout', leave);
   }));
 
-  // ---- Add ----
-  const stepItems = useMemo(() => add ? addMenuSteps(routine, add.where, catalog) : [], [routine, add, catalog]);
+  // ---- Add: opens in the flow at the place the step lands; an empty routine always shows its first step's Add ----
+  const firstStep = useMemo(() => ({ where: { list: { kind: 'root' } }, persistent: true, label: 'Add the first step', added: [] }), []);
+  const adding = add || (routine.nodes.length ? null : firstStep);
+  const stepItems = useMemo(() => adding ? addMenuSteps(routine, adding.where, catalog) : [], [routine, adding, catalog]);
   // Usage ranks commands already in this routine or project higher; it is counted only while Add is open.
   // Counted when Add opens and held while it stays open, so commands added with Ctrl+Enter don't reshuffle the list.
-  const usage = useMemo(() => add ? commandUsage(props.routines, paths, routine) : null, [Boolean(add)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const addInGroup = Boolean(add && insideGroup(routine, add.where));
-  const openAdd = (where, anchor, label) => { setMenu(null); setAdd({ where, anchor, label, added: [] }); };
-  const closeAdd = (refocus) => { const anchor = add?.anchor; setAdd(null); if (refocus && anchor?.isConnected) anchor.focus(); };
+  const usage = useMemo(() => adding ? commandUsage(props.routines, paths, routine) : null, [Boolean(adding)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const addInGroup = Boolean(adding && insideGroup(routine, adding.where));
+  const openAdd = (where, anchor, label, navKey) => { setMenu(null); setAdd({ where, anchor, navKey, label, added: [] }); };
+  // An Add line is replaced by Add while it is open, so focus returns to the line once it renders again.
+  const refocusKey = useRef(null);
+  useLayoutEffect(() => {
+    const key = refocusKey.current; if (!key) return;
+    refocusKey.current = null;
+    [...(scrollRef.current?.querySelectorAll('[data-nav]') || [])].find((element) => element.dataset.nav === key)?.focus();
+  });
+  const closeAdd = (refocus) => {
+    const anchor = add?.anchor, navKey = add?.navKey;
+    setAdd(null);
+    if (!refocus) return;
+    if (anchor?.isConnected) anchor.focus(); else if (navKey) refocusKey.current = navKey;
+  };
   /** Inside a parallel group, which steps the new one runs alongside. */
   const alongside = (where) => {
     const at = where.afterId || where.beforeId ? A.locate(routine, where.afterId || where.beforeId) : null;
@@ -750,15 +743,17 @@ export function RoutinePanel(props) {
   }));
   // Keep-open adds (Ctrl/⌘+Enter) stay in Add: the next pick lands after the one just added, and focus stays put.
   const pick = (item, options) => {
-    const where = add.where, node = nodeFor(item);
+    const where = adding.where, node = nodeFor(item);
     if (options?.keep) {
       const result = edit(insertOperation(routine, where, node));
-      if (result.changed) setAdd({ ...add, where: where.afterId ? { afterId: node.id } : where, added: [...add.added, item.label] });
+      // The first step's Add becomes the ordinary Add at the end of the routine, still in place.
+      if (result.changed) setAdd({ anchor: adding.anchor, navKey: adding.navKey || (where.list ? 'add:' + refKey(where.list) : undefined), label: adding.label,
+        where: where.afterId ? { afterId: node.id } : where, added: [...adding.added, item.label] });
       return;
     }
     setAdd(null);
     const result = edit(insertOperation(routine, where, node));
-    if (!result.changed) { add?.anchor?.focus(); return; }
+    if (!result.changed) { if (adding.anchor?.isConnected) adding.anchor.focus(); else if (adding.navKey) refocusKey.current = adding.navKey; return; }
     const inputs = item.kind === 'command' && (item.command?.parameters || []).some((parameter) => parameter.role === 'argument');
     if (inputs) focusFirstInput(result.focusId || node.id); else if (result.focusId) focusStep(result.focusId);
   };
@@ -971,14 +966,20 @@ export function RoutinePanel(props) {
         'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
   }
 
+  /** Add, open in place. Paths stay outside groups; a project without paths says where they come from. */
+  function inserter() {
+    return h(AddMenu, { paths: addInGroup ? [] : paths, pathMeta, pathsNote: !addInGroup && !paths.length ? 'No paths yet. Create one in Paths.' : undefined, steps: stepItems, usage,
+      added: adding.added, label: adding.label, dest: destination(adding.where), persistent: adding.persistent, inputClass: adding.persistent ? 'rt-empty-add' : undefined, onPick: pick, onClose: closeAdd });
+  }
+  /** The Add line at the end of a list; while open, Add itself takes its place. */
   function addRow(ref, depth, ariaLabel, empty) {
-    const where = { list: ref };
-    const open = add && add.where.list && refKey(add.where.list) === refKey(ref);
+    const where = { list: ref }, key = 'add:' + refKey(ref);
+    const open = adding && adding.where.list && refKey(adding.where.list) === refKey(ref);
     const mark = dnd.drag?.target?.mark;
     const markHere = mark?.list === refKey(ref) && mark.edge === 'end';
-    return h('div', { key: 'add:' + refKey(ref), className: 'rt-addwrap' + (empty ? ' empty' : '') + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
-      h('button', { className: 'rt-add' + (open ? ' on' : ''), type: 'button', 'data-nav': 'add:' + refKey(ref), tabIndex: stop('add:' + refKey(ref)), 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(open), 'aria-label': ariaLabel,
-        onClick: (e) => (open ? closeAdd(false) : openAdd(where, e.currentTarget, ariaLabel)), onKeyDown: navKeys },
+    return h('div', { key, className: 'rt-addwrap' + (empty ? ' empty' : '') + (open ? ' open' : '') + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
+      open ? inserter() : h('button', { className: 'rt-add', type: 'button', 'data-nav': key, tabIndex: stop(key), 'aria-expanded': false, 'aria-label': ariaLabel,
+        onClick: (e) => openAdd(where, e.currentTarget, ariaLabel, key), onKeyDown: navKeys },
         h(Icon, { name: 'plus', size: 14 }), 'Add step'));
   }
 
@@ -992,7 +993,14 @@ export function RoutinePanel(props) {
   // ctx: { depth, offPreview, readOnly, after, exitTo }. `after` is what this list reaches when it completes;
   // `exitTo` is what the nearest enclosing repeat reaches when an Exit leaves it.
   function renderList(nodes, ref, ctx, addLabel) {
-    const out = nodes.map((node, index) => renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }, ref.kind === 'root'));
+    // Add before or after a step opens between the rows, where the step will land.
+    const at = () => h('div', { key: 'insert', className: 'rt-addwrap open at' }, inserter());
+    const out = [];
+    nodes.forEach((node, index) => {
+      if (adding?.where.beforeId === node.id) out.push(at());
+      out.push(renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }, ref.kind === 'root'));
+      if (adding?.where.afterId === node.id) out.push(at());
+    });
     if (!ctx.readOnly) out.push(addRow(ref, ctx.depth, addLabel, !nodes.length));
     return out;
   }
@@ -1049,18 +1057,9 @@ export function RoutinePanel(props) {
       h('button', { type: 'button', className: 'qbtn', onClick: () => wrapRange({ kind: 'wrapGroup', nodeIds: range, mode: rangeGroupMode }) }, h(Glyph, { name: rangeGroupMode === 'parallel' ? 'parallel' : 'sequential', size: 14 }), rangeGroupMode === 'parallel' ? 'Group in parallel' : 'Group in sequence'),
       h('button', { type: 'button', className: 'qbtn quiet', onClick: () => { setRange([]); focusStep(selId); } }, 'Clear')),
     h('div', { className: 'rt-scroll', ref: scrollRef, onFocusCapture: (e) => { const key = e.target.dataset?.nav; if (key && key !== tabStop) setTabStop(key); } },
-      routine.nodes.length === 0
-        ? h('div', { className: 'rt-empty' },
-            h('div', { className: 'rt-empty-t' }, 'No steps yet'),
-            h('p', null, paths.length
-              ? 'Steps run top to bottom. Add a path, command, Wait or repeat.'
-              : 'Create a path in Paths, then add it here.'),
-            h('button', { className: 'qbtn primary rt-add rt-empty-add', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': Boolean(add),
-              onClick: (e) => openAdd({ list: { kind: 'root' } }, e.currentTarget, 'Add the first step') }, h(Icon, { name: 'plus', size: 14 }), 'Add first step'),
-            !catalog && h('p', { className: 'rt-empty-note' }, 'Wait works offline. Link robot code for commands.'))
-        : h('div', { className: 'rt-list' + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
-            renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
+      // An empty routine is the same list holding only its first step's Add, so a keep-open pick keeps Add in place.
+      h('div', { className: 'rt-list' + (routine.nodes.length ? '' : ' rt-empty') + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
+        renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
-    add && h(AddMenu, { anchor: add.anchor, paths: addInGroup ? [] : paths, pathMeta, pathsNote: addInGroup ? 'Paths cannot run inside a group.' : undefined, steps: stepItems, usage, added: add.added, label: add.label, dest: destination(add.where), onPick: pick, onClose: closeAdd }),
     menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }));
 }

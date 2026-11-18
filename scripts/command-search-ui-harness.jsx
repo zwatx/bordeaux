@@ -43,9 +43,9 @@ function Harness() {
       <UI.ChoiceBrowser id="fixture-inspector-command" label="Inspector command" value={inspectorCommand} items={commandChoiceItems(realistic)} onChange={setInspectorCommand}
         search={(query, scope) => commandChoiceRows(index, query, scope, usage)} openScope={openSubsystem(index, inspectorCommand)} scopeName={key => index.bySubsystem.get(key)?.name || key} /></section>
     <output id="fixture-picked">{picked.map(item => item.label).join(', ') || 'Nothing selected'}</output>
-    {open && <AddMenu anchor={(open === 'many' ? big : anchor).current} paths={paths} steps={steps} usage={open === 'real' ? usage : null} added={picked.length ? picked.map(item => item.label) : []}
+    {open && <div className="fixture-flow" style={{ margin: '12px 0', paddingLeft: 44 }}><AddMenu paths={paths} steps={steps} usage={open === 'real' ? usage : null} added={picked.length ? picked.map(item => item.label) : []}
       label="Add a fixture step" dest="Inside the fixture repeat" onClose={close}
-      onPick={(item, options) => { setPicked(current => [...current, item]); if (!options?.keep) close(true); }} />}
+      onPick={(item, options) => { setPicked(current => [...current, item]); if (!options?.keep) close(true); }} /></div>}
   </main>;
 }
 createRoot(document.getElementById('root')).render(<Harness />);
@@ -62,49 +62,50 @@ const range = () => document.querySelector('.rt-add-pages [role="status"]')?.tex
 const input = () => document.querySelector('.rt-add-search input');
 const active = () => document.getElementById(input()?.getAttribute('aria-activedescendant'));
 const activeName = () => active()?.querySelector('.rt-ch-t').textContent;
-const filter = () => document.querySelector('.rt-add-filter [aria-pressed="true"]')?.textContent;
-const sections = () => [...document.querySelectorAll('.rt-add-list .rt-ch-sec > span')].map(element => element.textContent);
+const sections = () => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(element => element.textContent);
 const crumb = () => document.querySelector('.rt-add-crumb')?.textContent;
-const detail = () => document.querySelector('.rt-add-detail h3')?.textContent;
+const after = (name, count) => { const at = names().indexOf(name); return at < 0 ? '' : names().slice(at, at + count).join(); };
 const clear = async () => { while (input()?.value) await key('Backspace'); };
 const capture = name => native({ capture: name });
 const results = [];
 try {
   await wait(() => document.querySelector('button'), 'fixture mount');
   for (const width of [1440, 1100]) {
-    const wide = width >= 1300;
     await native({ resize: [width, width === 1440 ? 900 : 720] });
-    // Home: this routine's commands, the subsystems (diagnostics last and dimmed), then a short Paths section and the steps.
+    // Home, one column: a short list of paths, this routine's commands, the steps, then the subsystems (diagnostics last
+    // and dimmed). Only "In this routine" is a heading; the kinds are separated by rules.
     await pointer('button', 'Add a step'); await wait(() => input() && document.activeElement === input(), 'Add search focus');
-    assert(sections().join() === 'In this routine,Subsystems,Paths,Steps', 'Home names its sections: ' + sections().join());
-    assert(names().slice(0, 2).join() === 'Intake Until Note,Shooter Spin Up Speaker', 'In this routine lists its commands first');
-    assert(names().slice(2, 15).join() === 'Arm,Climber,Drive,Elevator,Indexer,Intake,LEDs,Shooter,Superstructure,Utilities,Vision,SysId,Test', 'Subsystems are alphabetical, diagnostics last');
+    assert(sections().join() === 'In this routine', 'Home headings: ' + sections().join());
+    assert(names().slice(0, 6).join() === 'Approach path 0,Approach path 1,Approach path 2,Approach path 3,Approach path 4,Show all 20 paths', 'Paths first, kept short: ' + names().slice(0, 6).join());
+    assert(after('Intake Until Note', 2) === 'Intake Until Note,Shooter Spin Up Speaker', 'In this routine lists its commands');
+    assert(after('Wait', 6) === 'Wait,Repeat,Parallel group,Sequential group,End routine,Exit repeat', 'Steps follow: ' + after('Wait', 6));
+    assert(after('Arm', 13) === 'Arm,Climber,Drive,Elevator,Indexer,Intake,LEDs,Shooter,Superstructure,Utilities,Vision,SysId,Test', 'Subsystems are alphabetical, diagnostics last');
+    assert(names().indexOf('Arm') > names().indexOf('Exit repeat'), 'The catalog is browsed last');
     assert(options().find(option => option.textContent.startsWith('Test')).classList.contains('dim'), 'Diagnostics are dimmed');
     assert(!range(), 'Home needs no paging');
-    assert(Boolean(document.querySelector('.rt-add-detail')) === wide, 'Detail column only at wide sizes');
-    if (wide) assert(detail() === 'Intake Until Note', 'Detail follows the highlighted command');
+    assert(!document.querySelector('.rt-add-filter, .rt-add-detail, .rt-add-dest, .rt-add-keys'), 'No filter, detail column, destination line or key footer');
+    const menu = document.querySelector('.rt-add-menu').getBoundingClientRect();
+    assert(menu.width <= 561 && document.querySelector('.rt-add-menu').closest('.fixture-flow'), 'Add is one inline column: ' + menu.width);
     await capture('home-' + width);
     // A search ranks: the matching subsystem leads, then name starts; the detail column describes the subsystem.
     await type('shoot');
     assert(names().slice(0, 4).join() === 'Shooter,Shooter Shoot When Ready,Shooter Shoot,Shoot Preload', 'Ranked shoot: ' + names().slice(0, 4).join());
-    assert(options().length < 20 && names().includes('Show all 34 matching commands'), 'All keeps a search short');
-    if (wide) assert(detail() === 'Shooter', 'Subsystem detail');
+    assert(options().length < 20 && names().includes('Show all 34 matching commands'), 'A search stays short');
     await capture('query-' + width);
     // → opens the subsystem: a chip in the search, rows without the repeated name, used commands first.
     await key('ArrowRight');
     await wait(() => crumb() === 'Shooter', 'ArrowRight opens Shooter');
-    assert(input().value === '' && input().placeholder === 'Search Shooter' && !document.querySelector('.rt-add-filter'), 'Scoped search replaces the filter');
-    assert(sections().join() === 'Used in this project,Other Shooter commands', 'Scoped sections: ' + sections().join());
+    assert(input().value === '' && input().placeholder === 'Search Shooter', 'Scoped search names the subsystem');
+    assert(sections().join() === 'Used in this project', 'Scoped headings: ' + sections().join());
     assert(names().slice(0, 3).join() === 'Spin Up Speaker,Shoot When Ready,Spin Up', 'Scoped rows drop the prefix: ' + names().slice(0, 3).join());
     assert(options()[0].getAttribute('aria-label') === 'Shooter Spin Up Speaker', 'Scoped rows keep the full name for assistive technology');
-    if (wide) { await key('ArrowDown'); assert(detail() === 'Shooter Shoot When Ready', 'Detail follows the arrows'); }
     await capture('scope-' + width);
     await type('hood');
     assert(names().join() === 'Hood Home,Hood Auto,Hood Zero,Hood To Angle', 'Scoped search: ' + names().join());
     await capture('scope-query-' + width);
     // Backspace on an empty search leaves the subsystem and returns to its row.
     await clear(); await key('Backspace');
-    await wait(() => !crumb() && filter() === 'All', 'Backspace leaves the subsystem');
+    await wait(() => !crumb() && activeName() === 'Shooter', 'Backspace leaves the subsystem, back on its row');
     // Initials find a command; Ctrl+Enter adds it and keeps Add open for the next pick.
     await type('ssus');
     assert(names().join() === 'Shooter Spin Up Speaker', 'Initials: ' + names().join());
@@ -120,13 +121,15 @@ try {
     await key('Enter');
     await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Enter adds, closes and returns focus');
     assert(state.picked.map(item => item.label).join() === 'Shooter Spin Up Speaker,LEDs Has Note,Vision Wait For Target', 'Picks in order: ' + state.picked.map(item => item.label).join());
-    // Tab on a subsystem opens it; Tab otherwise reaches the filter; inside a subsystem Tab past the search closes.
+    // Tab on a subsystem or "Show all" opens it; Tab anywhere else closes Add and returns focus.
     await pointer('button', 'Add a step'); await type('arm'); await key('Tab');
     await wait(() => crumb() === 'Arm', 'Tab opens a subsystem');
     await key('Tab'); await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Tab inside a subsystem closes');
-    await pointer('button', 'Add a step'); await key('Down'); await key('Tab');
-    assert(state.open && document.activeElement?.dataset.filter === 'all', 'Tab from a command reaches the kind filter');
-    await key('Tab');
+    await pointer('button', 'Add a step'); for (let index = 0; index < 5; index++) await key('Down');
+    assert(activeName() === 'Show all 20 paths', 'Arrows reach Show all: ' + activeName());
+    await key('Right'); await wait(() => crumb() === 'Paths' && options().length === 20, '→ opens every path');
+    await key('Left'); await wait(() => !crumb() && activeName() === 'Show all 20 paths', '← returns to Show all');
+    await key('Up'); await key('Tab');
     await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Tab dismiss/refocus');
     await pointer('button', 'Add a step'); await key('Escape');
     await wait(() => !state.open && document.activeElement?.textContent === 'Add a step', 'Escape dismiss/refocus');
@@ -135,7 +138,7 @@ try {
     await pointer('button', 'Add from 10,000'); await wait(() => input() && document.activeElement === input(), '10,000 search focus');
     await type('command');
     await pointer('.rt-add-menu [role="option"]', 'Show all 10,000 matching commands');
-    assert(filter() === 'Commands' && document.activeElement === input(), 'Show all switches the filter and keeps the search focused');
+    assert(crumb() === 'Commands' && document.activeElement === input(), 'Show all opens every command and keeps the search focused');
     assert(options().length === 80 && range() === '1–80 of 10,000', 'First page is bounded and counts every match');
     assert(options()[0].getAttribute('aria-setsize') === '10000' && options()[0].getAttribute('aria-posinset') === '1', 'Full logical ARIA positions');
     await capture('paged-' + width);

@@ -225,30 +225,55 @@ app.whenReady().then(async () => {
     console.log('PASS Voltage floor, load schedule and breaker curves survive save/reload; Escape cancels drafts');
     await click('.places .place', 'Paths');
     await wait(() => evaluate(() => !!document.querySelector('.pp-head-actions button') && [...document.querySelectorAll('.pp-head-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'current power report');
+    // The report is a bounded, nonmodal popover anchored to its button; focus stays on Power.
+    const reportLayout = (scope) => evaluate((scope) => {
+      const panel = document.querySelector('.power-report'), button = [...document.querySelectorAll(scope + ' button')].find(b => b.textContent === 'Power');
+      const r = panel.getBoundingClientRect(), b = button.getBoundingClientRect();
+      return { open: panel.matches(':popover-open'), modal: !!document.querySelector('dialog:modal'), expanded: button.getAttribute('aria-expanded'),
+        focus: document.activeElement?.textContent, alert: !!panel.querySelector('[role="alert"]'), width: r.width, height: r.height,
+        inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, gap: Math.min(Math.abs(r.top - b.bottom), Math.abs(b.top - r.bottom)),
+        rightAligned: Math.abs(r.right - b.right) < 1 || Math.abs(r.right - (innerWidth - 8)) < 1, rows: panel.querySelectorAll('.power-results dt').length };
+    }, scope);
+    async function checkReport(scope, label, width) {
+      await wait(() => evaluate(() => !!document.querySelector('.power-report .power-results')), label + ' power results');
+      const layout = await reportLayout(scope);
+      assert.equal(layout.open, true); assert.equal(layout.modal, false); assert.equal(layout.expanded, 'true');
+      assert.equal(layout.alert, false, label + ' report failed');
+      assert.equal(layout.focus, 'Power', label + ' report took focus');
+      assert.equal(layout.rows, 5);
+      assert.ok(layout.width <= 320 && layout.height <= 440, `${label} report is unbounded at ${width}: ${layout.width}×${layout.height}`);
+      assert.ok(layout.inside && layout.gap < 12 && layout.rightAligned, `${label} report is not anchored to Power at ${width}: ${JSON.stringify(layout)}`);
+    }
+    const closed = () => evaluate(() => !document.querySelector('.power-report')?.matches(':popover-open'));
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await click('.pp-head-actions button', 'Power');
-      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'path power results');
-      assert.equal(await evaluate(() => !!document.querySelector('.power-dialog [role="alert"]')), false);
+      await checkReport('.pp-head-actions', 'path', width);
       await fs.writeFile(path.join(output, `power-path-${width}.png`), (await capture()).toPNG());
       await key('Escape');
+      await wait(closed, 'Escape closes path report');
       assert.equal(await evaluate(() => document.activeElement?.textContent), 'Power');
       await key('Enter');
-      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'keyboard reopened power');
-      await key('Escape');
+      await checkReport('.pp-head-actions', 'keyboard path', width);
+      // Tabbing on closes it rather than leaving it over the next control.
+      await key('Tab');
+      await wait(closed, 'Tab closes path report');
+      assert.notEqual(await evaluate(() => document.activeElement?.textContent), 'Power');
     }
     await click('.places .place', 'Routines');
     await wait(() => evaluate(() => [...document.querySelectorAll('.routine-workspace-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'routine planned');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await click('.routine-workspace-actions button', 'Power');
-      await wait(() => evaluate(() => !!document.querySelector('.power-results')), 'routine power results');
+      await checkReport('.routine-workspace-actions', 'routine', width);
       await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await delay(600);
       await fs.writeFile(path.join(output, `power-routine-${width}.png`), (await capture()).toPNG());
-      await key('Escape');
+      // A second press of the same button closes it.
+      await click('.routine-workspace-actions button', 'Power');
+      await wait(closed, 'Power toggles routine report closed');
     }
-    console.log('PASS Real pointer and Enter/Escape report controls; path/routine results at both supported sizes');
+    console.log('PASS Nonmodal anchored power report: pointer, Enter, Escape, Tab and toggle close; path/routine results at both supported sizes');
 
     assert.deepEqual(errors, []);
     app.exit(0);

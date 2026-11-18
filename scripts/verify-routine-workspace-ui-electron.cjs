@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
       const helpTabbed = await previewHelp();
       assert.ok(!helpTabbed.open && !helpTabbed.focused, 'Tab moves on and closes preview help');
       await click('.routine-workspace-about');
-      await click('.routine-workspace-title strong');
+      await click('.routine-workspace-head');
       assert.ok(!(await previewHelp()).open, 'An outside press closes preview help');
       await click('[data-id="cycle"] .rt-step-body');
       await wait(() => evaluate(() => Boolean(document.querySelector('#routine-repeat-times-cycle'))), 'repeat inspector');
@@ -174,7 +174,13 @@ app.whenReady().then(async () => {
       assert.deepEqual(await source(), baseline, 'Preview selection does not rewrite the routine');
       await click('[data-id="return"] .rt-step-body');
       await key('A');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-pop,[role="dialog"]'))), 'insertion chooser');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-menu'))), 'insertion chooser');
+      // Add opens in the flow, between the step and the one after it, and nowhere else.
+      assert.ok(await evaluate(() => {
+        const at = document.querySelector('.rt-addwrap.at'), row = document.querySelector('[data-id="return"]');
+        return document.querySelectorAll('.rt-add-menu').length === 1 && at && Boolean(row.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING)
+          && !document.querySelector('body > .rt-add-menu, .rt-add-filter, .rt-add-detail');
+      }), 'A opens Add inline, right after the step');
       await snapshot('insert-' + width);
       assert.ok(await evaluate(() => {
         const pass = document.querySelector('.rt-timeline-pass-now'), step = document.querySelector('.rt-timeline-step');
@@ -198,7 +204,8 @@ app.whenReady().then(async () => {
       // Shift+A adds before the step, through the same checked insert.
       await click('[data-id="return"] .rt-step-body');
       await key('A', ['shift']);
-      await wait(() => evaluate(() => document.querySelector('.rt-add-dest')?.textContent.startsWith('Before “')), 'Shift+A opens Add before the step');
+      await wait(() => evaluate(() => document.querySelector('#rt-add-dest')?.textContent.startsWith('Before “')), 'Shift+A opens Add before the step');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-addwrap.at').compareDocumentPosition(document.querySelector('[data-id="return"]')) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Shift+A opens Add inline, right before the step');
       await snapshot('insert-before-' + width);
       await key('Enter');
       await wait(async () => (await source())[0].nodes.length === 3, 'insert before the shared continuation');
@@ -229,13 +236,17 @@ app.whenReady().then(async () => {
       saved.routines = [{ ...routine, nodes: [] }];
       await load(null);
       await snapshot('empty-' + width);
+      // An empty routine shows its first step's Add in place, without an explanation or a button to open it.
+      assert.ok(await evaluate(() => !/No steps yet|Steps run top to bottom/.test(document.querySelector('.rt-panel').textContent)
+        && [...document.querySelectorAll('.rt-empty .rt-add-menu [role="option"]')].some(el => el.textContent.startsWith('Wait'))), 'Empty routine shows its first step Add');
       await click('.rt-empty-add');
       await key('Escape');
-      assert.ok(await evaluate(() => document.activeElement.matches('.rt-empty-add')), 'Empty insertion Escape returns focus');
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-empty-add')), 'Escape keeps the first step Add and its focus');
       assert.deepEqual((await source())[0].nodes, [], 'Cancelling empty insertion preserves source');
       activeCatalog = null;
       await load(null);
-      assert.ok(await evaluate(() => document.querySelector('.rt-empty').textContent.includes('Wait works offline')), 'No catalog empty state explains native Wait and linking commands');
+      assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-empty [role="option"]')].some(el => el.textContent === 'CommandLink robot code to list commands')
+        && [...document.querySelectorAll('.rt-empty [role="option"]')].some(el => el.textContent.startsWith('Wait'))), 'Without robot code, Wait stays available and Command says how to list commands');
       await click('.rt-empty-add');
       await snapshot('no-catalog-insert-' + width);
       await key('Escape');
@@ -276,23 +287,20 @@ app.whenReady().then(async () => {
         { id: 'completion-step', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } },
       ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
       await load('output-loop'); await planned();
-      // Add: All lists commands, paths and steps; the Commands filter, reached from the search with Tab and arrows,
-      // inserts a catalog command bound with its default arguments in one pick.
+      // Add lists paths, steps and commands in one column without kind headings; a search finds a catalog command that
+      // is inserted bound with its default arguments in one pick.
       const loopBaseline = await source();
       await click('[data-id="after-loop"] .rt-step-body'); await key('A');
       await wait(() => evaluate(() => document.activeElement?.matches('.rt-add-search input')), 'Add search focused');
-      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec > span')].map(el => el.textContent)), ['Commands', 'Paths', 'Steps']);
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(el => el.textContent)), []);
+      assert.equal(await evaluate(() => document.querySelectorAll('.rt-add-list .rt-ch-sep').length), 2, 'Kinds are separated by rules');
       assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => el.textContent.startsWith('Check whether collection is finished'))), 'All lists catalog commands');
       assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => /^Branch on/.test(el.textContent))), false, 'No Branch-on items');
       await snapshot('add-all-' + width);
-      await key('Tab');
-      assert.equal(await evaluate(() => document.activeElement.dataset.filter), 'all', 'Tab reaches the kind filter');
-      await key('Right'); await key('Right');
-      assert.equal(await evaluate(() => document.querySelector('.rt-add-filter [aria-pressed="true"]').textContent), 'Commands');
-      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"] .rt-ch-t')].map(el => el.textContent)), ['Check whether collection is finished']);
+      await win.webContents.insertText('finished');
+      await wait(() => evaluate(() => document.activeElement.matches('.rt-add-search input') && document.activeElement.getAttribute('aria-activedescendant') === 'rt-add-opt-0'
+        && document.querySelector('#rt-add-opt-0 .rt-ch-t')?.textContent === 'Check whether collection is finished'), 'Search ranks the command first');
       await snapshot('add-commands-' + width);
-      await key('Down');
-      assert.ok(await evaluate(() => document.activeElement.matches('.rt-add-search input') && document.activeElement.getAttribute('aria-activedescendant') === 'rt-add-opt-0'), 'Down returns to the results');
       await key('Enter');
       await wait(async () => (await source())[0].nodes.length === 3, 'one-pick command insert');
       const pickedCommand = (await source())[0].nodes[2];

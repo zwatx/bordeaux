@@ -167,6 +167,45 @@ describe('routine Add and insertion from the flow', () => {
     expect(acq.edit.mock.results[1].value.routine.nodes.map((node) => node.id)).toEqual(['p1', 'c1', 'c2', 'c3', first.node.id, acq.edit.mock.calls[1][0].node.id, 'w1']);
   });
 
+  it('opens Add in the flow where the step lands: between rows for before and after, in place of a list’s Add line', () => {
+    const { ui } = panel();
+    const list = () => ui.find((element) => element.props.className === 'rt-list');
+    const places = () => list().children.map((child) => child.props.key);
+    ui.row('w1').props.onKeyDown(ui.event({ key: 'A', shiftKey: true })); ui.render();
+    expect(places()).toEqual(['p1', 'c1', 'c2', 'c3', 'insert', 'w1', 'add:{"kind":"root"}']);
+    ui.row('p1').props.onKeyDown(ui.event({ key: 'a' })); ui.render();
+    expect(places()).toEqual(['p1', 'insert', 'c1', 'c2', 'c3', 'w1', 'add:{"kind":"root"}']);
+    // Only one Add is open; it replaces nothing else and leaves the end line in place.
+    expect(ui.all((element) => element.type === ui.addMenu().type)).toHaveLength(1);
+    const end = ui.find((element) => element.props['data-nav'] === 'add:{"kind":"root"}');
+    end.props.onClick({ currentTarget: end }); ui.render();
+    expect(places().includes('insert')).toBe(false);
+    const wrap = list().children.at(-1);
+    expect(wrap.props.className).toBe('rt-addwrap open');
+    expect(wrap.children[0].type).toBe(ui.addMenu().type);
+    expect(ui.find((element) => element.props['data-nav'] === 'add:{"kind":"root"}')).toBeNull();
+    // Escape returns focus to the Add line once it renders again.
+    ui.addMenu().props.onClose(true); ui.render();
+    expect(ui.addMenu()).toBeNull();
+    expect(ui.find((element) => element.props['data-nav'] === 'add:{"kind":"root"}')).not.toBeNull();
+  });
+
+  it('shows an empty routine’s first step Add without opening it, and a keep-open pick leaves it in place after the new step', () => {
+    let current = { id: 'r', name: 'R', nodes: [] };
+    const { ui, acq } = panel({ routine: current, acq: { edit: vi.fn((operation) => { const result = AUTO.editRoutine(current, operation); if (result.changed) current = result.routine; return result; }) } });
+    expect(ui.addMenu().props).toMatchObject({ persistent: true, inputClass: 'rt-empty-add', label: 'Add the first step', dest: 'First step of the routine' });
+    ui.addMenu().props.onPick(ui.addMenu().props.steps.find((item) => item.kind === 'wait'), { keep: true });
+    expect(acq.edit.mock.calls[0][0]).toMatchObject({ kind: 'insert', listRef: { kind: 'root' }, index: 0 });
+    ui.render({ ...ui.props, routine: current });
+    expect(ui.addMenu().props).toMatchObject({ persistent: undefined, dest: 'At the end of the routine', added: ['Wait'] });
+    const list = ui.find((element) => element.props.className === 'rt-list');
+    expect(list.children.map((child) => child.props.key)).toEqual([current.nodes[0].id, 'add:{"kind":"root"}']);
+    // A plain pick from the first step's Add closes it and the routine's own Add line follows the new step.
+    const fresh = panel({ routine: { id: 'r2', name: 'R', nodes: [] } });
+    fresh.ui.addMenu().props.onPick(fresh.ui.addMenu().props.steps.find((item) => item.kind === 'repeat'));
+    expect(fresh.acq.edit.mock.calls[0][0]).toMatchObject({ kind: 'insert', listRef: { kind: 'root' }, index: 0, node: { type: 'repeat' } });
+  });
+
   it('names the steps a new one runs alongside inside a parallel group', () => {
     const source = { id: 'r', name: 'R', nodes: [{ id: 'g', type: 'group', mode: 'parallel', nodes: [
       { id: 'g1', type: 'function', cat: 'command', title: 'Scan', invocation: { commandId: 'scan', arguments: { speed: 1.5 } } },

@@ -131,8 +131,10 @@ app.whenReady().then(async () => {
     await key('Enter');
     await wait(() => evaluate(() => [...document.querySelectorAll('.rt-brkey')].some((el) => el.textContent === '< 12.5')), 'typed numeric comparison');
 
-    // Add opens on commands; the Paths filter (Tab from the search, then →) and Enter add the project's path inside the route.
-    await click('.rt-branch .rt-add'); await key('Tab'); await key('Right'); await key('Down'); await key('Enter');
+    // Add opens in place at the end of the route, on the project's paths first; Enter adds the first path inside the route.
+    await click('.rt-branch .rt-add');
+    await wait(() => evaluate(() => document.activeElement.matches('.rt-branch .rt-add-menu input')), 'inline Add in the route');
+    await key('Enter');
     await wait(() => evaluate(() => document.querySelector('.rt-branch .rt-step.path')), 'nested path');
     await click('[data-id="inspect-step"] .rt-step-body');
     await snapshot('numeric-populated-1440');

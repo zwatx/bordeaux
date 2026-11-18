@@ -35,9 +35,8 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
 
   // An empty routine has nothing to show on the field or to play, so it offers only the flow and its first step.
   const empty = !routine.nodes.length, shown = empty ? 'flow' : view;
-  return h('section', { className: 'routine-workspace', 'aria-label': 'Routine workspace' },
+  return h('section', { className: 'routine-workspace', 'aria-label': 'Routine workspace: ' + routine.name },
     h('header', { className: 'routine-workspace-head' },
-      h('div', { className: 'routine-workspace-title' }, h('strong', null, routine.name)),
       h('div', { className: 'routine-workspace-actions' },
         robot && h(PowerAnalysis, { robot, run }),
         h('button', { ref: trigger, type: 'button', className: 'routine-workspace-about', popovertarget: 'routine-preview-notes',

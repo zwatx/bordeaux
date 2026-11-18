@@ -12,6 +12,55 @@ export function alignWaypointHandles(waypoint: Waypoint): void {
   Object.assign(waypoint, alignedWaypointHandles(waypoint), { linked: true, corner: false });
 }
 
+export type TangentHandle = "prevC" | "nextC";
+
+/**
+ * Which parts of a waypoint's tangent handle shape the adjacent segment: the
+ * incoming handle (prevC) belongs to the segment before the waypoint and the
+ * outgoing handle (nextC) to the segment after it. Straight segments ignore both
+ * handles and an arc follows only its start direction. A clothoid can fall
+ * back to a Bézier, which uses both handle lengths.
+ */
+export function tangentHandleUse(waypoints: readonly Waypoint[], index: number, key: TangentHandle): { direction: boolean; length: boolean } {
+  const segment = key === "prevC" ? index - 1 : index;
+  if (segment < 0 || segment >= waypoints.length - 1) return { direction: false, length: false };
+  const type = waypoints[segment].segType || "bezier";
+  if (type === "line") return { direction: false, length: false };
+  if (type === "arc") return { direction: key === "nextC", length: false };
+  return { direction: true, length: true };
+}
+
+/** Travel direction through a handle in degrees, (-180, 180]: incoming runs prevC→waypoint, outgoing waypoint→nextC. */
+export function tangentDirectionDeg(waypoint: Pick<Waypoint, "x" | "y" | "prevC" | "nextC">, key: TangentHandle): number {
+  const handle = waypoint[key], sign = key === "prevC" ? -1 : 1;
+  const degrees = Math.atan2(sign * (handle.y - waypoint.y), sign * (handle.x - waypoint.x)) * 180 / Math.PI;
+  return degrees <= -180 ? 180 : degrees === 0 ? 0 : degrees;
+}
+
+/**
+ * Points one handle along a travel direction, keeping its length. Interior
+ * waypoints that do not stop keep both handles collinear, as dragging a handle
+ * on the field does, so the opposite handle turns with it at its own length.
+ */
+export function setTangentDirection(path: PathDoc, index: number, key: TangentHandle, degrees: number): PathDoc {
+  const waypoint = path.waypoints[index];
+  if (!waypoint || !Number.isFinite(degrees)) return path;
+  const radians = (degrees % 360) * Math.PI / 180, ux = Math.cos(radians), uy = Math.sin(radians);
+  const lengthOf = (handle: ControlPoint) => Math.hypot(handle.x - waypoint.x, handle.y - waypoint.y);
+  // A zero-length handle has no direction, so it takes the inspector's minimum length.
+  const place = (handle: TangentHandle, length: number) => {
+    const sign = handle === "prevC" ? -1 : 1;
+    waypoint[handle] = { x: waypoint.x + sign * ux * length, y: waypoint.y + sign * uy * length };
+  };
+  place(key, lengthOf(waypoint[key]) || 0.1);
+  if (!waypoint.stop && index > 0 && index < path.waypoints.length - 1) {
+    const other = key === "prevC" ? "nextC" : "prevC";
+    place(other, lengthOf(waypoint[other]));
+    waypoint.linked = true; waypoint.corner = false;
+  }
+  return path;
+}
+
 export function remapWaypointRanges(path: PathDoc, oldToNew: Array<number | null>, removedIndex?: number): void {
   path.ranges = (path.ranges || []).map((range) => remapWaypointRange(range, oldToNew, removedIndex, path.waypoints.length));
 }
