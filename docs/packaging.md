@@ -136,3 +136,24 @@ git remote prune origin
 This does not delete branches on the remote. Delete merged remote branches only through the repository's normal review workflow.
 
 Do not remove `refs/t3/checkpoints/*` or `refs/codex/*` with raw Git commands. Those refs are recovery checkpoints owned by T3 Code and Codex; use the owning product's supported cleanup when one is available. `git gc` cannot reclaim objects retained by live checkpoint refs.
+
+## Temporary Picomatch security patch
+
+`npm ci` / `npm install` applies `scripts/picomatch-security.mjs` to the locked
+Picomatch 4.0.7 parser. GHSA-fc5q-39xc-vjpf has no published fixed version as of
+2026-11-17. Single-branch repeated extglobs containing stars can compile nested
+unbounded regex quantifiers; the patch literalizes these bodies using the
+parser's existing unsafe-pattern handling. Its existing safe character-class
+reductions and ordinary file globs remain supported. Repeated star bodies that
+previously matched as extglobs instead match literally. This affects build/test
+tooling only; Picomatch is absent from production dependencies.
+
+`npm run audit:dependencies` runs the full npm audit and verifies every locked
+Picomatch parser against the reviewed patched SHA-256 before recognizing this
+one advisory as patched. All other high/critical advisories still block CI,
+including new advisories on Picomatch. Raw `npm audit` continues reporting the
+original package version. Skipped install scripts, changed parser bytes, a new
+Picomatch version, or an audit service error fail verification. Remove this
+patch and restore the plain audit command once a fixed upstream version is
+available and has passed the regression tests. Do not skip install scripts for
+release builds.

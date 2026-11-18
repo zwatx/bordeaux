@@ -64,6 +64,6 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   expect(desktopScripts).toContain("scripts/verify-timeline-commands-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT).toBe(".ui-artifacts/timeline-commands");
   const checks = ci.jobs.checks.steps.map(({ run }) => run ?? "").join("\n");
-  for (const command of ["verify:license", "typecheck", "certify-field.mjs", "npm run build", "npm audit --audit-level=high"]) expect(checks).toContain(command);
+  for (const command of ["verify:license", "typecheck", "certify-field.mjs", "npm run build", "npm run audit:dependencies"]) expect(checks).toContain(command);
   expect(ci.jobs.desktop.steps.some(({ run }) => run === "xvfb-run -a npm run test:smoke:built")).toBe(true);
 });

@@ -32,7 +32,9 @@
     "package:win": "npm run build && electron-builder --win --x64 --publish never",
     "package:win:store": "npm run build && node scripts/package-windows-store.mjs",
     "package:linux": "npm run build && electron-builder --linux --x64 --arm64 --publish never",
-    "build:labview-catalog": "npm run build:electron && node scripts/build-labview-catalog.mjs"
+    "build:labview-catalog": "npm run build:electron && node scripts/build-labview-catalog.mjs",
+    "postinstall": "node scripts/picomatch-security.mjs",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",
