@@ -19,7 +19,7 @@ describe("planner hot-path regressions", () => {
     try {
       const result = optimizedTrajectoryPlanner.generate(input);
       expect(result.optimization).toMatchObject({ fallback: false, refinementPasses: 2 });
-      expect(result.totalTimeS).toBeCloseTo(2.66136, 6);
+      expect(result.totalTimeS).toBeCloseTo(2.661339, 6);
       expect(input).toEqual(retimingFixture);
       expect(validate.mock.calls.length).toBeGreaterThanOrEqual(5);
       expect(new Set(validate.mock.calls.map(call => call[1])).size).toBe(validate.mock.calls.length);

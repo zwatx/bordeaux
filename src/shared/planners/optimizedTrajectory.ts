@@ -12,7 +12,7 @@ import { profiledSplineOptimizationInputs, profiledSplineOptimizationSeed, profi
 import { solveReachabilityProfile, type ReachabilityInput, type ReachabilityStatus } from "./reachability";
 import { validateOptimizedTrajectory, type TrajectoryValidationResult } from "./trajectoryValidation";
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
-import { effectiveRanges } from "./rotationPriority";
+import { orderedWaypointSampleIndices } from "./waypointSamples";
 import { resolveCgHeightM } from "../loadTransfer";
 
 const R = (value: number, places = 4) => Number(value.toFixed(places));
@@ -150,8 +150,26 @@ function remapProfileForValidation(
   timedSamples: TrajectorySample[],
 ): TrajectorySample[] {
   const timedState = buildCanonicalPathState(input.path, timedSamples);
-  const zoneBoundaries = effectiveRanges(input.path, timedSamples, timedSamples.at(-1)?.s ?? 0)
-    .flatMap((range) => [range.start, range.end]);
+  // Integrated segment lengths change slightly with resolution. Anchor the
+  // progress mapping at waypoints as well as shared heading/constraint knots
+  // so required stops and authored fractions survive without projection jumps.
+  const correspondence = new Map<number, number>();
+  const denseWaypoints = orderedWaypointSampleIndices(input.path.waypoints, geometrySamples);
+  let source = 0, leg = 0;
+  geometrySamples.forEach((sample, index) => {
+    while (leg < denseWaypoints.length - 2 && index > denseWaypoints[leg + 1]) leg += 1;
+    while (source < timedSamples.length - 1 && timedSamples[source].f < sample.f - 1e-12) source += 1;
+    // A fraction knot next to a waypoint can swap sides as lengths drift.
+    // Never let that correspondence reverse progress across the waypoint.
+    if (source >= timedState.waypointSampleIndices[leg]
+      && source <= timedState.waypointSampleIndices[leg + 1]
+      && Math.abs(timedSamples[source].f - sample.f) <= 1e-12) correspondence.set(index, source);
+  });
+  denseWaypoints.forEach((index, waypoint) => {
+    correspondence.set(index, timedState.waypointSampleIndices[waypoint]);
+  });
+  const anchors = [...correspondence].sort(([left], [right]) => left - right);
+  let anchorIndex = 0;
   const stationaryTurnAt = (index: number) => (
     isStationaryHeadingTransition(
       input.path,
@@ -160,7 +178,13 @@ function remapProfileForValidation(
     )
   );
   let sourceIndex = 0;
-  const profile = geometrySamples.map((sample) => {
+  const profile = geometrySamples.map((sample, index) => {
+    while (anchorIndex < anchors.length - 2 && anchors[anchorIndex + 1][0] < index) anchorIndex += 1;
+    const [denseStart, timedStart] = anchors[anchorIndex];
+    const [denseEnd, timedEnd] = anchors[Math.min(anchorIndex + 1, anchors.length - 1)];
+    const span = geometrySamples[denseEnd].f - geometrySamples[denseStart].f;
+    const progress = span > 1e-12 ? (sample.f - geometrySamples[denseStart].f) / span : 0;
+    const fraction = timedSamples[timedStart].f + progress * (timedSamples[timedEnd].f - timedSamples[timedStart].f);
     // Integrated geometry (for example clothoids) can shift slightly with
     // resolution. Endpoint speeds are authored boundaries, not projections.
     const endpoint = sample.f <= 0 ? timedSamples[0] : sample.f >= 1 ? timedSamples.at(-1) : undefined;
@@ -168,14 +192,11 @@ function remapProfileForValidation(
       sample: { ...sample, headingRad: endpoint.headingRad },
       velocity: Math.abs(endpoint.velocityMps),
     };
-    while (sourceIndex < timedSamples.length - 2 && timedSamples[sourceIndex + 1].f < sample.f) sourceIndex += 1;
-    const atZoneBoundary = zoneBoundaries.some((fraction) => Math.abs(fraction - sample.f) <= 1e-12);
+    while (sourceIndex < timedSamples.length - 2 && timedSamples[sourceIndex + 1].f < fraction) sourceIndex += 1;
     for (let candidate = Math.max(0, sourceIndex - 2); candidate <= Math.min(timedSamples.length - 1, sourceIndex + 3); candidate += 1) {
-      // Authored constraint knots have the same fraction at both resolutions,
-      // even when their interpolated geometry differs slightly. Preserve the
-      // solved speed at that knot instead of projecting it outside its Zone.
-      if ((atZoneBoundary && Math.abs(timedSamples[candidate].f - sample.f) <= 1e-12)
-        || Math.hypot(timedSamples[candidate].x - sample.x, timedSamples[candidate].y - sample.y) <= 1e-8) {
+      // Authored heading and constraint knots retain their fraction even when
+      // coarse and dense geometry place them on slightly different chords.
+      if (Math.abs(timedSamples[candidate].f - fraction) <= 1e-12) {
         sourceIndex = candidate;
         return {
           sample: { ...sample, headingRad: timedSamples[candidate].headingRad },
@@ -185,13 +206,10 @@ function remapProfileForValidation(
     }
     const before = timedSamples[sourceIndex];
     const after = timedSamples[Math.min(timedSamples.length - 1, sourceIndex + 1)];
-    const dx = after.x - before.x, dy = after.y - before.y;
-    const chordSquared = dx * dx + dy * dy;
-    // Coarse and dense geometry have slightly different integrated lengths.
-    // Use the local chord so interpolation meets coincident knots continuously.
-    const ratio = chordSquared > 1e-12
-      ? Math.max(0, Math.min(1, ((sample.x - before.x) * dx + (sample.y - before.y) * dy) / chordSquared))
-      : Math.max(0, Math.min(1, (sample.f - before.f) / Math.max(1e-9, after.f - before.f)));
+    // Select and interpolate intervals in the same arclength coordinate.
+    // Chord projection disagrees with fraction at inserted heading knots and
+    // creates artificial heading-rate jumps that trigger unnecessary braking.
+    const ratio = Math.max(0, Math.min(1, (fraction - before.f) / Math.max(1e-9, after.f - before.f)));
     const speedSquared = before.velocityMps ** 2
       + (after.velocityMps ** 2 - before.velocityMps ** 2) * ratio;
     const headingDelta = stationaryTurnAt(sourceIndex) || stationaryTurnAt(sourceIndex + 1)
