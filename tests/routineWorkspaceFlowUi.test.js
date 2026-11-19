@@ -97,22 +97,23 @@ describe('routine flow insertion and empty states', () => {
     expect(html).toContain('aria-label="Add step at the end"');
   });
 
-  it('opens an empty routine on its first step’s Add, in place, without an empty-state explanation', () => {
+  it('opens an empty routine on its first step’s slot, in place, without an empty-state explanation', () => {
     const empty = (paths_, catalog_) => renderToStaticMarkup(React.createElement(RoutinePanel, {
       routine: { id: 'r', name: 'R', nodes: [] }, run: AUTO.buildRun({ nodes: [] }, [], {}, {}), paths: paths_, time: 0, running: false, acq: { outcomes: {} }, catalog: catalog_ }));
     const ready = empty(paths, catalog);
-    // The first step's Add sits where step 1 goes: a search field, then the paths and steps themselves.
-    expect(ready).toMatch(/<div class="rt-list rt-empty"[^>]*><div class="rt-addwrap empty open" data-list="\{&quot;kind&quot;:&quot;root&quot;\}"[^>]*><div class="rt-add-menu first" role="group" aria-label="Add the first step"/);
-    expect(ready).toMatch(/<input class="rt-empty-add"[^>]*placeholder="Add a path, command or step"/);
-    expect(text(ready)).toContain('Score path');
-    expect(text(ready)).toContain('Wait');
+    // The first step's slot sits where step 1 goes: Path and Command, then the routine's own steps, with no library open.
+    expect(ready).toMatch(/<div class="rt-list rt-empty"[^>]*><div class="rt-addwrap empty open" data-list="\{&quot;kind&quot;:&quot;root&quot;\}"[^>]*><div class="rt-slot first" role="toolbar" aria-label="Add the first step"/);
+    expect([...ready.matchAll(/data-action="([^"]+)"/g)].map((match) => match[1])).toEqual(['path', 'command', 'wait', 'repeat', 'group:parallel', 'group:sequential', 'end']);
+    expect(ready).toMatch(/data-action="path" tabindex="0" class="rt-slot-src" aria-pressed="false"/);
+    expect(ready).not.toContain('rt-source');
     expect(text(ready)).not.toMatch(/No steps yet|Steps run top to bottom|Add first step/);
-    expect(ready).toContain('id="rt-add-dest" class="sr-only">First step of the routine<');
-    // Without paths or robot code, the rows that matter say so once, in place.
-    const bare = text(empty([], null));
-    expect(bare).toContain('No paths yet. Create one in Paths.');
-    expect(bare).toContain('Link robot code to list commands');
-    expect(bare).not.toContain('Wait works offline');
+    expect(ready).toMatch(/class="sr-only">First step of the routine</);
+    // The first step's slot has no Cancel; it is always there.
+    expect(ready).not.toContain('rt-slot-x');
+    // Without paths or robot code both sources stay offered (each library says why it is empty), and Wait stays available.
+    const bare = empty([], null);
+    expect([...bare.matchAll(/data-action="([^"]+)"/g)].map((match) => match[1]).slice(0, 2)).toEqual(['path', 'command']);
+    expect(text(bare)).toContain('Wait');
   });
 
   it('flags missing catalog entries in Add without hiding local authoring', () => {

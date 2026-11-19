@@ -7,7 +7,8 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
 import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
-import { Glyph, continuityText, describeStop, stepTitle } from "./RoutinePanel";
+import { continuityText, describeStop, stepTitle } from "./RoutinePanel";
+import { Glyph } from "./routineGlyphs";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";
 import { commandChoiceItems, commandChoiceRows, commandIndex, commandUsage, openSubsystem } from "../lib/commandIndex";
 import { labelWidth, layoutCommandLane, niceStep } from "./pathTimelineModel";
@@ -210,14 +211,20 @@ export function StepInspector(props) {
 
   if (node.type === 'path') {
     title = 'Path';
-    // The chosen path reads as a card; Change opens the searchable list with each path's folder, time and use here.
-    // A deleted path has no card, so the list stays open beside the problem until another path is chosen.
-    const choices = routinePathChoices(paths, { folders: props.pathFolders, times: props.pathTimes, uses: routinePathUses(routine) });
+    // The chosen path reads as a card. Change opens the path library in the left rail, where paths are added too, and
+    // marks this step in the flow; choosing a path there replaces the reference. A deleted path names the problem.
+    const choice = routinePathChoices(paths, { folders: props.pathFolders, times: props.pathTimes, uses: routinePathUses(routine) }).find((item) => item.path.id === node.ref);
     body = h(React.Fragment, null,
-      h(ChoiceBrowser, { id: 'routine-bound-path', resetKey: node.id, label: 'Path to follow', value: node.ref, actionLabel: 'Change path',
-        items: choices.map(({ path, meta }) => ({ value: path.id, label: path.name, meta })),
-        placeholder: 'Search paths or folders', emptyText: 'No paths yet. Create one in Paths.',
-        onChange: (value) => { if (value !== node.ref) set({ ref: value }); } }),
+      h('section', { className: 'choice-browser routine-path-choice', 'aria-label': 'Path to follow' },
+        h('div', { className: 'choice-browser-heading' }, h('span', { className: 'fieldlabel' }, 'Path to follow'),
+          choice && props.onChangePath && h('button', { type: 'button', className: 'choice-change routine-change-path', title: 'Choose another path from the path library',
+            onClick: (event) => props.onChangePath(event.currentTarget) }, 'Change path')),
+        choice
+          ? h('div', { className: 'choice-current' }, h(Icon, { name: 'route', size: 15 }), h('div', null, h('strong', null, choice.path.name), choice.meta && h('small', null, choice.meta)))
+          : h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Unavailable path' },
+              h('p', { className: 'rt-insp-problem' }, node.ref ? 'The referenced path is unavailable.' : 'No path chosen yet.'),
+              !paths.length ? Hint('No paths yet. Create one in Paths.')
+                : props.onChangePath && h('button', { type: 'button', className: 'qbtn wide routine-change-path', onClick: (event) => props.onChangePath(event.currentTarget) }, 'Choose a path'))),
       seg && h('div', { className: 'rt-stat' },
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, fmt(seg.t1 - seg.t0)), h('span', { className: 'rt-stat-k' }, 'Duration')),
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, UnitPrefs.format(seg.deriv.sample.length, 'm', 2)), h('span', { className: 'rt-stat-k' }, 'Distance')),

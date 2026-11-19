@@ -38,7 +38,9 @@ import path from "node:path";
 // The subsystem-aware command palette (shared command index and ranking, subsystem scope, detail column,
 // keep-open Add and ranked Change command) measures 839,968 B (2026-11-14); 824 KiB keeps ~3.7 KiB headroom.
 // Tangent editing, inline routine insertion, and compact status and Power reports use about 845 KB.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 828 * 1024;
+// The routine insertion slot and its left-rail path and command libraries (replacing the inline Add list) measure
+// about 853 KB; 836 KiB keeps bounded headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 836 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -54,7 +56,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
 // The routine Add filter, preview radios and the current route block add 1,082 B.
 // Group/loop editors, the redesigned Commands lane and routine scrubber bring CSS to 163,823 B (2026-11-14).
-const CSS_BUDGET_BYTES = 164 * 1024;
+// The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
+const CSS_BUDGET_BYTES = 170 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

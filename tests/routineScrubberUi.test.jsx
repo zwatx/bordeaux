@@ -99,14 +99,18 @@ describe('routine path choices', () => {
     expect(choices.map((choice) => choice.meta)).toEqual(['Collection · 4.00 s · Used 2× in this routine', 'In this routine', 'Not timed yet']);
   });
 
-  it('shows the chosen path as a card with Change path, and keeps the list open for a deleted path', () => {
+  it('shows the chosen path as a card whose Change path opens the path library, and names a deleted path', () => {
     const acq = { set: vi.fn(), select() {}, del() {}, openInEditor() {} };
-    const render = (ref) => renderToStaticMarkup(h(StepInspector, { node: { id: 'a', type: 'path', ref }, routine, paths, pathFolders: [{ id: 'f', name: 'Collection' }], pathTimes: {}, acq, run: { segs: [], issues: [] } }));
+    const render = (ref, extra = {}) => renderToStaticMarkup(h(StepInspector, { node: { id: 'a', type: 'path', ref }, routine, paths, pathFolders: [{ id: 'f', name: 'Collection' }], pathTimes: {}, acq, run: { segs: [], issues: [] }, onChangePath() {}, ...extra }));
     const chosen = render('p1');
     expect(chosen).toMatch(/class="choice-current"[\s\S]*<strong>Collect<\/strong><small>Collection · Used 2× in this routine<\/small>/);
-    expect(chosen).toContain('>Change path<'); expect(chosen).not.toContain('routine-bound-path-results');
+    // Change opens the library in the left rail; the inspector holds no list of its own.
+    expect(chosen).toMatch(/<button type="button" class="choice-change routine-change-path"[^>]*>Change path<\/button>/);
+    expect(chosen).not.toContain('role="listbox"');
     const missing = render('gone');
     expect(missing).not.toContain('choice-current');
-    expect(missing).toContain('id="routine-bound-path-results"'); expect(missing).toContain('placeholder="Search paths or folders"');
+    expect(missing).toContain('The referenced path is unavailable.');
+    expect(missing).toMatch(/class="qbtn wide routine-change-path"[^>]*>Choose a path</);
+    expect(render('gone', { paths: [] })).toContain('No paths yet. Create one in Paths.');
   });
 });

@@ -92,6 +92,10 @@ app.whenReady().then(async () => {
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
     const route = structuredClone(corpus.paths.find(p => p.id === 'corpus-neutral-stop'));
     route.name = 'Collect along the alliance wall and return through the protected crossing';
+    route.folderId = 'collection';
+    // A second, unfiled path: the path library groups by the project's folders and Change path has a real choice.
+    const spare = structuredClone(corpus.paths.find(p => p.id !== route.id && p.waypoints?.length >= 2));
+    spare.name = 'Return to the alliance zone'; delete spare.folderId;
     const routine = { id: 'routine-workspace-test', name: 'Collect until full, choose a route, then return to the alliance zone', nodes: [
       { id: 'cycle', type: 'repeat', times: 3, until: { source: 'condition', conditionId: 'piece' }, nodes: [
         { id: 'choice', type: 'decision', cond: 'piece', thenLabel: 'Full — take the scoring route', elseLabel: 'Keep collecting along the wall',
@@ -99,7 +103,7 @@ app.whenReady().then(async () => {
       ] },
       { id: 'return', type: 'path', ref: route.id },
     ] };
-    saved = { ...corpus, schemaVersion: '1.1', paths: [route], pathLinks: [], routines: [routine], activeRoutineId: routine.id,
+    saved = { ...corpus, schemaVersion: '1.1', paths: [route, spare], pathFolders: [{ id: 'collection', name: 'Collection' }], pathLinks: [], routines: [routine], activeRoutineId: routine.id,
       editor: { activePathId: route.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
       webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
@@ -174,47 +178,76 @@ app.whenReady().then(async () => {
       assert.deepEqual(await source(), baseline, 'Preview selection does not rewrite the routine');
       await click('[data-id="return"] .rt-step-body');
       await key('A');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-menu'))), 'insertion chooser');
-      // Add opens in the flow, between the step and the one after it, and nowhere else.
-      assert.ok(await evaluate(() => {
-        const at = document.querySelector('.rt-addwrap.at'), row = document.querySelector('[data-id="return"]');
-        return document.querySelectorAll('.rt-add-menu').length === 1 && at && Boolean(row.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING)
-          && !document.querySelector('body > .rt-add-menu, .rt-add-filter, .rt-add-detail');
-      }), 'A opens Add inline, right after the step');
+      await wait(() => evaluate(() => document.activeElement?.matches('.rt-slot [data-action="path"]')), 'A opens a slot with its strip focused');
+      // The slot opens in the flow, right after the step; its library takes the routine list's place in the left rail.
+      const slot = await evaluate(() => {
+        const at = document.querySelector('.rt-addwrap.at'), row = document.querySelector('[data-id="return"]'), library = document.querySelector('#rt-source');
+        const rail = library?.getBoundingClientRect(), flow = document.querySelector('.routine-workspace').getBoundingClientRect(), strip = document.querySelector('.rt-slot').getBoundingClientRect();
+        return { slots: document.querySelectorAll('.rt-slot').length, after: Boolean(at && row.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING),
+          inRail: Boolean(library?.closest('.rt-source-host')), routinesHidden: getComputedStyle(document.querySelector('.stage-auto > .library-rail')).display === 'none',
+          beside: rail && rail.right <= flow.left + 1, kind: library?.getAttribute('aria-label'), actions: [...document.querySelectorAll('.rt-slot [data-action]')].map(el => el.dataset.action),
+          stripFits: strip.right <= document.querySelector('.rt-scroll').getBoundingClientRect().right, old: Boolean(document.querySelector('.rt-add-menu, .rt-add-search')) };
+      });
+      assert.deepEqual(slot, { slots: 1, after: true, inRail: true, routinesHidden: true, beside: true, kind: 'Add path', stripFits: true, old: false,
+        actions: ['path', 'command', 'wait', 'repeat', 'group:parallel', 'group:sequential', 'end'] }, 'A opens one slot after the step and the path library beside the flow');
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('#rt-source .rt-src-group, #rt-source .rt-src-label')].map(el => el.textContent)), ['Collection1', 'Not in a folder'], 'Paths are grouped by the project folders');
       await snapshot('insert-' + width);
       assert.ok(await evaluate(() => {
         const pass = document.querySelector('.rt-timeline-pass-now'), step = document.querySelector('.rt-timeline-step');
         return !pass || step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) >= pass.getBoundingClientRect().right + 8;
       }), 'Playback pass and step counters have separate readable spacing');
-      const insertion = await evaluate(() => {
-        const menu = document.querySelector('.rt-add-menu'), list = menu.querySelector('.rt-add-list');
-        const rect = menu.getBoundingClientRect(), last = [...list.querySelectorAll('[role="option"]')].at(-1).getBoundingClientRect();
-        return { top: rect.top, bottom: rect.bottom, lastBottom: last.bottom, listBottom: list.getBoundingClientRect().bottom, viewport: innerHeight };
+      const library = await evaluate(() => {
+        const list = document.querySelector('#rt-source .rt-src-list').getBoundingClientRect(), last = [...document.querySelectorAll('#rt-source [data-row]')].at(-1).getBoundingClientRect();
+        return { top: list.top, bottom: list.bottom, lastBottom: last.bottom, viewport: innerHeight };
       });
-      assert.ok(insertion.top >= 0 && insertion.bottom <= insertion.viewport, 'Insertion menu fits the viewport');
-      assert.ok(insertion.lastBottom <= insertion.listBottom + 1, 'Root insertion shows its last option when space is available');
+      assert.ok(library.top >= 0 && library.bottom <= library.viewport && library.lastBottom <= library.bottom + 1, 'The path library and its last path fit the rail');
       await key('Escape');
       assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'return', 'Escape returns to insertion origin');
-      await key('A'); await key('Enter');
+      assert.ok(await evaluate(() => !document.querySelector('.rt-slot, #rt-source') && getComputedStyle(document.querySelector('.stage-auto > .library-rail')).display !== 'none'), 'Escape closes the slot and gives the rail back to the routine list');
+      // Keyboard: A, P moves into the library, ↓ to a path, Enter adds it as a reference.
+      await key('A'); await key('P');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source input')), 'P moves into the path library search');
+      await key('Down');
+      assert.equal(await evaluate(() => document.activeElement.dataset.row), 'path:' + route.id, 'Down enters the path list');
+      await key('Enter');
       await wait(async () => (await source())[0].nodes.length === 3, 'insert a real path after shared continuation');
       const added = (await source())[0].nodes[2];
       assert.equal(added.type, 'path'); assert.equal(added.ref, route.id);
+      assert.ok(await evaluate(() => !document.querySelector('#rt-source') && document.activeElement.closest('.rt-step')?.dataset.id), 'A pick closes the library and focuses the new step');
       await key('z', ['meta']);
       await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of inserted path');
-      // Shift+A adds before the step, through the same checked insert.
+      // Shift+A adds before the step; one click on a path in the library inserts it there.
       await click('[data-id="return"] .rt-step-body');
       await key('A', ['shift']);
-      await wait(() => evaluate(() => document.querySelector('#rt-add-dest')?.textContent.startsWith('Before “')), 'Shift+A opens Add before the step');
-      assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-addwrap.at').compareDocumentPosition(document.querySelector('[data-id="return"]')) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Shift+A opens Add inline, right before the step');
+      await wait(() => evaluate(() => document.querySelector('.rt-slot')?.getAttribute('aria-label') === 'Add a step before this one'), 'Shift+A opens a slot before the step');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-addwrap.at').compareDocumentPosition(document.querySelector('[data-id="return"]')) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Shift+A opens the slot right before the step');
       await snapshot('insert-before-' + width);
-      await key('Enter');
+      await click('#rt-source [data-row="path:' + spare.id + '"]');
       await wait(async () => (await source())[0].nodes.length === 3, 'insert before the shared continuation');
-      assert.equal((await source())[0].nodes[1].type, 'path');
+      assert.equal((await source())[0].nodes[1].ref, spare.id, 'One click inserts the clicked path');
       assert.equal((await source())[0].nodes[2].id, 'return', 'Shift+A inserts before the step');
       await key('z', ['meta']);
       await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of inserted-before path');
-      // Undo removes the inserted selected step and closes its inspector. Select a retained step before testing Close.
+      // Change path opens the same library for the step, marks it in the flow, and replaces only its reference.
       await click('[data-id="return"] .rt-step-body');
+      await click('.routine-change-path');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Change path opens the path library');
+      assert.deepEqual(await evaluate(() => ({ marked: document.querySelector('[data-id="return"]').classList.contains('replacing'), current: document.querySelector('#rt-source [aria-current="true"]')?.dataset.row,
+        title: document.querySelector('#rt-source h2').textContent })), { marked: true, current: 'path:' + route.id, title: 'Change path' });
+      await snapshot('change-path-' + width);
+      await key('Escape');
+      assert.ok(await evaluate(() => document.activeElement.matches('.routine-change-path') && !document.querySelector('#rt-source, .rt-step.replacing')), 'Escape returns to Change path');
+      await key('Enter');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Enter on Change path reopens the library');
+      await click('#rt-source [data-row="path:' + spare.id + '"]');
+      await wait(async () => (await source())[0].nodes[1].ref === spare.id, 'Change path replaces the reference');
+      assert.equal((await source())[0].nodes[1].id, 'return', 'The step keeps its identity');
+      await wait(() => evaluate(() => document.activeElement?.matches('.routine-change-path')), 'focus returns to Change path');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of a changed path');
+      // Undo removes an inserted selected step and closes its inspector; a changed path keeps its step selected. Select a
+      // retained step before testing Close.
+      if (!(await evaluate(() => document.querySelector('[data-id="return"]').classList.contains('sel')))) await click('[data-id="return"] .rt-step-body');
       await click('button[aria-label="Close step inspector"]');
       await snapshot('flow-closed-' + width);
       await click('.routine-workspace-views button', 'Field preview');
@@ -236,18 +269,21 @@ app.whenReady().then(async () => {
       saved.routines = [{ ...routine, nodes: [] }];
       await load(null);
       await snapshot('empty-' + width);
-      // An empty routine shows its first step's Add in place, without an explanation or a button to open it.
+      // An empty routine shows its first step's slot in place, without an explanation or a button to open it.
       assert.ok(await evaluate(() => !/No steps yet|Steps run top to bottom/.test(document.querySelector('.rt-panel').textContent)
-        && [...document.querySelectorAll('.rt-empty .rt-add-menu [role="option"]')].some(el => el.textContent.startsWith('Wait'))), 'Empty routine shows its first step Add');
-      await click('.rt-empty-add');
+        && Boolean(document.querySelector('.rt-empty .rt-slot.first [data-action="wait"]')) && !document.querySelector('#rt-source')), 'Empty routine shows its first step slot');
+      await click('.rt-slot.first [data-action="path"]');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source input')), 'Path opens the library from the first step');
+      await snapshot('empty-library-' + width);
       await key('Escape');
-      assert.ok(await evaluate(() => document.activeElement.matches('.rt-empty-add')), 'Escape keeps the first step Add and its focus');
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-slot.first [data-action="path"]') && !document.querySelector('#rt-source') && Boolean(document.querySelector('.rt-slot.first'))),
+        'Escape closes the library and keeps the first step slot and its focus');
       assert.deepEqual((await source())[0].nodes, [], 'Cancelling empty insertion preserves source');
       activeCatalog = null;
       await load(null);
-      assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-empty [role="option"]')].some(el => el.textContent === 'CommandLink robot code to list commands')
-        && [...document.querySelectorAll('.rt-empty [role="option"]')].some(el => el.textContent.startsWith('Wait'))), 'Without robot code, Wait stays available and Command says how to list commands');
-      await click('.rt-empty-add');
+      await click('.rt-slot.first [data-action="command"]');
+      await wait(() => evaluate(() => document.querySelector('#rt-source .rt-src-none')?.textContent.startsWith('Commands come from linked robot code.')), 'Without robot code the command library says where commands come from');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-slot.first [data-action="wait"]'))), 'Without robot code, Wait stays available');
       await snapshot('no-catalog-insert-' + width);
       await key('Escape');
       assert.deepEqual((await source())[0].nodes, [], 'No-catalog insertion cancellation preserves source');
@@ -271,7 +307,7 @@ app.whenReady().then(async () => {
       await load('control-loop');
       await click('[data-id="leave"] .rt-step-body'); await snapshot('exit-and-wait-' + width);
       await key('A'); await snapshot('insert-in-repeat-' + width);
-      assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].some(el => el.textContent === 'Exit repeat')), 'Nested insertion offers Exit repeat');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-slot [data-action="exit"]'))), 'Nested insertion offers Exit repeat');
       await key('Escape');
       await click('[data-id="finish"] .rt-step-body'); await snapshot('end-routine-' + width);
       saved.routines = [{ ...routine, nodes: [{ id: 'unsupported-generated', type: 'generatedTrajectory', generatorId: 'fixture', arguments: {}, fallback: { type: 'safeStop' } }] }];
@@ -287,20 +323,47 @@ app.whenReady().then(async () => {
         { id: 'completion-step', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } },
       ] }, { id: 'after-loop', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .25 } }] }];
       await load('output-loop'); await planned();
-      // Add lists paths, steps and commands in one column without kind headings; a search finds a catalog command that
-      // is inserted bound with its default arguments in one pick.
+      // Command opens the command library; a search finds a catalog command that Enter inserts bound with its default
+      // arguments in one pick. Branching is never an Add item.
       const loopBaseline = await source();
-      await click('[data-id="after-loop"] .rt-step-body'); await key('A');
-      await wait(() => evaluate(() => document.activeElement?.matches('.rt-add-search input')), 'Add search focused');
-      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-add-list .rt-ch-sec')].map(el => el.textContent)), []);
-      assert.equal(await evaluate(() => document.querySelectorAll('.rt-add-list .rt-ch-sep').length), 2, 'Kinds are separated by rules');
-      assert.ok(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => el.textContent.startsWith('Check whether collection is finished'))), 'All lists catalog commands');
-      assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-list [role="option"]')].some(el => /^Branch on/.test(el.textContent))), false, 'No Branch-on items');
+      await click('[data-id="after-loop"] .rt-step-body'); await key('A'); await key('C');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.command input')), 'C opens the command library search');
+      assert.ok(await evaluate(() => [...document.querySelectorAll('#rt-source [data-row]')].some(el => el.textContent.startsWith('Check whether collection is finished'))), 'The library lists catalog commands');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('#rt-source [data-row], .rt-slot button')].some(el => /^Branch on/.test(el.textContent))), false, 'No Branch-on items');
+      assert.equal(await evaluate(() => document.querySelector('.rt-slot [data-action="command"]').getAttribute('aria-pressed')), 'true');
       await snapshot('add-all-' + width);
       await win.webContents.insertText('finished');
-      await wait(() => evaluate(() => document.activeElement.matches('.rt-add-search input') && document.activeElement.getAttribute('aria-activedescendant') === 'rt-add-opt-0'
-        && document.querySelector('#rt-add-opt-0 .rt-ch-t')?.textContent === 'Check whether collection is finished'), 'Search ranks the command first');
+      await wait(() => evaluate(() => document.activeElement.matches('#rt-source input') && document.querySelector('#rt-source [data-row].top')?.textContent.startsWith('Check whether collection is finished')), 'Search ranks the command first');
       await snapshot('add-commands-' + width);
+      // ⌘/Ctrl+Enter adds and keeps the slot, now after the new step, with focus still in the library; the strip's W
+      // then adds a Wait after it. Two Undos restore the routine exactly.
+      await key('Enter', ['meta']);
+      await wait(async () => (await source())[0].nodes.length === 3, 'keep-open command insert');
+      await wait(() => evaluate(() => document.activeElement.matches('#rt-source input') && document.activeElement.value === ''
+        && document.querySelector('.rt-slot [role="status"]').textContent.startsWith('Added Check whether collection is finished')), 'keep-open leaves focus in the library');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('[data-id="after-loop"]').compareDocumentPosition(document.querySelector('.rt-addwrap.at')) & Node.DOCUMENT_POSITION_FOLLOWING)), 'The slot follows the added step');
+      await key('Tab', ['shift']);
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-slot [data-action="command"]')), 'Shift+Tab returns to the strip');
+      await key('W');
+      await wait(async () => { const nodes = (await source())[0].nodes; return nodes.length === 4 && nodes[2].cat === 'command' && nodes[3].builtinId === 'bordeaux.wait'; }, 'W adds a Wait after the kept command');
+      await key('z', ['meta']); await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(loopBaseline), 'exact undo of keep-open adds');
+      // Undo from the strip while the slot sits after the step it removes closes the slot and its library, restores the
+      // routine list, and keeps focus in the flow instead of leaving a library whose picks cannot land.
+      await click('[data-id="after-loop"] .rt-step-body'); await key('A'); await key('C');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.command input')), 'command library for undo-while-open');
+      await win.webContents.insertText('finished');
+      await key('Enter', ['meta']);
+      await wait(async () => (await source())[0].nodes.length === 3, 'keep-open insert before undo-while-open');
+      await key('Tab', ['shift']);
+      await wait(() => evaluate(() => document.activeElement.matches('.rt-slot [data-action="command"]')), 'strip focus before undo-while-open');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(loopBaseline), 'undo while the slot is open');
+      await wait(() => evaluate(() => !document.querySelector('.rt-slot') && !document.querySelector('#rt-source [data-row]')
+        && document.activeElement !== document.body && Boolean(document.activeElement.closest('.rt-panel'))), 'Undo closes a slot whose step it removed and keeps focus in the flow');
+      await click('[data-id="after-loop"] .rt-step-body'); await key('A'); await key('C');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.command input')), 'command library again');
+      await win.webContents.insertText('finished');
       await key('Enter');
       await wait(async () => (await source())[0].nodes.length === 3, 'one-pick command insert');
       const pickedCommand = (await source())[0].nodes[2];
@@ -381,16 +444,20 @@ app.whenReady().then(async () => {
       assert.deepEqual(geometry[1], geometry[0]); assert.deepEqual(geometry[2], geometry[0], 'Project and tabs stay fixed across all pages');
       // No catalog: Wait remains available and can be inserted with the keyboard.
       activeCatalog = null; saved.routines = [{ ...routine, nodes: [] }]; await load(null);
-      await click('.rt-empty-add');
-      assert.equal(await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].some(el => /condition/i.test(el.textContent))), false);
-      await click('.rt-add-menu input'); await win.webContents.insertText('Wait'); await key('Enter');
+      assert.equal(await evaluate(() => /condition/i.test(document.querySelector('.rt-slot.first').textContent)), false);
+      // The keyboard reaches the strip from its library (Shift+Tab) and W adds a Wait.
+      await click('.rt-slot.first [data-action="command"]');
+      await wait(() => evaluate(() => Boolean(document.activeElement?.closest('#rt-source'))), 'command library focused');
+      await key('Tab', ['shift']);
+      assert.ok(await evaluate(() => document.activeElement.matches('.rt-slot.first [data-action="command"]')), 'Shift+Tab returns to the strip');
+      await key('W');
       await wait(async () => (await source())[0].nodes.length === 1, 'offline Wait inserted');
       assert.equal((await source())[0].nodes[0].builtinId, 'bordeaux.wait');
       await snapshot('native-wait-no-catalog-' + width);
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'native insert/Escape/focus', 'Shift+A insert before', 'Add filter and one-pick command', 'lane header route focus', 'preview radio keyboard', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

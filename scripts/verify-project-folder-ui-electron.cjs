@@ -385,20 +385,22 @@ app.whenReady().then(async () => {
     await key('Escape');
     await wait(() => evaluate(() => !document.querySelector('.library-rename') && document.activeElement.matches('.library-pick')), 'new routine name dismissed');
     for (const [selector, count] of [
-      ['.routine-workspace-flow input.rt-empty-add', 1],
+      ['.routine-workspace-flow .rt-slot.first [data-action="path"]', 1],
       ['.routine-workspace-flow .rt-list > .rt-addwrap .rt-add', 2],
     ]) {
+      // The slot's Path opens the path library in the left rail; one click on a path adds it.
       await pointer(selector);
-      await wait(() => evaluate(() => document.activeElement.matches('.rt-add-menu input[role="combobox"]')), 'inline step search focused');
-      await key('Enter');
+      await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source [data-row^="path:"]'))), 'path library open');
+      await pointer('#rt-source [data-row^="path:"]');
       await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'inserted step receives focus');
       assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-flow .rt-step').length), count);
     }
     // A on a focused row adds directly after it.
     const firstStep = await evaluate(() => document.querySelector('.routine-workspace-flow .rt-step').dataset.id);
     await pointer('.routine-workspace-flow .rt-step .rt-step-body'); await key('A');
-    await wait(() => evaluate(() => document.activeElement.getAttribute('aria-label') === 'Find a command, path or step'), 'add-after search focused');
-    await key('Enter');
+    await wait(() => evaluate(() => document.activeElement.matches('.rt-slot [data-action="path"]')), 'add-after slot focused on Path');
+    // Tab moves into the open path library; Down and Enter add its first path.
+    await key('Tab'); await key('Down'); await key('Enter');
     await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'inserted step receives focus');
     assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-flow .rt-step').length), 3);
     assert.equal(await evaluate((first) => document.querySelectorAll('.routine-workspace-flow .rt-step')[1] === document.activeElement.closest('.rt-step') && document.querySelectorAll('.routine-workspace-flow .rt-step')[0].dataset.id === first, firstStep), true);

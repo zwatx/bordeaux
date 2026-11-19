@@ -1086,8 +1086,8 @@ app.whenReady().then(async () => {
     await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
     await click('.rt-branch .rt-add');
     const branchBefore = saved.routines.find((routine) => routine.id === 'routine-a').nodes.find((node) => node.id === 'decision-a').then.length;
-    // Add lists project paths first; Enter adds the first one to the route.
-    await key('Enter');
+    // The slot opens the path library beside the flow; one click adds the first path to the route.
+    await click('#rt-source [data-row^="path:"]');
     await delay(80); await click('[aria-label="Save project"]');
     assert.equal(saved.routines.find((routine) => routine.id === 'routine-a').nodes.find((node) => node.id === 'decision-a').then.length, branchBefore + 1);
     assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-branch .rt-step.sel'))));

@@ -131,48 +131,95 @@
 .rt-flow-note{position:absolute;left:50%;bottom:12px;z-index:6;max-width:calc(100% - 48px);transform:translateX(-50%);color:var(--txt);font-size:12px;pointer-events:none}
 .rt-flow-note:not(:empty){padding:7px 12px;border-radius:var(--r);background:var(--bg-3);box-shadow:var(--elevation)}
 
-/* Add opens in place of its Add line, or between the rows where the step lands: one column under one search. The plus
-   stays where the line's plus was; kinds are told apart by icon, blocks by a rule, and a heading only adds a fact. */
-.rt-add-menu{--cmd:oklch(.86 .1 300);display:flex;flex-direction:column;max-width:560px;overflow:hidden;container:rt-add / inline-size;
-  border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1)}
-.rt-add-menu:focus-within{border-color:var(--line-3)}
-.rt-addwrap.open{padding:2px 4px 6px 44px}
+/* Adding a step: a slot where it lands, with a bright caret on its left edge and one strip of actions. Path and
+   Command open their library in the left rail; the routine's own steps add directly. */
+.rt-addwrap.open{padding:3px 4px 7px 36px}
 .rt-list>.rt-addwrap.open:not(.at){padding-top:10px}
-.rt-addwrap.open.at{padding-top:4px}
-.rt-add-search{display:flex;align-items:center;gap:8px;flex:none;height:36px;padding:0 10px 0 7px;border-bottom:1px solid var(--line);color:var(--txt-3)}
-.rt-add-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:none;color:var(--txt);font-size:13px}
-.rt-add-search input::placeholder{color:var(--txt-3)}
-.rt-add-hint{display:inline-flex;flex:none;align-items:center;gap:5px;color:var(--txt-3);font-size:11px;white-space:nowrap}
-.rt-add-hint kbd{padding:1px 5px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:10.5px var(--mono)}
-.rt-add-menu:not(:focus-within) .rt-add-hint{visibility:hidden}
-@container rt-add (max-width:360px){.rt-add-hint{display:none}}
-.rt-add-note{flex:none;margin:0;padding:8px 12px 2px;color:var(--txt-3);font-size:11.5px;line-height:1.45}
-.rt-add-list{flex:1;min-height:0;max-height:min(320px,46vh);overflow:auto;padding:4px;scrollbar-width:thin}
-.rt-add-menu.first .rt-add-list{max-height:min(480px,58vh)}
-.rt-add-none{padding:12px;color:var(--txt-3);font-size:12px;overflow-wrap:anywhere}
-.rt-ch-sep{height:1px;margin:4px 8px;background:var(--line)}
-.rt-ch-sec{padding:8px 8px 3px;color:var(--txt-3);font-size:11.5px;font-weight:550}
-.rt-ch-sep+.rt-ch-sec,.rt-ch-sec:first-child{padding-top:6px}
-/* One line per choice: icon, name, then its context on the right, which wraps before the name gives way. */
-.rt-ch-row{display:grid;grid-template-columns:18px minmax(40%,1fr) minmax(0,max-content);align-items:center;column-gap:10px;min-height:30px;padding:4px 8px;
-  border-radius:var(--r-s);color:var(--txt-2);font-size:12.5px;line-height:1.35;cursor:pointer}
-.rt-ch-row.sub{grid-template-columns:18px minmax(40%,1fr) minmax(0,max-content) 14px}
-.rt-ch-row.active{background:var(--bg-3);color:var(--txt)}
-.rt-ch-row.disabled{opacity:.5}
-.rt-ch-row.more{color:var(--txt-3)}
-.rt-ch-row.more.active{color:var(--txt)}
-.rt-ch-row.dim:not(.active){color:var(--txt-3)}
-.rt-ch-row.dim .rt-ch-ic{opacity:.6}
-.rt-ch-ic{grid-column:1;display:flex;justify-content:center;width:18px;color:var(--txt-3)}
-.rt-ch-ic.cmd{color:var(--cmd)}.rt-ch-ic.wait{color:var(--warn)}
-.rt-ch-t{grid-column:2;min-width:0;overflow-wrap:anywhere}
-.rt-ch-t mark{background:none;color:var(--txt);font-weight:600}
-.rt-ch-pre{color:var(--txt-3)}
-.rt-ch-row.active .rt-ch-pre{color:var(--txt-2)}
-.rt-ch-d{grid-column:3;min-width:0;color:var(--txt-3);font-size:11px;text-align:right;overflow-wrap:anywhere}
-.rt-ch-go{grid-column:4;display:flex}
-/* Keep-open adds already show in the flow above Add; the sentence is for assistive technology. */
-.rt-add-added{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.rt-slot{position:relative;display:flex;align-items:center;gap:6px;min-height:42px;padding:6px 6px 6px 14px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2)}
+.rt-slot-caret{position:absolute;left:5px;top:8px;bottom:8px;width:2px;border-radius:1px;background:var(--txt)}
+.rt-slot-actions{display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+.rt-slot-sources{display:flex;gap:4px;padding-right:9px;border-right:1px solid var(--line-2)}
+.rt-slot-steps{display:flex;flex-wrap:wrap;gap:2px}
+.rt-slot-src,.rt-slot-step{display:inline-flex;align-items:center;gap:6px;height:28px;border-radius:var(--r);white-space:nowrap}
+.rt-slot-src{padding:0 10px 0 8px;border:1px solid var(--line-2);background:var(--bg-1);color:var(--txt-2);font-size:12.5px;font-weight:550}
+.rt-slot-src.on{border-color:var(--line-3);background:var(--bg-4);color:var(--txt)}
+.rt-slot-step{padding:0 8px 0 7px;color:var(--txt-2);font-size:12px;font-weight:500}
+.rt-slot-ic{display:flex;justify-content:center;width:16px;color:var(--txt-3)}
+.rt-slot-src[data-action=command] .rt-slot-ic{color:var(--cmd)}
+.rt-slot-step.wait .rt-slot-ic{color:var(--warn)}
+.rt-slot-src.on[data-action=path] .rt-slot-ic{color:var(--txt)}
+.rt-slot kbd{display:none;box-sizing:border-box;width:16px;height:16px;border:1px solid var(--line-3);border-radius:3px;color:var(--txt-2);font:10px/14px var(--mono);text-align:center}
+.rt-panel[data-input=keyboard] .rt-slot:focus-within kbd{display:block}
+.rt-panel[data-input=keyboard] .rt-slot:focus-within .rt-slot-ic{display:none}
+.rt-slot :is(.rt-slot-src,.rt-slot-step):focus-visible,.rt-panel[data-input=keyboard] .rt-slot :is(.rt-slot-src,.rt-slot-step):focus{outline:2px solid var(--focus);outline-offset:-1px}
+.rt-slot-x{display:flex;flex:none;align-items:center;justify-content:center;align-self:flex-start;width:26px;height:28px;border-radius:var(--r-s);color:var(--txt-3)}
+/* The first step's slot is where step 1 goes: the same strip, a little larger. */
+.rt-addwrap.empty.open{padding:8px 4px 8px 36px}
+.rt-slot.first{min-height:52px;padding-block:9px}
+.rt-slot.first .rt-slot-src{height:32px;padding-inline:10px 12px;font-size:13px}
+.rt-slot.first .rt-slot-step{height:32px}
+/* A narrow flow keeps every name visible: the routine's own steps wrap onto their own line under Path and Command. */
+@container routine-workspace (max-width:600px){
+  .rt-slot-sources{padding-right:0;border-right:0}
+  .rt-slot-steps{flex-basis:100%}
+}
+/* A path step whose path is being changed carries the same caret as a slot: the library's pick lands here. */
+.rt-step.replacing{background:var(--bg-3);box-shadow:inset 2px 0 0 var(--txt)}
+
+/* The source library takes the routine list's place in the left rail while a slot (or Change path) is open. */
+.rt-source-host{display:flex;flex:0 0 264px;flex-direction:column;width:264px;min-height:0;overflow:hidden;background:var(--bg-1);border-right:1px solid var(--line-2)}
+.rt-source-host:empty{display:none}
+.stage-auto:has(>.rt-source-host:not(:empty))>.library-rail{display:none}
+.rt-source{--cmd:oklch(.86 .1 300);display:flex;flex:1;flex-direction:column;min-height:0;font-size:12px}
+.rt-src-head{flex:none;padding:11px 8px 6px 14px}
+.rt-src-title{display:flex;align-items:center;gap:8px;min-height:28px}
+.rt-src-title h2{flex:1;min-width:0;margin:0;color:var(--txt);font-size:13px;font-weight:600}
+.rt-src-kind{display:flex;color:var(--txt-2)}
+.rt-src-kind.command{color:var(--cmd)}
+.rt-src-x{display:flex;flex:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--r-s);color:var(--txt-3)}
+.rt-src-dest{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin:2px 8px 0 23px;overflow:hidden;color:var(--txt-3);font-size:11.5px;line-height:15px;overflow-wrap:anywhere}
+.rt-src-find{display:flex;flex:none;align-items:center;gap:7px;height:30px;margin:4px 8px 4px 10px;padding:0 8px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt-3)}
+.rt-src-find:focus-within{border-color:var(--line-3);box-shadow:0 0 0 1px var(--focus)}
+.rt-src-find input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:none;color:var(--txt);font-size:12.5px}
+.rt-src-find input::placeholder{color:var(--txt-3)}
+.rt-src-note{flex:none;margin:2px 10px 4px 14px;color:var(--txt-3);font-size:11.5px;line-height:1.45}
+.rt-src-list{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:2px 6px 10px;scrollbar-width:thin}
+.rt-src-list button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.rt-src-group{display:flex;align-items:center;gap:6px;width:100%;height:29px;margin-top:4px;padding:0 8px 0 6px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550;text-align:left}
+.rt-src-group>svg{flex:none;color:var(--txt-3);transition:transform .14s}
+.rt-src-group[aria-expanded=false]>svg{transform:rotate(-90deg)}
+.rt-src-group[aria-expanded=false]{color:var(--txt-3);font-weight:500}
+.rt-src-group-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-src-count{flex:none;color:var(--txt-3);font:11px var(--mono);font-variant-numeric:tabular-nums}
+.rt-src-group.dim .rt-src-group-name{color:var(--txt-3)}
+.rt-src-label{padding:10px 8px 3px;color:var(--txt-3);font-size:12px;font-weight:500}
+.rt-src-label+.rt-src-item{margin-top:0}
+.rt-src-item{display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;column-gap:9px;width:100%;min-height:36px;padding:5px 6px 5px calc(6px + var(--depth,0) * 14px);border-radius:var(--r);color:var(--txt-2);text-align:left}
+.rt-src-item.cmd{grid-template-columns:minmax(0,1fr) 16px;min-height:32px;padding-left:calc(10px + var(--depth,0) * 14px)}
+.rt-src-item.chosen{background:var(--bg-3)}
+.rt-src-item.top:not(.chosen){background:var(--bg-2)}
+.rt-src-item.dim .rt-src-name{color:var(--txt-2)}
+.rt-src-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rt-src-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:var(--txt);font-size:12.5px;font-weight:450;line-height:16px;overflow-wrap:anywhere}
+.rt-src-name mark{background:none;color:var(--txt);font-weight:650}
+.rt-src-pre{color:var(--txt-3)}
+.rt-src-text small{color:var(--txt-3);font-size:11px;line-height:14px;overflow-wrap:anywhere}
+.rt-src-sketch{display:block}
+.rt-src-sketch rect{fill:var(--bg);stroke:var(--line-3)}
+.rt-src-sketch polyline{fill:none;stroke:var(--txt-2);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.rt-src-sketch circle{fill:var(--txt-2)}
+.rt-src-item:is(:focus,.chosen,.top) .rt-src-sketch polyline{stroke:var(--txt)}
+.rt-src-mark{display:flex;justify-content:center;color:var(--txt)}
+.rt-src-enter,.rt-src-keys kbd{padding:0 4px;border:1px solid var(--line-3);border-radius:3px;color:var(--txt-3);font:10px/14px var(--mono);text-align:center}
+.rt-src-more{display:flex;align-items:baseline;justify-content:space-between;gap:8px;width:100%;min-height:30px;padding:6px 8px 6px calc(10px + var(--depth,0) * 14px);border-radius:var(--r);color:var(--txt-2);font-size:12px;text-align:left}
+.rt-src-more small{color:var(--txt-3);font-size:11px}
+.rt-src-empty{margin:0;padding:10px 8px;color:var(--txt-3);line-height:1.5;overflow-wrap:anywhere}
+.rt-src-none{display:flex;flex-direction:column;gap:10px;padding:8px 14px;color:var(--txt-3);line-height:1.5}
+.rt-src-none p{margin:0}
+.rt-src-keys{display:flex;flex:none;flex-wrap:wrap;gap:4px 14px;padding:8px 14px;border-top:1px solid var(--line);color:var(--txt-3);font-size:11px}
+.rt-source:not(:focus-within) .rt-src-keys{visibility:hidden}
+/* Outside the app (component fixtures), the library follows the flow. */
+.rt-source-inline{display:flex;width:264px;height:440px;margin:8px 0 0 36px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1)}
 .rt-row-menu .rt-menu-label{display:flex;flex-direction:column;gap:2px;min-width:0}
 .rt-row-menu .rt-menu-label small{color:var(--txt-3);font-size:11px;line-height:1.35;white-space:normal}
 .rt-row-menu .ctxmenu-i:disabled{color:var(--txt-3);cursor:default}
@@ -185,6 +232,11 @@
   .rt-brlbl:not(.static):hover .rt-brname{color:var(--txt)}
   .rt-radio:not(:checked):hover{background:radial-gradient(circle,transparent 0 5px,var(--txt-2) 5.5px 6.5px,transparent 7px)}
   .rt-addwrap .rt-add:not(.on):hover{background:var(--bg-2);color:var(--txt)}
+  .rt-slot-src:not(.on):hover,.rt-slot-step:hover{background:var(--bg-3);color:var(--txt)}
+  .rt-slot-x:hover,.rt-src-x:hover{background:var(--bg-4);color:var(--txt)}
+  .rt-src-group:hover,.rt-src-more:hover{background:var(--bg-2);color:var(--txt)}
+  .rt-src-item:not(.chosen):hover{background:var(--bg-2)}
+  .rt-src-item:hover .rt-src-sketch polyline{stroke:var(--txt)}
 }
 @media (pointer:coarse){
   .rt-step{grid-template-columns:44px 20px 22px minmax(0,1fr) var(--tw) 60px 44px}

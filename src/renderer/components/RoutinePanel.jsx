@@ -4,12 +4,12 @@ import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
-import { modifierName } from "../lib/shortcuts";
 import { commandArguments } from "./ContextInspector";
 import { UI } from "./ui";
-import { enabledPickerIndex, filterPickerItems, pickerPage, PICKER_PAGE_SIZE } from '../lib/pickerSearch';
-import { routinePathChoices, routinePathUses } from '../lib/routinePathChoices';
-import { commandEntry, commandIndex, commandSections, commandUsage, markMatches, rankChoices, usageText } from '../lib/commandIndex';
+import { Glyph } from "./routineGlyphs";
+import { routinePathUses } from '../lib/routinePathChoices';
+import { commandEntry, commandUsage } from '../lib/commandIndex';
+import { InsertStrip, SourceLibrary, initialSource } from './RoutineInsert';
 
 // Routine run sheet: one line per step in run order, each with its share of preview time on a shared axis. Repeats and
 // branches are bounded groups; a branch's routes are lanes, whose header opens that route's editor in the inspector and
@@ -22,22 +22,6 @@ const { Icon } = UI;
 const A = AUTO;
 const fmt = (t) => UnitPrefs.format(t || 0, 's', 2);
 const plural = (count, singular) => count + ' ' + singular + (count === 1 ? '' : /s$/.test(singular) ? 'es' : 's');
-
-// Glyphs the shared icon set lacks, drawn in its 24px line style.
-const EXTRA_GLYPHS = {
-  repeat: 'M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4',
-  exit: 'M10 7V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-2 M15 12H3 M6 9l-3 3 3 3',
-  more: 'M5 12h.01M12 12h.01M19 12h.01',
-  join: 'M7 3v4a5 5 0 0 0 5 5 M17 3v4a5 5 0 0 1-5 5v9 M8.5 17.5L12 21l3.5-3.5',
-  loop: 'M19 21v-7a6 6 0 0 0-6-6H5 M9 4L5 8l4 4',
-  // Two lanes that start together, and one lane of steps in order.
-  parallel: 'M4 6h3 M4 12h3 M4 18h3 M7 3v18 M11 6h9 M11 18h9 M17 3l3 3-3 3 M17 15l3 3-3 3',
-  sequential: 'M5 5h8 M5 12h8 M5 19h8 M18 4v15 M15 16l3 3 3-3',
-};
-export function Glyph({ name, size = 15 }) {
-  if (!EXTRA_GLYPHS[name]) return h(Icon, { name, size });
-  return h('svg', { width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': true, focusable: false, fill: 'none', stroke: 'currentColor', strokeWidth: name === 'more' ? 2.8 : 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: EXTRA_GLYPHS[name] }));
-}
 
 const isBranch = (node) => node.type === 'decision' || Boolean(node.outputBranch);
 const routeIdOf = (ref) => ref.kind === 'decision' ? ref.route : ref.routeId;
@@ -344,216 +328,6 @@ function useOutside(ref, anchor, close) {
   }, [ref, anchor, close]);
 }
 
-/**
- * Inline Add: opens inside the flow where the step will land, as one column under one search. With an empty search it
- * offers the quick picks first (paths, this routine's commands, the routine's own steps) and the command catalog last,
- * as subsystems once the catalog is large. Icons tell the kinds apart; a heading appears only where it states a fact
- * the rows do not ("In this routine", "Used in this project"). A "Show all" row or a subsystem row narrows the list
- * (Enter, → or Tab) and shows that scope as a chip in the search; Backspace or ← on an empty search, or the chip,
- * leaves it. Typing ranks each kind and puts the best-matching kind first. Enter adds; Ctrl/⌘+Enter adds and keeps Add
- * open just after the step it added. `steps` holds the commands (`group: 'commands'`, each with its index `entry`) and
- * the routine's own steps; `pathMeta` gives each path its context line; `pathsNote` says why no path is offered.
- * `dest` names the place for assistive technology, since the flow already shows it. Escape, Tab and Shift+Tab close
- * Add and return focus to where it opened. A `persistent` Add (an empty routine's first step) is always shown: it does
- * not take focus when it appears, Escape only clears it, and Tab moves on.
- */
-export function AddMenu({ paths, steps, onPick, onClose, label, dest, pathMeta, pathsNote, usage, added, persistent, inputClass }) {
-  const SECTION_LIMIT = 5, COMMAND_LIMIT = 8;
-  const SCOPES = { paths: 'Paths', commands: 'Commands', steps: 'Steps' };
-  const ref = useRef(null), input = useRef(null), returnKey = useRef(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all'); // 'all', or the one kind a "Show all" row opened
-  const [scope, setScope] = useState(null); // the open subsystem's key
-  const [announcement, setAnnouncement] = useState('');
-  const pathChoices = useMemo(() => paths.map(path => ({ key: 'path:' + path.id, kind: 'path', group: 'paths', ref: path.id, label: path.name, icon: 'route', meta: pathMeta?.get(path.id) || undefined })), [paths, pathMeta]);
-  const commandChoices = useMemo(() => steps.filter(item => item.group === 'commands' && item.entry), [steps]);
-  const stepChoices = useMemo(() => steps.filter(item => item.group !== 'commands'), [steps]);
-  // The index is cached per command array, so keep the same array while the commands themselves are unchanged
-  // (every routine edit rebuilds the step list, not the catalog).
-  const commandList = useRef([]);
-  const index = useMemo(() => {
-    const next = commandChoices.map(item => item.command), previous = commandList.current;
-    if (previous.length !== next.length || previous.some((command, i) => command !== next[i])) commandList.current = next;
-    return commandIndex(commandList.current);
-  }, [commandChoices]);
-  const itemById = useMemo(() => new Map(commandChoices.map(item => [item.command.id, item])), [commandChoices]);
-  const subsystem = scope ? index.bySubsystem.get(scope) || null : null;
-  // A catalog refresh that removes the open subsystem returns to every command.
-  useEffect(() => { if (scope && !subsystem) setScope(null); }, [scope, subsystem]);
-  // Options in display order, and where each block after the first starts: a quiet rule, or a heading with a fact.
-  const view = useMemo(() => {
-    const blocks = [], searching = Boolean(query.trim());
-    const more = (kind, count) => ({ key: 'more:' + kind, kind: 'more', filter: kind, icon: 'more', label: 'Show all ' + count.toLocaleString() + (searching ? ' matching ' : ' ') + kind });
-    if (commandChoices.length && (subsystem || filter === 'all' || filter === 'commands')) {
-      for (const section of commandSections(index, { query, scope: subsystem ? scope : null, usage })) {
-        let rows = section.rows.map((row) => row.type === 'subsystem'
-          ? { key: 'subsystem:' + row.subsystem.key, kind: 'subsystem', subsystem: row.subsystem, label: row.subsystem.name, icon: 'folder', dim: row.subsystem.diagnostic,
-              meta: plural(row.subsystem.entries.length, 'command') + (row.subsystem.diagnostic ? ' · diagnostics' : '') }
-          : { ...itemById.get(row.entry.id), item: itemById.get(row.entry.id), showPrefix: row.showPrefix, dim: row.entry.diagnostic });
-        // All keeps a search's commands short so paths and steps stay in view; the best matches come first.
-        const count = section.rows.filter((row) => row.type === 'command').length;
-        if (filter === 'all' && !subsystem && searching && count > COMMAND_LIMIT + 1) rows = [...rows.slice(0, rows.length - count + COMMAND_LIMIT), more('commands', count)];
-        // Commands already in this routine are quick picks; the rest of the catalog is browsed last.
-        const recent = section.title === 'In this routine';
-        blocks.push({ kind: 'commands', order: recent ? 1 : 3, title: recent || section.title === 'Used in this project' ? section.title : '', best: section.best, rows });
-      }
-    }
-    const kind = (choices, name, order, limit) => {
-      const ranked = rankChoices(choices, query);
-      if (!ranked.length) return;
-      let rows = ranked.map((match) => match.item);
-      if (limit && filter === 'all' && rows.length > limit) rows = [...rows.slice(0, limit), more(name, rows.length)];
-      blocks.push({ kind: name, order, title: '', best: ranked[0].score, rows });
-    };
-    if (!subsystem && (filter === 'all' || filter === 'paths')) kind(pathChoices, 'paths', 0, SECTION_LIMIT);
-    if (!subsystem && (filter === 'all' || filter === 'steps')) kind(stepChoices, 'steps', 2, 0);
-    // A search puts the kind with the best match first, so an exact name such as "Wait" is the first result.
-    blocks.sort((a, b) => (searching ? b.best - a.best : 0) || a.order - b.order);
-    const items = [], headings = new Map();
-    for (const block of blocks) {
-      if (block.title || items.length) headings.set(items.length, { key: block.kind + ':' + (block.title || items.length), title: block.title });
-      items.push(...block.rows);
-    }
-    return { items, headings };
-  }, [filter, query, scope, subsystem, usage, index, itemById, commandChoices, pathChoices, stepChoices]);
-  const items = view.items;
-  const [active, setActive] = useState(0);
-  const [page, setPage] = useState(0);
-  const shown = pickerPage(items, page);
-  const activeVisible = active >= shown.start && active < shown.end && !items[active]?.disabled;
-  const current = activeVisible ? items[active] : null;
-  // A new query, filter or subsystem starts at the first result (leaving a scope returns to the row that opened it).
-  // Replacement items for the same search (a background catalog update) keep the highlighted item by key, so Enter
-  // never inserts something else; a vanished item falls back.
-  const prevItems = useRef(items), prevSearch = useRef(query + '\0' + filter + '\0' + scope);
-  useEffect(() => {
-    const search = query + '\0' + filter + '\0' + scope, kept = returnKey.current ?? (prevSearch.current === search ? prevItems.current[active]?.key : undefined);
-    returnKey.current = null; prevItems.current = items; prevSearch.current = search;
-    const keep = kept === undefined ? -1 : items.findIndex((item) => item.key === kept && !item.disabled);
-    const next = keep >= 0 ? keep : enabledPickerIndex(items, 0);
-    setActive(next); setPage(next > 0 ? Math.floor(next / PICKER_PAGE_SIZE) : 0);
-  }, [items]);
-  // Add opened from a row or an Add line takes focus where it appears; the first step's Add waits to be used.
-  useEffect(() => {
-    if (persistent) return;
-    input.current?.focus({ preventScroll: true });
-    ref.current?.scrollIntoView?.({ block: 'nearest' });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { ref.current?.querySelector('.rt-ch-row.active')?.scrollIntoView({ block: 'nearest' }); }, [active, shown.page, items]);
-  useOutside(ref, null, persistent ? null : onClose);
-  const activate = (index) => { setActive(index); if (index >= 0) setPage(Math.floor(index / PICKER_PAGE_SIZE)); };
-  const step = (direction) => {
-    const from = activeVisible ? active : direction > 0 ? shown.start - 1 : shown.end;
-    activate(enabledPickerIndex(items, from + direction, direction));
-  };
-  const goPage = (nextPage) => {
-    const next = pickerPage(items, nextPage);
-    setPage(next.page); setActive(enabledPickerIndex(items, next.start, 1, false, next.end));
-    input.current?.focus();
-  };
-  const enter = (group) => {
-    setScope(group.key); setQuery('');
-    setAnnouncement(group.name + ', ' + plural(group.entries.length, 'command') + '. Backspace returns to all commands.');
-    input.current?.focus();
-  };
-  const widen = (kind) => {
-    setFilter(kind);
-    setAnnouncement('All ' + SCOPES[kind].toLowerCase() + '. Backspace returns to everything.');
-    input.current?.focus();
-  };
-  // Leaving goes up one level: a subsystem returns to its list, a "Show all" list to everything, each at its own row.
-  const leave = () => {
-    if (scope) { returnKey.current = 'subsystem:' + scope; setScope(null); setAnnouncement(filter === 'all' ? 'All commands' : 'All ' + SCOPES[filter].toLowerCase()); }
-    else if (filter !== 'all') { returnKey.current = 'more:' + filter; setFilter('all'); setAnnouncement('Paths, commands and steps'); }
-    input.current?.focus();
-  };
-  // "Show all" and a subsystem open their scope; anything else is the pick. Keep-open picks clear the search for the
-  // next step and stay in the scope.
-  const choose = (item, keep) => {
-    if (item.kind === 'more') { widen(item.filter); return; }
-    if (item.kind === 'subsystem') { enter(item.subsystem); return; }
-    if (!keep) { onPick(item.item || item); return; }
-    onPick(item.item || item, { keep: true }); setQuery(''); input.current?.focus();
-  };
-  const onKeyDown = (event) => {
-    const plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-    if (event.key === 'Escape') {
-      // The first step's Add stays: Escape clears its search, then its scope.
-      if (persistent) { if (query || scope || filter !== 'all') { event.preventDefault(); event.stopPropagation(); if (query) setQuery(''); else leave(); } return; }
-      event.preventDefault(); event.stopPropagation(); onClose(true); return;
-    }
-    // → (at the end of the search) or Tab opens the highlighted subsystem or "Show all"; Backspace or ← on an empty
-    // search leaves it.
-    const value = event.target?.value, caretAtEnd = !value || event.target.selectionStart === value.length;
-    if ((current?.kind === 'subsystem' || current?.kind === 'more') && plain && (event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd))) {
-      event.preventDefault(); event.stopPropagation(); choose(current); return;
-    }
-    if ((event.key === 'Backspace' || (event.key === 'ArrowLeft' && plain)) && !query && (scope || filter !== 'all')) { event.preventDefault(); leave(); return; }
-    if (event.key === 'Tab') { if (!persistent) { event.preventDefault(); event.stopPropagation(); onClose(true); } return; }
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); step(event.key === 'ArrowDown' ? 1 : -1); }
-    else if (event.key === 'PageDown' || event.key === 'PageUp') { event.preventDefault(); goPage(shown.page + (event.key === 'PageDown' ? 1 : -1)); }
-    else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); activate(enabledPickerIndex(items, event.key === 'Home' ? 0 : items.length - 1, event.key === 'Home' ? 1 : -1)); }
-    // Pagination buttons retain native Enter/Space activation; the combobox must not also choose an option.
-    else if (event.key === 'Enter' && !event.target?.closest?.('.rt-add-pages button')) { event.preventDefault(); if (current && !event.repeat) choose(current, event.ctrlKey || event.metaKey); }
-  };
-  const marked = (text) => markMatches(text, query).map((part, index) => (part.mark ? h('mark', { key: index }, part.text) : part.text));
-  const option = (item, position) => {
-    const entry = item.kind === 'command' ? item.entry : null, hidden = entry && entry.prefix && !item.showPrefix;
-    const opens = item.kind === 'subsystem' || item.kind === 'more';
-    return h('div', { key: item.key, id: 'rt-add-opt-' + position, role: 'option', 'aria-selected': position === active, 'aria-disabled': item.disabled || undefined, 'aria-posinset': position + 1, 'aria-setsize': items.length,
-      // A row without its subsystem name still has its full name for the tooltip and assistive technology.
-      title: hidden ? entry.label : undefined, 'aria-label': hidden ? entry.label + (entry.meta ? ', ' + entry.meta : '') : undefined,
-      'aria-keyshortcuts': opens ? 'ArrowRight Tab' : undefined,
-      className: 'rt-ch-row' + (item.kind === 'more' ? ' more' : '') + (opens ? ' sub' : '') + (item.dim ? ' dim' : '') + (position === active ? ' active' : '') + (item.disabled ? ' disabled' : ''),
-      // Pointer presses keep focus in the search, so typing continues after a pick that keeps Add open.
-      onMouseDown: (event) => event.preventDefault(),
-      onPointerMove: () => !item.disabled && setActive(position), onClick: (event) => !item.disabled && choose(item, event.ctrlKey || event.metaKey) },
-      h('span', { className: 'rt-ch-ic ' + (item.tone || '') }, h(Glyph, { name: item.icon, size: 15 })),
-      // The subsystem name is quieter only where subsystems are offered; a small catalog reads as plain names.
-      h('span', { className: 'rt-ch-t' }, entry && entry.prefix && item.showPrefix && index.browsable ? [h('span', { key: 'prefix', className: 'rt-ch-pre' }, marked(entry.prefix), ' '), ...marked(entry.rest)]
-        : entry ? marked(hidden ? entry.rest : entry.label) : marked(item.label)),
-      item.meta && h('span', { className: 'rt-ch-d' }, item.meta),
-      opens && h('span', { className: 'rt-ch-go', 'aria-hidden': true }, h(Icon, { name: 'chevron', size: 14 })));
-  };
-  const rows = [];
-  shown.items.forEach((item, offset) => {
-    const index = shown.start + offset, heading = view.headings.get(index);
-    if (heading) rows.push(h('div', { key: 'section:' + heading.key, className: heading.title ? 'rt-ch-sec' : 'rt-ch-sep', role: 'presentation' }, heading.title || null));
-    rows.push(option(item, index));
-  });
-  const kinds = { all: 'path, command or step', paths: 'path', commands: 'command', steps: 'step' };
-  const keepKey = modifierName();
-  const scopeName = subsystem ? subsystem.name : filter !== 'all' ? SCOPES[filter] : '';
-  const home = !query.trim() && !scopeName;
-  const placeholder = scopeName ? 'Search ' + (subsystem ? subsystem.name : scopeName.toLowerCase()) : pathChoices.length || pathsNote ? 'Add a path, command or step' : 'Add a command or step';
-  const empty = query.trim() ? 'No ' + (subsystem ? subsystem.name + ' command' : kinds[filter]) + ' matches “' + query + '”' : 'Nothing to add here';
-  const opens = current?.kind === 'subsystem' || current?.kind === 'more';
-  return h('div', { ref, className: 'rt-add-menu' + (persistent ? ' first' : ''), role: 'group', 'aria-label': label, onKeyDown },
-    h('div', { className: 'rt-add-search' },
-      h(Icon, { name: 'plus', size: 14 }),
-      // The open scope; pressing it (or Backspace on an empty search) goes back up one level.
-      scopeName && h('button', { type: 'button', className: 'rt-add-crumb', tabIndex: -1, title: 'Back (Backspace)', 'aria-label': 'Leave ' + scopeName,
-        onMouseDown: (event) => event.preventDefault(), onClick: leave }, scopeName, h(Icon, { name: 'chevron', size: 12 })),
-      h('input', { ref: input, className: inputClass, value: query, onChange: (event) => setQuery(event.target.value), 'aria-label': subsystem ? 'Find a ' + subsystem.name + ' command' : 'Find a command, path or step',
-        placeholder, role: 'combobox', 'aria-expanded': true, 'aria-controls': 'rt-add-list', 'aria-activedescendant': activeVisible ? 'rt-add-opt-' + active : undefined,
-        'aria-describedby': ['rt-add-dest', shown.last > 0 && 'rt-add-pages'].filter(Boolean).join(' '), 'aria-keyshortcuts': 'ArrowUp ArrowDown ArrowRight ArrowLeft PageUp PageDown Home End Control+Enter', spellCheck: false, autoComplete: 'off' }),
-      // One key hint for the highlighted row: how to open it, or how to keep adding.
-      items.length > 0 && h('span', { className: 'rt-add-hint', 'aria-hidden': true }, opens ? [h('kbd', { key: 'k' }, '→'), 'open'] : [h('kbd', { key: 'k' }, keepKey + ' ↵'), 'add more'])),
-    // Where the pick lands, for assistive technology; the flow shows it in place.
-    h('span', { id: 'rt-add-dest', className: 'sr-only' }, dest),
-    // The live region is always present, so screen readers announce the first keep-open add too.
-    h('div', { className: 'rt-add-added', role: 'status' }, added?.length > 0 && 'Added ' + added.at(-1) + (added.length > 1 ? ' and ' + plural(added.length - 1, 'more step') : '') + '. Keep adding, or press Esc when done.'),
-    home && !pathChoices.length && pathsNote && h('p', { className: 'rt-add-note' }, pathsNote),
-    items.length
-      ? h('div', { id: 'rt-add-list', className: 'rt-add-list', role: 'listbox', 'aria-label': subsystem ? subsystem.name + ' commands' : filter === 'all' ? 'Paths, commands and steps' : 'All ' + SCOPES[filter].toLowerCase() }, rows)
-      : h('div', { className: 'rt-add-none' }, empty),
-    shown.last > 0 && h('div', { className: 'qrow rt-add-pages', id: 'rt-add-pages', role: 'group', 'aria-label': 'Result pages. Use Page Up or Page Down to change pages.' },
-      h('button', { type: 'button', className: 'qbtn quiet', tabIndex: -1, disabled: shown.page === 0, 'aria-label': 'Previous results', title: 'Previous results (Page Up)', onClick: () => goPage(shown.page - 1) }, 'Previous'),
-      h('span', { role: 'status', 'aria-live': 'polite', 'aria-atomic': true }, (shown.start + 1).toLocaleString() + '–' + shown.end.toLocaleString() + ' of ' + items.length.toLocaleString()),
-      h('button', { type: 'button', className: 'qbtn quiet', tabIndex: -1, disabled: shown.page === shown.last, 'aria-label': 'Next results', title: 'Next results (Page Down)', onClick: () => goPage(shown.page + 1) }, 'Next')),
-    h('span', { className: 'sr-only', role: 'status', 'aria-live': 'polite' }, announcement));
-}
-
 /** Step actions, in the app's context-menu shape. Unavailable actions say why in one line. */
 function RowMenu({ anchor, items, onClose }) {
   const ref = useRef(null);
@@ -583,15 +357,8 @@ function Grip({ onPointerDown }) {
 export function RoutinePanel(props) {
   const { routine, run, paths, selId, onSelect, acq, time, running, catalog } = props;
   const issues = props.issues || [];
-  // Recomputed only when authored inputs or durations change, never per playback frame. Unchanged text keeps the
-  // same Map, so a background duration that changes nothing visible keeps an open Add menu's cursor.
-  const pathMetaRef = useRef(null);
-  const pathMeta = useMemo(() => {
-    const entries = routinePathChoices(paths, { folders: props.pathFolders, times: props.pathTimes, uses: routinePathUses(routine) }).map((choice) => [choice.path.id, choice.meta]);
-    const key = JSON.stringify(entries);
-    if (pathMetaRef.current?.key !== key) pathMetaRef.current = { key, map: new Map(entries) };
-    return pathMetaRef.current.map;
-  }, [paths, props.pathFolders, props.pathTimes, routine.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  // How often this routine follows each path, for the path library; recounted only when the authored steps change.
+  const pathUses = useMemo(() => routinePathUses(routine), [routine.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
   const [note, setNote] = useState('');
   const noteTimer = useRef(0);
   const report = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
@@ -609,7 +376,8 @@ export function RoutinePanel(props) {
     const next = new Set(collapsed); next.has(id) ? next.delete(id) : next.add(id);
     if (props.onCollapsedIdsChange) props.onCollapsedIdsChange([...next]); else setLocalCollapsed(next);
   };
-  const [add, setAdd] = useState(null); // { where, anchor, navKey, label, added }
+  const [add, setAdd] = useState(null); // { where, anchor, navKey, label, added, source, focusSource }
+  const [change, setChange] = useState(null); // { nodeId, origin }: the path step whose path is being changed
   const [menu, setMenu] = useState(null); // { id, anchor }
   const [range, setRange] = useState([]); // contiguous sibling IDs, anchored at the selected step
   const [keyboard, setKeyboard] = useState(false);
@@ -624,7 +392,7 @@ export function RoutinePanel(props) {
     if (first?.dataset.nav) setTabStop(first.dataset.nav);
   });
   // Menus and ranges belong to this routine only; a source change drops a range that no longer matches.
-  useEffect(() => { setAdd(null); setMenu(null); setRange([]); setNote(''); }, [routine.id]);
+  useEffect(() => { setAdd(null); setChange(null); setMenu(null); setRange([]); setNote(''); }, [routine.id]);
   useEffect(() => { if (range.length && range.some((id) => !A.locate(routine, id))) setRange([]); }, [routine, range]);
   useEffect(() => { if (!selId && range.length) setRange([]); }, [selId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -679,21 +447,32 @@ export function RoutinePanel(props) {
     inspector.addEventListener('keydown', keydown); inspector.addEventListener('click', click, true); inspector.addEventListener('focusout', leave);
   }));
 
-  // ---- Add: opens in the flow at the place the step lands; an empty routine always shows its first step's Add ----
-  const firstStep = useMemo(() => ({ where: { list: { kind: 'root' } }, persistent: true, label: 'Add the first step', added: [] }), []);
+  // ---- Add: a slot in the flow where the step lands, with its action strip; Path and Command open the source library
+  // in the left rail. An empty routine always shows its first step's slot. Change path opens the same library. ----
+  const firstStep = useMemo(() => ({ where: { list: { kind: 'root' } }, persistent: true, label: 'Add the first step', added: [], source: null }), []);
   const adding = add || (routine.nodes.length ? null : firstStep);
   const stepItems = useMemo(() => adding ? addMenuSteps(routine, adding.where, catalog) : [], [routine, adding, catalog]);
   // Usage ranks commands already in this routine or project higher; it is counted only while Add is open.
   // Counted when Add opens and held while it stays open, so commands added with Ctrl+Enter don't reshuffle the list.
   const usage = useMemo(() => adding ? commandUsage(props.routines, paths, routine) : null, [Boolean(adding)]); // eslint-disable-line react-hooks/exhaustive-deps
   const addInGroup = Boolean(adding && insideGroup(routine, adding.where));
-  const openAdd = (where, anchor, label, navKey) => { setMenu(null); setAdd({ where, anchor, navKey, label, added: [] }); };
-  // An Add line is replaced by Add while it is open, so focus returns to the line once it renders again.
+  // Paths never go inside a group; elsewhere a slot opens on the library used last.
+  const openAdd = (where, anchor, label, navKey) => {
+    setMenu(null); setChange(null);
+    // Each opened slot is a new strip that takes focus; keep-open adds move the same slot and leave focus where it is.
+    slotCount.current += 1;
+    setAdd({ where, anchor, navKey, label, added: [], slot: slotCount.current, source: initialSource(!insideGroup(routine, where) && paths.length > 0) });
+  };
+  const slotCount = useRef(0);
+  // An Add line is replaced by its slot while it is open, so focus returns to the line once it renders again.
   const refocusKey = useRef(null);
   useLayoutEffect(() => {
     const key = refocusKey.current; if (!key) return;
     refocusKey.current = null;
-    [...(scrollRef.current?.querySelectorAll('[data-nav]') || [])].find((element) => element.dataset.nav === key)?.focus();
+    const targets = [...(scrollRef.current?.querySelectorAll('[data-nav]') || [])];
+    // The remembered line can be gone (Undo removed its step); the routine's own Add step, or the first row, takes focus.
+    const rootAdd = 'add:' + refKey({ kind: 'root' });
+    (targets.find((element) => element.dataset.nav === key) || targets.find((element) => element.dataset.nav === rootAdd) || targets[0])?.focus();
   });
   const closeAdd = (refocus) => {
     const anchor = add?.anchor, navKey = add?.navKey;
@@ -701,6 +480,51 @@ export function RoutinePanel(props) {
     if (!refocus) return;
     if (anchor?.isConnected) anchor.focus(); else if (navKey) refocusKey.current = navKey;
   };
+  const focusSlot = (key) => requestAnimationFrame(() => document.querySelector('.rt-slot [data-action="' + key + '"]')?.focus());
+  const focusLibrary = () => document.querySelector('#rt-source input, #rt-source .rt-src-none button')?.focus();
+  /** Open, switch or (with null) close the slot's library. The first step's slot stays when its library closes. */
+  const setSource = (source, options) => {
+    if (!adding) return;
+    if (!source && adding.persistent) { const kind = adding.source; setAdd(null); if (options?.refocus && kind) focusSlot(kind); return; }
+    setAdd({ ...adding, source, focusSource: options?.focus ? (adding.focusSource || 0) + 1 : 0 });
+  };
+  // Choosing a path for an unavailable step replaces its "Choose a path" button with the path card, so focus then
+  // falls back to that card's Change path, or to the step's row.
+  const closeChange = (refocus) => {
+    const origin = change?.origin, nodeId = change?.nodeId;
+    setChange(null);
+    if (refocus) requestAnimationFrame(() => {
+      if (origin?.isConnected) { origin.focus(); return; }
+      const inspector = [...document.querySelectorAll('.routine-insp')].find((element) => element.dataset.stepId === nodeId);
+      const button = inspector?.querySelector('.routine-change-path');
+      if (button) button.focus(); else if (nodeId) focusStep(nodeId);
+    });
+  };
+  // Change path from the inspector opens the path library for that step; nothing else changes until a path is chosen.
+  if (props.sourceApi) props.sourceApi.current = { changePath: (nodeId, origin) => { setMenu(null); setAdd(null); setChange({ nodeId, origin }); } };
+  // A press outside the slot and its library closes them without moving focus; the first step's slot only drops its
+  // library. Presses on the inspector's Change path belong to the library it opens.
+  const open = Boolean((add && !add.persistent) || adding?.source || change);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (event) => {
+      if (event.target.closest?.('.rt-slot, #rt-source, .routine-change-path')) return;
+      setChange(null); setAdd(null);
+    };
+    window.addEventListener('pointerdown', away, true);
+    return () => window.removeEventListener('pointerdown', away, true);
+  }, [open, add, adding, change]);
+  useEffect(() => { if (change && !A.locate(routine, change.nodeId)) setChange(null); }, [routine, change]);
+  // Undo (or any other edit) can remove the step a slot sits beside, or the step whose list holds it. The slot and its
+  // library then close instead of offering picks that cannot land; focus returns to the routine's own Add step.
+  useEffect(() => {
+    const where = add?.where; if (!where) return;
+    const id = where.afterId || where.beforeId || (where.list && where.list.kind !== 'root' ? where.list.nodeId : null);
+    if (!id || A.locate(routine, id)) return;
+    if (add.anchor?.isConnected) { closeAdd(true); return; }
+    refocusKey.current = add.navKey || 'add:' + refKey({ kind: 'root' });
+    setAdd(null);
+  }, [routine, add]); // eslint-disable-line react-hooks/exhaustive-deps
   /** Inside a parallel group, which steps the new one runs alongside. */
   const alongside = (where) => {
     const at = where.afterId || where.beforeId ? A.locate(routine, where.afterId || where.beforeId) : null;
@@ -741,13 +565,13 @@ export function RoutinePanel(props) {
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: 'nearest' });
   }));
-  // Keep-open adds (Ctrl/⌘+Enter) stay in Add: the next pick lands after the one just added, and focus stays put.
+  // Keep-open adds (Ctrl/⌘+Enter or click) keep the slot: the next pick lands after the one just added, and focus stays put.
   const pick = (item, options) => {
     const where = adding.where, node = nodeFor(item);
     if (options?.keep) {
       const result = edit(insertOperation(routine, where, node));
-      // The first step's Add becomes the ordinary Add at the end of the routine, still in place.
-      if (result.changed) setAdd({ anchor: adding.anchor, navKey: adding.navKey || (where.list ? 'add:' + refKey(where.list) : undefined), label: adding.label,
+      // The first step's slot becomes the ordinary slot at the end of the routine, still in place.
+      if (result.changed) setAdd({ anchor: adding.anchor, navKey: adding.navKey || (where.list ? 'add:' + refKey(where.list) : undefined), label: adding.label, source: adding.source, slot: adding.slot || 'first',
         where: where.afterId ? { afterId: node.id } : where, added: [...adding.added, item.label] });
       return;
     }
@@ -757,6 +581,24 @@ export function RoutinePanel(props) {
     const inputs = item.kind === 'command' && (item.command?.parameters || []).some((parameter) => parameter.role === 'argument');
     if (inputs) focusFirstInput(result.focusId || node.id); else if (result.focusId) focusStep(result.focusId);
   };
+  /** A path chosen for an existing step replaces its reference; the step keeps its place and identity. */
+  const replacePath = (item) => {
+    const nodeId = change.nodeId, node = A.locate(routine, nodeId)?.node;
+    closeChange(true);
+    if (node && node.ref !== item.ref) acq.set(nodeId, { ref: item.ref });
+  };
+  const changing = change ? A.locate(routine, change.nodeId)?.node : null;
+  const library = changing
+    ? h(SourceLibrary, { key: 'replace:' + change.nodeId, kind: 'path', mode: 'replace', title: 'Change path', autoFocus: true, current: changing.ref,
+        dest: paths.some((path) => path.id === changing.ref) ? 'Replacing “' + stepTitle(changing, paths, catalog) + '”' : 'The saved path is unavailable',
+        paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, onPick: replacePath, onClose: closeChange })
+    : adding?.source
+      ? h(SourceLibrary, { key: 'insert:' + adding.source, kind: adding.source, mode: 'insert', title: adding.source === 'path' ? 'Add path' : 'Add command', dest: destination(adding.where),
+          autoFocus: Boolean(adding.focusSource), paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, catalog, usage,
+          onPick: pick, onCommandless: () => pick({ kind: 'command', label: 'Command' }),
+          onBack: () => focusSlot(adding.source),
+          onClose: (refocus) => (adding.persistent ? setSource(null, { refocus }) : closeAdd(refocus)) })
+      : null;
 
   // ---- row actions: each is a checked model operation; an unavailable one names its reason ----
   const rowItems = (id) => {
@@ -939,7 +781,7 @@ export function RoutinePanel(props) {
     const live = active && activePass ? 'Pass ' + activePass.pass + ' of ' + (passOf(activePass.repeatId) || '?') : active ? 'Now' : null;
     return h('div', { key: node.id, 'data-id': node.id, style: { '--depth': depth },
       ...(!readOnly ? shiftDeletionInput(() => { setRange([]); acq.del(node.id); }) : {}),
-      className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '')
+      className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '') + (change?.nodeId === node.id ? ' replacing' : '')
         + (dnd.drag?.id === node.id ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') + (dnd.drag.target.allowed ? '' : ' drop-invalid') : '') },
       readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
       h('span', { className: 'rt-step-num', 'aria-hidden': true }, numbered ? topIndex.get(node.id) : ''),
@@ -966,10 +808,11 @@ export function RoutinePanel(props) {
         'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
   }
 
-  /** Add, open in place. Paths stay outside groups; a project without paths says where they come from. */
+  /** The slot's action strip. Paths stay outside groups, so a slot inside a group offers no Path. */
   function inserter() {
-    return h(AddMenu, { paths: addInGroup ? [] : paths, pathMeta, pathsNote: !addInGroup && !paths.length ? 'No paths yet. Create one in Paths.' : undefined, steps: stepItems, usage,
-      added: adding.added, label: adding.label, dest: destination(adding.where), persistent: adding.persistent, inputClass: adding.persistent ? 'rt-empty-add' : undefined, onPick: pick, onClose: closeAdd });
+    return h(InsertStrip, { key: adding.slot || 'first', steps: stepItems.filter((item) => item.group === 'steps' && item.kind !== 'command'), allowPath: !addInGroup,
+      source: adding.source, onSource: setSource, focusLibrary, onPick: pick, onClose: closeAdd,
+      added: adding.added, label: adding.label, dest: destination(adding.where), persistent: adding.persistent });
   }
   /** The Add line at the end of a list; while open, Add itself takes its place. */
   function addRow(ref, depth, ariaLabel, empty) {
@@ -1061,5 +904,7 @@ export function RoutinePanel(props) {
       h('div', { className: 'rt-list' + (routine.nodes.length ? '' : ' rt-empty') + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
         renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
-    menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }));
+    menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }),
+    // The library takes the routine list's place in the left rail; without that rail it follows the flow.
+    library && (props.sourceHost ? createPortal(library, props.sourceHost) : h('div', { className: 'rt-source-inline' }, library)));
 }

@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.rt-add').getAttribute('aria-expanded')), 'false');
     // Add after a row (A) and Escape return focus to that row.
     await click('[data-id="path-a"] .rt-step-body'); await key('A');
-    assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Find a command, path or step');
+    assert.equal(await evaluate(() => document.activeElement.closest('.rt-slot')?.getAttribute('aria-label')), 'Add a step after this one');
     await key('Escape');
     assert.equal(await evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id), 'path-a');
     // Explicit local deletion offers exact-target Undo; never exercise live robot transports.
@@ -137,8 +137,11 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.activeElement.closest('.rt-step')?.dataset.id === 'path-b'), 'focus follows deletion to next step');
     await key('Delete');
     await assertStepNotice();
-    await wait(() => evaluate(() => document.activeElement.matches('input.rt-empty-add')), 'focus follows the last deletion to first-step search');
+    await wait(() => evaluate(() => document.activeElement.matches('.rt-slot.first [tabindex="0"]')), 'focus follows the last deletion to the first-step slot');
+    // Enter on the slot's Path opens the path library; Down reaches the first path and Enter adds it.
     await key('Enter');
+    await wait(() => evaluate(() => document.activeElement.matches('#rt-source input')), 'path library search focused');
+    await key('Down'); await key('Enter');
     await wait(() => evaluate(() => document.activeElement.matches('.rt-step.sel > .rt-step-body')), 'first step inserted and focused');
     console.log('PASS Routine close/delete and Escape on add-step choosers restore usable keyboard focus');
     await wait(() => evaluate(() => !!document.querySelector('button[aria-label="Play routine"]:not(:disabled)')), 'routine preview ready');

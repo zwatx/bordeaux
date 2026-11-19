@@ -138,7 +138,7 @@ app.whenReady().then(async () => {
         await click('[data-id="leave"] .rt-step-body'); await delay(300);
         await snapshot('baseline-path-inspector-' + width);
         await click('.rt-addwrap .rt-add'); await delay(300);
-        await snapshot('baseline-add-menu-' + width);
+        await snapshot('baseline-add-slot-' + width);
         await key('Escape');
         await click('.routine-workspace-views .seg-i', 'Field preview'); await delay(300);
         await snapshot('baseline-field-' + width);
@@ -156,7 +156,9 @@ app.whenReady().then(async () => {
       routines.forEach((r) => walk(r.nodes)); return hit;
     };
     const waitRef = (id, ref, label) => wait(async () => (await routineNode(id))?.ref === ref, label);
-    const option = '#routine-bound-path-results [role="option"] strong';
+    // Path rows in the left-rail path library, which Change path and Add both open.
+    const option = '#rt-source [data-row^="path:"] .rt-src-name';
+    const row = (id) => '#rt-source [data-row="path:' + id + '"]';
 
     for (const [width, height, units] of [[1440, 900, 'metric'], [1100, 720, 'imperial']]) {
       win.setContentSize(width, height); saved.editor.unitSystem = units;
@@ -233,38 +235,43 @@ app.whenReady().then(async () => {
       const card = await evaluate(() => document.querySelector('.routine-insp .choice-current').textContent);
       assert.ok(card.includes('Collect along the alliance wall') && card.includes('Collection') && card.includes('In this routine'), 'card: ' + card);
       await snapshot('path-card-' + width);
-      // Keyboard: Change, search by folder, choose with arrows and Enter; focus returns to Change.
-      await click('.routine-insp .choice-change', 'Change path');
-      assert.equal(await evaluate(() => document.activeElement.id), 'routine-bound-path');
+      // Keyboard: Change path opens the path library in the left rail; search by folder, choose with arrows and Enter;
+      // focus returns to Change.
+      await click('.routine-change-path', 'Change path');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Change opens the path library search');
+      assert.ok(await evaluate(() => document.querySelector('[data-id="leave"]').classList.contains('replacing')), 'The changing step is marked in the flow');
       await type('scoring');
       assert.deepEqual(await evaluate((s) => [...document.querySelectorAll(s)].map((el) => el.textContent), option), ['Score from the trench', 'Cross the bump to the far side']);
       await snapshot('path-search-' + width);
       await key('Down'); await key('Down'); await key('Enter');
       await waitRef('leave', bump, 'keyboard path choice');
-      await wait(() => evaluate(() => document.activeElement.classList.contains('choice-change')), 'focus returns to Change');
+      await wait(() => evaluate(() => document.activeElement.classList.contains('routine-change-path')), 'focus returns to Change');
       await click('[aria-label="Undo"]'); await waitRef('leave', wall, 'Undo path choice');
       // Undo keeps the step selected, and its inspector shows the restored path.
       await wait(() => evaluate((name) => document.querySelector('.routine-insp .choice-current')?.textContent.startsWith(name), paths[0].name), 'Undo keeps the step and shows its restored path');
       assert.equal(await evaluate(() => document.querySelector('[data-id="leave"] .rt-step-body').getAttribute('aria-pressed')), 'true', 'Undo keeps the step selected');
-      // Pointer: the open list marks the current path; Escape keeps it; a click chooses another.
-      await click('.routine-insp .choice-change', 'Change path');
-      assert.equal(await evaluate(() => document.querySelector('#routine-bound-path-results [aria-selected="true"] strong').textContent), paths[0].name, 'current choice is marked');
+      // Pointer: the library marks the current path; Escape keeps it; a click chooses another.
+      await click('.routine-change-path', 'Change path');
+      await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source.replace'))), 'path library');
+      assert.equal(await evaluate(() => document.querySelector('#rt-source [aria-current="true"] .rt-src-name').textContent), paths[0].name, 'current choice is marked');
       await key('Escape');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current'))), 'Escape keeps the current path');
-      await click('.routine-insp .choice-change', 'Change path');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current')) && !document.querySelector('#rt-source')), 'Escape keeps the current path');
+      await click('.routine-change-path', 'Change path');
       await click(option, 'Slalom warm-up');
       await waitRef('leave', paths[3].id, 'pointer path choice');
       await snapshot('path-chosen-' + width);
       await click('[aria-label="Undo"]'); await waitRef('leave', wall, 'Undo pointer choice');
 
-      // Add: paths come first with folder, time and use here, and are searchable.
+      // Add: the path library groups paths by folder with time and use here, and is searchable.
       await click('.rt-list>.rt-addwrap .rt-add');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-add-menu'))), 'add menu');
-      const options = await evaluate(() => [...document.querySelectorAll('.rt-add-menu [role="option"]')].map((el) => el.textContent));
-      const trenchRow = options.find((text) => text.includes('Score from the trench'));
-      assert.ok(trenchRow && trenchRow.includes('Scoring') && trenchRow.includes('In this routine'), 'add path context: ' + trenchRow);
+      await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source.path'))), 'path library');
+      const trenchRow = await evaluate(() => {
+        const rows = [...document.querySelectorAll('#rt-source [data-row], #rt-source .rt-src-label')], at = rows.findIndex((el) => el.textContent.includes('Score from the trench'));
+        return { text: rows[at]?.textContent, folder: rows.slice(0, at).reverse().find((el) => el.dataset.group)?.textContent };
+      });
+      assert.ok(trenchRow.text?.includes('In this routine') && trenchRow.folder?.startsWith('Scoring'), 'add path context: ' + JSON.stringify(trenchRow));
       await snapshot('add-paths-' + width);
-      await type('warm'); await key('Enter');
+      await key('Tab'); await type('warm'); await key('Enter');
       await wait(async () => { const nodes = (await source())[0].nodes; return nodes.length === 6 && nodes[5].ref === paths[3].id; }, 'added path step');
       await click('[aria-label="Undo"]'); await wait(async () => (await source())[0].nodes.length === 5, 'Undo add');
 
@@ -278,24 +285,28 @@ app.whenReady().then(async () => {
     win.setContentSize(1440, 900); saved.editor.unitSystem = 'metric';
     await load(); await planned();
     await click('[data-id="leave"] .rt-step-body');
-    await click('.routine-insp .choice-change', 'Change path'); await type('trench'); await key('Down'); await key('Enter');
+    await click('.routine-change-path', 'Change path'); await type('trench'); await key('Down'); await key('Enter');
     await waitRef('leave', trench, 'choose trench');
     await save(); await load(); await planned();
     await click('[data-id="leave"] .rt-step-body');
     assert.ok((await evaluate(() => document.querySelector('.routine-insp .choice-current').textContent)).startsWith('Score from the trench'), 'chosen path survives save and reopen');
     pass('Chosen path survives save and reopen');
 
-    // Deleted path: no card; the list stays open beside the problem, and a choice repairs it.
+    // Deleted path: no card; the problem is stated beside Choose a path, which opens the library, and a choice repairs it.
     await load('missing-routine', '[data-id="missing"]');
     await click('[data-id="missing"] .rt-step-body');
-    await wait(() => evaluate(() => Boolean(document.querySelector('#routine-bound-path-results'))), 'missing path list');
+    await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .routine-change-path'))), 'missing path recovery');
     assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current'))), false);
     assert.ok(await evaluate(() => document.querySelector('.routine-insp').textContent.includes('unavailable')), 'missing path problem stated');
     await snapshot('missing-path-1440');
+    await click('.routine-change-path', 'Choose a path');
+    await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source.replace'))), 'library for a missing path');
     await click(option, 'Slalom warm-up');
     await waitRef('missing', paths[3].id, 'repair missing path');
+    // The Choose a path button is replaced by the repaired path's card; focus moves to its Change path.
+    await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp .routine-change-path')), 'focus on Change path after repair');
     await snapshot('missing-repaired-1440');
-    pass('Deleted path keeps the chooser open with its problem and is repaired by a choice');
+    pass('Deleted path states its problem and is repaired by a choice from the path library');
 
     // Groups and loops: overlapping steps stack in rows inside their group's outline, loops show their glyph, instant
     // commands are chips that never overlap or leave the lane (the last faces left), and every step playing is lit.

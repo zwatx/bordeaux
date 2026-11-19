@@ -766,6 +766,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const [routineOutcomes, setRoutineOutcomes] = useState({});
     const [routinePasses, setRoutinePasses] = useState({});
     const [routineSel, setRoutineSel] = useState(null);
+    // The routine's source library renders into this left-rail host while a step is added or a path changed; the flow
+    // owns it, and the inspector's Change path reaches it through `routineSource`.
+    const [routineSourceHost, setRoutineSourceHost] = useState(null);
+    const routineSource = useRef(null);
     const [routineCollapsed, setRoutineCollapsed] = useState({});
 
     const robot = project.robot;
@@ -1992,7 +1996,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             || projectTransitionRef.current || document.querySelector('dialog:modal,[aria-modal="true"]')) return;
           const step = [...document.querySelectorAll('.rt-step')].find((element) => element.dataset.id === next?.id);
           const add = [...document.querySelectorAll('.rt-panel .rt-addwrap')].find((element) => element.dataset.list === listKey)?.querySelector('.rt-add');
-          (step?.querySelector('.rt-step-body') || add || document.querySelector('.rt-panel .rt-empty-add'))?.focus();
+          (step?.querySelector('.rt-step-body') || add || document.querySelector('.rt-panel .rt-slot.first [tabindex="0"]'))?.focus();
         });
         return true;
       },
@@ -2994,9 +2998,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),
+            h('div', { ref: setRoutineSourceHost, className: 'rt-source-host' }),
             h(RoutineWorkspace, {
               routine, run, robot,
-              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog }),
+              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
                 h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths })),
@@ -3010,7 +3015,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   run.planningError && h('span', null, run.planningError)))),
               transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
