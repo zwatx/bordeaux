@@ -196,6 +196,10 @@
 .rt-src-label+.rt-src-item{margin-top:0}
 .rt-src-item{display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;column-gap:9px;width:100%;min-height:36px;padding:5px 6px 5px calc(6px + var(--depth,0) * 14px);border-radius:var(--r);color:var(--txt-2);text-align:left}
 .rt-src-item.cmd{grid-template-columns:minmax(0,1fr) 16px;min-height:32px;padding-left:calc(10px + var(--depth,0) * 14px)}
+.rt-src-item.path{grid-template-columns:minmax(0,1fr) auto 16px;column-gap:8px;min-height:32px;padding-left:calc(24px + var(--depth,0) * 20px)}
+.rt-src-item.path .rt-src-name{color:var(--txt-2)}
+.rt-src-item.path:is(:focus,.chosen,.top) .rt-src-name{color:var(--txt)}
+.rt-src-time{color:var(--txt-3);font:11px/16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 .rt-src-item.chosen{background:var(--bg-3)}
 .rt-src-item.top:not(.chosen){background:var(--bg-2)}
 .rt-src-item.dim .rt-src-name{color:var(--txt-2)}
@@ -204,11 +208,6 @@
 .rt-src-name mark{background:none;color:var(--txt);font-weight:650}
 .rt-src-pre{color:var(--txt-3)}
 .rt-src-text small{color:var(--txt-3);font-size:11px;line-height:14px;overflow-wrap:anywhere}
-.rt-src-sketch{display:block}
-.rt-src-sketch rect{fill:var(--bg);stroke:var(--line-3)}
-.rt-src-sketch polyline{fill:none;stroke:var(--txt-2);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.rt-src-sketch circle{fill:var(--txt-2)}
-.rt-src-item:is(:focus,.chosen,.top) .rt-src-sketch polyline{stroke:var(--txt)}
 .rt-src-mark{display:flex;justify-content:center;color:var(--txt)}
 .rt-src-enter,.rt-src-keys kbd{padding:0 4px;border:1px solid var(--line-3);border-radius:3px;color:var(--txt-3);font:10px/14px var(--mono);text-align:center}
 .rt-src-more{display:flex;align-items:baseline;justify-content:space-between;gap:8px;width:100%;min-height:30px;padding:6px 8px 6px calc(10px + var(--depth,0) * 14px);border-radius:var(--r);color:var(--txt-2);font-size:12px;text-align:left}
@@ -236,7 +235,7 @@
   .rt-slot-x:hover,.rt-src-x:hover{background:var(--bg-4);color:var(--txt)}
   .rt-src-group:hover,.rt-src-more:hover{background:var(--bg-2);color:var(--txt)}
   .rt-src-item:not(.chosen):hover{background:var(--bg-2)}
-  .rt-src-item:hover .rt-src-sketch polyline{stroke:var(--txt)}
+  .rt-src-item.path:hover .rt-src-name{color:var(--txt)}
 }
 @media (pointer:coarse){
   .rt-step{grid-template-columns:44px 20px 22px minmax(0,1fr) var(--tw) 60px 44px}

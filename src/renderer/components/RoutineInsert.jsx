@@ -3,7 +3,7 @@ import { UI } from './ui';
 import { Glyph } from './routineGlyphs';
 import { modifierName } from '../lib/shortcuts';
 import { commandIndex, markMatches } from '../lib/commandIndex';
-import { commandGroupKey, commandSourceRows, GROUP_LIMIT, pathSketch, pathSourceRows, SEARCH_LIMIT } from '../lib/routineSources';
+import { commandGroupKey, commandSourceRows, GROUP_LIMIT, pathSourceRows, SEARCH_LIMIT } from '../lib/routineSources';
 
 // Adding a step is two decisions in two places. In the flow, an insertion slot sits exactly where the step will land
 // and carries a small strip of actions: Path and Command open a source library, the routine's own steps (Wait,
@@ -100,14 +100,6 @@ export function InsertStrip({ steps, allowPath, source, onSource, onPick, onClos
 }
 
 const closedFolders = new Set();
-
-function PathSketch({ path }) {
-  const points = pathSketch(path);
-  return h('svg', { className: 'rt-src-sketch', width: 36, height: 18, viewBox: '0 0 36 18', 'aria-hidden': true, focusable: false },
-    h('rect', { x: 0.5, y: 0.5, width: 35, height: 17, rx: 2.5 }),
-    points && h('polyline', { points }),
-    points && h('circle', { cx: points.split(' ')[0].split(',')[0], cy: points.split(' ')[0].split(',')[1], r: 1.6 }));
-}
 
 /**
  * The left-rail source library for one kind. `mode` 'insert' adds at the slot (Ctrl/⌘ keeps adding); 'replace'
@@ -220,12 +212,15 @@ export function SourceLibrary({ kind, mode = 'insert', title, dest, paths = [], 
     const top = searching && item === firstItem;
     const chosen = item.current || (kind === 'command' && current && item.command?.id === current);
     if (item.kind === 'path') {
-      const meta = [item.folder, item.time, item.uses === 1 ? 'In this routine' : item.uses > 1 ? 'Used ' + item.uses + '× in this routine' : ''].filter(Boolean).join(' · ');
+      // Like the Paths library: the name, its time on the right, and only the context that list lacks underneath.
+      const used = item.uses === 1 ? 'In this routine' : item.uses > 1 ? 'Used ' + item.uses + '× in this routine' : '';
+      const note = [item.folder, used].filter(Boolean).join(' · ');
+      const meta = [item.folder, item.time, used].filter(Boolean).join(' · ');
       return h('button', { ...common, className: 'rt-src-item path' + (top ? ' top' : '') + (chosen ? ' chosen' : ''), style: { '--depth': item.depth || 0 }, 'aria-current': chosen || undefined,
         'aria-label': item.label + (meta ? ', ' + meta : '') + (chosen ? ', current path' : ''), onClick: (event) => pick(item, event.ctrlKey || event.metaKey) },
-        h(PathSketch, { path: item.path }),
-        h('span', { className: 'rt-src-text' }, h('span', { className: 'rt-src-name' }, marked(item.label)), meta && h('small', null, meta)),
-        chosen ? h('span', { className: 'rt-src-mark', 'aria-hidden': true }, h(Icon, { name: 'check', size: 13 })) : top && h('kbd', { className: 'rt-src-enter', 'aria-hidden': true }, '↵'));
+        h('span', { className: 'rt-src-text' }, h('span', { className: 'rt-src-name' }, marked(item.label)), note && h('small', null, note)),
+        h('span', { className: 'rt-src-time' }, item.time),
+        chosen ? h('span', { className: 'rt-src-mark', 'aria-hidden': true }, h(Icon, { name: 'check', size: 13 })) : top ? h('kbd', { className: 'rt-src-enter', 'aria-hidden': true }, '↵') : h('span', { 'aria-hidden': true }));
     }
     const entry = item.entry, showPrefix = item.name === entry.label && entry.prefix;
     const meta = [searching && !entry.prefix && entry.subsystem !== 'Other' ? entry.subsystem : '', entry.meta].filter(Boolean).join(' · ');

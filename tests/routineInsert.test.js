@@ -7,7 +7,7 @@ import { addMenuSteps } from '../src/renderer/components/RoutinePanel';
 import { commandCatalog187 } from './fixtures/commandCatalog187';
 
 const { commandIndex, commandUsage } = commandSearch;
-const { commandSourceRows, pathSourceRows, pathSketch, commandGroupKey, GROUP_LIMIT, SEARCH_LIMIT, OTHER } = sources;
+const { commandSourceRows, pathSourceRows, commandGroupKey, GROUP_LIMIT, SEARCH_LIMIT, OTHER } = sources;
 
 describe('path library rows', () => {
   const folders = [{ id: 'autos', name: 'Autos' }, { id: 'empty', name: 'Empty' }, { id: 'score', name: 'Scoring' }];
@@ -41,11 +41,6 @@ describe('path library rows', () => {
     expect(pathSourceRows(paths, { folders, times, query: 'autos' }).map((row) => row.ref)).toEqual(['a', 'c']);
     // Without folders there is no "Not in a folder" label.
     expect(pathSourceRows([paths[1]], {}).map((row) => row.key)).toEqual(['path:loose']);
-  });
-  it('sketches a path inside a field-shaped box, and nothing for a path without a segment', () => {
-    const points = pathSketch({ waypoints: [{ x: 0, y: 0 }, { x: 16.541, y: 8.069 }, { x: 40, y: -3 }] }).split(' ').map((point) => point.split(',').map(Number));
-    expect(points).toEqual([[0, 18], [36, 0], [36, 18]]);
-    expect(pathSketch({ waypoints: [{ x: 1, y: 1 }] })).toBe('');
   });
 });
 

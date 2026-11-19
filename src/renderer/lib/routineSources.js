@@ -1,4 +1,3 @@
-import { FIELD_H, FIELD_W } from '../../shared/math/fieldBounds';
 import { commandSections, rankChoices, searchCommands } from './commandIndex';
 
 // What the routine source library lists while a step is being added or a path step changed. Rows are plain data for
@@ -14,14 +13,6 @@ export function pathTime(path, times) {
   const time = times?.[path.id];
   if ((path.waypoints?.length || 0) < 2) return 'Not timed yet';
   return time?.status === 'ready' && Number.isFinite(time.seconds) ? time.seconds.toFixed(2) + ' s' : '';
-}
-
-/** A path's waypoints as a polyline in a field-shaped box, for a small recognizable thumbnail. */
-export function pathSketch(path, width = 36, height = 18) {
-  const points = (path.waypoints || []).filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y));
-  if (points.length < 2) return '';
-  const sx = width / FIELD_W, sy = height / FIELD_H;
-  return points.map((point) => (Math.max(0, Math.min(FIELD_W, point.x)) * sx).toFixed(1) + ',' + ((FIELD_H - Math.max(0, Math.min(FIELD_H, point.y))) * sy).toFixed(1)).join(' ');
 }
 
 /**
