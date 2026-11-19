@@ -45,6 +45,7 @@ import {
   pathScope, undoScopes, withLibraryFields,
 } from "../lib/undoHistory";
 import { AUTO } from "../lib/routineModel";
+import { captureArrangement, moveFolder, movePaths } from "../lib/libraryOrder";
 import { focusIfAvailable } from "../lib/focusReturn";
 import { clearCommandPick, commandPickRequest, retireCommandPick } from "../lib/commandPick";
 import { commitFocusedDraft, enqueuePersistenceAfterPreflight, flushFocusedProjectDraft, hasProjectInputDraft, noteProjectDraftInput, projectFolderName, projectPersistenceStayedCurrent } from "../lib/draftPersistence";
@@ -1148,6 +1149,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setActiveIdx(index); setSel({ kind: null, idx: -1 });
       if (next.paths[index].id !== currentId) playbackStore.reset();
     };
+    // Reordering paths moves the open one; it stays open at its new index.
+    const keepOpenPath = (next) => {
+      const index = next.paths.findIndex((path) => path.id === docRef.current?.id);
+      if (index >= 0) setActiveIdx(index);
+    };
     /** Performs one journal entry and returns the entry that reverses it, or null to keep it. */
     const applyUndoEntry = (entry) => {
       const current = projectRef.current;
@@ -1178,8 +1184,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         return null;
       }
       setProject(applied.project);
-      // Shared-position and folder entries keep the current path; project entries show the path they changed.
+      // Shared-position, folder and library entries keep the current path; project entries show the path they changed.
       if (entry.kind === 'project') showPathAfterProjectChange(applied.project, entry.change.activePathId);
+      else if (entry.kind === 'library') keepOpenPath(applied.project);
       return applied.inverse;
     };
     const applyUndoEntryRef = useRef(applyUndoEntry); applyUndoEntryRef.current = applyUndoEntry;
@@ -1734,22 +1741,31 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setProject((pr) => { const paths = pr.paths.slice(); paths.splice(index, 0, cp); return { ...pr, paths }; });
       resetForPath(index); return { index, name, id: cp.id, folderId: cp.folderId };
     };
-    const delPath = (id) => {
+    // Deletes one or several paths as one undoable change. Paths used by routines are refused before anything changes.
+    const delPaths = (ids) => {
       if (!preflightDeletion()) return false;
-      const before = projectRef.current, i = before.paths.findIndex((path) => path.id === id);
-      if (i < 0) return false;
-      const target = before.paths[i];
-      const references = referencingRoutines(routineState(before).routines, target.id);
-      if (references.length) { alert('“' + target.name + '” is used by ' + references.map((candidate) => candidate.name).join(', ') + '. Remove those steps before deleting the path.'); return false; }
-      const pathLinks = (before.pathLinks || []).filter((link) => link.fromPathId !== target.id && link.toPathId !== target.id);
-      const paths = before.paths.filter((_, k) => k !== i);
+      const before = projectRef.current, removing = new Set(ids);
+      const targets = before.paths.filter((path) => removing.has(path.id));
+      if (!targets.length) return false;
+      const routinesNow = routineState(before).routines;
+      const used = targets.find((target) => referencingRoutines(routinesNow, target.id).length);
+      if (used) { alert('“' + used.name + '” is used by ' + referencingRoutines(routinesNow, used.id).map((candidate) => candidate.name).join(', ') + '. Remove those steps before deleting the path.'); return false; }
+      const pathLinks = (before.pathLinks || []).filter((link) => !removing.has(link.fromPathId) && !removing.has(link.toPathId));
+      const paths = before.paths.filter((path) => !removing.has(path.id));
       if (!paths.length) paths.push({ ...blankPath('New path'), waypoints: [] });
       const entry = commitProjectChange(before, { ...before, paths, pathLinks: pathLinks.length === (before.pathLinks || []).length ? before.pathLinks : pathLinks });
-      setActiveIdx((a) => Math.max(0, a > i ? a - 1 : a === i ? Math.min(a, before.paths.length - 2) : a));
+      setActiveIdx((a) => {
+        const kept = paths.findIndex((path) => path.id === before.paths[a]?.id);
+        if (kept >= 0) return kept;
+        const removedBefore = before.paths.slice(0, a).filter((path) => removing.has(path.id)).length;
+        return Math.max(0, Math.min(a - removedBefore, paths.length - 1));
+      });
       setSel({ kind: null, idx: -1 }); playbackStore.reset();
-      announceDeletion(entry, 'Path deleted', 'Deleted path “' + target.name + '”.');
+      if (targets.length === 1) announceDeletion(entry, 'Path deleted', 'Deleted path “' + targets[0].name + '”.');
+      else announceDeletion(entry, targets.length + ' paths deleted', 'Deleted ' + targets.length + ' paths: ' + targets.map((target) => '“' + target.name + '”').join(', ') + '.');
       return true;
     };
+    const delPath = (id) => delPaths([id]);
     const renamePath = (i, name) => { const clean = (name || '').trim(); if (!clean) return false; updatePathLibrary((pr) => { const paths = pr.paths.slice(); paths[i] = { ...paths[i], name: clean }; return { ...pr, paths }; }); return true; };
     const addPathFolder = () => {
       const folders = project.pathFolders || [], name = uniqueItemName(folders, 'New folder');
@@ -1770,9 +1786,18 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       announceDeletion(entry, 'Folder deleted · Paths kept', 'Deleted folder “' + deleted.change.folder.name + '”. Its ' + deleted.change.memberIds.length + ' paths stay in the library.');
       return true;
     };
-    const movePathToFolder = (i, folderId) => updatePathLibrary((pr) => ({ ...pr, paths: pr.paths.map((path, index) => {
-      if (index !== i) return path; const next = { ...path }; if (folderId) next.folderId = folderId; else delete next.folderId; return next;
-    }) }));
+    // Moving paths or folders in the library is one project-wide Undo step; the open path stays open wherever it lands.
+    const arrangeLibrary = (change) => {
+      if (!preflightDeletion()) return false;
+      const before = projectRef.current, next = change(before);
+      if (next === before) return false;
+      recordUndo({ scope: PROJECT_SCOPE, touches: [], kind: 'library', arrangement: captureArrangement(before, next) });
+      projectRef.current = next; setProject(next);
+      keepOpenPath(next);
+      return true;
+    };
+    const arrangePaths = (ids, folderId, beforeId) => arrangeLibrary((current) => movePaths(current, ids, folderId, beforeId));
+    const arrangeFolder = (id, beforeId) => arrangeLibrary((current) => moveFolder(current, id, beforeId));
     const setActive = (i) => { if (i === activeIdx && page === 'plan') return; setComparison(null); resetForPath(i); };
     const resetForRoutine = () => {
       setRoutineSel(null); routinePlaybackStore.reset(); setRoutineOutcomes({}); setRoutinePasses({});
@@ -2950,9 +2975,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       controller: pushActions,
       deletionNotice: h(DeletionNotice, { notice: deletionNotice, onUndo: undoDeletion, onDismiss: (action) => { if (deletionAction.current === action) retireDeletion(); } }),
       actions: { preflight: preflightDeletion, addPath, appendPath, addRoutine, duplicateRoutine, deleteRoutine, renameRoutine, exportPath: onExportBdx,
-        duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: delPath, renamePath: (id, name) => renamePath(pathIndex(id), name),
-        addFolder: addPathFolder, renameFolder: renamePathFolder, deleteFolder: deletePathFolder,
-        movePath: (id, folderId) => movePathToFolder(pathIndex(id), folderId), openPointLinks },
+        duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: delPath, deletePaths: delPaths, renamePath: (id, name) => renamePath(pathIndex(id), name),
+        addFolder: addPathFolder, renameFolder: renamePathFolder, deleteFolder: deletePathFolder, arrangePaths, arrangeFolder },
     }, structure);
 
     const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink, openPointLinks };

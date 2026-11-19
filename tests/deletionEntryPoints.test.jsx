@@ -4,6 +4,7 @@ import {describe,it,expect,vi} from 'vitest';
 import {deletionInput,shiftDeletionInput} from '../src/renderer/components/DeletionNotice';
 import {AUTO} from '../src/renderer/lib/routineModel';
 import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
+import {moveFolder,movePaths} from '../src/renderer/lib/libraryOrder';
 const event=(patch={})=>({button:0,detail:1,type:'pointerdown',preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{getBoundingClientRect:()=>({left:1,bottom:2})},...patch});
 const source=ts.createSourceFile('EditorLibrary.jsx',readFileSync(new URL('../src/renderer/components/EditorLibrary.jsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
 const component=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='EditorLibrary').getText(source);
@@ -12,25 +13,58 @@ function harness(){
  const useState=initial=>{const c=cells[cursor++]||={value:initial};return[c.value,n=>{c.value=typeof n==='function'?n(c.value):n;}];};
  const useRef=value=>cells[cursor++]||={current:value};
  const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(c=>c!==false&&c!=null)});
- const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','shiftDeletionInput','LibraryMenu','PathProperties','document','requestAnimationFrame',component+';return EditorLibrary;')({useId:()=> 'library-test'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,shiftDeletionInput,'LibraryMenu','PathProperties',doc,()=>{});
- props={mode:'paths',prefs:{query:'',collapsed:{},scroll:0},update:vi.fn(),project:{paths:[{id:'a',name:'A',waypoints:[{},{}]},{id:'b',name:'B',waypoints:[{},{}]}],pathFolders:[]},routines:[],activePathId:'a',onPath:vi.fn(),onRoutine:vi.fn(),actions:{preflight:vi.fn(()=>true),deletePath:vi.fn(()=>true)},times:{},controller:{itemStatus:()=>({detail:'Local'}),fileTransfer:true},selection:{selected:['a'],set:vi.fn(),clear:vi.fn()},deletionNotice:'reserved footer'};
+ const drag={drag:null,begin:vi.fn()};
+ const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','useLibraryDrag','movePaths','moveFolder','LibraryMenu','document','requestAnimationFrame',component+';return EditorLibrary;')({useId:()=> 'library-test',Fragment:'Fragment'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,()=>drag,movePaths,moveFolder,'LibraryMenu',doc,()=>{});
+ props={mode:'paths',prefs:{query:'',collapsed:{},scroll:0},update:vi.fn(),project:{paths:[{id:'a',name:'A',waypoints:[{},{}]},{id:'b',name:'B',waypoints:[{},{}]},{id:'c',name:'C',waypoints:[{},{}]}],pathFolders:[]},routines:[],activePathId:'a',onPath:vi.fn(),onRoutine:vi.fn(),actions:{preflight:vi.fn(()=>true),deletePath:vi.fn(()=>true),deletePaths:vi.fn(()=>true)},times:{},controller:{itemStatus:()=>({detail:'Local'}),fileTransfer:true},selection:{selected:['a'],set:vi.fn(),clear:vi.fn()},deletionNotice:'reserved footer'};
  const find=(n,predicate)=>{if(!n||typeof n!=='object')return null;if(predicate(n))return n;for(const c of n.children){const r=find(c,predicate);if(r)return r;}return null;};
- const render=()=>{cursor=0;tree=renderFn(props);};render();return{props,doc,render,find:predicate=>find(tree,predicate),more:()=>find(tree,n=>n.props['aria-label']==='Actions for A'),menu:()=>find(tree,n=>n.type==='LibraryMenu')};
+ const render=()=>{cursor=0;tree=renderFn(props);};render();return{props,doc,render,drag,find:predicate=>find(tree,predicate),pick:id=>find(tree,n=>n.props['data-library-item']===id),more:()=>find(tree,n=>n.props['aria-label']==='Actions for A'),menu:()=>find(tree,n=>n.type==='LibraryMenu')};
 }
 describe('actual library deletion entry points',()=>{
- it('Shift press deletes the authored path before focus and never repeats on the physical click',()=>{
-  const ui=harness(),owner=ui.doc.activeElement;
-  ui.props.actions.deletePath.mockImplementation(()=>{expect(ui.doc.activeElement).toBe(owner);return true;});
-  const row=ui.find(n=>n.props.className?.startsWith('library-row'));
-  row.props.onPointerDownCapture(event({shiftKey:true}));
-  row.props.onClickCapture(event({type:'click',shiftKey:true}));
-  expect(ui.props.actions.deletePath).toHaveBeenCalledExactlyOnceWith('a');
-  expect(ui.props.selection.set).not.toHaveBeenCalled();
+ it('Shift-click selects the listed range from the last choice and never deletes',()=>{
+  const ui=harness();
+  expect(ui.find(n=>n.props.className?.startsWith('library-row')).props.onPointerDownCapture).toBeUndefined();
+  ui.pick('c').props.onClick(event({type:'click',shiftKey:true}));
+  expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b','c']);
+  ui.pick('b').props.onClick(event({type:'click',ctrlKey:true}));
+  ui.props.selection.selected=['a','b'];ui.render();
+  ui.pick('c').props.onClick(event({type:'click',shiftKey:true}));
+  expect(ui.props.selection.set).toHaveBeenLastCalledWith(['b','c']);
+  ui.props.selection.selected=['a'];ui.render();
+  ui.pick('c').props.onClick(event({type:'click',shiftKey:true,ctrlKey:true}));
+  expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b','c']);
+  expect(ui.props.actions.deletePath).not.toHaveBeenCalled();expect(ui.props.actions.deletePaths).not.toHaveBeenCalled();expect(ui.props.onPath).not.toHaveBeenCalled();
  });
- it('Shift deletion honors an invalid owning draft without selecting another path',()=>{
-  const ui=harness(); ui.props.actions.preflight.mockReturnValue(false);
-  ui.find(n=>n.props.className?.startsWith('library-row')).props.onPointerDownCapture(event({shiftKey:true}));
-  expect(ui.props.actions.deletePath).not.toHaveBeenCalled(); expect(ui.props.onPath).not.toHaveBeenCalled();
+ it('Shift+Arrow extends the range from the keyboard',()=>{
+  const ui=harness(),rows=['a','b','c'].map(id=>({dataset:{libraryItem:id},focus:vi.fn()}));
+  ui.find(n=>n.props.className==='editor-library').props.ref.current={querySelectorAll:()=>rows};
+  ui.pick('a').props.onKeyDown(event({key:'ArrowDown',shiftKey:true,currentTarget:rows[0]}));
+  expect(rows[1].focus).toHaveBeenCalled();expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b']);
+  ui.pick('b').props.onKeyDown(event({key:'ArrowDown',shiftKey:true,currentTarget:rows[1]}));
+  expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b','c']);expect(ui.props.onPath).not.toHaveBeenCalled();
+ });
+ it('deletes a whole selection as one action from a selected row, and only the row otherwise',()=>{
+  const ui=harness();ui.props.selection.selected=['a','c'];ui.render();
+  ui.pick('c').props.onKeyDown(event({key:'Delete'}));
+  expect(ui.props.actions.deletePaths).toHaveBeenCalledExactlyOnceWith(['a','c']);
+  ui.pick('b').props.onKeyDown(event({key:'Delete'}));
+  expect(ui.props.actions.deletePath).toHaveBeenCalledExactlyOnceWith('b');
+ });
+ it('blocks a selection that includes a path a routine uses, deleting nothing',()=>{
+  const ui=harness();ui.props.selection.selected=['a','b'];ui.props.routines=[{id:'r',name:'Routine',nodes:[{id:'s',type:'path',ref:'b'}]}];ui.render();
+  ui.pick('a').props.onKeyDown(event({key:'Delete'}));ui.render();
+  expect(ui.props.actions.deletePaths).not.toHaveBeenCalled();expect(ui.props.actions.deletePath).not.toHaveBeenCalled();
+  const notice=ui.find(n=>n.props.className==='library-blocked');
+  expect(notice.children[0].children).toEqual(['Cannot delete 2 paths']);
+ });
+ it('names the selection in the menu and starts a drag of the whole selection from a selected row',()=>{
+  const ui=harness();ui.props.selection.selected=['a','c'];ui.render();
+  ui.more().props.onPointerDown(event());ui.render();
+  const labels=[];const walk=n=>{if(!n||typeof n!=='object')return;if(n.props?.role==='menuitem')labels.push(n.children.filter(c=>typeof c==='string').join(''));n.children?.forEach(walk);};walk(ui.menu());
+  expect(labels).toEqual(['Push 2 paths…','Export BDX…','Rename','Duplicate','New path from its end','Delete 2 paths']);
+  expect(labels).not.toContain('Link points…');
+  const row=ui.find(n=>n.props.className?.startsWith('library-row'));
+  row.props.onPointerDown(event({button:0}));
+  expect(ui.drag.begin).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({kind:'path',ids:['a','c'],label:'2 paths'}));
  });
  it('preflights at menu opening before pointer focus and never retries blocked physical clicks',()=>{
   const ui=harness(),owner=ui.doc.activeElement;ui.props.actions.preflight.mockImplementation(()=>{expect(ui.doc.activeElement).toBe(owner);return false;});

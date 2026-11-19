@@ -28,13 +28,15 @@
 /* Center the visible glyphs, whose ink sits above the line-box midpoint. */
 .library-name,.library-meta{transform:translateY(1px)}
 /* Row actions keep their column and appear on hover, keyboard focus, or selection. */
-.library-more{flex:0 0 24px;width:24px;height:28px;margin-left:4px;border-radius:var(--r-s);color:var(--txt-3);font-size:16px;line-height:1;opacity:0;transition:opacity .12s,background-color .12s,color .12s}
+/* The icon is centered in a fixed 24px column on the row's (or folder header's) vertical center. */
+.library-more{display:grid;flex:0 0 24px;place-items:center;align-self:center;width:24px;height:24px;margin-left:4px;padding:0;border-radius:var(--r-s);color:var(--txt-3);opacity:0;transition:opacity .12s,background-color .12s,color .12s}
+.library-more>svg{display:block}
 :is(.library-row,.library-folder):is(:hover,:focus-within) .library-more,.library-row.selected .library-more,.library-more[aria-expanded="true"]{opacity:1}
 .library-folder{display:flex;align-items:center;margin:0;padding:6px 4px 0 2px;user-select:none}
 .library-folder>button:first-child{display:flex;align-items:center;gap:6px;flex:1;min-width:0;height:29px;padding:0 4px;border-radius:var(--r-s);color:var(--txt-3);font-size:12px;font-weight:500;text-align:left}
 .library-folder>button:first-child>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .library-folder>button:first-child>svg{flex:none;transition:transform .14s}
-.library-folder [aria-expanded="false"]>svg:first-child{transform:rotate(-90deg)}
+.library-folder>button:first-child[aria-expanded="false"]>svg{transform:rotate(-90deg)}
 .library-group .library-row{padding-left:20px}
 .library-empty{padding:10px 14px;color:var(--txt-3);font-size:12px;line-height:1.5}
 .library-group .library-empty{padding-left:36px}
@@ -47,18 +49,18 @@
 .library-rename button{display:grid;place-items:center;padding:0;border-radius:var(--r-s);color:var(--txt-2)}
 .library-error{grid-column:1/-1;color:var(--bad-txt);font-size:11.5px}
 
-/* Item menu, properties and linking */
+/* Item menu */
 .library-menu{position:fixed;inset:auto;width:224px;max-height:calc(100vh - 16px);margin:0;padding:5px;overflow:auto;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt);box-shadow:var(--elevation),var(--shadow);font-size:12.5px}
 .library-menu button{display:block;width:100%;min-height:32px;padding:7px 10px;border-radius:var(--r);font-size:12.5px;line-height:1.35;text-align:left}
 .library-menu button:disabled{opacity:.45}
 .library-menu button.danger{color:var(--bad-txt)}
 .library-menu hr{margin:4px 2px;border:0;border-top:1px solid var(--line)}
-.library-properties{width:360px;max-width:calc(100vw - 32px);margin:auto;padding:18px 20px 20px;font-size:12.5px}
-.library-properties header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
-.library-properties header strong{overflow-wrap:anywhere}
-.library-properties label{display:flex;flex-direction:column;gap:6px;margin:14px 0;color:var(--txt-2);font-size:12px;font-weight:500}
-.library-properties select{width:100%;height:34px;padding:0 8px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:13px}
-.library-properties footer{display:flex;justify-content:flex-end;margin-top:18px}
+/* Move to lists the folders inline; the current one is checked and unavailable. */
+.library-menu-label{padding:5px 10px 3px;color:var(--txt-3);font-size:11.5px;font-weight:500}
+.library-menu .library-menu-choice{display:grid;grid-template-columns:14px minmax(0,1fr);align-items:center;gap:8px}
+.library-menu .library-menu-choice:disabled{opacity:1;color:var(--txt-3)}
+.library-menu-check{display:grid;place-items:center;width:14px;height:14px}
+.library-menu-text{overflow-wrap:anywhere}
 .library-link{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 
 /* Multiple selection: one line with the count, how many are out of view, and Clear. Only while Push would send
@@ -66,6 +68,21 @@
 .library-selection{display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;min-height:36px;padding:0 8px 0 14px;border-top:1px solid var(--line);color:var(--txt-2);font-size:12px;font-variant-numeric:tabular-nums}
 .library-clear{height:26px;padding:0 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550}
 .library-clear:focus-visible,.library-icon-button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* Dragging paths and folders: the moved rows dim, a line marks the insertion point, a folder that would take the
+   paths gets a neutral surface, and a label follows the pointer. */
+body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-select:none}
+.library-item,.library-group{position:relative}
+.library-item.dragging,.library-group.dragging{opacity:.4}
+.library-item:is(.drop-before,.drop-after)::after,.library-group:is(.drop-before,.drop-after)::after{content:'';position:absolute;z-index:2;left:6px;right:4px;height:2px;border-radius:1px;background:var(--txt);pointer-events:none}
+.library-item.drop-before::after,.library-group.drop-before::after{top:-1px}
+.library-item.drop-after::after,.library-group.drop-after::after{bottom:-1px}
+.library-group .library-item:is(.drop-before,.drop-after)::after{left:20px}
+.library-folder.drop-into>button:first-child{background:var(--bg-3);color:var(--txt);box-shadow:inset 0 0 0 1px var(--line-3)}
+.library-drop-unfiled{display:grid;place-items:center;height:34px;margin:6px 4px 0;border:1px dashed var(--line-3);border-radius:var(--r);color:var(--txt-3);font-size:12px}
+.library-drop-unfiled.over{border-style:solid;background:var(--bg-3);color:var(--txt)}
+.library-drag-ghost{position:fixed;z-index:1000;max-width:220px;padding:4px 9px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow);color:var(--txt);font-size:12px;line-height:16px;white-space:nowrap;text-overflow:ellipsis;pointer-events:none}
+.library-drag-ghost.idle{color:var(--txt-3)}
 
 /* Save failures: one tone, one explanation, one recovery action. */
 

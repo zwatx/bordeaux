@@ -117,8 +117,13 @@ app.whenReady().then(async () => {
       await key('Escape'); await save();
       assert.equal(saved.paths[0].waypoints[1].positionLink, undefined);
       assert.equal(saved.paths[0].waypoints[1].y, b.y, 'Unlink keeps position');
-      await click('.library-more'); await click('[role="menuitem"]', 'Link points…');
-      assert.equal(await evaluate(() => document.querySelector('#link-source-point').value), String(first.waypoints.length - 1));
+      // The last waypoint opens the same dialog from the path panel (the library menu no longer links points).
+      const last = first.waypoints.length - 1;
+      await evaluate((last) => document.querySelector('.pt-wp[data-selection="wp:' + last + '"]').focus(), last);
+      await key('Enter');
+      await wait(() => evaluate((last) => document.querySelector('.pt-wp[data-selection="wp:' + last + '"]').getAttribute('aria-pressed') === 'true', last), 'last waypoint selected');
+      await click('#band-waypoint-link');
+      assert.equal(await evaluate(() => document.querySelector('#link-source-point').value), String(last));
       // Drive the focused control directly: an open OS popup can consume synthetic keys before it is ready.
       await evaluate(() => document.querySelector('#link-source-point').focus());
       await key('Home'); await key('Down'); await key('Tab');
@@ -126,20 +131,9 @@ app.whenReady().then(async () => {
       await click('#link-point-search'); await win.webContents.insertText('no matching point');
       assert.ok((await evaluate(() => document.querySelector('.point-links-choices').textContent)).includes('No matching'));
       await snapshot('links-no-results-' + captureKey); await key('Escape');
-      console.log('PASS ' + captureKey + ': interior linking, explicit review, Undo/Redo, save/reload, unlink, library entry, search and Escape');
+      console.log('PASS ' + captureKey + ': interior linking, explicit review, Undo/Redo, save/reload, unlink, last-point entry, search and Escape');
       saved = structuredClone(original);
     }
-    // The active path stays A while a library-origin link changes B; visible Undo must restore B.
-    saved = structuredClone(original);
-    await win.loadFile(path.resolve('dist-renderer/index.html')); win.focus(); win.webContents.focus();
-    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'inactive source fixture');
-    await click('[aria-label="Actions for ' + second.name + '"]'); await click('[role="menuitem"]','Link points…');
-    await click('[data-link-target="' + first.id + ':1"]'); await click('.point-links .primary'); await save();
-    assert.ok(saved.paths[1].waypoints.at(-1).positionLink);
-    await click('[title^="Undo"]'); await save();
-    assert.equal(saved.paths[1].waypoints.at(-1).positionLink,undefined);
-    assert.deepEqual(saved.paths[1].waypoints,original.paths[1].waypoints);
-    console.log('PASS Library-origin linking of an inactive path is available to visible Undo');
     assert.deepEqual(errors, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', sizes: [[1440,900],[1100,720]], units: ['metric','imperial'] }));
   } catch (error) { process.exitCode = 1; console.error(error, errors); if (win) { try { await snapshot('failure'); } catch (captureError) { console.error('Failure capture unavailable:', captureError); } } }

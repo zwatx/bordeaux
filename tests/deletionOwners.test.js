@@ -10,7 +10,7 @@ import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
 import {commandArguments} from '../src/renderer/components/ContextInspector';
 import {robotValueSchemasEqual} from '../src/shared/robotValueSchema';
 const source=ts.createSourceFile('App.jsx',readFileSync(new URL('../src/renderer/app/App.jsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
-const names=['retireDeletion','recordUndo','commitRoutineState','setRoutine','preflightDeletion','announceDeletion','undoDeletion','showPathAfterProjectChange','applyUndoEntry','commitProjectChange','delPath','deletePathFolder','deleteRoutine','stepHistory','setActiveRoutine','stepCount','branchNotice','branchIntent','deleteFeature'];
+const names=['retireDeletion','recordUndo','commitRoutineState','setRoutine','preflightDeletion','announceDeletion','undoDeletion','showPathAfterProjectChange','applyUndoEntry','commitProjectChange','keepOpenPath','delPaths','delPath','deletePathFolder','deleteRoutine','stepHistory','setActiveRoutine','stepCount','branchNotice','branchIntent','deleteFeature'];
 const declarations=new Map();let step,branchCapture;
 function visit(node){if(ts.isVariableDeclaration(node)&&names.includes(node.name.getText(source)))declarations.set(node.name.getText(source),node.getText(source));if(ts.isVariableDeclaration(node)&&node.name.getText(source)==='acq'){const body=node.initializer.arguments[0].body.expression;step=body.properties.find(p=>p.name?.getText(source)==='del').initializer.getText(source);branchCapture=body.properties.find(p=>p.name?.getText(source)==='branch').initializer.getText(source);}ts.forEachChild(node,visit);}visit(source);
 const code=names.map(name=>'const '+declarations.get(name)+';').join('\n')+'\nconst deleteStep='+step+';\nconst captureBranch=()=>'+branchCapture+'; return {'+names.join(',')+',deleteStep,captureBranch};';
@@ -52,6 +52,16 @@ describe('actual App local deletion owners',()=>{
   expect(notice.active).toBe(true);expect(h.undoDeletion(notice)).toBe(true);
   expect(h.ctx.projectRef.current.paths.map(p=>p.name)).toEqual(['Later name','b']);expect(notice.active).toBe(false);
   expect(h.ctx.history.canRedo([PROJECT_SCOPE])).toBe(true);
+ });
+ it('deletes several paths as one undoable change and refuses all of them when a routine uses one',()=>{
+  const h=harness();h.ctx.projectRef.current={...h.ctx.projectRef.current,paths:[path('a'),path('b'),path('c')]};h.state.active=2;
+  expect(h.delPaths(['a','c'])).toBe(true);
+  expect(h.ctx.projectRef.current.paths.map(p=>p.id)).toEqual(['b']);expect(h.state.active).toBe(0);
+  expect(h.state.notice.message).toBe('2 paths deleted');expect(h.state.notice.detail).toBe('Deleted 2 paths: “a”, “c”.');
+  expect(h.ctx.history.size.past).toBe(1);expect(h.undoDeletion(h.state.notice)).toBe(true);
+  expect(h.ctx.projectRef.current.paths.map(p=>p.id)).toEqual(['a','b','c']);
+  h.ctx.projectRef.current=withRoutineState(h.ctx.projectRef.current,{...routineState(h.ctx.projectRef.current),routines:[{id:'r',name:'Uses c',nodes:[{id:'s',type:'path',ref:'c'}]}],activeRoutineId:'r'});
+  expect(h.delPaths(['a','c'])).toBe(false);expect(h.ctx.alert).toHaveBeenCalledOnce();expect(h.ctx.projectRef.current.paths.map(p=>p.id)).toEqual(['a','b','c']);
  });
  it('retires synchronously across newer entry and Undo in the same turn',()=>{
   const h=harness();h.delPath('b');const old=h.state.notice;

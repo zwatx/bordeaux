@@ -1,4 +1,4 @@
-import { deletionInput, shiftDeletionInput } from './DeletionNotice';
+import { deletionInput } from './DeletionNotice';
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
@@ -780,7 +780,12 @@ export function RoutinePanel(props) {
     const title = stepTitle(node, paths, catalog);
     const live = active && activePass ? 'Pass ' + activePass.pass + ' of ' + (passOf(activePass.repeatId) || '?') : active ? 'Now' : null;
     return h('div', { key: node.id, 'data-id': node.id, style: { '--depth': depth },
-      ...(!readOnly ? shiftDeletionInput(() => { setRange([]); acq.del(node.id); }) : {}),
+      // Shift-click anywhere on an editable row extends the range from the selected step; it never deletes.
+      onClickCapture: (event) => {
+        if (!event.shiftKey || readOnly || event.metaKey || event.ctrlKey) return;
+        event.preventDefault(); event.stopPropagation();
+        if (selId) extendTo(node.id); else { setRange([]); onSelect(node.id); }
+      },
       className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '') + (change?.nodeId === node.id ? ' replacing' : '')
         + (dnd.drag?.id === node.id ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') + (dnd.drag.target.allowed ? '' : ' drop-invalid') : '') },
       readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),

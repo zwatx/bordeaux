@@ -161,8 +161,8 @@ input,select,textarea{font-family:inherit}
 
 /* ============ controls: secondary, primary, quiet and quiet-danger ============ */
 /* Primary is the one inverted surface: dark label on near-white (about 14:1), lighter on hover. */
-:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button){display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0;min-height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:550 12px/1.25 var(--ui);text-align:center;transition:background-color .14s,border-color .14s,color .14s,opacity .14s}
-:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button):disabled{opacity:.45}
+:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.rp-proposal-actions button){display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0;min-height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:550 12px/1.25 var(--ui);text-align:center;transition:background-color .14s,border-color .14s,color .14s,opacity .14s}
+:is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.rp-proposal-actions button):disabled{opacity:.45}
 :is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary,.cmd-picker-custom button,.insert-preview-actions .primary{border-color:var(--accent-surface);background:var(--accent-surface);color:var(--on-accent)}
 .qbtn.quiet,.robot-push-actions button.quiet,.app-update-secondary button,.insert-preview-actions button:not(.primary){border-color:transparent;background:transparent;color:var(--txt-2)}
 .qbtn.wide,.rt-openbtn{width:100%}
@@ -174,7 +174,7 @@ input,select,textarea{font-family:inherit}
 /* Inline text actions: accent text, no box. */
 .choice-change,.labview-text-action,.library-blocked button,.library-link button{padding:4px 6px;margin:-4px -6px;border-radius:var(--r-s);color:var(--accent);font-size:12px;font-weight:550;text-align:left}
 @media (hover:hover){
-  :is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.library-properties footer button,.rp-proposal-actions button):hover:not(:disabled){border-color:var(--line-3);background:var(--bg-3)}
+  :is(.qbtn,.rt-openbtn,.optimizer-main,.optimizer-background button,.robot-push-actions button,.robot-push-status button,.robot-retention-actions button,.app-update-dialog button,.rp-proposal-actions button):hover:not(:disabled){border-color:var(--line-3);background:var(--bg-3)}
   :is(.qbtn,.optimizer-main,.robot-push-actions button,.rp-proposal-actions button).primary:hover:not(:disabled),.cmd-picker-custom button:hover:not(:disabled),.insert-preview-actions .primary:hover{border-color:var(--accent-surface-hover);background:var(--accent-surface-hover);color:var(--on-accent)}
   .qbtn.quiet:hover:not(:disabled),.robot-push-actions button.quiet:hover:not(:disabled),.app-update-secondary button:hover:not(:disabled),.insert-preview-actions button:not(.primary):hover{border-color:transparent;background:var(--bg-3);color:var(--txt)}
   .delbtn:hover,.delbtn:hover svg{color:var(--bad-txt)}.delbtn:hover{background:var(--bad-soft)}
@@ -835,13 +835,13 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 @container (max-width:600px){.fieldcol .metric-range{display:none}}
 
 /* ============ dialogs share one shell ============ */
-:is(.keyboard-help,.library-properties,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics){border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);box-shadow:0 24px 80px rgb(0 0 0/.55)}
-:is(.keyboard-help,.library-properties,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics)::backdrop{background:rgb(0 0 0/.55)}
-:is(.keyboard-help h2,.library-properties header strong,.app-update-header h2,.robot-push-dialog h2){margin:0;font-size:16px;font-weight:600;line-height:1.35}
+:is(.keyboard-help,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics){border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);box-shadow:0 24px 80px rgb(0 0 0/.55)}
+:is(.keyboard-help,.app-update-dialog,dialog.robot-manager,dialog.robot-diagnostics)::backdrop{background:rgb(0 0 0/.55)}
+:is(.keyboard-help h2,.app-update-header h2,.robot-push-dialog h2){margin:0;font-size:16px;font-weight:600;line-height:1.35}
 .app-update-header h2{font-size:14.5px;font-weight:600}
 .app-update-dialog::backdrop{background:transparent}
-:is(.keyboard-help header button,.library-properties header button,.app-update-dialog .app-update-close,.robot-push-close){display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;margin-left:auto;padding:0;border:0;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:20px;line-height:1}
-:is(.keyboard-help header button,.library-properties header button,.app-update-dialog .app-update-close,.robot-push-close):hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
+:is(.keyboard-help header button,.app-update-dialog .app-update-close,.robot-push-close){display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;margin-left:auto;padding:0;border:0;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:20px;line-height:1}
+:is(.keyboard-help header button,.app-update-dialog .app-update-close,.robot-push-close):hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
 .keyboard-help{width:460px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);margin:auto;padding:20px 22px 22px;overflow:auto}
 .keyboard-help header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .keyboard-help table{width:100%;border-collapse:collapse;font-size:12.5px}

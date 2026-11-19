@@ -19,7 +19,7 @@ const env = { ...process.env, BORDEAUX_LIBRARY_UI_OUTPUT: output,
 delete env.ELECTRON_RUN_AS_NODE;
 console.log('Library UI artifacts: ' + output);
 const child = spawn(electron, [path.resolve('scripts/verify-library-ui-electron.cjs')], { env, stdio: 'inherit' });
-// All 49 checks include repeated project reloads and end-to-end native scrolling of
+// All 57 checks include repeated project reloads and end-to-end native scrolling of
 // a 5000-character title. CI scrolling variance can exceed the former four-minute total.
 let timedOut = false;
 const timer = setTimeout(() => {

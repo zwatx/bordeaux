@@ -2,11 +2,13 @@
  * One bounded, chronological undo journal shared by every editor surface.
  *
  * Each entry belongs to a scope: the path it edits (`path:<id>`), the routine
- * library (`routines`), or the whole project (`project`, for deletions and
+ * library (`routines`), or the whole project (`project`, for deletions, library moves and
  * applied proposals). A surface undoes the newest entry in one of its scopes.
  * Entries from other surfaces are skipped, but never jumped over when they
  * touched the same state: undoing then would silently rewrite that surface.
  */
+import { type Arrangement, captureArrangement, restoreArrangement } from "./libraryOrder";
+
 export type UndoEntry = { scope: string; touches: readonly string[] };
 
 export const UNDO_LIMIT = 80;
@@ -180,7 +182,7 @@ const withFolder = <P extends { folderId?: string }>(path: P, folderId: string |
   return next;
 };
 
-/** Library names and folders are not editor history: a restored path keeps the current ones. */
+/** A restored path keeps its current library name and folder; arranging the library is its own entry. */
 export const withLibraryFields = <P extends { name?: string; folderId?: string }>(saved: P, current: P): P =>
   withFolder({ ...saved, name: current.name }, current.folderId);
 
@@ -236,13 +238,18 @@ export function restoreFolder<T extends FolderProject>(project: T, change: Folde
 
 export type ProjectEntry = UndoEntry & (
   | { kind: "project" | "waypoints"; change: ProjectChange }
-  | { kind: "folder"; restore?: FolderChange | null; folderId?: string });
+  | { kind: "folder"; restore?: FolderChange | null; folderId?: string }
+  | { kind: "library"; arrangement: Arrangement });
 
 /**
- * Applies a project-wide, shared-position, or folder entry. Returns the next
+ * Applies a project-wide, shared-position, folder, or library arrangement entry. Returns the next
  * project and the entry that reverses it, or null when it no longer applies.
  */
 export function applyProjectEntry<T extends Project>(project: T, entry: ProjectEntry, activePathId: string | null): { project: T; inverse: ProjectEntry } | null {
+  if (entry.kind === "library") {
+    const next = restoreArrangement(project, entry.arrangement);
+    return { project: next, inverse: { ...entry, arrangement: captureArrangement(project, next) } };
+  }
   if (entry.kind !== "folder") {
     const next = restoreProjectChange(project, entry.change);
     return { project: next, inverse: { ...entry, ...captureProjectChange(project, next, activePathId) } };

@@ -308,23 +308,32 @@ app.whenReady().then(async () => {
       await wait(() => evaluate((count) => document.querySelectorAll('.pt-wp').length === count, restored), 'undo final waypoint deletion');
     }
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'restored trajectory');
+    // In the sidebar, Shift-click selects a range instead of deleting; Delete and the menu still delete.
     await pointerClick('[data-library-item="library-path-2"]', ['shift']);
-    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 199, 'Library Shift-click deletes an unreferenced path');
-    await pointerClick('.deletion-notice button');
-    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 200, 'Native Undo restores the deleted path');
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 200, 'Library Shift-click never deletes a path');
+    assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.library-pick[aria-pressed="true"]')].map((row) => row.dataset.libraryItem)), ['library-path-0', 'library-path-1', 'library-path-2'], 'Shift-click selects the range from the open path');
+    assert.equal(await activePathId(), 'library-path-0', 'Shift-click keeps the open path');
+    await key('Escape');
+    assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 1, 'Escape clears the range');
     await pointerClick('[aria-label="Actions for folder Side"]', ['shift']);
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.library-folder')].some(el => el.textContent.includes('Side'))), false, 'Shift-click on folder actions deletes the folder');
-    await pointerClick('.deletion-notice button');
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.library-folder')].some(el => el.textContent.includes('Side'))), true, 'Shift-click on folder actions never deletes the folder');
+    await key('Escape');
     await click('.place', 'Routines');
     await pointerClick('[data-id="step-a"] .rt-step-ic', ['shift']);
-    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"]')), false, 'Routine Shift-click deletes from the whole row');
-    await pointerClick('.deletion-notice button');
-    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"]')), true, 'Routine Undo restores the step');
+    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"].sel')), true, 'Routine Shift-click selects the step instead of deleting it');
+    await pointerClick('[data-id="step-finish"] .rt-step-ic', ['shift']);
+    assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-step.sel')].map((row) => row.dataset.id).filter((id) => ['step-a', 'decision-a', 'step-finish'].includes(id))), ['step-a', 'decision-a', 'step-finish'], 'Routine Shift-click extends the range over siblings');
+    assert.equal(await evaluate(() => document.querySelector('.rt-range-bar span')?.textContent), '3 steps selected');
+    await key('Escape');
     await pointerClick('[data-library-item="routine-b"]', ['shift']);
-    assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"]')), false, 'Shift-click deletes the routine');
+    assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"][aria-current="true"]')), true, 'Shift-click opens the routine instead of deleting it');
+    await key('Delete');
+    assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"]')), false, 'Delete still deletes the focused routine');
     await pointerClick('.deletion-notice button');
+    assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"]')), true, 'Undo restores the routine');
+    await click('[data-library-item="routine-a"]');
     await click('.place', 'Paths');
-    check('Native Shift deletion and Undo cover the last waypoint, library paths/folders, routine rows and routines');
+    check('Sidebar Shift-click selects library ranges and routine step ranges without deleting; Delete and Undo still work');
     if (process.env.BORDEAUX_SHIFT_DELETE_ONLY) {
       assert.deepEqual(errors, []);
       await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
@@ -619,19 +628,13 @@ app.whenReady().then(async () => {
     await click('[aria-label="Save name"]');
     assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Managed path copy');
     await click('[aria-label="Actions for Managed path copy"]');
-    await click('.library-menu button', 'Move to folder…');
-    await evaluate(() => {
-      const select = document.querySelector('.library-properties select');
-      select.value = [...select.options].find((option) => option.text === 'Practice').value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await delay(60); await click('[aria-label="Save project"]');
+    await click('.library-menu button', 'Practice');
+    await click('[aria-label="Save project"]');
     const managed = saved.paths.find((item) => item.name === 'Managed path copy');
     assert.ok(managed.id !== saved.paths.find((item) => item.name === 'Managed path').id);
     assert.equal(managed.folderId, saved.pathFolders.find((folder) => folder.name === 'Practice').id);
-    await click('[aria-label="Close path properties"]');
     await click('[aria-label="Actions for Managed path copy"]');
-    await click('.library-menu button', 'Append path'); await click('[aria-label="Save name"]');
+    await click('.library-menu button', 'New path from its end'); await click('[aria-label="Save name"]');
     await click('[aria-label="Save project"]');
     assert.ok(saved.pathLinks.some((link) => link.fromPathId === managed.id));
     const practiceId = saved.pathFolders.find((folder) => folder.name === 'Practice').id;
@@ -647,34 +650,37 @@ app.whenReady().then(async () => {
     assert.equal(saved.paths.find((item) => item.id === managed.id).folderId, saved.pathFolders.find((folder) => folder.name === 'Practice')?.id, 'Undo restores the folder and its members');
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.ok(!saved.pathFolders.some((folder) => folder.name === 'Practice'));
-    // Library work after the deletion is not journaled; undoing the older deletion must keep it.
+    // Moves are journaled: Undo reverses later moves first, then the older folder deletion, which keeps a folder
+    // created after it (folder creation is not journaled) with names and geometry unchanged.
     const moveToFolder = async (name, folderName) => {
-      await click('[aria-label="Actions for ' + name + '"]'); await click('.library-menu button', 'Move to folder…');
-      await evaluate((folderName) => {
-        const select = document.querySelector('.library-properties select');
-        select.value = [...select.options].find((option) => option.text === folderName).value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      }, folderName);
-      await delay(60); await click('[aria-label="Close path properties"]');
+      await click('[aria-label="Actions for ' + name + '"]'); await click('.library-menu button', folderName);
     };
     const folderReferencesResolve = () => saved.paths.every((item) => !item.folderId || saved.pathFolders.some((folder) => folder.id === item.folderId));
     await click('[aria-label="New folder"]');
     await input('.library-rename input', 'Later'); await click('[aria-label="Save name"]');
+    await click('[aria-label="Save project"]');
+    const collectFolder = saved.paths.find((item) => item.name === 'Collect second').folderId;
     await moveToFolder('Collect second', 'Later');
     await moveToFolder('Managed path copy', 'Later');
     await click('[aria-label="Save project"]');
     const laterId = saved.pathFolders.find((folder) => folder.name === 'Later').id;
-    const geometryBeforeFolderUndo = saved.paths.map((item) => [item.id, item.name, item.waypoints]);
+    assert.equal(saved.paths.find((item) => item.name === 'Collect second').folderId, laterId, 'Move to moves the path');
+    assert.equal(saved.paths.find((item) => item.id === managed.id).folderId, laterId);
+    const geometryBeforeFolderUndo = saved.paths.map((item) => [item.id, item.name, item.waypoints]).sort();
     const folderUndoChecks = () => {
       assert.ok(folderReferencesResolve(), 'Every folder membership resolves: ' + JSON.stringify(saved.paths.filter((item) => item.folderId).map((item) => [item.name, item.folderId])));
       assert.ok(saved.pathFolders.some((folder) => folder.id === laterId), 'A folder created after the deletion remains');
-      assert.equal(saved.paths.find((item) => item.name === 'Collect second').folderId, laterId, 'An unrelated later move remains');
-      assert.equal(saved.paths.find((item) => item.id === managed.id).folderId, laterId, 'A former member moved later keeps its new folder');
-      assert.deepEqual(saved.paths.map((item) => [item.id, item.name, item.waypoints]), geometryBeforeFolderUndo, 'Names and geometry are unchanged');
+      assert.deepEqual(saved.paths.map((item) => [item.id, item.name, item.waypoints]).sort(), geometryBeforeFolderUndo, 'Names and geometry are unchanged');
     };
     await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
+    assert.equal(saved.paths.find((item) => item.id === managed.id).folderId, undefined, 'The first Undo reverses the newest move');
+    assert.equal(saved.paths.find((item) => item.name === 'Collect second').folderId, laterId, 'The older move waits');
+    await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
+    assert.equal(saved.paths.find((item) => item.name === 'Collect second').folderId, collectFolder, 'The second Undo reverses the older move');
+    folderUndoChecks();
+    await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
     assert.equal(saved.pathFolders.find((folder) => folder.id === practiceId)?.name, 'Practice', 'Undo restores the deleted folder');
-    for (const id of practiceMembers.filter((id) => id !== managed.id)) assert.equal(saved.paths.find((item) => item.id === id).folderId, practiceId, 'Unmoved members rejoin the folder');
+    for (const id of practiceMembers) assert.equal(saved.paths.find((item) => item.id === id).folderId, practiceId, 'Members rejoin the folder');
     folderUndoChecks();
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.ok(!saved.pathFolders.some((folder) => folder.id === practiceId), 'Redo deletes the folder again');
@@ -688,7 +694,7 @@ app.whenReady().then(async () => {
     await click('[aria-label="Save project"]');
     assert.deepEqual({ paths: saved.paths, pathFolders: saved.pathFolders }, restoredLibrary, 'Save and reload keep the restored library');
     folderUndoChecks();
-    check('undoing a folder deletion keeps later folders, moves, names, and geometry, and every membership resolves after reload');
+    check('Move to is one Undo step each; undoing them and then a folder deletion keeps later folders, names, and geometry, and every membership resolves after reload');
     const managedOriginal = structuredClone(saved.paths.find((item) => item.name === 'Managed path'));
     const managedIndex = saved.paths.findIndex((item) => item.id === managedOriginal.id);
     await click('[aria-label="Actions for Managed path"]'); await click('.library-menu button', 'Delete');
@@ -713,7 +719,7 @@ app.whenReady().then(async () => {
     assert.ok(!saved.paths.some((item) => item.id === managedOriginal.id), 'Redo deletes the path again');
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
     assert.ok(Math.abs(saved.paths.find((item) => item.id === visiblePathId).waypoints[1].x - beforeVisibleEdit.x - .05) < 1e-6, 'Redo replays the path edit');
-    check('create, duplicate, move, append/link, and undoable folder and path deletion preserve data in chronological order');
+    check('create, duplicate, move, new path from its end (linked), and undoable folder and path deletion preserve data in chronological order');
     await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
     const dragRoutine = async (from, to, valid) => {
       const points = await evaluate((from, to) => {
@@ -1158,14 +1164,10 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => !document.querySelector('.library-menu')), 'native popover toggle retires the dismissed menu');
     assert.equal(await evaluate(() => document.querySelector('.library-menu')), null, 'Click outside in the field dismisses the menu');
     await click('[aria-label="Actions for Opening move"]');
-    await click('.library-menu button', 'Move to folder…');
-    assert.equal(await evaluate(() => document.querySelector('.library-properties').open), true);
-    assert.equal(await evaluate(() => document.querySelector('.library-properties select option[value=""]').textContent), 'No folder');
-    await wait(() => evaluate(() => document.querySelector('.library-properties')?.contains(document.activeElement)), 'path properties focus');
-    await key('Escape');
-    await wait(() => evaluate(() => !document.querySelector('.library-properties')), 'native path properties Escape close');
-    assert.equal(await evaluate(() => document.activeElement.dataset.libraryItem), 'library-path-0');
-    check('item popover supports keyboard, Escape focus restoration, outside dismissal, and separate native properties');
+    assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.library-menu [role^="menuitem"]')].map((item) => item.textContent)), ['Push path…', 'Export BDX…', 'Rename', 'Duplicate', 'New path from its end', 'Delete'], 'Without folders the path menu is short and has no Move to');
+    await key('Tab');
+    await wait(() => evaluate(() => !document.querySelector('.library-menu')), 'Tab closes the menu');
+    check('item popover supports keyboard, Escape focus restoration, outside dismissal, Tab closing, and a short path menu');
     const flatRowState = () => evaluate(() => {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
       const context = canvas.getContext('2d');
@@ -1882,21 +1884,234 @@ app.whenReady().then(async () => {
       await fs.writeFile(path.join(output, 'actual-project-routine.png'), (await win.webContents.capturePage()).toPNG());
       check('actual saved project shows both durations and routine preview despite an outdated optimization');
     }
+    // Folders: real pointer drags of one path or a selection into and out of folders, row and folder reordering,
+    // Escape, Undo/Redo of each drop, Alt+Arrow, the inline Move to menu, batch deletion, and save/reload.
+    {
+      const route = (id, name, folderId) => ({ ...structuredClone(source), id, name, ...(folderId ? { folderId } : {}) });
+      saved = { ...corpus, name: 'Folder arrangement', pathLinks: [],
+        pathFolders: [{ id: 'f-score', name: 'Scoring runs' }, { id: 'f-defense', name: 'Defense' }, { id: 'f-end', name: 'Endgame' }],
+        paths: [route('p-amp', 'Amp cycle', 'f-score'), route('p-speaker', 'Speaker cycle from the far source with a long descriptive name', 'f-score'), route('p-source', 'Source pickup', 'f-score'),
+          route('p-block', 'Block lane', 'f-defense'), route('p-steal', 'Steal center notes', 'f-defense'),
+          route('p-test1', 'Test drive 1'), route('p-test2', 'Test drive 2'), route('p-test3', 'Test drive 3')],
+        routines: [{ id: 'arr-routine', name: 'Uses block', nodes: [{ id: 'arr-step', type: 'path', ref: 'p-block' }] }], activeRoutineId: 'arr-routine', editor: { activePathId: 'p-amp' } };
+      win.setContentSize(1440, 900);
+      await win.loadFile(rendererHtml);
+      await wait(() => evaluate(() => document.querySelectorAll('.library-pick').length === 8 && document.querySelector('.library-pick[aria-current="true"]')?.dataset.libraryItem === 'p-amp'), 'folder arrangement fixture');
+      await wait(() => evaluate(() => [...document.querySelectorAll('.library-meta')].every((label) => label.textContent.endsWith(' s'))), 'arrangement durations');
+      await evaluate(() => { window.__confirms = []; window.confirm = (message) => { window.__confirms.push(message); return true; }; });
+      const modifier = process.platform === 'darwin' ? 'meta' : 'control';
+      const layout = () => evaluate(() => ({ folders: [...document.querySelectorAll('[data-folder-group]')].map((group) => group.dataset.folderGroup),
+        rows: [...document.querySelectorAll('.library-pick')].map((row) => row.dataset.libraryItem + ':' + (row.closest('[data-folder-group]')?.dataset.folderGroup || '-')) }));
+      const savedLayout = () => ({ folders: saved.pathFolders.map((folder) => folder.id),
+        rows: [...saved.pathFolders.flatMap((folder) => saved.paths.filter((item) => item.folderId === folder.id)), ...saved.paths.filter((item) => !item.folderId)].map((item) => item.id + ':' + (item.folderId || '-')) });
+      const expectLayout = async (expected, label) => {
+        assert.deepEqual(await layout(), expected, label);
+        await click('[aria-label="Save project"]');
+        assert.deepEqual(savedLayout(), expected, label + ' (saved)');
+      };
+      const pressed = () => evaluate(() => [...document.querySelectorAll('.library-pick[aria-pressed="true"]')].map((row) => row.dataset.libraryItem));
+      const pointAt = (selector, fraction = 0.5) => evaluate((selector, fraction) => {
+        const el = document.querySelector(selector); if (!el) throw new Error('Missing drag point: ' + selector);
+        const r = el.getBoundingClientRect(); return { x: Math.round(r.x + Math.min(r.width / 2, 60)), y: Math.round(r.y + r.height * fraction) };
+      }, selector, fraction);
+      // Presses on `from`, moves past the threshold, then to `to` (a selector, resolved once the drag shows), and calls
+      // `during` before releasing (or not, when `release` is false).
+      const dragTo = async (from, to, { fraction = 0.5, during, release = true } = {}) => {
+        const start = await pointAt(from);
+        win.webContents.sendInputEvent({ type: 'mouseMove', ...start });
+        win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 });
+        for (const dy of [3, 8, 14]) { win.webContents.sendInputEvent({ type: 'mouseMove', x: start.x + 2, y: start.y + dy, button: 'left' }); await delay(30); }
+        await wait(() => evaluate(() => document.body.classList.contains('library-dragging') && !!document.querySelector('.library-drag-ghost')), 'library drag begins');
+        const end = await pointAt(to, fraction);
+        for (let i = 1; i <= 4; i++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(start.x + (end.x - start.x) * i / 4), y: Math.round(start.y + 14 + (end.y - start.y - 14) * i / 4), button: 'left' }); await delay(40); }
+        await delay(120);
+        if (during) await during();
+        if (release) { win.webContents.sendInputEvent({ type: 'mouseUp', ...end, button: 'left', clickCount: 1 }); await delay(150); }
+        return end;
+      };
+      const header = (id) => '[data-folder-group="' + id + '"] .library-folder > button';
+      const pick = (id) => '.library-pick[data-library-item="' + id + '"]';
+      const initial = { folders: ['f-score', 'f-defense', 'f-end'], rows: ['p-amp:f-score', 'p-speaker:f-score', 'p-source:f-score', 'p-block:f-defense', 'p-steal:f-defense', 'p-test1:-', 'p-test2:-', 'p-test3:-'] };
+      assert.deepEqual(await layout(), initial);
+      // The row action icon sits on the vertical center of its row and of its folder header.
+      const centering = await evaluate(() => {
+        const offsets = [];
+        for (const more of document.querySelectorAll('.library-more')) {
+          const owner = more.closest('.library-row') || more.closest('.library-folder').querySelector('button'), icon = more.querySelector('svg');
+          const a = icon.getBoundingClientRect(), b = owner.getBoundingClientRect();
+          offsets.push(Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2));
+          if (getComputedStyle(icon).transform !== 'none') offsets.push('rotated');
+        }
+        return { offsets, glyph: [...document.querySelectorAll('.library-more')].some((button) => button.textContent.includes('…')) };
+      });
+      assert.ok(centering.offsets.length === 11 && centering.offsets.every((offset) => offset <= 1), 'Row and folder actions are vertically centered and upright: ' + JSON.stringify(centering));
+      assert.equal(centering.glyph, false, 'Row actions use the centered icon, not a text ellipsis');
+
+      // One path onto a folder header; the open path, its selection and the list stay put until release.
+      await dragTo(pick('p-test1'), header('f-defense'), { during: async () => {
+        const state = await evaluate(() => ({ into: [...document.querySelectorAll('.library-folder.drop-into')].map((el) => el.closest('[data-folder-group]').dataset.folderGroup),
+          ghost: document.querySelector('.library-drag-ghost')?.textContent, dragging: [...document.querySelectorAll('.library-item.dragging [data-library-item]')].map((el) => el.dataset.libraryItem),
+          zone: !!document.querySelector('.library-drop-unfiled') }));
+        assert.deepEqual(state, { into: ['f-defense'], ghost: 'Test drive 1', dragging: ['p-test1'], zone: true }, 'Drag feedback marks the folder, the dragged row and the ghost');
+        await fs.writeFile(path.join(output, 'library-drag-over-folder-1440.png'), (await win.webContents.capturePage()).toPNG());
+      } });
+      assert.equal(await evaluate(() => document.body.classList.contains('library-dragging') || !!document.querySelector('.library-drag-ghost,.library-drop-unfiled')), false, 'Drag feedback clears on release');
+      const afterFirstDrop = { folders: initial.folders, rows: ['p-amp:f-score', 'p-speaker:f-score', 'p-source:f-score', 'p-block:f-defense', 'p-steal:f-defense', 'p-test1:f-defense', 'p-test2:-', 'p-test3:-'] };
+      await expectLayout(afterFirstDrop, 'A path dropped on a folder header joins that folder');
+      assert.equal(await activePathId(), 'p-amp', 'Dragging another path keeps the open path');
+      assert.deepEqual(await pressed(), ['p-amp'], 'Dragging an unselected path does not change the selection');
+      await keyboardUndo(); await expectLayout(initial, 'Ctrl+Z undoes the drop in one step');
+      await click('[title^="Redo"]'); await expectLayout(afterFirstDrop, 'Redo replays the drop');
+      check('dragging one path onto a folder shows its target, moves it in one Undo step, and keeps the open path and selection');
+
+      // Escape cancels a drag in progress without moving anything or clearing the selection.
+      await dragTo(pick('p-test2'), header('f-score'), { release: false });
+      await key('Escape');
+      assert.equal(await evaluate(() => !!document.querySelector('.library-drag-ghost,.library-item.dragging')), false, 'Escape ends the drag feedback');
+      const end = await pointAt(header('f-score'));
+      win.webContents.sendInputEvent({ type: 'mouseUp', ...end, button: 'left', clickCount: 1 }); await delay(150);
+      await expectLayout(afterFirstDrop, 'Escape cancels the drag');
+      assert.equal(await activePathId(), 'p-amp', 'The cancelled drag does not open the pressed path');
+      check('Escape cancels a library drag without moving or opening anything');
+
+      // A Shift range plus a Control/Command choice drags as one selection in list order.
+      await pointerClick(pick('p-test2'));
+      await pointerClick(pick('p-test3'), ['shift']);
+      await pointerClick(pick('p-source'), [modifier]);
+      assert.deepEqual(await pressed(), ['p-source', 'p-test2', 'p-test3'], 'Shift-click selects a range and Control/Command-click adds to it');
+      assert.equal(await activePathId(), 'p-test2');
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await delay(150);
+        await fs.writeFile(path.join(output, 'library-multi-selection-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(1440, 900); await delay(150);
+      await dragTo(pick('p-test3'), '[data-folder-group="f-end"] .library-empty', { during: async () => {
+        assert.equal(await evaluate(() => document.querySelector('.library-drag-ghost')?.textContent), '3 paths');
+        assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.library-item.dragging [data-library-item]')].map((el) => el.dataset.libraryItem)), ['p-source', 'p-test2', 'p-test3']);
+      } });
+      const afterSelectionDrop = { folders: initial.folders, rows: ['p-amp:f-score', 'p-speaker:f-score', 'p-block:f-defense', 'p-steal:f-defense', 'p-test1:f-defense', 'p-source:f-end', 'p-test2:f-end', 'p-test3:f-end'] };
+      await expectLayout(afterSelectionDrop, 'A selection dropped into an empty folder keeps its order');
+      assert.deepEqual(await pressed(), ['p-source', 'p-test2', 'p-test3'], 'The selection survives its drop');
+      assert.equal(await activePathId(), 'p-test2', 'The open path stays open after moving');
+      check('Shift range and Control/Command selection drag together into an empty folder in list order');
+
+      // Reorder within a folder (drop on the upper half of a row), reorder folders, and drag out of all folders.
+      await dragTo(pick('p-steal'), pick('p-block'), { fraction: 0.2, during: async () => {
+        assert.equal(await evaluate(() => document.querySelector('.library-item.drop-before [data-library-item]')?.dataset.libraryItem), 'p-block', 'An insertion line marks the drop point');
+      } });
+      await expectLayout({ folders: initial.folders, rows: ['p-amp:f-score', 'p-speaker:f-score', 'p-steal:f-defense', 'p-block:f-defense', 'p-test1:f-defense', 'p-source:f-end', 'p-test2:f-end', 'p-test3:f-end'] }, 'Dropping above a row reorders the folder');
+      await dragTo(header('f-end'), header('f-score'), { fraction: 0.2, during: async () => {
+        assert.equal(await evaluate(() => document.querySelector('.library-group.drop-before')?.dataset.folderGroup), 'f-score', 'Folder reordering marks the insertion point');
+        assert.equal(await evaluate(() => document.querySelector('.library-group.dragging')?.dataset.folderGroup), 'f-end');
+      } });
+      const reordered = { folders: ['f-end', 'f-score', 'f-defense'], rows: ['p-source:f-end', 'p-test2:f-end', 'p-test3:f-end', 'p-amp:f-score', 'p-speaker:f-score', 'p-steal:f-defense', 'p-block:f-defense', 'p-test1:f-defense'] };
+      await expectLayout(reordered, 'A folder dragged by its header moves above another folder');
+      assert.equal(await evaluate((id) => document.querySelector('[data-folder-group="' + id + '"] .library-folder > button').getAttribute('aria-expanded'), 'f-end'), 'true', 'Dragging a folder does not toggle it');
+      await dragTo(pick('p-amp'), '.library-drop-unfiled', { during: async () => {
+        assert.equal(await evaluate(() => document.querySelector('.library-drop-unfiled.over')?.textContent), 'No folder', 'The end of the list takes paths out of folders');
+      } });
+      const unfiled = { folders: reordered.folders, rows: ['p-source:f-end', 'p-test2:f-end', 'p-test3:f-end', 'p-speaker:f-score', 'p-steal:f-defense', 'p-block:f-defense', 'p-test1:f-defense', 'p-amp:-'] };
+      await expectLayout(unfiled, 'Dropping on the no-folder zone removes the folder');
+      await click('[title^="Undo"]'); await expectLayout(reordered, 'Undo reverses only the newest drop');
+      await click('[title^="Undo"]'); await click('[title^="Undo"]');
+      await expectLayout(afterSelectionDrop, 'Each drop is its own Undo step');
+      await click('[title^="Redo"]'); await click('[title^="Redo"]'); await click('[title^="Redo"]');
+      await expectLayout(unfiled, 'Redo replays the drops in order');
+      check('rows and folders reorder by drag with insertion marks, paths leave folders, and Undo/Redo step one drop at a time');
+
+      // Alt+Arrow reorders the focused path within its folder.
+      await evaluate((selector) => document.querySelector(selector).focus(), pick('p-block'));
+      await key('Up', ['alt']); await delay(60);
+      assert.equal(await evaluate(() => document.activeElement?.dataset.libraryItem), 'p-block', 'The moved path keeps focus');
+      await expectLayout({ ...unfiled, rows: ['p-source:f-end', 'p-test2:f-end', 'p-test3:f-end', 'p-speaker:f-score', 'p-block:f-defense', 'p-steal:f-defense', 'p-test1:f-defense', 'p-amp:-'] }, 'Alt+ArrowUp moves the path up');
+      await evaluate((selector) => document.querySelector(selector).focus(), pick('p-block'));
+      await key('Down', ['alt']);
+      await expectLayout(unfiled, 'Alt+ArrowDown moves it back');
+      check('Alt+Arrow reorders a focused path from the keyboard');
+
+      // The menu acts on the whole selection: Push, Move to (inline, current folder marked) and Delete say so.
+      await click('[aria-label="Actions for Test drive 3"]');
+      const menuState = () => evaluate(() => ({ items: [...document.querySelectorAll('.library-menu [role^="menuitem"]')].map((item) => item.textContent + (item.disabled ? ' (current)' : '')),
+        group: document.querySelector('.library-menu [role="group"]')?.getAttribute('aria-label') ?? null }));
+      assert.deepEqual(await menuState(), { items: ['Push 3 paths…', 'Export BDX…', 'Rename', 'Duplicate', 'New path from its end', 'Endgame (current)', 'Scoring runs', 'Defense', 'No folder', 'Delete 3 paths'], group: 'Move 3 paths to' });
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await delay(150);
+        await fs.writeFile(path.join(output, 'library-path-menu-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(1440, 900); await delay(150);
+      await key('End'); await key('Up');
+      assert.equal(await evaluate(() => document.activeElement.textContent), 'No folder', 'Arrow keys reach the inline folders');
+      await key('Up'); await key('Enter');
+      await wait(() => evaluate(() => !document.querySelector('.library-menu')), 'Move to closes the menu');
+      await delay(60);
+      assert.equal(await evaluate(() => document.activeElement?.dataset.libraryItem), 'p-test3', 'Focus returns to the row');
+      await expectLayout({ folders: reordered.folders, rows: ['p-speaker:f-score', 'p-steal:f-defense', 'p-block:f-defense', 'p-test1:f-defense', 'p-source:f-defense', 'p-test2:f-defense', 'p-test3:f-defense', 'p-amp:-'] }, 'Keyboard Move to moves the whole selection');
+      await keyboardUndo(); await expectLayout(unfiled, 'Undo reverses Move to in one step');
+      await click('[aria-label="Actions for Amp cycle"]');
+      assert.deepEqual(await menuState(), { items: ['Push path…', 'Export BDX…', 'Rename', 'Duplicate', 'New path from its end', 'Endgame', 'Scoring runs', 'Defense', 'No folder (current)', 'Delete'], group: 'Move to' }, 'An unselected row acts alone');
+      await key('Escape');
+      assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Actions for Amp cycle', 'Escape returns focus to the trigger');
+      await click('[aria-label="Actions for folder Scoring runs"]');
+      assert.deepEqual(await menuState(), { items: ['Rename', 'New path here', 'Delete folder'], group: null });
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await delay(150);
+        await fs.writeFile(path.join(output, 'library-folder-menu-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(1440, 900); await delay(150);
+      await key('Escape');
+      check('path and folder menus are short, act on the selection with counted labels, and Move to works inline by keyboard with one Undo step');
+
+      // Deleting a selected row deletes the selection as one undoable change; a routine's path blocks all of it.
+      await pointerClick(pick('p-block'), [modifier]);
+      assert.deepEqual(await pressed(), ['p-source', 'p-test2', 'p-test3', 'p-block'], 'Control/Command-click adds a routine-used path');
+      await key('Delete');
+      assert.equal(await evaluate(() => document.querySelector('.library-blocked strong')?.textContent), 'Cannot delete 4 paths', 'A path used by a routine blocks the batch');
+      assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 8, 'Nothing is deleted');
+      await key('Escape');
+      await pointerClick(pick('p-block'), [modifier]);
+      await evaluate((selector) => document.querySelector(selector).focus(), pick('p-test3'));
+      await key('Delete');
+      await assertDeletionFeedback('3 paths deleted', 'Test drive 3');
+      await click('[aria-label="Save project"]');
+      assert.deepEqual(saved.paths.map((item) => item.id).sort(), ['p-amp', 'p-block', 'p-speaker', 'p-steal', 'p-test1'], 'Delete removes exactly the selection');
+      await pointerClick('.deletion-notice button');
+      await expectLayout(unfiled, 'One Undo restores the whole selection in place');
+      check('Delete removes a selection as one undoable change, and a routine-used path blocks the whole batch');
+
+      // Save and reopen keep folders, order and membership.
+      await click('[aria-label="Save project"]');
+      await win.loadFile(rendererHtml);
+      await wait(() => evaluate(() => document.querySelectorAll('.library-pick').length === 8), 'arranged library reopened');
+      assert.deepEqual(await layout(), unfiled, 'Reload keeps folder order, path order and membership');
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await delay(150);
+        await evaluate(() => document.querySelector('.library-pick[aria-current="true"]')?.focus());
+        await fs.writeFile(path.join(output, 'library-folders-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+        await dragTo(pick('p-test1'), header('f-score'), { release: false });
+        await fs.writeFile(path.join(output, 'library-drag-over-folder-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+        await key('Escape');
+        const at = await pointAt(header('f-score'));
+        win.webContents.sendInputEvent({ type: 'mouseUp', ...at, button: 'left', clickCount: 1 }); await delay(150);
+      }
+      win.setContentSize(1440, 900); await delay(150);
+      assert.deepEqual(await layout(), unfiled, 'Screenshot drags were cancelled');
+      check('save and reopen keep folders, order and membership');
+    }
     // The project retains one editable empty object when its last library item is removed.
     const sole = { ...structuredClone(source), id: 'sole-path', name: 'Last authored path' };
     saved = { ...corpus, paths: [sole], pathFolders: [], pathLinks: [], routines: [{ id: 'sole-routine', name: 'Last routine', nodes: [{ id: 'sole-step', type: 'path', ref: sole.id }] }], activeRoutineId: 'sole-routine', editor: { activePathId: sole.id } };
     await win.loadFile(rendererHtml);
     await wait(() => evaluate(() => !!document.querySelector('[data-library-item="sole-path"]')), 'last-item fixture');
     await click('.place', 'Routines');
-    await pointerClick('[data-library-item="sole-routine"]', ['shift']);
+    await pointerClick('[data-library-item="sole-routine"]'); await key('Delete');
     await click('[aria-label="Save project"]');
     assert.equal(saved.routines.length, 1); assert.notEqual(saved.routines[0].id, 'sole-routine'); assert.deepEqual(saved.routines[0].nodes, []);
     await pointerClick('.deletion-notice button'); await click('[aria-label="Save project"]');
     assert.equal(saved.routines[0].id, 'sole-routine'); assert.equal(saved.routines[0].nodes.length, 1);
-    await pointerClick('[data-id="sole-step"] .rt-step-body', ['shift']); await click('[aria-label="Save project"]');
+    await pointerClick('[data-id="sole-step"] .rt-step-body'); await key('Delete'); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.routines[0].nodes, []);
     await click('.place', 'Paths');
-    await pointerClick('[data-library-item="sole-path"]', ['shift']); await click('[aria-label="Save project"]');
+    await pointerClick('[data-library-item="sole-path"]'); await key('Delete'); await click('[aria-label="Save project"]');
     assert.equal(saved.paths.length, 1); assert.notEqual(saved.paths[0].id, 'sole-path'); assert.deepEqual(saved.paths[0].waypoints, []);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(100);

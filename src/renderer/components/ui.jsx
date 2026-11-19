@@ -60,6 +60,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
     x: 'M6 6l12 12M18 6L6 18',
     compass: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M15.5 8.5l-2 5-5 2 2-5z',
     drag: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
+    more: 'M6 12h.01M12 12h.01M18 12h.01',
     shuffle: 'M4 5h4l9 14h3 M17 5h3 M4 19h4l3-4.5 M15.5 7.5L20 5l-2 4 M18 22l2-3-3-1',
     branch: 'M6 4v6a4 4 0 0 0 4 4h4 M18 4v6a4 4 0 0 1-4 4 M6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
     dot: 'M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
