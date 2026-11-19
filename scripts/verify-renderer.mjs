@@ -40,7 +40,9 @@ import path from "node:path";
 // Tangent editing, inline routine insertion, and compact status and Power reports use about 845 KB.
 // The routine insertion slot and its left-rail path and command libraries (replacing the inline Add list) measure
 // about 853 KB; 836 KiB keeps bounded headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 836 * 1024;
+// Library folder drag and drop, sidebar range selection, batch deletion and the inline Move to menu measure
+// 861,088 B against 853,185 B at HEAD (2026-11-18); 844 KiB keeps ~3 KiB headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 844 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
