@@ -19,7 +19,9 @@ import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 const REPORT_VERSION = "bordeaux-ni-inspection/1";
 const EVIDENCE_VERSION = "bordeaux-ni-evidence/2";
 const MAX_SOURCES = 1000;
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+// A full read of a real robot project (462 VIs, one with a 1.6 MB connector type) is about 10 MB, and a project may
+// have up to 1000 sources. This bounds a malformed response; it must never reject an ordinary project read.
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const READ_BUDGET_BYTES = 256 * 1024 * 1024;
 const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");

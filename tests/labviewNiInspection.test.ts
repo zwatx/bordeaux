@@ -427,6 +427,17 @@ describe("NI legacy connector discovery", () => {
     expect((await refreshLabviewCommands(fixture.project, fixture.cache, fixture.adapter))?.labviewDiscovery?.inspection?.liveOnly).toBeUndefined();
   });
 
+  it("accepts a full project response larger than 8 MB and refreshes outputs from it", async () => {
+    const fixture = await cacheFixture();
+    const refreshed = await refreshLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
+      await fixture.adapter(request, response);
+      await fs.appendFile(response, " ".repeat(10 * 1024 * 1024));
+    });
+    expect(refreshed?.commands[0].outputs?.map(output => output.name)).toContain("Acquired");
+    const restored = await withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    expect(restored.commands[0].outputs?.map(output => output.name)).toContain("Acquired");
+  });
+
   it("rejects concurrent source changes and propagates explicit adapter failures", async () => {
     const fixture = await cacheFixture();
     await expect(inspectLabviewCommands(fixture.project, fixture.cache, async (request, response) => {
