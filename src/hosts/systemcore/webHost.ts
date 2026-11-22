@@ -96,7 +96,8 @@ export function createSystemcoreHost() {
   };
   // Reviews the server holds; confirm publishes the bytes it checked at review, never new ones from this page.
   const pending = new Map<string, { preview: RobotFilePreview; uploading: boolean }>();
-  // The command list a desktop Push left on the robot, read once per page load.
+  // The command list a desktop Push left on the robot. Each project load reads it again, so the catalog and the export
+  // bindings both pick up a list pushed after the page opened.
   let commands: Promise<{ bindings: BinaryBindings } | { error: string } | null> | null = null;
   const robotCommands = () => commands ??= fetch("/api/commands").then(async (response) => {
     if (response.status === 404) return null;
@@ -240,6 +241,7 @@ export function createSystemcoreHost() {
     },
 
     restoreProjectRobotCode: async (): Promise<RobotProjectRestore> => {
+      commands = null;
       const list = await robotCommands();
       if (!list) return { status: "unlinked", error: "" };
       if ("error" in list) return { status: "error", error: list.error };

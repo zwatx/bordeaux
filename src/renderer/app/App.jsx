@@ -2143,7 +2143,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const sourceProject = projectRef.current;
       const editRevision = editStore.getRevision();
       void enqueuePersistence(() => window.bordeauxAPI.restoreLastProject()).then(async (result) => {
-        if (!active || !result) return;
+        if (!active) return;
+        // No last project: the blank document never goes through loadProject, so restore the host's command list here.
+        if (!result) {
+          if (window.bordeauxAPI.restoreProjectRobotCode) void restoreRobotCode(null, ++robotRestoreGeneration.current);
+          return;
+        }
         if (sourceProject !== projectRef.current || editRevision !== editStore.getRevision() || dirtyRef.current) {
           invalidateScheduledAutosave();
           await window.bordeauxAPI.newProject();
@@ -2154,7 +2159,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         loadProject(result.project, result.location, { session: result.session });
       }).catch((error) => console.warn('Could not restore the last project:', error));
       return () => { active = false; };
-    }, [editStore, enqueuePersistence, invalidateScheduledAutosave, loadProject, updateDirty]);
+    }, [editStore, enqueuePersistence, invalidateScheduledAutosave, loadProject, restoreRobotCode, updateDirty]);
     const prepareProjectReplacement = useCallback(() => {
       invalidateScheduledAutosave();
       cancelEdit();
