@@ -3,7 +3,7 @@ PACKAGE_NAME="bordeaux"
 
 # The service may write only here (ReadWritePaths), so the folders must exist first.
 # Files already in them, including paths pushed earlier from the desktop app, are kept.
-install -d -o systemcore -g systemcore /home/systemcore/bordeaux /home/systemcore/bordeaux/projects /home/systemcore/bordeaux/paths
+install -d -o systemcore -g systemcore /home/systemcore/bordeaux /home/systemcore/bordeaux/projects /home/systemcore/bordeaux/paths || exit 1
 
 systemctl daemon-reload
 sleep 1

@@ -30,11 +30,12 @@ for (const script of ['postinst', 'prerm', 'postrm']) {
 }
 await fs.writeFile(path.join(work, 'debian-binary'), '2.0\n');
 
-// Root-owned, name-sorted and dated to the commit, so one commit always produces the same package bytes.
+// Root-owned, name-sorted and dated to the commit, so one commit always produces the same package bytes. Folders are
+// searchable by everyone whatever the packager's umask, so the systemcore user can reach the server.
 const epoch = execFileSync('git', ['log', '-1', '--format=%ct']).toString().trim();
 // Members are named from the top-level entries, never `./` itself: opkg records every data member as a file the
 // package owns, and an entry for the root folder would make it try to remove `/` on upgrade or removal.
-const tar = async (folder, out) => run('tar', ['--sort=name', `--mtime=@${epoch}`, '--owner=0', '--group=0', '--numeric-owner', '--mode=u+rw,go+r,go-w', '-C', folder, '-cf', out,
+const tar = async (folder, out) => run('tar', ['--sort=name', `--mtime=@${epoch}`, '--owner=0', '--group=0', '--numeric-owner', '--mode=u+rw,go+rX,go-w', '-C', folder, '-cf', out,
   ...(await fs.readdir(folder)).sort().map((entry) => `./${entry}`)]);
 await tar(control, path.join(work, 'control.tar'));
 await tar(data, path.join(work, 'data.tar'));
