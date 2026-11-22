@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { robotPlanningProfileSchema } from "../src/shared/agent/schemas";
+import { robotPlanningProfileSchema } from "../src/core/agent/schemas";
 import { PROJECT_SCOPE, applyProjectEntry, captureProjectChange, createUndoHistory, type ProjectEntry } from "../src/renderer/lib/undoHistory";
-import type { RobotPlanningProfile } from "../src/shared/types";
+import type { RobotPlanningProfile } from "../src/core/types";
 
 type Project = { name: string; paths: { id: string; name: string }[]; pathLinks: never[]; pathFolders: never[]; robot: { maxSpeed: number; planning?: RobotPlanningProfile } };
 

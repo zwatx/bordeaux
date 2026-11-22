@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDemoProject, defaultPathConstraints } from "../src/shared/project/defaults";
+import { createDemoProject, defaultPathConstraints } from "../src/core/project/defaults";
 import { createNamedProjectSelection } from "../src/electron/projectCreation";
 import { loadProjectFolderSelection } from "../src/electron/projectOpening";
 import { projectWorkspacePath, readProject } from "../src/electron/projectFiles";

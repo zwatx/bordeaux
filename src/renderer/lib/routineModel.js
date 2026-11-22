@@ -1,8 +1,8 @@
-import { routineChildLists as childLists, routineGroupChildError } from "../../shared/routineChildren";
-import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
-import { robotParameterValueError, robotSchemaValueError } from "../../shared/robotCommands";
+import { routineChildLists as childLists, routineGroupChildError } from "../../core/routineChildren";
+import { robotValueSchemasEqual } from "../../core/robotValueSchema";
+import { robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { PM } from "./pathMath";
-import { createRoutineNodeId } from "../../shared/project/ids";
+import { createRoutineNodeId } from "../../core/project/ids";
 
 // Autonomous Routine — autonomous routine model + run engine (no React).
 // A routine is an ordered list of STEPS. Three step kinds: Path, Decision, Function.

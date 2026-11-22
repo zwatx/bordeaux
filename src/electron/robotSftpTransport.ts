@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { RobotTargetUsername } from "../shared/robotTargets";
+import type { RobotTargetUsername } from "../core/robotTargets";
 
 export const ROBOT_PUSH_PROTOCOL_VERSION = "bordeaux-robot-push/1.0" as const;
 export const ROBOT_RETENTION_PROTOCOL_VERSION = "bordeaux-retention/1.0" as const;

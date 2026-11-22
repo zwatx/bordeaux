@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { robotCatalogSemanticSignature } from "../src/shared/agent/catalogSignature";
-import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/shared/types";
+import { robotCatalogSemanticSignature } from "../src/core/agent/catalogSignature";
+import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/core/types";
 
 function command(overrides: Partial<RobotCommandDescriptor> = {}): RobotCommandDescriptor {
   return {

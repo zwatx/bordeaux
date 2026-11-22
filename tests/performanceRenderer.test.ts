@@ -7,7 +7,7 @@ import { AUTO } from '../src/renderer/lib/routineModel';
 import { PM } from '../src/renderer/lib/pathMath';
 // @ts-expect-error The preview scheduler is an intentional JavaScript module.
 import { PathPreview } from '../src/renderer/assets/path-preview';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 function fixture(count = 5) {
   const samples = Array.from({ length: count }, (_, index) => ({

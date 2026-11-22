@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CorridorCorpus } from "../src/electron/benchmark/corridor";
-import { getPlanner } from "../src/shared/planners";
-import { decodeProjectFile } from "../src/shared/project/fileFormat";
+import { getPlanner } from "../src/core/planners";
+import { decodeProjectFile } from "../src/core/project/fileFormat";
 
 const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 const corridorContents = readFileSync(join(directory, "corridor.json"), "utf8");

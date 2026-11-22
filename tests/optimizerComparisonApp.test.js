@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { authoredPath } from '../src/shared/planners/acceptedTrajectoryIdentity';
+import { authoredPath } from '../src/core/planners/acceptedTrajectoryIdentity';
 
 // Execute the actual App comparison wiring with controlled current planning outcomes.
 // Render-time assertions run before any effect could conceal a stale applied bridge.

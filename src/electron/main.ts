@@ -1,4 +1,4 @@
-import type { ProjectCopyDefaultsRequest } from "../shared/project/desktopProjects";
+import type { ProjectCopyDefaultsRequest } from "../core/project/desktopProjects";
 import { attachWindowChrome, registerWindowChrome } from "./windowChrome";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
@@ -6,9 +6,9 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { robotCatalogSemanticSignature } from "../shared/agent/catalogSignature";
-import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../shared/types";
-import { validateProject, validateProjectSource } from "../shared/validation";
+import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
+import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
+import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
 import { prepareBdxBindings, usedCommandEvidence } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
@@ -54,8 +54,8 @@ import { RobotPairingController, readRobotPairing, writeRobotPairing } from "./r
 import { connectRobotSftp } from "./robotSsh2Session";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection } from "./robotFileDelivery";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
-import type { RobotFileEndpoint } from "../shared/robotFileDelivery";
-import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../shared/project/writeErrors";
+import type { RobotFileEndpoint } from "../core/robotFileDelivery";
+import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../core/project/writeErrors";
 import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, canonicalProjectDigest } from "./projectSourcePersistence";
 import { projectFolderIdentity, sameProjectFolder } from "./projectFolderIdentity";
 import { ProjectPersistence, ReloadStale, type SavedProjectCheckpoint } from "./projectPersistence";
@@ -65,8 +65,8 @@ import { ProjectRecoveryCatalog } from "./projectRecoveryCatalog";
 import { ProjectStartup } from "./projectStartup";
 import type { ProjectDepartureCoordinator } from "./projectDeparture";
 import { ProjectNativeDeparture } from "./projectNativeDeparture";
-import type { ProjectDepartureFallback, ProjectDurabilityContext } from "../shared/project/projectDurability";
-import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectSaveCheckpointRequest, ProjectReloadRequest, ProjectRecoveredFrom, ProjectResumeDescriptor, ProjectStartupRequest, ProjectStartupDetachResult, ProjectTransitionToken } from "../shared/project/projectPersistence";
+import type { ProjectDepartureFallback, ProjectDurabilityContext } from "../core/project/projectDurability";
+import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectSaveCheckpointRequest, ProjectReloadRequest, ProjectRecoveredFrom, ProjectResumeDescriptor, ProjectStartupRequest, ProjectStartupDetachResult, ProjectTransitionToken } from "../core/project/projectPersistence";
 import {
   BordeauxRobotTransport,
   type RobotEndpoint,
@@ -259,7 +259,7 @@ let attachedProjectDeparture: ProjectDepartureCoordinator | null = null;
 export function attachProjectDepartureCoordinator(coordinator: ProjectDepartureCoordinator): void {
   attachedProjectDeparture = coordinator; projectPersistence.attachDepartureCoordinator(coordinator);
 }
-export const publishProjectDepartureCheckpoint = (update: import("../shared/project/projectDurability").ProjectCheckpointUpdate) => projectPersistence.handleDepartureUpdate(update);
+export const publishProjectDepartureCheckpoint = (update: import("../core/project/projectDurability").ProjectCheckpointUpdate) => projectPersistence.handleDepartureUpdate(update);
 export const cancelProjectDepartureCheckpoint = (requestId: string) => projectPersistence.handleDepartureCancelled(requestId);
 export const captureProjectResumeDescriptor = () => ({ session: projectPersistence.getSession(), pendingWrites: projectSources.pendingWrites() });
 export const getRetiredProjectResumeDescriptor = () => retiredProjectResume && structuredClone(retiredProjectResume);
@@ -1084,11 +1084,11 @@ handle("project:checkpointCancel", (_event, rawContext, operationId) => {
 });
 handle("project:departureResponse", (event, response) => {
   if (!attachedProjectDeparture) throw new Error("Project departure integration is not attached");
-  return { accepted: attachedProjectDeparture.respond(event, response as import("../shared/project/projectDurability").ProjectDepartureResponse) };
+  return { accepted: attachedProjectDeparture.respond(event, response as import("../core/project/projectDurability").ProjectDepartureResponse) };
 });
 handle("project:departureResume", (event, token) => {
   if (!attachedProjectDeparture) throw new Error("Project departure integration is not attached");
-  return { accepted: attachedProjectDeparture.resume(event, token as import("../shared/project/projectDurability").ProjectDepartureResume) };
+  return { accepted: attachedProjectDeparture.resume(event, token as import("../core/project/projectDurability").ProjectDepartureResume) };
 });
 handle("project:listRecoveries", (_event, options) => {
   if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options) || (options as { includeResolved?: unknown }).includeResolved !== undefined && typeof (options as { includeResolved?: unknown }).includeResolved !== "boolean")) throw new Error("Recovery listing options are invalid");

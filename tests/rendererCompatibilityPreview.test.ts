@@ -2,8 +2,8 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The production preview engine is an intentional JavaScript module.
 import { PM as RendererPM } from "../src/renderer/lib/pathMath";
-import { PM as SharedPM } from "../src/shared/math/pm";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { PM as SharedPM } from "../src/core/math/pm";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { loadRendererExport } from "./helpers/loadRendererExport";
 
 interface Point { x: number; y: number; heading: number; curv: number }

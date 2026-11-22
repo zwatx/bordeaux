@@ -9,7 +9,7 @@ it("bounds single-branch repeated extglobs while preserving ordinary file globs"
       assert.equal(pm(glob)('src/' + 'a'.repeat(100) + '!.js'), false);
       assert.equal(pm(glob)('a'.repeat(100) + '!'), false);
     }
-    assert.equal(pm('src/**/*.ts')('src/shared/planner.ts'), true);
+    assert.equal(pm('src/**/*.ts')('src/core/planner.ts'), true);
     assert.equal(pm('**/*.{js,ts}')('src/main.js'), true);
     assert.equal(pm('+(a|b)')('abba'), true);
     assert.equal(pm('+(*(a)|*(b))')('abba'), true);

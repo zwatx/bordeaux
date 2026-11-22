@@ -5,8 +5,8 @@ import { createServer } from 'vite';
 const server = await createServer({ configFile: false, server: { middlewareMode: true } });
 try {
   const { measureRobotFieldClearance, observeRobotFieldPortalSequence } = await server.ssrLoadModule(
-    process.env.BORDEAUX_GEOMETRY_MODULE || '/src/shared/agent/fieldClearance.ts');
-  const { createDemoProject } = await server.ssrLoadModule('/src/shared/project/defaults.ts');
+    process.env.BORDEAUX_GEOMETRY_MODULE || '/src/core/agent/fieldClearance.ts');
+  const { createDemoProject } = await server.ssrLoadModule('/src/core/project/defaults.ts');
   const robot = createDemoProject().robot;
   const samples = Array.from({ length: 10_000 }, (_, i) => ({ i, x: 0.1 + ((i * 17) % 173) / 10,
     y: 0.1 + ((i * 13) % 81) / 10, headingRad: i * 0.17, t: i * 0.02, s: i * 0.1,

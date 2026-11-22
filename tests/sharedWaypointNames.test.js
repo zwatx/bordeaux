@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createDemoProject } from '../src/shared/project/defaults';
-import { normalizeProject } from '../src/shared/project/normalize';
-import { validateProject } from '../src/shared/validation';
+import { createDemoProject } from '../src/core/project/defaults';
+import { normalizeProject } from '../src/core/project/normalize';
+import { validateProject } from '../src/core/validation';
 import { sharedPositionChoices } from '../src/renderer/components/SharedWaypointPosition';
 import { PathLinks } from '../src/renderer/lib/pathLinks';
 import { duplicateWaypoint, reversePath } from '../src/renderer/lib/pathEditing';

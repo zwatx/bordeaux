@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { blankPath, createDemoProject } from "../src/shared/project/defaults";
+import { blankPath, createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, openProjectFolder, projectFileName, readProject, projectWorkspacePath, writeProject } from "../src/electron/projectFiles";
 const directories: string[] = [];
 async function folder() { const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-folder-")); directories.push(directory); return directory; }

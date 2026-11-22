@@ -12,8 +12,8 @@ import { ProjectSourcePersistence } from "../src/electron/projectSourcePersisten
 import { ProjectPersistence } from "../src/electron/projectPersistence";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { ProjectBdxChangedError } from "../src/electron/projectBdxExport";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { validateProjectSource } from "../src/shared/validation";
+import { createDemoProject } from "../src/core/project/defaults";
+import { validateProjectSource } from "../src/core/validation";
 import { openProjectFolder, projectWorkspacePath, writeProjectFolderBdx } from "../src/electron/projectFiles";
 const roots: string[] = [];
 function gate() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }

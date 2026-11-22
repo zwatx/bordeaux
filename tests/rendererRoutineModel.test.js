@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { AUTO } from "../src/renderer/lib/routineModel";
 import { PM } from "../src/renderer/lib/pathMath";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { normalizeProject } from "../src/shared/project/normalize";
-import { validateProject } from "../src/shared/validation";
+import { createDemoProject } from "../src/core/project/defaults";
+import { normalizeProject } from "../src/core/project/normalize";
+import { validateProject } from "../src/core/validation";
 
 describe("renderer routine model", () => {
   it("derives each referenced path once per routine run", () => {

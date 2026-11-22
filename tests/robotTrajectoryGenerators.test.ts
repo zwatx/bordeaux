@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import { generatedCatalogHash, parseGeneratedRobotCatalog } from "../src/electron/robotGeneratedCatalog";
-import { validateProjectRobotInvocations } from "../src/shared/robotCommands";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { RobotBuiltInDescriptor, RobotCommandCatalog, RobotTrajectoryGeneratorDescriptor, RoutineGeneratedTrajectoryNode } from "../src/shared/types";
+import { validateProjectRobotInvocations } from "../src/core/robotCommands";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { RobotBuiltInDescriptor, RobotCommandCatalog, RobotTrajectoryGeneratorDescriptor, RoutineGeneratedTrajectoryNode } from "../src/core/types";
 // @ts-expect-error Routine authoring remains a legacy JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
 import { createElement } from "react";

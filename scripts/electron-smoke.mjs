@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 
 /** Seed an actual managed source before launch; first-use production startup intentionally has no demo. */
 async function seedSmokeProject(directory) {
-  const { createDemoProject } = require("../dist-electron/shared/project/defaults.js");
+  const { createDemoProject } = require("../dist-electron/core/project/defaults.js");
   const { autosaveProjectFolder, projectWorkspacePath, readProject } = require("../dist-electron/electron/projectFiles.js");
   const { readRecentProjectFiles, writeRecentProjectFiles } = require("../dist-electron/electron/recentProjectFiles.js");
   const saved = await autosaveProjectFolder(directory, createDemoProject(), null, { createProject: true });
@@ -107,7 +107,7 @@ try {
   const resultLine = output.split(/\r?\n/).find((line) => line.startsWith("BORDEAUX_SMOKE_RESULT "));
   assert.ok(resultLine, "Electron smoke process did not return results");
   const result = JSON.parse(resultLine.slice("BORDEAUX_SMOKE_RESULT ".length));
-  const { robotHardLimits } = require("../dist-electron/shared/robotLimits.js");
+  const { robotHardLimits } = require("../dist-electron/core/robotLimits.js");
   const presetLimits = robotHardLimits(result.motorPresetRobot);
   assert.ok(presetLimits?.electrical, "Preset autosave must use the electrical drive model");
   assert.ok(Math.abs(result.motorPresetRobot.maxSpeed - presetLimits.maxSpeedMps) <= 1e-9,

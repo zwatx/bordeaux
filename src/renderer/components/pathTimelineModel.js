@@ -1,4 +1,4 @@
-import { effectiveRanges } from '../../shared/math/pathRanges';
+import { effectiveRanges } from '../../core/math/pathRanges';
 import { PM } from '../lib/pathMath';
 
 // Time <-> path-fraction mapping for the path timeline, built from the displayed planning result.

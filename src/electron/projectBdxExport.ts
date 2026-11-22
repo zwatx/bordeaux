@@ -1,9 +1,9 @@
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
-import type { ProjectLocation } from "../shared/project/desktopProjects";
-import type { ProjectCheckpointSaveResult } from "../shared/project/projectPersistence";
+import type { ProjectLocation } from "../core/project/desktopProjects";
+import type { ProjectCheckpointSaveResult } from "../core/project/projectPersistence";
 import type { ProjectFolderIdentity } from "./projectFolderIdentity";
-import { describeProjectWriteError } from "../shared/project/writeErrors";
+import { describeProjectWriteError } from "../core/project/writeErrors";
 
 export class ProjectBdxChangedError extends Error {}
 

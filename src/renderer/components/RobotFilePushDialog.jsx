@@ -2,7 +2,7 @@ import * as React from 'react';
 import { UI } from './ui';
 import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 import { shortFact } from '../lib/projectLifecycle';
-import { ROBOT_TARGETS, allowsCustomPassword } from '../../shared/robotTargets';
+import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);

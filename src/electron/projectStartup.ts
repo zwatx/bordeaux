@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { OpenedProject } from "../shared/project/desktopProjects";
-import type { ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectRecoveryListing, ProjectResumeDescriptor, ProjectTransitionToken } from "../shared/project/projectPersistence";
+import type { OpenedProject } from "../core/project/desktopProjects";
+import type { ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectRecoveryListing, ProjectResumeDescriptor, ProjectTransitionToken } from "../core/project/projectPersistence";
 import { loadProjectSelection } from "./projectOpening";
 import { listRecentProjects, recentProjectId } from "./recentProjectFiles";
 import { sameProjectContext, ProjectSourceError } from "./projectSourcePersistence";

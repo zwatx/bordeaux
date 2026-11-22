@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ContextInspector } from '../src/renderer/components/ContextInspector';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { PM } from '../src/renderer/lib/pathMath';
 
 const h = React.createElement;

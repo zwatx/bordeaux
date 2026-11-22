@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { getPlanner } from "../src/shared/planners";
-import { blankPath, buildWaypoints, createDemoProject, DEFAULT_CONSTRAINTS } from "../src/shared/project/defaults";
-import { effectivePathConstraints, robotHardLimits } from "../src/shared/robotLimits";
+import { getPlanner } from "../src/core/planners";
+import { blankPath, buildWaypoints, createDemoProject, DEFAULT_CONSTRAINTS } from "../src/core/project/defaults";
+import { effectivePathConstraints, robotHardLimits } from "../src/core/robotLimits";
 // @ts-expect-error The production preview engine is an intentional JavaScript module.
 import { PM as RendererPM } from "../src/renderer/lib/pathMath";
 

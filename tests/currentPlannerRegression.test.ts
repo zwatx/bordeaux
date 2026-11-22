@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error The production worker is an intentional JavaScript module.
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
-import { PM } from "../src/shared/math/pm";
-import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/shared/project/defaults";
-import { fixedPathSamples, getPlanner } from "../src/shared/planners";
-import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { routeCandidateFailure } from "../src/shared/planners/routeValidation";
-import { validateOptimizedTrajectory } from "../src/shared/planners/trajectoryValidation";
-import { effectivePathConstraints, robotHardLimits } from "../src/shared/robotLimits";
-import type { PlannerResult } from "../src/shared/types";
+import { PM } from "../src/core/math/pm";
+import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/core/project/defaults";
+import { fixedPathSamples, getPlanner } from "../src/core/planners";
+import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { routeCandidateFailure } from "../src/core/planners/routeValidation";
+import { validateOptimizedTrajectory } from "../src/core/planners/trajectoryValidation";
+import { effectivePathConstraints, robotHardLimits } from "../src/core/robotLimits";
+import type { PlannerResult } from "../src/core/types";
 
 type DemoProject = ReturnType<typeof createDemoProject>;
 

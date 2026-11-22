@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CancellationToken } from "builder-util-runtime";
-import type { AppUpdateState } from "../src/shared/appUpdates";
+import type { AppUpdateState } from "../src/core/appUpdates";
 import { appUpdateChannel, AppUpdateController, supportsAppUpdates, UpdateQuitCoordinator, usesGitHubAppUpdates, updateReleaseNotes, type UpdateRuntime } from "../src/electron/appUpdates";
 
 function deferred<T = unknown>() {

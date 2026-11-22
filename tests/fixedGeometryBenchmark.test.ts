@@ -9,9 +9,9 @@ import {
   FixedGeometryCorpus,
   validateTankTrajectoryCandidate,
 } from "../src/electron/benchmark/fixedGeometry";
-import { getPlanner } from "../src/shared/planners";
-import { decodeProjectFile } from "../src/shared/project/fileFormat";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { getPlanner } from "../src/core/planners";
+import { decodeProjectFile } from "../src/core/project/fileFormat";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 const projectContents = readFileSync(join(directory, "corpus.bordeaux.json"), "utf8");

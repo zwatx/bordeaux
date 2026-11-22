@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { PM } from "../src/shared/math/pm";
-import { getPlanner } from "../src/shared/planners";
-import { enforceAngularTiming } from "../src/shared/planners/angularConstraints";
-import { optimizedTrajectoryPlanner } from "../src/shared/planners/optimizedTrajectory";
-import { profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { orderedWaypointSampleIndices } from "../src/shared/planners/waypointSamples";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { PathDoc, PlannerResult, TrajectorySample } from "../src/shared/types";
+import { PM } from "../src/core/math/pm";
+import { getPlanner } from "../src/core/planners";
+import { enforceAngularTiming } from "../src/core/planners/angularConstraints";
+import { optimizedTrajectoryPlanner } from "../src/core/planners/optimizedTrajectory";
+import { profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { orderedWaypointSampleIndices } from "../src/core/planners/waypointSamples";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { PathDoc, PlannerResult, TrajectorySample } from "../src/core/types";
 
 function legacyArrivalIndices(path: PathDoc, samples: readonly TrajectorySample[]): number[] {
   let cursor = 0;

@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { breakerHeat, mechanismCurrent, predictBus, summarizePower } from '../src/shared/electricalPower';
-import { peakMechanismCurrent, robotHardLimits, electricalConfigurationError } from '../src/shared/robotLimits';
-import { REV_40A_ATO_BREAKER, BUSSMANN_185_120A_BREAKER } from '../src/shared/breakerPresets';
-import { createDemoProject, buildWaypoints } from '../src/shared/project/defaults';
-import { analyzeRoutinePower, analyzeTrajectoryPower, idlePowerIntervals } from '../src/shared/planners/trajectoryPower';
-import { getPlanner } from '../src/shared/planners';
-import { planPath } from '../src/shared/planners/planPath';
-import { validateOptimizedTrajectory } from '../src/shared/planners/trajectoryValidation';
-import { validateProject } from '../src/shared/validation';
-import type { RobotConfig } from '../src/shared/types';
+import { breakerHeat, mechanismCurrent, predictBus, summarizePower } from '../src/core/electricalPower';
+import { peakMechanismCurrent, robotHardLimits, electricalConfigurationError } from '../src/core/robotLimits';
+import { REV_40A_ATO_BREAKER, BUSSMANN_185_120A_BREAKER } from '../src/core/breakerPresets';
+import { createDemoProject, buildWaypoints } from '../src/core/project/defaults';
+import { analyzeRoutinePower, analyzeTrajectoryPower, idlePowerIntervals } from '../src/core/planners/trajectoryPower';
+import { getPlanner } from '../src/core/planners';
+import { planPath } from '../src/core/planners/planPath';
+import { validateOptimizedTrajectory } from '../src/core/planners/trajectoryValidation';
+import { validateProject } from '../src/core/validation';
+import type { RobotConfig } from '../src/core/types';
 
 function robot(): RobotConfig {
   return { ...createDemoProject().robot, driveModel: {

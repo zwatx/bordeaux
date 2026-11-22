@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ROBOT_TARGETS, allowsCustomPassword } from '../../shared/robotTargets';
+import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 import { focusIfAvailable } from '../lib/focusReturn';
 import { linkedPathIds } from '../lib/undoHistory';
 

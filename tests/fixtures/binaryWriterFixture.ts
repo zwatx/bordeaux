@@ -1,6 +1,6 @@
 import { compileLabviewCatalog } from "../../src/electron/labviewProject";
 import { bdxBindingsFromCatalog } from "../../src/electron/bdxBindings";
-import { blankPath, buildWaypoints, createDemoProject } from "../../src/shared/project/defaults";
+import { blankPath, buildWaypoints, createDemoProject } from "../../src/core/project/defaults";
 import { forceExportRobot } from "./forceExportRobot";
 
 /** Synthetic type evidence for byte tests, never a claim of inspected or runnable team VIs. */

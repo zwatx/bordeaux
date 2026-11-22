@@ -1,5 +1,5 @@
 import { AUTO } from './routineModel';
-import { markerInvocations } from '../../shared/markerCommands';
+import { markerInvocations } from '../../core/markerCommands';
 
 // One searchable index of robot commands, shared by the routine Add menu and the inspector's Change command.
 // Catalogs are immutable snapshots: an entry is cached per command object and an index per command array, so a

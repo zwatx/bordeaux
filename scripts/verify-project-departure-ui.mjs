@@ -59,7 +59,7 @@ try {
     lock = net.createServer(socket => socket.destroy());
     await new Promise((resolve, reject) => { lock.once('error', reject); lock.listen({ host: '127.0.0.1', port: 24968, exclusive: true }, resolve); });
     const { autosaveProjectFolder, readProject, projectWorkspacePath } = require(path.join(root, 'dist-electron/electron/projectFiles.js'));
-    const { encodeProjectFile } = require(path.join(root, 'dist-electron/shared/project/fileFormat.js'));
+    const { encodeProjectFile } = require(path.join(root, 'dist-electron/core/project/fileFormat.js'));
     const { ProjectRecoveryStore } = require(path.join(root, 'dist-electron/electron/projectRecoveryStore.js'));
     const corpus = JSON.parse(await fs.readFile(path.join(root, 'benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
     async function launch(directory, stage) {

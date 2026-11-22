@@ -7,7 +7,7 @@ import { loadRendererExport } from './helpers/loadRendererExport';
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { deletionInput } from '../src/renderer/components/DeletionNotice';
 import { filterPickerItems } from '../src/renderer/lib/pickerSearch';
-import { robotValueSchemasEqual } from '../src/shared/robotValueSchema';
+import { robotValueSchemasEqual } from '../src/core/robotValueSchema';
 import { UI as RenderedUI } from '../src/renderer/components/ui';
 import { CommandBranches as RenderedBranches } from '../src/renderer/components/CommandBranches';
 

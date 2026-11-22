@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
-import { createAcceptedRouteTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { getPlanner } from "../src/shared/planners";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import type { PlannerResult } from "../src/shared/types";
+import { createAcceptedRouteTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { getPlanner } from "../src/core/planners";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import type { PlannerResult } from "../src/core/types";
 import { forceExportRobot } from "./fixtures/forceExportRobot";
 // @ts-expect-error The production planning worker is an intentional JavaScript module.
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";

@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { validateProjectRobotInvocations } from "../src/shared/robotCommands";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { RobotCommandCatalog } from "../src/shared/types";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { validateProjectRobotInvocations } from "../src/core/robotCommands";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { RobotCommandCatalog } from "../src/core/types";
 // @ts-expect-error Routine authoring remains a legacy JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
 // @ts-expect-error The routine inspector is a JavaScript component.

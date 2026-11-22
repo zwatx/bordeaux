@@ -6,11 +6,11 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const compiled = path.resolve(process.argv[2] ?? "dist-electron");
-const { headingAt } = require(path.join(compiled, "shared/math/headingAnchors.js"));
-const { buildCanonicalPathState } = require(path.join(compiled, "shared/planners/pathState.js"));
-const { solveReachabilityProfile } = require(path.join(compiled, "shared/planners/reachability.js"));
-const { getPlanner } = require(path.join(compiled, "shared/planners/index.js"));
-const { buildWaypoints, createDemoProject } = require(path.join(compiled, "shared/project/defaults.js"));
+const { headingAt } = require(path.join(compiled, "core/math/headingAnchors.js"));
+const { buildCanonicalPathState } = require(path.join(compiled, "core/planners/pathState.js"));
+const { solveReachabilityProfile } = require(path.join(compiled, "core/planners/reachability.js"));
+const { getPlanner } = require(path.join(compiled, "core/planners/index.js"));
+const { buildWaypoints, createDemoProject } = require(path.join(compiled, "core/project/defaults.js"));
 
 const anchors = Array.from({ length: 10001 }, (_, i) => ({ f: i / 10000, rad: i / 10000 }));
 const project = createDemoProject();

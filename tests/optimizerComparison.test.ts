@@ -12,10 +12,10 @@ import { editingGeometry, editingPoseAtTime } from '../src/renderer/assets/editi
 // @ts-expect-error Renderer JS API.
 import { PM } from '../src/renderer/lib/pathMath';
 import { finalPlanningError } from '../src/renderer/lib/planningFeedback';
-import { authoredPath, isOptimizationOutdated, optimizationInputKey } from '../src/shared/planners/acceptedTrajectoryIdentity';
-import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
-import { optimizeFixedGeometryFinal } from '../src/shared/planners/fixedGeometryFinal';
-import { createAcceptedTrajectory } from '../src/shared/planners/acceptedTrajectory';
+import { authoredPath, isOptimizationOutdated, optimizationInputKey } from '../src/core/planners/acceptedTrajectoryIdentity';
+import { buildWaypoints, createDemoProject } from '../src/core/project/defaults';
+import { optimizeFixedGeometryFinal } from '../src/core/planners/fixedGeometryFinal';
+import { createAcceptedTrajectory } from '../src/core/planners/acceptedTrajectory';
 
 const flush = () => new Promise<void>(done => queueMicrotask(done));
 function input() {

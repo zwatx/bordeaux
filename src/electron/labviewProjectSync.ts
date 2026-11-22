@@ -1,4 +1,4 @@
-import type { RobotCommandCatalog } from "../shared/types";
+import type { RobotCommandCatalog } from "../core/types";
 import { inspectLabviewCommands, refreshLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "./labviewNiInspection";
 
 // NI automation shares one LabVIEW process. Serialize inspections even when a

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { RobotCommandCatalog } from "../src/shared/types";
+import type { RobotCommandCatalog } from "../src/core/types";
 import { inspectLabviewCommands } from "../src/electron/labviewNiInspection";
 import { inspectLabviewCommandsQueued, syncLabviewCommands } from "../src/electron/labviewProjectSync";
 

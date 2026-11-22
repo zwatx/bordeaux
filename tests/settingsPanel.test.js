@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Panels } from '../src/renderer/components/Panels';
 import { ProjectChip } from '../src/renderer/components/ProjectChip';
 import { RobotPage } from '../src/renderer/components/RobotPage';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 describe('settings workspace', () => {
   it('reads project, places, actions and Push left to right, with plain-text places', () => {

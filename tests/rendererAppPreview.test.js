@@ -5,7 +5,7 @@ import { App, replaceEditedPath, agentProposalPreviewResult, canApplyAgentPropos
 import { PathPreview } from "../src/renderer/assets/path-preview";
 import { ContextInspector } from "../src/renderer/components/ContextInspector";
 import { PM } from "../src/renderer/lib/pathMath";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 // The editor renders server-side here only to observe render-time work; desktop APIs stay absent.
 function renderEditor(project, proposal = null) {

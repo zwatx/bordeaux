@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
-import { analyzePath } from "../src/shared/agent/pathAnalysis";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { getPlanner } from "../src/shared/planners";
-import { buildCanonicalPathState } from "../src/shared/planners/pathState";
-import { preparePlannerInput } from "../src/shared/planners/pipeline";
-import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { applyStationaryActions } from "../src/shared/planners/stationaryActions";
-import { orderedWaypointSampleIndices } from "../src/shared/planners/waypointSamples";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { BordeauxProject, PlannerResult, RobotCommandCatalog } from "../src/shared/types";
+import { analyzePath } from "../src/core/agent/pathAnalysis";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { getPlanner } from "../src/core/planners";
+import { buildCanonicalPathState } from "../src/core/planners/pathState";
+import { preparePlannerInput } from "../src/core/planners/pipeline";
+import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { applyStationaryActions } from "../src/core/planners/stationaryActions";
+import { orderedWaypointSampleIndices } from "../src/core/planners/waypointSamples";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { BordeauxProject, PlannerResult, RobotCommandCatalog } from "../src/core/types";
 
 const benchmark = process.env.BENCHMARK_WAYPOINT_INDEX === "1" ? it : it.skip;
 const DEG = Math.PI / 180;

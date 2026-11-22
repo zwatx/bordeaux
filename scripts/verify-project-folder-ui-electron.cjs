@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const output = process.env.BORDEAUX_PROJECT_UI_OUTPUT;
 // Save failures come from a real read-only folder and main's own errno mapping, not from friendly fixture text.
-const { withProjectWriteFact } = require('../dist-electron/shared/project/writeErrors.js');
+const { withProjectWriteFact } = require('../dist-electron/core/project/writeErrors.js');
 const readOnlyFolder = path.join(output, 'read-only-project');
 async function realWriteFailure() {
   try { await fs.writeFile(path.join(readOnlyFolder, '.bordeaux-workspace.json'), '{}'); } catch (error) { return withProjectWriteFact(error); }

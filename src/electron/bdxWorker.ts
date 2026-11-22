@@ -1,5 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import { buildRobotBinary, type BuiltRobotBinary } from "../shared/export/robotBinary";
+import { buildRobotBinary, type BuiltRobotBinary } from "../core/export/robotBinary";
 import type { BdxBatchJob, BdxJob } from "./bdxProtocol";
 import type { WorkerResult } from "./workerTask";
 const port = parentPort;

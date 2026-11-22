@@ -1,5 +1,5 @@
-import type { BordeauxProject } from "../shared/types";
-import type { OpenedProject, ProjectLocation } from "../shared/project/desktopProjects";
+import type { BordeauxProject } from "../core/types";
+import type { OpenedProject, ProjectLocation } from "../core/project/desktopProjects";
 
 interface ProjectActivationCompletion {
   generation: number;

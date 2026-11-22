@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "../src/electron/robotFileDelivery";
-import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection, type RobotFileSettings } from "../src/shared/robotFileDelivery";
+import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection, type RobotFileSettings } from "../src/core/robotFileDelivery";
 import { sessionRobotPasswordStore } from "../src/electron/robotPasswordStore";
 const connection: RobotFileConnection = { endpoint: { target: "roborio", host: "roborio-2468-frc.local", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvxyz123456789" };
 const file = (): PreparedRobotFile => ({ pathId: "path-1", name: "Opening", fileName: "Opening.bdx", contents: Buffer.from("BDX fixture") });

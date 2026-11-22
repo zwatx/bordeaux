@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { effectiveRanges } from "../src/shared/planners/rotationPriority";
-import { enforceAngularTiming } from "../src/shared/planners/angularConstraints";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { PlannerResult, TrajectorySample } from "../src/shared/types";
+import { effectiveRanges } from "../src/core/planners/rotationPriority";
+import { enforceAngularTiming } from "../src/core/planners/angularConstraints";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { PlannerResult, TrajectorySample } from "../src/core/types";
 
 describe("optimizer range resolution", () => {
   it("does not index every geometry sample for fraction and distance ranges", () => {

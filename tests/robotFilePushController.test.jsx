@@ -21,7 +21,7 @@ vi.mock('react', async (original) => ({
 }));
 import { MAX_PUSH_PATHS, linkedOutside, useRobotFilePushController } from '../src/renderer/components/useRobotFilePushController';
 import { useRobotPushController } from '../src/renderer/components/useRobotPushController';
-import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/shared/robotFileDelivery';
+import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/core/robotFileDelivery';
 const connection = { endpoint: { target: 'roborio', host: 'robot.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: 'SHA256:test' };
 const preview = { operationId: 'one', connection, files: [{ pathId: 'A', name: 'A', fileName: 'A.bdx', size: 64, sha256: 'abc' }] };
 let bridge, project, props;

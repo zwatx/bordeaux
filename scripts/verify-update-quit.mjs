@@ -16,7 +16,7 @@ console.log('Update lifecycle evidence: ' + output);
 const lock = net.createServer(socket => socket.destroy());
 await new Promise((resolve, reject) => { lock.once('error', reject); lock.listen({ host: '127.0.0.1', port: 24968, exclusive: true }, resolve); });
 try {
-  const { createDemoProject } = require('../dist-electron/shared/project/defaults.js');
+  const { createDemoProject } = require('../dist-electron/core/project/defaults.js');
   const { autosaveProjectFolder, projectWorkspacePath } = require('../dist-electron/electron/projectFiles.js');
   const { writeRecentProjectFiles } = require('../dist-electron/electron/recentProjectFiles.js');
   const folder = path.join(await fs.realpath(output), 'Project'); await fs.mkdir(folder);

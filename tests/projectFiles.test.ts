@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../src/shared/project/fileFormat";
-import type { BordeauxProject, CommandArgumentValue } from "../src/shared/types";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
+import { applyAcceptedRouteTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../src/core/project/fileFormat";
+import type { BordeauxProject, CommandArgumentValue } from "../src/core/types";
 import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, autosaveProjectFolder, openProjectFolder, projectFileName, projectWorkspacePath, readProject, writeBufferAtomically, writeProject } from "../src/electron/projectFiles";
 
 const directories: string[] = [];

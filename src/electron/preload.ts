@@ -1,16 +1,16 @@
-import type { AppUpdateState } from "../shared/appUpdates";
-import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState, WindowMenuEntry } from "../shared/windowChrome";
-import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../shared/robotFileDelivery";
-import type { RobotPushScope, RobotDeploymentComparison } from "../shared/export/robotDeployment";
+import type { AppUpdateState } from "../core/appUpdates";
+import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState, WindowMenuEntry } from "../core/windowChrome";
+import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
+import type { RobotPushScope, RobotDeploymentComparison } from "../core/export/robotDeployment";
 import { contextBridge, ipcRenderer } from "electron";
-import type { BordeauxProject, RobotDeliveryCapabilities } from "../shared/types";
-import type { AgentProposal, AgentSessionSnapshot } from "../shared/agent/types";
+import type { BordeauxProject, RobotDeliveryCapabilities } from "../core/types";
+import type { AgentProposal, AgentSessionSnapshot } from "../core/agent/types";
 import type { RobotEndpoint, RobotPairing, RobotProbe, RobotRuntimeStatus } from "./robotSftpTransport";
 import type { RobotPushPreview, RobotPushProgress, RobotPushResult } from "./robotPush";
 import type { RobotRetentionOperationResult, RobotRetentionPreview, RobotRetentionProgress } from "./robotRetention";
-import type { CreateNamedProjectRequest, OpenedProject, RecentProjectEntry, RecentProjectRevealTarget, ProjectCopyDefaultsRequest, ProjectCopyDefaults } from "../shared/project/desktopProjects";
-import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectPersistenceUpdate, ProjectRecoveredFrom, ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectSaveCheckpointRequest, ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectTransitionToken, RestoredProjectRecovery } from "../shared/project/projectPersistence";
-import type { ProjectDepartureRequest, ProjectDepartureResponse, ProjectDepartureResume, ProjectDurabilityContext } from "../shared/project/projectDurability";
+import type { CreateNamedProjectRequest, OpenedProject, RecentProjectEntry, RecentProjectRevealTarget, ProjectCopyDefaultsRequest, ProjectCopyDefaults } from "../core/project/desktopProjects";
+import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectPersistenceUpdate, ProjectRecoveredFrom, ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectSaveCheckpointRequest, ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectTransitionToken, RestoredProjectRecovery } from "../core/project/projectPersistence";
+import type { ProjectDepartureRequest, ProjectDepartureResponse, ProjectDepartureResume, ProjectDurabilityContext } from "../core/project/projectDurability";
 
 type McpStatus = { enabled: boolean; generation: number };
 /** Main accepts a snapshot only for the MCP access generation it was published in. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   solveReachabilityProfile,
   type ReachabilityInput,
-} from "../src/shared/planners/reachability";
+} from "../src/core/planners/reachability";
 
 const GRID_STEP = 0.02;
 const MAX_SQUARED_SPEED = 4;

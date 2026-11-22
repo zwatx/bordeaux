@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { getPlanner } from "../src/shared/planners";
-import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { AutonomousRoutine, RobotCommandCatalog, RoutineNode } from "../src/shared/types";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { getPlanner } from "../src/core/planners";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { AutonomousRoutine, RobotCommandCatalog, RoutineNode } from "../src/core/types";
 
 function generatedCatalog(): RobotCommandCatalog {
   return {

@@ -4,11 +4,11 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_RECOVERY_RECORD_BYTES, MAX_RECOVERY_RECORDS, MAX_RECOVERY_SCAN_ENTRIES, MAX_RECOVERY_TOTAL_BYTES, STALE_RECOVERY_TEMPORARY_MS, ProjectRecoveryStore, type RecoveryWriteRequest } from "../src/electron/projectRecoveryStore";
-import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { encodeProjectFile } from "../src/shared/project/fileFormat";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { createAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { planPath } from "../src/shared/planners/planPath";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { encodeProjectFile } from "../src/core/project/fileFormat";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { createAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { planPath } from "../src/core/planners/planPath";
 
 const directories: string[] = [];
 async function fixture() {

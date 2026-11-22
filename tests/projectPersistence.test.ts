@@ -8,11 +8,11 @@ import { ProjectSourcePersistence } from "../src/electron/projectSourcePersisten
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { ProjectDepartureCoordinator } from "../src/electron/projectDeparture";
 import { autosaveProjectFolder, openProjectFolder, projectWorkspacePath, ProjectSourceChangedError } from "../src/electron/projectFiles";
-import { createDemoProject, buildWaypoints } from "../src/shared/project/defaults";
+import { createDemoProject, buildWaypoints } from "../src/core/project/defaults";
 import { loadProjectSelection } from "../src/electron/projectOpening";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
-import type { ProjectDurabilityContext } from "../src/shared/project/projectDurability";
-import type { ProjectPersistenceUpdate } from "../src/shared/project/projectPersistence";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
+import type { ProjectDurabilityContext } from "../src/core/project/projectDurability";
+import type { ProjectPersistenceUpdate } from "../src/core/project/projectPersistence";
 
 const directories: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await Promise.all(directories.splice(0).map(value => fs.rm(value, { recursive: true, force: true }))); });

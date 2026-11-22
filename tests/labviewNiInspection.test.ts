@@ -6,8 +6,8 @@ import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
 import { eligibleLabviewLegacySource, inspectLabviewCommands, labviewCommandSourceChanges, refreshLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
 import { bdxBindingsFromCatalog, prepareBdxBindings } from "../src/electron/bdxBindings";
-import { robotInvocationErrors } from "../src/shared/robotCommands";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
+import { robotInvocationErrors } from "../src/core/robotCommands";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 
 // Sanitized shape of NI 2025 _ExportInterface2 output. No private VI binary is included.

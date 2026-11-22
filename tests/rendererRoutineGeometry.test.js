@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { stableRoutineOverlay } from "../src/renderer/app/App";
 import { FieldView } from "../src/renderer/components/FieldView";
 import { AUTO } from "../src/renderer/lib/routineModel";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 
 const FIT = { x: 307, y: 7, w: 3285, h: 1569 };
 const derived = { sample: { pts: [], length: 0 }, prof: { totalTime: 0 }, metrics: { head: [] }, anchors: [], checks: [], wpFrac: [], wpIdx: [], effRanges: [], mode: "swerve", rev: false };

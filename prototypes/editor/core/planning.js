@@ -1,5 +1,5 @@
 // Prototype adapter: geometry is immediate; every timing value comes from planPath.
-import { sample } from "../../../src/shared/math/geometry";
+import { sample } from "../../../src/core/math/geometry";
 
 export function editorGeometry(path) {
   try {

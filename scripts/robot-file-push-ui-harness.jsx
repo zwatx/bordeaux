@@ -4,7 +4,7 @@ import '../src/renderer/styles/app.css';
 import '../src/renderer/styles/robot-push.css';
 import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/RobotPushDialog';
 import { DiagnosticBundleDialog } from '../src/renderer/components/DiagnosticBundleDialog';
-import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/shared/robotFileDelivery';
+import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/core/robotFileDelivery';
 import { PushControl } from '../src/renderer/components/PushControl';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

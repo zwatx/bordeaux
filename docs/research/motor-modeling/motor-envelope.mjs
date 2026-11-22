@@ -125,7 +125,7 @@ export function dragRace(robot, opts, targetV, maxT = 5) {
   return { t, x, v };
 }
 
-// Bordeaux today (src/shared/robotLimits.ts + reachability.ts): a(v) = min(mu*g,
+// Bordeaux today (src/core/robotLimits.ts + reachability.ts): a(v) = min(mu*g,
 // N*tauStall*G/(r*m) * (1 - v/vFree)) when accelerating; braking is capped by mu*g only.
 export function bordeauxEnvelopeAt(v, robot) {
   const r = robot.wheelDiameterM / 2;

@@ -1,16 +1,16 @@
 import corpus from "../benchmarks/planner-corpus/v2/corpus.bordeaux.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PM } from "../src/shared/math/pm";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { estimateCorridorCandidate, type CorridorEstimate } from "../src/shared/planners/corridorProvisional";
-import * as seed from "../src/shared/planners/profiledSpline";
-import * as reachability from "../src/shared/planners/reachability";
-import * as optimized from "../src/shared/planners/optimizedTrajectory";
-import * as rotation from "../src/shared/planners/rotationPriority";
-import * as stationary from "../src/shared/planners/stationaryActions";
-import * as physical from "../src/shared/planners/trajectoryValidation";
-import { canonicalPlanningInput } from "../src/shared/planners";
-import type { PathDoc, PlannerInput, PlannerResult } from "../src/shared/types";
+import { PM } from "../src/core/math/pm";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { estimateCorridorCandidate, type CorridorEstimate } from "../src/core/planners/corridorProvisional";
+import * as seed from "../src/core/planners/profiledSpline";
+import * as reachability from "../src/core/planners/reachability";
+import * as optimized from "../src/core/planners/optimizedTrajectory";
+import * as rotation from "../src/core/planners/rotationPriority";
+import * as stationary from "../src/core/planners/stationaryActions";
+import * as physical from "../src/core/planners/trajectoryValidation";
+import { canonicalPlanningInput } from "../src/core/planners";
+import type { PathDoc, PlannerInput, PlannerResult } from "../src/core/types";
 
 function straight(): PlannerInput {
   const project = createDemoProject(), path = project.paths[0];

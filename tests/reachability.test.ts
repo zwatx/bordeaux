@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { solveReachabilityProfile, type ReachabilityInput } from "../src/shared/planners/reachability";
+import { solveReachabilityProfile, type ReachabilityInput } from "../src/core/planners/reachability";
 
 function input(overrides: Partial<ReachabilityInput> = {}): ReachabilityInput {
   return {

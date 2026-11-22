@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { compareExactDecimals, robotParameterValueError } from "../shared/robotCommands";
-import type { RobotBuiltInDescriptor, RobotCommandDescriptor, RobotCommandParameter, RobotConditionDescriptor, RobotTrajectoryGeneratorDescriptor, RobotTrajectoryGeneratorLimits, RobotValueSchema } from "../shared/types";
+import { compareExactDecimals, robotParameterValueError } from "../core/robotCommands";
+import type { RobotBuiltInDescriptor, RobotCommandDescriptor, RobotCommandParameter, RobotConditionDescriptor, RobotTrajectoryGeneratorDescriptor, RobotTrajectoryGeneratorLimits, RobotValueSchema } from "../core/types";
 
 const MAX_COMMANDS = 5_000;
 const MAX_CONDITIONS = 5_000;

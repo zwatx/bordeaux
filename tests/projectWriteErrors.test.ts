@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder } from "../src/electron/projectFiles";
-import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage, withProjectWriteFact } from "../src/shared/project/writeErrors";
+import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage, withProjectWriteFact } from "../src/core/project/writeErrors";
 
 const directories: string[] = [];
 const temporary = async () => { const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-write-errors-")); directories.push(directory); return directory; };

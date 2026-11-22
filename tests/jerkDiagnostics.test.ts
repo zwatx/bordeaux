@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { getPlanner } from "../src/shared/planners";
-import { addJerkDiagnostics } from "../src/shared/planners/jerkDiagnostics";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { RobotCommandCatalog, PlannerResult, TrajectoryPlannerId, TrajectorySample } from "../src/shared/types";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { getPlanner } from "../src/core/planners";
+import { addJerkDiagnostics } from "../src/core/planners/jerkDiagnostics";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { RobotCommandCatalog, PlannerResult, TrajectoryPlannerId, TrajectorySample } from "../src/core/types";
 
 const PLANNERS: TrajectoryPlannerId[] = ["profiledSpline", "optimizedTrajectory"];
 

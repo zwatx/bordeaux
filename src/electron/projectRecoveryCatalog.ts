@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectRecoverySummary } from "../shared/project/projectPersistence";
+import type { ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectRecoverySummary } from "../core/project/projectPersistence";
 import { MAX_RECOVERY_SCAN_ENTRIES, ProjectRecoveryStore, type RecoveryDamagedTarget } from "./projectRecoveryStore";
 
 /**

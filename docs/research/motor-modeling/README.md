@@ -35,7 +35,7 @@ Proposal steps 1–3 are implemented, and **the electrical model is how planning
 
 ### Inputs and defaults
 
-The resolution lives in `resolveElectricalDriveInputs` in `src/shared/robotLimits.ts`. Preset data is in `src/shared/motorPresets.ts`. An authored value always wins.
+The resolution lives in `resolveElectricalDriveInputs` in `src/core/robotLimits.ts`. Preset data is in `src/core/motorPresets.ts`. An authored value always wins.
 
 | `driveModel` field | Default when unset | Source |
 |---|---|---|
@@ -157,7 +157,7 @@ The Vortex, Kraken and Falcon rows are vendor figures recalled for this note, no
 
 The description below was verified in source.
 
-- `robotHardLimits` (`src/shared/robotLimits.ts:16`) computes:
+- `robotHardLimits` (`src/core/robotLimits.ts:16`) computes:
   - free speed = rpm/60 · π · D / G (`:34`), at a nominal 12 V with no free-current loss;
   - `motorAccelMps2 = N · τ_stall · G / (r · m)` (`:35`);
   - traction = μg;

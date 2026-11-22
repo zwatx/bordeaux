@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDemoProject } from '../src/shared/project/defaults';
-import type { PathDoc, RobotConfig } from '../src/shared/types';
+import { createDemoProject } from '../src/core/project/defaults';
+import type { PathDoc, RobotConfig } from '../src/core/types';
 
 const identity = vi.hoisted(() => ({ keys: 0 }));
-vi.mock('../src/shared/planners/acceptedTrajectoryIdentity', async (original) => {
-  const actual = await original<typeof import('../src/shared/planners/acceptedTrajectoryIdentity')>();
+vi.mock('../src/core/planners/acceptedTrajectoryIdentity', async (original) => {
+  const actual = await original<typeof import('../src/core/planners/acceptedTrajectoryIdentity')>();
   return { ...actual, optimizationInputKey: (...args: Parameters<typeof actual.optimizationInputKey>) => { identity.keys += 1; return actual.optimizationInputKey(...args); } };
 });
-const { optimizationInputKey } = await import('../src/shared/planners/acceptedTrajectoryIdentity');
+const { optimizationInputKey } = await import('../src/core/planners/acceptedTrajectoryIdentity');
 // @ts-expect-error Library duration scheduling remains a JavaScript module.
 const { createLibraryDurations } = await import('../src/renderer/lib/libraryDurations');
 

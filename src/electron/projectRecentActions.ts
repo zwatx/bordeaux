@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ProjectLocation } from "../shared/project/desktopProjects";
-import type { ProjectRevealResult } from "../shared/project/projectPersistence";
+import type { ProjectLocation } from "../core/project/desktopProjects";
+import type { ProjectRevealResult } from "../core/project/projectPersistence";
 import { PROJECT_WORKSPACE_FILE } from "./projectFiles";
 import { loadProjectSelection } from "./projectOpening";
 import { recentProjectPathById } from "./recentProjectFiles";

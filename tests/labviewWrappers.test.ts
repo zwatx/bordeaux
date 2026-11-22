@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { commandWrapperPath, ensureLabviewCommandWrapper } from "../src/electron/labviewWrappers";
-import type { RobotCommandDescriptor } from "../src/shared/types";
+import type { RobotCommandDescriptor } from "../src/core/types";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });

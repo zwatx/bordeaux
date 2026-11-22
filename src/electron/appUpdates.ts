@@ -1,6 +1,6 @@
 import { CancellationToken } from "builder-util-runtime";
-import type { AppUpdateChannel, AppUpdateProgress, AppUpdateState } from "../shared/appUpdates";
-export type { AppUpdateChannel } from "../shared/appUpdates";
+import type { AppUpdateChannel, AppUpdateProgress, AppUpdateState } from "../core/appUpdates";
+export type { AppUpdateChannel } from "../core/appUpdates";
 
 export interface UpdateVersionInfo {
   version: string;

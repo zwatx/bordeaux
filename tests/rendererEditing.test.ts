@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, reorderWaypoint, reversePath, setTangentDirection, tangentDirectionDeg, tangentHandleUse } from "../src/renderer/lib/pathEditing";
-import { sample } from "../src/shared/math/geometry";
+import { sample } from "../src/core/math/geometry";
 import { blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../src/renderer/lib/editorProject";
-import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { normalizeProject } from "../src/shared/project/normalize";
-import type { JiggleAction } from "../src/shared/types";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { normalizeProject } from "../src/core/project/normalize";
+import type { JiggleAction } from "../src/core/types";
 
 function path() {
   const path = blankPath();

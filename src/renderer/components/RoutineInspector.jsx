@@ -6,7 +6,7 @@ import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
-import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
+import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { continuityText, describeStop, stepTitle } from "./RoutinePanel";
 import { Glyph } from "./routineGlyphs";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";

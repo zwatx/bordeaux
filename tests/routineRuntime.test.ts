@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildRoutineRuntime } from '../src/shared/export/routineRuntime';
-import { buildRobotBinary, encodeBdxArgument } from '../src/shared/export/robotBinary';
+import { buildRoutineRuntime } from '../src/core/export/routineRuntime';
+import { buildRobotBinary, encodeBdxArgument } from '../src/core/export/robotBinary';
 import { routineBindingsFromBinary, routineEvidenceSnapshot } from '../src/electron/routineBindings';
 import { routineRuntimeFixture } from './fixtures/routineRuntimeFixture';
 import { routineCommandIds } from '../src/electron/routineSelection';
-import type { RoutineNode } from '../src/shared/types';
-import { buildWaypoints } from '../src/shared/project/defaults';
+import type { RoutineNode } from '../src/core/types';
+import { buildWaypoints } from '../src/core/project/defaults';
 
 describe('self-contained runtime routine compiler', () => {
   it.each([false, true])('embeds exact standalone position-follow bytes (mixed modes: %s)', mixed => {

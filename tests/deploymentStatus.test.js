@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDemoProject, blankPath } from '../src/shared/project/defaults';
+import { createDemoProject, blankPath } from '../src/core/project/defaults';
 import { deploymentInputKey, deploymentItemStatus } from '../src/renderer/lib/deploymentStatus';
 
 describe('verified library comparison invalidation', () => {

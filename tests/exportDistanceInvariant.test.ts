@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
-import { buildWaypoints } from "../src/shared/project/defaults";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { buildWaypoints } from "../src/core/project/defaults";
 
 function samplesFromBytes(bytes: Uint8Array) {
   const buffer = Buffer.from(bytes);

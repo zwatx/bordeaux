@@ -1,5 +1,5 @@
-import type { BordeauxProject, RoutineNode } from '../shared/types';
-import { routineChildLists } from '../shared/routineChildren';
+import type { BordeauxProject, RoutineNode } from '../core/types';
+import { routineChildLists } from '../core/routineChildren';
 
 /** Inspect only the bounded selected graph; Wait and eventless paths need no NI project. */
 export function routineCommandIds(project: BordeauxProject, routineId: string): Set<string> {

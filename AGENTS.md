@@ -6,7 +6,7 @@ Electron/React desktop editor for robot paths, autonomous routines, and LabVIEW 
 
 - `src/renderer/`: React UI, browser-domain helpers, assets, and styles.
 - `src/electron/`: desktop integration, project files, robot transports, and workers.
-- `src/shared/`: planner and serialization contracts shared across boundaries.
+- `src/core/`: planner and serialization contracts shared across boundaries.
 - `tests/` and `benchmarks/`: correctness, integration, and planner validation.
 - `docs/trajectory-optimization.md`, `docs/labview/index.md`, and `docs/packaging.md`: task-specific workflows.
 

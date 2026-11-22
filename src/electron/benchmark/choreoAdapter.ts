@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { PM } from "../../shared/math/pm";
-import { decodeProjectFile } from "../../shared/project/fileFormat";
-import type { BordeauxProject, PathDoc } from "../../shared/types";
+import { PM } from "../../core/math/pm";
+import { decodeProjectFile } from "../../core/project/fileFormat";
+import type { BordeauxProject, PathDoc } from "../../core/types";
 import { CorridorCorpus } from "./corridor";
 import { FixedGeometryCorpus, normalizeTrajectoryCandidate, type NormalizedTrajectory } from "./fixedGeometry";
 

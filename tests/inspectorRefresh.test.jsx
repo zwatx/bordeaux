@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { ContextInspector, parameterValueError } from '../src/renderer/components/ContextInspector';
 import { UI } from '../src/renderer/components/ui';
-import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
+import { buildWaypoints, createDemoProject } from '../src/core/project/defaults';
 import { PM } from '../src/renderer/lib/pathMath';
 
 const h = React.createElement;

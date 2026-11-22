@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { analyzePath } from "../shared/agent/pathAnalysis";
-import { robotFootprintVertices } from "../shared/agent/robotFootprint";
-import { generateRepairCandidates } from "../shared/agent/pathRepair";
-import { generateRouteCandidates } from "../shared/agent/routeCandidates";
+import { analyzePath } from "../core/agent/pathAnalysis";
+import { robotFootprintVertices } from "../core/agent/robotFootprint";
+import { generateRepairCandidates } from "../core/agent/pathRepair";
+import { generateRouteCandidates } from "../core/agent/routeCandidates";
 import type {
   AgentContext,
   AgentProposal,
@@ -16,15 +16,15 @@ import type {
   ProposalSummary,
   RobotProfileProposal,
   StaleContextOutcome,
-} from "../shared/agent/types";
-import { REBUILT_2026_FIELD } from "../shared/field/rebuilt2026";
-import { resolveProjectFieldTerm, withAllianceView } from "../shared/field/vocabulary";
-import type { RobotRelativePose } from "../shared/field/types";
-import { clone } from "../shared/project/defaults";
-import type { RobotCommandCatalog, RobotPlanningProfile } from "../shared/types";
-import { defaultRobotCommandArguments, robotInvocationErrors } from "../shared/robotCommands";
-import { validateProject, validateProjectSource } from "../shared/validation";
-import { robotCatalogSemanticSignature } from "../shared/agent/catalogSignature";
+} from "../core/agent/types";
+import { REBUILT_2026_FIELD } from "../core/field/rebuilt2026";
+import { resolveProjectFieldTerm, withAllianceView } from "../core/field/vocabulary";
+import type { RobotRelativePose } from "../core/field/types";
+import { clone } from "../core/project/defaults";
+import type { RobotCommandCatalog, RobotPlanningProfile } from "../core/types";
+import { defaultRobotCommandArguments, robotInvocationErrors } from "../core/robotCommands";
+import { validateProject, validateProjectSource } from "../core/validation";
+import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
 
 const MAX_PROPOSALS = 24;
 const MAX_CONCURRENT_ANALYSES = 2;

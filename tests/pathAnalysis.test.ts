@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { analyzePath, minimumPathClearance } from "../src/shared/agent/pathAnalysis";
-import { getPlanner } from "../src/shared/planners";
-import { createDemoProject, buildWaypoints } from "../src/shared/project/defaults";
-import { REBUILT_2026_CROSSINGS } from "../src/shared/field/rebuilt2026";
+import { analyzePath, minimumPathClearance } from "../src/core/agent/pathAnalysis";
+import { getPlanner } from "../src/core/planners";
+import { createDemoProject, buildWaypoints } from "../src/core/project/defaults";
+import { REBUILT_2026_CROSSINGS } from "../src/core/field/rebuilt2026";
 
 describe("agent path analysis", () => {
   it("returns bounded raw samples, extrema, and source references from the shared planner", () => {

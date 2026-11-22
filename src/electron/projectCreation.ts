@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createDemoProject, defaultPathConstraints } from "../shared/project/defaults";
-import { MAX_FILE_NAME_BYTES, portableFileStem } from "../shared/portableFileName";
-import { validateProject } from "../shared/validation";
-import type { CreateNamedProjectRequest, ProjectCopyRequest, ProjectCopyDefaults } from "../shared/project/desktopProjects";
+import { createDemoProject, defaultPathConstraints } from "../core/project/defaults";
+import { MAX_FILE_NAME_BYTES, portableFileStem } from "../core/portableFileName";
+import { validateProject } from "../core/validation";
+import type { CreateNamedProjectRequest, ProjectCopyRequest, ProjectCopyDefaults } from "../core/project/desktopProjects";
 import { absentProjectSource, autosaveProjectFolder, projectWorkspacePath, type ProjectSourceOwner } from "./projectFiles";
 import { projectFolderIdentity, type ProjectFolderIdentity } from "./projectFolderIdentity";
 import { loadProjectFolderSelection, type ProjectSelection } from "./projectOpening";

@@ -14,5 +14,5 @@
     "allowSyntheticDefaultImports": true,
     "sourceMap": true
   },
-  "include": ["src/electron", "src/mcp", "src/shared"]
+  "include": ["src/electron", "src/mcp", "src/core"]
 }

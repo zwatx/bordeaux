@@ -1,11 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { createDemoProject, buildWaypoints } from "../src/shared/project/defaults";
+import { createDemoProject, buildWaypoints } from "../src/core/project/defaults";
 import { setWaypointFacing } from "../src/renderer/lib/pathEditing";
-import { getPlanner } from "../src/shared/planners";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import type { RobotCommandCatalog } from "../src/shared/types";
+import { getPlanner } from "../src/core/planners";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import type { RobotCommandCatalog } from "../src/core/types";
 // @ts-expect-error The inspector is a JavaScript component.
 import { ContextInspector } from "../src/renderer/components/ContextInspector";
 

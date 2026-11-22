@@ -1,4 +1,4 @@
-import type { RobotCommandCatalog } from "../shared/types";
+import type { RobotCommandCatalog } from "../core/types";
 import { discoverLabviewProject, isLabviewProject } from "./labviewProject";
 
 export type RobotProjectRuntime = "labview";

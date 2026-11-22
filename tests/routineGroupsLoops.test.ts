@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRoutineRuntime } from '../src/shared/export/routineRuntime';
-import { executeRoutine, preflightRoutine } from '../src/shared/routineExecution';
-import type { RoutineCommandCompletion, RoutineCommandRequest, RoutineExecutionAdapters } from '../src/shared/routineExecution';
-import { validateProject } from '../src/shared/validation';
-import { createDemoProject } from '../src/shared/project/defaults';
-import { routineFeaturesRequireV11 } from '../src/shared/project/routineSchema';
+import { buildRoutineRuntime } from '../src/core/export/routineRuntime';
+import { executeRoutine, preflightRoutine } from '../src/core/routineExecution';
+import type { RoutineCommandCompletion, RoutineCommandRequest, RoutineExecutionAdapters } from '../src/core/routineExecution';
+import { validateProject } from '../src/core/validation';
+import { createDemoProject } from '../src/core/project/defaults';
+import { routineFeaturesRequireV11 } from '../src/core/project/routineSchema';
 import { projectCommandIds } from '../src/electron/usedCommands';
 // @ts-expect-error Routine authoring remains a legacy JavaScript module.
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { routineRuntimeFixture } from './fixtures/routineRuntimeFixture';
-import type { AutonomousRoutine, RobotCommandDescriptor, RobotValueSchema, RoutineNode } from '../src/shared/types';
+import type { AutonomousRoutine, RobotCommandDescriptor, RobotValueSchema, RoutineNode } from '../src/core/types';
 
 type Step = { nodeId: string; t0: number; t1: number };
 const boolean: RobotValueSchema = { kind: 'boolean', valueType: 'Boolean' };

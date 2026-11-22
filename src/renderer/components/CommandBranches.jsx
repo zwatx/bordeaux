@@ -3,7 +3,7 @@ import { AUTO } from '../lib/routineModel';
 import { CommandParameterEditor } from './ContextInspector';
 import { deletionInput } from './DeletionNotice';
 import { UI } from './ui';
-import { robotValueSchemasEqual } from '../../shared/robotValueSchema';
+import { robotValueSchemasEqual } from '../../core/robotValueSchema';
 
 const h = React.createElement;
 const { Dropdown } = UI;

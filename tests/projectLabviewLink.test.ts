@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { normalizeLabviewProjectPath } from "../src/shared/project/labviewLink";
+import { createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import { normalizeLabviewProjectPath } from "../src/core/project/labviewLink";
 import { labviewLinkMatches, rebaseProjectLabviewLink, relativeLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "../src/electron/projectLabviewLink";
 import { reconcileSavedRobotLink } from "../src/renderer/lib/projectRobotLink";
 

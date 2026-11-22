@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { minimumRobotFieldClearance } from "../../shared/agent/fieldClearance";
-import { robotFootprintAt, robotFootprintRadius } from "../../shared/agent/robotFootprint";
-import { FIELD_H, FIELD_W } from "../../shared/math/fieldBounds";
-import { PM } from "../../shared/math/pm";
-import { decodeProjectFile } from "../../shared/project/fileFormat";
-import type { BordeauxProject, ControlPoint, PathDoc } from "../../shared/types";
+import { minimumRobotFieldClearance } from "../../core/agent/fieldClearance";
+import { robotFootprintAt, robotFootprintRadius } from "../../core/agent/robotFootprint";
+import { FIELD_H, FIELD_W } from "../../core/math/fieldBounds";
+import { PM } from "../../core/math/pm";
+import { decodeProjectFile } from "../../core/project/fileFormat";
+import type { BordeauxProject, ControlPoint, PathDoc } from "../../core/types";
 import {
   densifyNormalizedTrajectory,
   CANDIDATE_ADJACENT_CENTRIPETAL_RELATIVE_TOLERANCE,

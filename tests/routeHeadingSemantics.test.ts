@@ -5,14 +5,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The production panel is an intentional JavaScript module.
 import { OptimizationPanel } from "../src/renderer/components/OptimizationPanel";
-import { PM } from "../src/shared/math/pm";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { getPlanner } from "../src/shared/planners";
-import { routeCandidates } from "../src/shared/planners/routeCandidates";
-import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/shared/planners/routeGeometry";
-import { routeCandidateIssue } from "../src/shared/planners/routeValidation";
-import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/shared/types";
+import { PM } from "../src/core/math/pm";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { getPlanner } from "../src/core/planners";
+import { routeCandidates } from "../src/core/planners/routeCandidates";
+import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
+import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { routeCandidateIssue } from "../src/core/planners/routeValidation";
+import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/core/types";
 
 const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v2/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
 // Math transcendental results differ by a few ULPs between supported Node versions.

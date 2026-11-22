@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PM } from "../src/shared/math/pm";
-import { optimizedTrajectoryPlanner } from "../src/shared/planners/optimizedTrajectory";
-import { profiledSplineOptimizationInputs, profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { PM } from "../src/core/math/pm";
+import { optimizedTrajectoryPlanner } from "../src/core/planners/optimizedTrajectory";
+import { profiledSplineOptimizationInputs, profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 describe("optimizer initial spline work", () => {
   afterEach(() => vi.restoreAllMocks());

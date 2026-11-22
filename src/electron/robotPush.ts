@@ -1,4 +1,4 @@
-import type { RobotDeploymentSummary } from "../shared/export/robotDeployment";
+import type { RobotDeploymentSummary } from "../core/export/robotDeployment";
 import type {
   RobotActivationExpectation,
   RobotActivationRejectionBoundary,

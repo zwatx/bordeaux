@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { AUTO } from "../src/renderer/lib/routineModel";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { validateProject } from "../src/shared/validation";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { validateProject } from "../src/core/validation";
 
 const benchmark = process.env.BENCHMARK_ROUTINE_PREVIEW === "1" ? it : it.skip;
 

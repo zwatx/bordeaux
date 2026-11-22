@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import type { RobotCommandCatalog, RobotCommandDescriptor, RobotCommandParameter, LabviewProjectDiscovery } from "../shared/types";
+import type { RobotCommandCatalog, RobotCommandDescriptor, RobotCommandParameter, LabviewProjectDiscovery } from "../core/types";
 import { discoverLabviewProject, resolveLabviewProject } from "./labviewProject";
 import { writeJsonAtomically } from "./projectFiles";
 import { decodeLabviewNiInspection } from "./labviewNiTypes";

@@ -9,10 +9,10 @@ import { MAX_RECOVERY_RECORDS, ProjectRecoveryStore, RecoveryStoreError } from "
 import { ProjectDepartureCoordinator } from "../src/electron/projectDeparture";
 import { autosaveProjectFolder, projectWorkspacePath } from "../src/electron/projectFiles";
 import { loadProjectSelection } from "../src/electron/projectOpening";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { ProjectDurabilityContext } from "../src/shared/project/projectDurability";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
-import type { ProjectPersistenceUpdate, ProjectReloadRequest } from "../src/shared/project/projectPersistence";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { ProjectDurabilityContext } from "../src/core/project/projectDurability";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
+import type { ProjectPersistenceUpdate, ProjectReloadRequest } from "../src/core/project/projectPersistence";
 
 const directories: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await Promise.all(directories.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true }))); });

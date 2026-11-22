@@ -1,4 +1,4 @@
-import type { PathProposal } from "../../shared/agent/types";
+import type { PathProposal } from "../../core/agent/types";
 
 type ProposalContext = Pick<PathProposal, "baseSessionId" | "baseRevision" | "baseActivePathId" | "baseRobotCatalogFingerprint">;
 interface PublishedContext {

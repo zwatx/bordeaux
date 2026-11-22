@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTO } from "../src/renderer/lib/routineModel";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 
 const hooks = vi.hoisted(() => ({ values: [], cursor: 0, effects: [] }));
 const planning = vi.hoisted(() => ({ request: null }));
@@ -180,7 +180,7 @@ describe("routine planning", () => {
   ])("blocks the routine on %s", async (_label, applied, result, message) => {
     const project = createDemoProject();
     const base = project.paths[0];
-    const { optimizationInputKey } = await import("../src/shared/planners/acceptedTrajectoryIdentity");
+    const { optimizationInputKey } = await import("../src/core/planners/acceptedTrajectoryIdentity");
     const path = applied
       ? { ...base, optimization: { corridorM: 0.15, accepted: { version: 1, inputKey: optimizationInputKey(base, project.robot, project.field), samplesPerSegment: 56, result: {} } } }
       : base;

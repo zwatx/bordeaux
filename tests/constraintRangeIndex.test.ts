@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { indexIntervalPolicies, indexPointPolicies, type IntervalPolicy } from "../src/shared/planners/intervalPolicies";
+import { indexIntervalPolicies, indexPointPolicies, type IntervalPolicy } from "../src/core/planners/intervalPolicies";
 // @ts-expect-error The renderer math module is intentionally JavaScript.
 import { PM } from "../src/renderer/lib/pathMath";
 

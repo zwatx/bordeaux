@@ -7,7 +7,7 @@ import ts from 'typescript';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ProjectsDialog, sameProject, locationHint, recoveryKind, recoveryRows, recoveryUsage } from '../src/renderer/components/ProjectsDialog';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { listRecentProjects } from '../src/electron/recentProjectFiles';
 import { loadProjectSelection } from '../src/electron/projectOpening';
 import { autosaveProjectFolder, projectWorkspacePath } from '../src/electron/projectFiles';

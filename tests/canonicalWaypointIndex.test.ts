@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildCanonicalPathState } from "../src/shared/planners/pathState";
-import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { PathDoc, TrajectorySample, Waypoint } from "../src/shared/types";
+import { buildCanonicalPathState } from "../src/core/planners/pathState";
+import { profiledSplineOptimizationSeed, profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { PathDoc, TrajectorySample, Waypoint } from "../src/core/types";
 
 // The previous exhaustive lookup: earliest nearest sample at or after the
 // previous waypoint's sample. The indexed lookup must reproduce it exactly.

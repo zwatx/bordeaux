@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { compareCommandOutput, executeRoutine, selectCommandOutputRoute } from '../src/shared/routineExecution';
-import type { RoutineExecutionAdapters, RoutineCommandRequest } from '../src/shared/routineExecution';
-import type { AutonomousRoutine, RobotCommandDescriptor, RobotValueSchema, RoutineCommandOutputBranch, RoutineFunctionNode, RoutineNode, RoutineRepeatNode } from '../src/shared/types';
+import { compareCommandOutput, executeRoutine, selectCommandOutputRoute } from '../src/core/routineExecution';
+import type { RoutineExecutionAdapters, RoutineCommandRequest } from '../src/core/routineExecution';
+import type { AutonomousRoutine, RobotCommandDescriptor, RobotValueSchema, RoutineCommandOutputBranch, RoutineFunctionNode, RoutineNode, RoutineRepeatNode } from '../src/core/types';
 
 const boolean: RobotValueSchema = { kind: 'boolean', valueType: 'Boolean' };
 const descriptor = (schema = boolean): RobotCommandDescriptor => ({ id: 'inspect', label: 'Inspect', ownerType: 'LabVIEW', member: 'Inspect.vi', kind: 'factory', confidence: 'confirmed', parameters: [], outputs: [{ name: 'finished', schema }], source: { file: 'Inspect.vi', line: 1 } });

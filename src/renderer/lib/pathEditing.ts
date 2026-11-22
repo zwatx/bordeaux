@@ -1,10 +1,10 @@
-import { autoHandles, sample } from "../../shared/math/geometry";
-import { featureFraction, remapWaypointRange } from "../../shared/math/pathRanges";
-import { waypointHeadingSemantics } from "../../shared/math/waypointHeading";
-import { deriveHeadingGeometry } from "../../shared/math/pm";
-import { clampWorldPoint, clone } from "../../shared/project/defaults";
-import { alignedWaypointHandles } from "../../shared/project/waypointHandles";
-import type { ControlPoint, PathDoc, RotationDirection, Waypoint } from "../../shared/types";
+import { autoHandles, sample } from "../../core/math/geometry";
+import { featureFraction, remapWaypointRange } from "../../core/math/pathRanges";
+import { waypointHeadingSemantics } from "../../core/math/waypointHeading";
+import { deriveHeadingGeometry } from "../../core/math/pm";
+import { clampWorldPoint, clone } from "../../core/project/defaults";
+import { alignedWaypointHandles } from "../../core/project/waypointHandles";
+import type { ControlPoint, PathDoc, RotationDirection, Waypoint } from "../../core/types";
 
 type EditablePath = PathDoc & { _selAfter?: number };
 

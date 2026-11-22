@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenedProject } from "../shared/project/desktopProjects";
-import type { ProjectDurabilityContext } from "../shared/project/projectDurability";
-import type { ProjectKeptRecovery, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult } from "../shared/project/projectPersistence";
+import type { OpenedProject } from "../core/project/desktopProjects";
+import type { ProjectDurabilityContext } from "../core/project/projectDurability";
+import type { ProjectKeptRecovery, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult } from "../core/project/projectPersistence";
 import { projectFolderIdentity, sameProjectFolder } from "./projectFolderIdentity";
 import { loadProjectSelection, type ProjectSelection, type ProjectSelectionReadOptions } from "./projectOpening";
 import { ProjectPersistence, ReloadStale } from "./projectPersistence";

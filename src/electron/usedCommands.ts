@@ -1,7 +1,7 @@
-import type { BordeauxProject, RoutineNode } from "../shared/types";
-import { routineChildLists } from "../shared/routineChildren";
+import type { BordeauxProject, RoutineNode } from "../core/types";
+import { routineChildLists } from "../core/routineChildren";
 import { routineCommandIds } from "./routineSelection";
-import { markerInvocations } from "../shared/markerCommands";
+import { markerInvocations } from "../core/markerCommands";
 
 /**
  * Command IDs an export actually writes: the markers on the selected paths, or a routine's command steps plus the

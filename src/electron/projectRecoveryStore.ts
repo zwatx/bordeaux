@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import { constants, type Stats } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { BordeauxProject } from "../shared/types";
-import { encodeProjectFile, prepareProjectFile } from "../shared/project/fileFormat";
+import type { BordeauxProject } from "../core/types";
+import { encodeProjectFile, prepareProjectFile } from "../core/project/fileFormat";
 import { MAX_WORKSPACE_FILE_BYTES } from "./projectFiles";
 
 export const MAX_RECOVERY_RECORD_BYTES = MAX_WORKSPACE_FILE_BYTES;

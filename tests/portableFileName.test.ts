@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { binaryFileName } from "../src/shared/export/robotBinary";
+import { binaryFileName } from "../src/core/export/robotBinary";
 import { projectFileName } from "../src/electron/projectFiles";
-import { truncateUtf8 } from "../src/shared/portableFileName";
+import { truncateUtf8 } from "../src/core/portableFileName";
 
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 const wellFormed = (text: string) => Buffer.from(text, "utf8").toString("utf8") === text;

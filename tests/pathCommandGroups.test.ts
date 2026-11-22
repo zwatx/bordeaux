@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { validateProject } from "../src/shared/validation";
-import { normalizeProject } from "../src/shared/project/normalize";
-import { validateProjectRobotInvocations } from "../src/shared/robotCommands";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { validateProject } from "../src/core/validation";
+import { normalizeProject } from "../src/core/project/normalize";
+import { validateProjectRobotInvocations } from "../src/core/robotCommands";
 import { projectCommandIds } from "../src/electron/usedCommands";
-import { markerInvocations } from "../src/shared/markerCommands";
+import { markerInvocations } from "../src/core/markerCommands";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
-import type { CommandInvocation, Marker } from "../src/shared/types";
+import type { CommandInvocation, Marker } from "../src/core/types";
 
 const build = (fixture: ReturnType<typeof binaryWriterFixture>) => buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
 const command = (_fixture: ReturnType<typeof binaryWriterFixture>, patch: Partial<CommandInvocation> = {}): CommandInvocation =>

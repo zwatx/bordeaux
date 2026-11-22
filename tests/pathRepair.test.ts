@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { analyzePath } from "../src/shared/agent/pathAnalysis";
-import { generateRepairCandidates } from "../src/shared/agent/pathRepair";
-import type { PathAnalysis, PathAnalysisFinding } from "../src/shared/agent/types";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { analyzePath } from "../src/core/agent/pathAnalysis";
+import { generateRepairCandidates } from "../src/core/agent/pathRepair";
+import type { PathAnalysis, PathAnalysisFinding } from "../src/core/agent/types";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
-vi.mock("../src/shared/agent/pathAnalysis", () => ({ analyzePath: vi.fn() }));
+vi.mock("../src/core/agent/pathAnalysis", () => ({ analyzePath: vi.fn() }));
 
 beforeEach(() => vi.resetAllMocks());
 

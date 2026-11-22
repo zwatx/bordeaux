@@ -1,4 +1,4 @@
-import { isOptimizationOutdated, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { isOptimizationOutdated, optimizationInputKey } from "../../core/planners/acceptedTrajectoryIdentity";
 import { durationResult, finalPlanningOutcome } from "./finalPlanningResult";
 
 // Agent-only strategy notes never change a trajectory. Everything else in the

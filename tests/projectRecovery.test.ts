@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { BordeauxProject } from "../src/shared/types";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { BordeauxProject } from "../src/core/types";
 import { autosaveProjectFolder, openProjectFolder, projectWorkspacePath, writeProject } from "../src/electron/projectFiles";
 import { loadProjectFolderSelection, loadProjectSelection, type ProjectSelection } from "../src/electron/projectOpening";
 

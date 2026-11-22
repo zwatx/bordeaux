@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { ACTIVE_FIELD_REFERENCE } from "../src/shared/field/rebuilt2026";
-import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/shared/planners/routeGeometry";
-import { routeCandidateFailure } from "../src/shared/planners/routeValidation";
-import { routeSafetyFailure } from "../src/shared/planners/routeSafety";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { PM } from "../src/shared/math/pm";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { effectiveRanges } from "../src/shared/planners/rotationPriority";
-import type { PlannerResult } from "../src/shared/types";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { ACTIVE_FIELD_REFERENCE } from "../src/core/field/rebuilt2026";
+import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
+import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { routeCandidateFailure } from "../src/core/planners/routeValidation";
+import { routeSafetyFailure } from "../src/core/planners/routeSafety";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { PM } from "../src/core/math/pm";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { effectiveRanges } from "../src/core/planners/rotationPriority";
+import type { PlannerResult } from "../src/core/types";
 
 function crossing() {
   const project = createDemoProject();

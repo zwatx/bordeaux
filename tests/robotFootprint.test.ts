@@ -6,9 +6,9 @@ import {
   robotFootprintAt,
   robotFootprintVertices,
   verticalLineSection,
-} from "../src/shared/agent/robotFootprint";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { validateProject } from "../src/shared/validation";
+} from "../src/core/agent/robotFootprint";
+import { createDemoProject } from "../src/core/project/defaults";
+import { validateProject } from "../src/core/validation";
 
 describe("robot footprint geometry", () => {
   it("uses length forward and width laterally for the default rectangle", () => {

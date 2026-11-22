@@ -6,7 +6,7 @@ try {
   const { applyFinalTrajectoryToPreview } = await server.ssrLoadModule('/src/renderer/assets/path-preview-worker.js');
   const { PathPreview } = await server.ssrLoadModule('/src/renderer/assets/path-preview.js');
   const { AUTO } = await server.ssrLoadModule('/src/renderer/lib/routineModel.js');
-  const { createDemoProject } = await server.ssrLoadModule('/src/shared/project/defaults.ts');
+  const { createDemoProject } = await server.ssrLoadModule('/src/core/project/defaults.ts');
   const measure = (name, operation, iterations) => {
     for (let i = 0; i < 3; i += 1) operation();
     const durations = [];

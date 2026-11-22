@@ -9,7 +9,7 @@ import * as links from "../src/electron/projectLabviewLink";
 import * as bookmarks from "../src/electron/robotProjectBookmarks";
 import { resolveLabviewProject, statLabviewLocalPath } from "../src/electron/labviewProjectDiscovery";
 import { discoverLabviewProject, LABVIEW_CATALOG_SOURCE } from "../src/electron/labviewProject";
-import { robotCatalogSemanticSignature } from "../src/shared/agent/catalogSignature";
+import { robotCatalogSemanticSignature } from "../src/core/agent/catalogSignature";
 import { sameProjectContext, canonicalProjectDigest, ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
 import { ProjectPersistence } from "../src/electron/projectPersistence";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
@@ -17,10 +17,10 @@ import { ProjectDepartureCoordinator } from "../src/electron/projectDeparture";
 // @ts-expect-error The renderer lifecycle is a JavaScript module.
 import { createPersistenceQueue, createCheckpointChannel, checkpointMatch } from "../src/renderer/lib/projectLifecycle";
 import { withRobotLink } from "../src/renderer/lib/projectRobotLink";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, openProjectFolder, projectWorkspacePath } from "../src/electron/projectFiles";
 import { loadProjectSelection } from "../src/electron/projectOpening";
-import { projectWriteFactFromMessage } from "../src/shared/project/writeErrors";
+import { projectWriteFactFromMessage } from "../src/core/project/writeErrors";
 import { projectCommandIds } from "../src/electron/usedCommands";
 
 const roots: string[] = [];

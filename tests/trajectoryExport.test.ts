@@ -2,13 +2,13 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { getPlanner } from "../src/shared/planners";
-import { blankPath, buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectValue, encodeProjectFile } from "../src/shared/project/fileFormat";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { getPlanner } from "../src/core/planners";
+import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
 import { readProject, writeProject } from "../src/electron/projectFiles";
-import { validateProject } from "../src/shared/validation";
-import { validateOptimizedTrajectory } from "../src/shared/planners/trajectoryValidation";
+import { validateProject } from "../src/core/validation";
+import { validateOptimizedTrajectory } from "../src/core/planners/trajectoryValidation";
 // @ts-expect-error The production worker is an intentional JavaScript module.
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 

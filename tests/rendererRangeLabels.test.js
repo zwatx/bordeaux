@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { PM } from "../src/renderer/lib/pathMath";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { describe, expect, it } from "vitest";
 import { FieldView, rangeLabelIndexes, toolRailLabelObstacle } from "../src/renderer/components/FieldView";
 

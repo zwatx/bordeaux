@@ -2,7 +2,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
-import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/shared/types";
+import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/core/types";
 
 // Exercise the production join without making its internal helper a public API.
 const text = fs.readFileSync("src/electron/labviewNiInspection.ts", "utf8");

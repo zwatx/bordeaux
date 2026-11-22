@@ -1,6 +1,6 @@
 // Prototype data: a realistic, slightly hostile project (long names, many paths, ~5 commands).
-import { buildWaypoints, defaultPathConstraints } from "../../../src/shared/project/defaults";
-import { ACTIVE_FIELD_REFERENCE } from "../../../src/shared/field/rebuilt2026";
+import { buildWaypoints, defaultPathConstraints } from "../../../src/core/project/defaults";
+import { ACTIVE_FIELD_REFERENCE } from "../../../src/core/field/rebuilt2026";
 
 export const ROBOT = { drive: "swerve", w: 0.84, l: 0.84, heightM: 0.5, maxSpeed: 4.6 };
 
