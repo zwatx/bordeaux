@@ -23,4 +23,4 @@ interface DOMException extends Error { readonly name: string }
 declare var DOMException: { new (message?: string, name?: string): DOMException };
 
 declare class TextEncoder { encode(input?: string): Uint8Array }
-declare class TextDecoder { decode(input?: Uint8Array): string }
+declare class TextDecoder { constructor(label?: string, options?: { ignoreBOM?: boolean }); decode(input?: Uint8Array): string }

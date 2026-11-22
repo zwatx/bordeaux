@@ -4,7 +4,8 @@
  */
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+// ignoreBOM keeps a leading U+FEFF, as Buffer does; the default decoder would drop it and fail the UTF-8 round trip.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /** UTF-8 encoding. Lone surrogates become U+FFFD, matching Buffer.from(text, "utf8"). */
 export const utf8Bytes = (text: string): Uint8Array => encoder.encode(text);
