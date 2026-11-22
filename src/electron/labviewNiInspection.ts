@@ -291,12 +291,14 @@ export async function runLabviewNiAdapter(requestFile: string, responseFile: str
     try { return await runInspectionScript(powershell, script, requestFile, responseFile); }
     catch (error) {
       if (!(error instanceof Error) || !PROJECT_ELSEWHERE.test(error.message)) throw error;
-      notHere = error;
+      // "Open the project" says more than "this bitness has no LabVIEW", so a later absence doesn't replace it.
+      if (!notHere || NO_LABVIEW.test(notHere.message)) notHere = error;
     }
   }
   throw notHere ?? new Error("Windows PowerShell is unavailable for NI command inspection.");
 }
 
+const NO_LABVIEW = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered/;
 /** InspectCommands.ps1's failures that mean "try the other LabVIEW bitness", not a failed inspection. */
 const PROJECT_ELSEWHERE = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered|Open the selected project in one LabVIEW instance|The selected project is not already open in LabVIEW/;
 

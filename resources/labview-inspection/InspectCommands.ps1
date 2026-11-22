@@ -85,8 +85,6 @@ try {
   if ($expected.HasExited) { throw 'LabVIEW exited before inspection.' }
   $app = [BordeauxNiInspection]::BindExisting()
   if ([int][BordeauxNiInspection]::Get($app, '_ProcessID') -ne $expected.Id) { throw 'LabVIEW COM attached to a different process; inspection stopped.' }
-  # Major versions whose connector reports were compared and found identical; keep in sync with labviewNiTypes.ts.
-  if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^(25|26)\.') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 and LabVIEW 2026. Use a declared or previously cached catalog for this NI version.' }
   foreach ($project in @([BordeauxNiInspection]::Get($app, 'AllProjects'))) {
     if ($null -eq $project) { continue }
     try {
@@ -97,6 +95,9 @@ try {
     } finally { [BordeauxNiInspection]::Release($project) }
   }
   if ($null -eq $context) { throw 'The selected project is not already open in LabVIEW. Open it, then inspect again.' }
+  # Checked once this LabVIEW has the project, so another LabVIEW without it doesn't block the other bitness.
+  # Major versions whose connector reports were compared and found identical; keep in sync with labviewNiTypes.ts.
+  if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^(25|26)\.') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 and LabVIEW 2026. Use a declared or previously cached catalog for this NI version.' }
   if ($request.schemaVersion -eq 'bordeaux-ni-wrapper/1') {
     $commandFile = Assert-LocalFile ([string]$request.commandFile)
     $wrapperFile = [IO.Path]::GetFullPath([string]$request.wrapperFile)
