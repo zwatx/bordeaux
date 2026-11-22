@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { WindowMenu, WindowMenuEntry } from '../../core/windowChrome';
+import type { WindowChromeHost } from './WindowsTitleBar';
 
 export function WindowsApplicationMenu({ api, initial, anchor, onClose }: {
-  api: NonNullable<Window['bordeauxAPI']>; initial: WindowMenu; anchor: HTMLElement; onClose: (restore?: boolean) => void;
+  api: WindowChromeHost; initial: WindowMenu; anchor: HTMLElement; onClose: (restore?: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<WindowMenuEntry[] | null>(null);

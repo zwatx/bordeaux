@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-electron/
 dist-renderer/
+dist-systemcore/
 release/
 release-*/
 .benchmark-results/

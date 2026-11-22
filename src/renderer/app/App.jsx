@@ -2748,7 +2748,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [flushProjectDraft, materializeProject]);
 
     useEffect(() => {
-      if (!window.bordeauxAPI) return undefined;
+      // Native menus exist only on the desktop; a web host has none.
+      if (typeof window.bordeauxAPI?.onMenuCommand !== 'function') return undefined;
       const api = window.bordeauxAPI;
       return api.onMenuCommand(({ command, payload }) => {
         // A project transition owns the window; native commands are ignored until it ends.

@@ -8,6 +8,7 @@ Electron/React desktop editor for robot paths, autonomous routines, and LabVIEW 
 - `src/electron/`: desktop integration, project files, robot transports, and workers.
 - `src/core/`: planner, export and project logic. It builds without Node or DOM types (`tsconfig.core.json`), so it runs in Electron, the browser and Web Workers.
 - `src/hosts/contract.ts`: every call the renderer makes on its host, typed once. Electron's preload and `main.ts` handlers are checked against it.
+- `src/hosts/systemcore/`: the SystemCore app. `webHost.ts` answers host calls over HTTP; `server.py` (Python standard library) serves the page on port 2468 and stores project files and pushed paths under `/home/systemcore/bordeaux`.
 - `tests/` and `benchmarks/`: correctness, integration, and planner validation.
 - `docs/trajectory-optimization.md`, `docs/labview/index.md`, and `docs/packaging.md`: task-specific workflows.
 
@@ -21,6 +22,7 @@ Use Node.js >=22.12 and npm.
 - `npm run typecheck`
 - `npm run build`
 - Desktop smoke check: `env -u ELECTRON_RUN_AS_NODE npm run test:smoke`.
+- SystemCore: `npm run test:systemcore` runs the web build against a local `server.py`; set `BORDEAUX_SYSTEMCORE_URL` to check a robot that serves it.
 
 CI also certifies fields and checks licenses. Packaging/release tasks have their own gates in `docs/packaging.md`; archive large local installers recoverably rather than discarding them.
 

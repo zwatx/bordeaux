@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { BordeauxHost } from "../../hosts/contract";
 import { createPortal } from "react-dom";
 import type { WindowAction, WindowMenu, WindowState } from "../../core/windowChrome";
 import "../styles/windows-title-bar.css";
@@ -6,12 +7,18 @@ import { WindowsApplicationMenu } from './WindowsApplicationMenu';
 
 const shortcuts: Record<string, WindowMenu> = { f: "file", r: "robot", a: "agents", v: "view", h: "help" };
 
+const CHROME_METHODS = ["getWindowState", "onWindowState", "windowAction", "openWindowMenu", "getWindowMenu", "activateWindowMenu"] as const;
+/** The host calls the custom Windows title bar and its menu use. */
+export type WindowChromeHost = Pick<BordeauxHost, (typeof CHROME_METHODS)[number]>;
+const hasWindowChrome = (api: Partial<BordeauxHost>): api is Partial<BordeauxHost> & WindowChromeHost =>
+  CHROME_METHODS.every((method) => typeof api[method] === "function");
+
 export function WindowsTitleBar() {
   const api = window.bordeauxAPI;
-  return api?.platform === "win32" && typeof api.getWindowState === "function" ? <TitleBar api={api} /> : null;
+  return api?.platform === "win32" && hasWindowChrome(api) ? <TitleBar api={api} /> : null;
 }
 
-function TitleBar({ api }: { api: NonNullable<Window["bordeauxAPI"]> }) {
+function TitleBar({ api }: { api: WindowChromeHost }) {
   const [state, setState] = useState<WindowState>({ maximized: false, fullscreen: false, focused: true });
   const [active, setActive] = useState<WindowMenu | null>(null);
   const [error, setError] = useState("");
