@@ -1,0 +1,26 @@
+[Unit]
+Description=Bordeaux path editor
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=systemcore
+Group=systemcore
+WorkingDirectory=/usr/local/bin/bordeaux
+ExecStart=/usr/bin/env python3 server.py --port 2468 --home /home/systemcore/bordeaux
+Restart=always
+RestartSec=5
+TimeoutStartSec=3
+TimeoutStopSec=3
+# Robot code shares this CPU. The editor plans in the browser; the server only stores files.
+Nice=10
+CPUQuota=50%
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/systemcore/bordeaux
+
+[Install]
+WantedBy=multi-user.target

@@ -40,6 +40,14 @@ Saving a path writes a local `.bdx` file. Binary export requires saved NI type e
 
 Robot push is a separate explicit action. Saving and local deletion do not connect to a robot or remove robot contents. Choose the robot type in **Robot connection**. A roboRIO receives files as `admin` in `/home/lvuser/natinst/bin/Paths`. A Systemcore receives them as `systemcore` in `/home/systemcore/bordeaux/paths`, which the first upload creates; the LabVIEW container reads `/home` at the same path. If the team changed the Systemcore password, enter it under **SSH password**. Bordeaux encrypts it with the OS keychain; on a computer without one, it keeps the password only until Bordeaux closes and never writes it to disk. Robot code must read paths from the folder you push to. Before uploading, Bordeaux shows the robot's host key and the files it will send. It reads each file back before and after putting it in place, and never starts robot code.
 
+## SystemCore app
+
+`npm run package:systemcore` builds `release/bordeaux_<version>_all.ipk`. Upload it under **Add Package** in the SystemCore dashboard, or copy it over and run `opkg install` on the robot. Bordeaux then appears in the dashboard and serves the editor at `http://<robot>:2468/` to any browser on the robot's network.
+
+The browser plans paths and builds BDX files; the robot only stores them. **Save** and autosave write project folders to `/home/systemcore/bordeaux/projects`. **Push** is a separate, reviewed step that copies the selected paths' `.bdx` files into `/home/systemcore/bordeaux/paths`, reads them back and checks their SHA-256; LabVIEW robot code reads that folder. Removing the package keeps both folders.
+
+The robot app exports paths without commands. Paths with command events, LabVIEW project linking, routine export and push, recovery copies, and project copies still need the desktop app.
+
 ## Project files
 
 Mark a waypoint **Linkable** and give it a **Point name** to make it available for reuse. On another waypoint, use **Shared position → Use named point…**; only opted-in named points appear. Turning Linkable off hides the point from the picker without breaking existing links. Editing either point updates every linked occurrence; robot facing, tangent handles relative to the point, and stop settings remain local. **Unlink** makes that occurrence independent. Duplicating an entire path retains its shared positions; duplicating an individual waypoint creates an independent, offset point. Appended path endpoints also share position only.

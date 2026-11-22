@@ -1,0 +1,15 @@
+Package: bordeaux
+Version: @VERSION@
+Description: Bordeaux path editor
+ Plans robot paths and autonomous routines in the browser and stores them on the robot.
+ Push copies reviewed .bdx files into /home/systemcore/bordeaux/paths for LabVIEW robot code.
+Section: development
+Priority: optional
+Maintainer: FRC Team 2468
+Architecture: all
+Source: local
+X-Display-Name: Bordeaux
+X-Port: 2468
+X-Has-UI: true
+X-Auto-Start: true
+X-Icon-Path: /usr/share/bordeaux.png

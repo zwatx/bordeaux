@@ -1,0 +1,22 @@
+#!/bin/sh
+PACKAGE_NAME="bordeaux"
+
+# The service may write only here (ReadWritePaths), so the folders must exist first.
+# Files already in them, including paths pushed earlier from the desktop app, are kept.
+install -d -o systemcore -g systemcore /home/systemcore/bordeaux /home/systemcore/bordeaux/projects /home/systemcore/bordeaux/paths
+
+systemctl daemon-reload
+sleep 1
+echo "Enabling $PACKAGE_NAME for auto-start on boot..."
+systemctl enable $PACKAGE_NAME.service
+if systemctl restart $PACKAGE_NAME.service; then
+    sleep 2
+    if systemctl is-active $PACKAGE_NAME.service >/dev/null 2>&1; then
+        echo "Bordeaux is running at http://<robot>:2468/"
+    else
+        echo "Bordeaux may have an issue: journalctl -u $PACKAGE_NAME"
+    fi
+else
+    echo "Failed to start $PACKAGE_NAME"
+fi
+exit 0
