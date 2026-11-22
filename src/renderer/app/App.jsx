@@ -2132,9 +2132,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       history.clear();
       updateDirty(Boolean(origin));
       setRobotProjectState((current) => ({ ...current, status: 'unlinked', operation: null, catalog: null, integration: null, bookmarkId: null, suggestion: null, error: '', notice: '' }));
-      if (window.bordeauxAPI?.restoreProjectRobotCode && session?.context) void restoreRobotCode(session.context, robotGeneration);
+      // The desktop restores robot code per project session; a host without sessions (the SystemCore) has one command list.
+      if (window.bordeauxAPI?.restoreProjectRobotCode && (session?.context || !lifecycle)) void restoreRobotCode(session?.context ?? null, robotGeneration);
       else if (next.editor && next.editor.robotProjectBookmarkId) void openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration);
-    }, [cancelEdit, history, invalidateScheduledAutosave, openRecentRobotProject, restoreRobotCode, playbackStore, refreshSessionRecord, routinePlaybackStore, updateDirty]);
+    }, [cancelEdit, history, invalidateScheduledAutosave, lifecycle, openRecentRobotProject, restoreRobotCode, playbackStore, refreshSessionRecord, routinePlaybackStore, updateDirty]);
     // Older desktop builds and browser fixtures without the startup API keep the previous restore race handling.
     useEffect(() => {
       let active = true;

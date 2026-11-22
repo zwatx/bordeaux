@@ -2,6 +2,8 @@
 //
 //   node scripts/verify-systemcore-web.mjs                  builds dist-systemcore, runs server.py locally on a temp home
 //   BORDEAUX_SYSTEMCORE_URL=http://127.0.0.1:2468 node ...  checks an installed robot (tunnel its port first)
+//   BORDEAUX_SYSTEMCORE_SFTP=127.0.0.1:2222                 with a robot URL: the robot's SSH (tunnel it too), for the
+//                                                            desktop transport that delivers the LabVIEW command list
 //
 // Artifacts (screenshots, report.json, and the pushed files' hashes) go to BORDEAUX_SYSTEMCORE_OUTPUT or a temp folder.
 import { execFileSync, spawn } from 'node:child_process';
@@ -10,6 +12,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import electron from 'electron';
+import { createServer } from 'vite';
 
 const output = process.env.BORDEAUX_SYSTEMCORE_OUTPUT ? path.resolve(process.env.BORDEAUX_SYSTEMCORE_OUTPUT) : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-systemcore-'));
 await fs.mkdir(output, { recursive: true });
@@ -32,6 +35,30 @@ if (!url) {
   if (!up) { server.kill(); throw new Error(`The local server did not answer at ${url}`); }
 }
 console.log('SystemCore web artifacts: ' + output);
+
+// The LabVIEW command list a desktop Push sends to a SystemCore, recorded from the repo's typed NI fixture
+// (tests/fixtures/binaryWriterFixture.ts), and the BDX bytes the desktop core builds with it. The robot must match them.
+const vite = await createServer({ configFile: false, logLevel: 'error', server: { middlewareMode: true }, ssr: { external: ['ssh2'] } });
+const { COMMANDS_FILE_NAME, encodeCommandsFile } = await vite.ssrLoadModule('/src/core/export/commandsFile.ts');
+const { buildRobotBinary } = await vite.ssrLoadModule('/src/core/export/robotBinary.ts');
+const fixture = JSON.parse(await fs.readFile('tests/fixtures/systemcoreCommandProject.json', 'utf8'));
+const expected = buildRobotBinary(fixture.project, { kind: 'path', id: fixture.pathId }, fixture.bindings);
+await fs.writeFile(path.join(output, 'command-project.json'), JSON.stringify({ project: fixture.project, fileName: expected.fileName, sha256: expected.sha256, catalog: fixture.bindings.catalog.projectName }));
+const commands = Buffer.from(encodeCommandsFile(fixture.bindings));
+if (home) {
+  await fs.mkdir(path.join(home, 'paths'), { recursive: true });
+  await fs.writeFile(path.join(home, 'paths', COMMANDS_FILE_NAME), commands);
+} else if (process.env.BORDEAUX_SYSTEMCORE_SFTP) {
+  // The desktop app's own SFTP transport and default SystemCore account, as a Push uses them.
+  const [host, port] = process.env.BORDEAUX_SYSTEMCORE_SFTP.split(':');
+  const { discoverRobotSshIdentity } = await vite.ssrLoadModule('/src/electron/robotSsh2Session.ts');
+  const { uploadRobotFiles } = await vite.ssrLoadModule('/src/electron/robotFileTransfer.ts');
+  const { ROBOT_TARGETS } = await vite.ssrLoadModule('/src/core/robotTargets.ts');
+  const endpoint = { target: 'systemcore', host, port: Number(port), directory: ROBOT_TARGETS.systemcore.defaultDirectory };
+  await uploadRobotFiles({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) }, [{ fileName: COMMANDS_FILE_NAME, contents: commands }]);
+  console.log(`Sent ${COMMANDS_FILE_NAME} to ${endpoint.directory} over SFTP`);
+} else console.log('No BORDEAUX_SYSTEMCORE_SFTP: using the command list already on the robot');
+await vite.close();
 // A local run also hands over the robot home, so the page check can stage a bad destination and prove files on disk.
 const env = { ...process.env, BORDEAUX_SYSTEMCORE_URL: url, BORDEAUX_SYSTEMCORE_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', ...(home ? { BORDEAUX_SYSTEMCORE_HOME: home } : {}) };
 delete env.ELECTRON_RUN_AS_NODE;

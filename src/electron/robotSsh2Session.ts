@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { Client, type Callback, type SFTPWrapper, type Stats } from "ssh2";
 import { ROBOT_DIRECTORY_ROOTS } from "../core/robotTargets";
+import { isCommandsFile } from "../core/export/commandsFile";
 import {
   RobotTransportError,
   type RobotConnectRequest,
@@ -48,8 +49,9 @@ export function validateRobotFileDirectory(directory: unknown, roots: readonly s
   return directory as string;
 }
 
+/** A pushed .bdx or .bdr, or the command list sent to a SystemCore (core/export/commandsFile.ts). */
 export function validateRobotFileName(fileName: unknown): string {
-  if (typeof fileName !== "string" || !/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(?:bdx|bdr)$/.test(fileName)) {
+  if (typeof fileName !== "string" || !(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(?:bdx|bdr)$/.test(fileName) || isCommandsFile(fileName))) {
     throw new RobotTransportError("invalid_request", "Robot filename must be a safe .bdx or .bdr basename");
   }
   return fileName;

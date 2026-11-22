@@ -173,7 +173,7 @@ describe("renderer application", () => {
   it("persists and restores the selected path and Robot project bookmark", () => {
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
     expect(app).toContain("withRobotLink(projectRef.current, result.editorLink)");
-    expect(app).toContain("restoreRobotCode(session.context, robotGeneration)");
+    expect(app).toContain("restoreRobotCode(session?.context ?? null, robotGeneration)");
     expect(app).toContain("activePathId }" );
     expect(app).toContain("const requestedPathId = next.editor && next.editor.activePathId");
     expect(app).toContain("openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration)");

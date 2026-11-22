@@ -46,7 +46,7 @@ Robot push is a separate explicit action. Saving and local deletion do not conne
 
 The browser plans paths and builds BDX files; the robot only stores them. **Save** and autosave write project folders to `/home/systemcore/bordeaux/projects`. **Push** is a separate, reviewed step that copies the selected paths' `.bdx` files into `/home/systemcore/bordeaux/paths`, reads them back and checks their SHA-256; LabVIEW robot code reads that folder. Removing the package keeps both folders.
 
-The robot app exports paths without commands. Paths with command events, LabVIEW project linking, routine export and push, recovery copies, and project copies still need the desktop app.
+Pushing from the desktop app to a Systemcore with a linked LabVIEW project also sends `bordeaux-commands.json`, the project's inspected command list, listed in the push review. The robot app reads it from the push folder, so it can author command events and builds the same BDX bytes the desktop would. Without it, the robot exports paths that use no commands. LabVIEW project linking and inspection, routine export and push, recovery copies, and project copies still need the desktop app.
 
 ## Project files
 

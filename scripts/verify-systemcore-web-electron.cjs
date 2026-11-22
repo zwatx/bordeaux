@@ -43,10 +43,11 @@ async function watchCommits() {
   });
 }
 const commitsSettled = () => wait(() => window.__commits.inFlight === 0, 'project writes settled', 60_000);
-async function save() {
+async function save(whileMenuOpen) {
   await watchCommits();
   const before = await evaluate(() => window.__commits.statuses.length);
   await click('.project-chip');
+  if (whileMenuOpen) await whileMenuOpen();
   await click('.project-menu [role="menuitem"][data-action="save"]');
   await wait(new Function(`return window.__commits.statuses.length > ${before} && window.__commits.inFlight === 0`), 'Save committed', 60_000);
   const statuses = await evaluate(() => window.__commits.statuses);
@@ -127,7 +128,8 @@ app.whenReady().then(async () => {
     // A batch whose second destination can't be replaced stops before the first robot file changes.
     if (home) {
       const pushed = path.join(home, 'paths');
-      const [first] = await fs.readdir(pushed);
+      const bdx = async () => (await fs.readdir(pushed)).filter((file) => file.endsWith('.bdx'));
+      const [first] = await bdx();
       const firstBefore = sha256(await fs.readFile(path.join(pushed, first)));
       const prepared = await evaluate(async (name) => {
         const workspace = JSON.parse((await (await fetch(`/api/projects/${encodeURIComponent(name)}/workspace`)).json()).contents);
@@ -140,13 +142,13 @@ app.whenReady().then(async () => {
         return { operationId: preview.operationId, files: preview.files.map((file) => ({ fileName: file.fileName, sha256: file.sha256 })) };
       }, name);
       if (prepared.files.length !== 2 || prepared.files[0].fileName !== first || prepared.files[0].sha256 === firstBefore) throw new Error('Unexpected two-file review: ' + JSON.stringify({ first, prepared }));
-      if ((await fs.readdir(pushed)).length !== 1) throw new Error('Review alone changed the robot code folder');
+      if ((await bdx()).length !== 1) throw new Error('Review alone changed the robot code folder');
       await fs.mkdir(path.join(pushed, prepared.files[1].fileName));
       const failure = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
       await fs.rmdir(path.join(pushed, prepared.files[1].fileName));
       if (!/No robot files were replaced/.test(failure)) throw new Error('A failed batch did not say nothing was replaced: ' + failure);
       if (sha256(await fs.readFile(path.join(pushed, first))) !== firstBefore) throw new Error('A failed batch replaced ' + first);
-      const left = (await fs.readdir(pushed)).filter((file) => file !== first);
+      const left = (await fs.readdir(pushed)).filter((file) => file !== first && !file.endsWith('.json'));
       if (left.length) throw new Error('A failed batch left files behind: ' + left.join(', '));
       const replay = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
       if (!/Review the selected files again/.test(replay)) throw new Error('A failed review could be confirmed again: ' + replay);
@@ -198,6 +200,30 @@ app.whenReady().then(async () => {
     if (!listed.includes(created) || (await api('/api/info')).lastProject !== created) throw new Error('New project is not stored on the robot: ' + JSON.stringify(listed));
     await shot('09-new-project-open');
     check('New project creates and opens a project in the robot projects folder', { created, location: location.value });
+
+    // The desktop's LabVIEW command list on the robot: a path that runs a typed command saves and pushes the same BDX.
+    const commandCase = JSON.parse(await fs.readFile(path.join(output, 'command-project.json'), 'utf8'));
+    await commitsSettled();
+    await evaluate(() => window.bordeauxAPI.newProject());
+    await evaluate((project) => window.bordeauxAPI.saveProject(project), commandCase.project);
+    await win.loadURL(url);
+    await editorReady();
+    const commandProject = (await api('/api/info')).lastProject;
+    await save(async () => {
+      await wait(new Function(`return document.querySelector('.project-menu-code')?.textContent.includes(${JSON.stringify(commandCase.catalog)})`), 'robot command list in the project menu');
+      await shot('07-command-list');
+    });
+    const commandWorkspace = await workspaceOf(commandProject);
+    const built = commandWorkspace.generatedFiles?.[`Paths/${commandCase.fileName}`];
+    if (built !== commandCase.sha256) throw new Error(`The robot built ${built} for ${commandCase.fileName}; the desktop builds ${commandCase.sha256}`);
+    check('with the desktop\'s command list, the robot builds the same command BDX as the desktop', { project: commandProject, file: commandCase.fileName, sha256: built });
+    await click('.push-button');
+    await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'command push review');
+    await click('.robot-push-dialog button', 'Upload 1 path');
+    await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'command push verified');
+    await shot('08-command-push');
+    check('the command path pushes into the robot code folder', { done: await evaluate(() => document.querySelector('.rfp-view-done').textContent) });
+    await click('[aria-label="Close robot files"]');
 
     await commitsSettled();
     const statuses = await evaluate(() => window.__commits.statuses);
