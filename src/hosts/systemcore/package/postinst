@@ -8,7 +8,8 @@ install -d -o systemcore -g systemcore /home/systemcore/bordeaux /home/systemcor
 systemctl daemon-reload
 sleep 1
 echo "Enabling $PACKAGE_NAME for auto-start on boot..."
-systemctl enable $PACKAGE_NAME.service
+# A failed enable or start leaves the package installed; say which step failed and how to retry it.
+systemctl enable $PACKAGE_NAME.service || echo "Could not enable $PACKAGE_NAME at boot. Retry: systemctl enable $PACKAGE_NAME"
 if systemctl restart $PACKAGE_NAME.service; then
     sleep 2
     if systemctl is-active $PACKAGE_NAME.service >/dev/null 2>&1; then
@@ -17,6 +18,6 @@ if systemctl restart $PACKAGE_NAME.service; then
         echo "Bordeaux may have an issue: journalctl -u $PACKAGE_NAME"
     fi
 else
-    echo "Failed to start $PACKAGE_NAME"
+    echo "Failed to start $PACKAGE_NAME. Retry: systemctl restart $PACKAGE_NAME; details: journalctl -u $PACKAGE_NAME"
 fi
 exit 0
