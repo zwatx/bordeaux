@@ -14,6 +14,7 @@ import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceCon
 import { buildRobotBinary, type BuiltRobotBinary } from "../../core/export/robotBinary";
 import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
 import { sha256Hex, utf8Bytes } from "../../core/bytes";
+import { randomUuid } from "../../core/randomUuid";
 import { validateProject } from "../../core/validation";
 
 interface ServerInfo { projectsRoot: string; pushDirectory: string; defaultPushDirectory: string; lastProject: string | null }
@@ -171,7 +172,7 @@ export function createSystemcoreHost() {
     prepareRobotFiles: async (project, pathIds) => {
       const prepared = prepareProjectFile(project);
       const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, BINDINGS));
-      const preview: RobotFilePreview = { operationId: crypto.randomUUID(), connection: await connection(),
+      const preview: RobotFilePreview = { operationId: randomUuid(), connection: await connection(),
         files: built.map((item, index) => ({ pathId: pathIds[index], name: item.name, fileName: item.fileName, size: item.bytes.length, sha256: item.sha256 })) };
       pending.set(preview.operationId, { preview, built, uploading: false });
       return preview;

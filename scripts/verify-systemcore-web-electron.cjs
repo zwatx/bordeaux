@@ -60,6 +60,8 @@ app.whenReady().then(async () => {
     await editorReady();
     const platform = await evaluate(() => [window.bordeauxAPI?.platform, document.documentElement.dataset.platform]);
     if (platform[0] !== 'web' || platform[1] !== 'web') throw new Error('Robot host is not installed: ' + platform);
+    report.secureContext = await evaluate(() => window.isSecureContext);
+    if (report.secureContext && !/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) throw new Error('Expected plain http to be an insecure context');
     const before = await api('/api/info');
     await shot('01-opened');
     check('the robot serves the editor and installs its host', { lastProject: before.lastProject });

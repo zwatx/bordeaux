@@ -1,9 +1,6 @@
-function uniqueId(): string {
-  const uuid = globalThis.crypto?.randomUUID;
-  if (typeof uuid === "function") return uuid.call(globalThis.crypto);
-  const random = Math.random().toString(36).slice(2);
-  return `${Date.now().toString(36)}-${random}`;
-}
+import { randomUuid } from "../randomUuid";
+
+const uniqueId = (): string => randomUuid();
 
 export function createPathId(): string {
   return `path_${uniqueId()}`;
@@ -18,7 +15,7 @@ export function createRoutineId(): string {
 }
 
 export function createRoutineNodeId(): string {
-  return `routine_node_${globalThis.crypto.randomUUID()}`;
+  return `routine_node_${randomUuid()}`;
 }
 
 export function createPathLinkId(): string {
