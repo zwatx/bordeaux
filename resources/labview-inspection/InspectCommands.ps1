@@ -85,7 +85,8 @@ try {
   if ($expected.HasExited) { throw 'LabVIEW exited before inspection.' }
   $app = [BordeauxNiInspection]::BindExisting()
   if ([int][BordeauxNiInspection]::Get($app, '_ProcessID') -ne $expected.Id) { throw 'LabVIEW COM attached to a different process; inspection stopped.' }
-  if ([string][BordeauxNiInspection]::Get($app, 'Version') -ne '25.3.3f3') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 25.3.3f3. Use a declared or previously cached catalog for this NI version.' }
+  # Versions whose connector reports were compared and found identical; keep in sync with labviewNiTypes.ts.
+  if (@('25.3.3f3', '26.3.1f1') -notcontains [string][BordeauxNiInspection]::Get($app, 'Version')) { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 25.3.3f3 and LabVIEW 2026 26.3.1f1. Use a declared or previously cached catalog for this NI version.' }
   foreach ($project in @([BordeauxNiInspection]::Get($app, 'AllProjects'))) {
     if ($null -eq $project) { continue }
     try {
