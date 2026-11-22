@@ -3,7 +3,6 @@ import path from "node:path";
 import { Client, type Callback, type SFTPWrapper, type Stats } from "ssh2";
 import { ROBOT_DIRECTORY_ROOTS } from "../core/robotTargets";
 import {
-  ROBOT_DEPLOYMENT_NAMESPACE,
   RobotTransportError,
   type RobotConnectRequest,
   type RobotRemoteFile,
@@ -57,34 +56,11 @@ export function validateRobotFileName(fileName: unknown): string {
 }
 
 function remotePath(file: RobotRemoteFile): string {
-  const nonce = "nonce" in file ? file.nonce : undefined;
-  if (nonce !== undefined && !/^[A-Za-z0-9._:-]{1,128}$/.test(nonce)) {
-    throw new RobotTransportError("invalid_request", "Remote Bordeaux file token is invalid");
-  }
-  switch (file.kind) {
-    case "pathFile":
-    case "pathTemporary": {
-      const directory = validateRobotFileDirectory(file.directory);
-      const name = validateRobotFileName(file.fileName);
-      if (file.kind === "pathFile") return `${directory}/${name}`;
-      if (!/^[a-f0-9]{32}$/.test(file.token)) throw new RobotTransportError("invalid_request", "Remote path temporary token is invalid");
-      return `${directory}/.bordeaux-${name}-${file.token}.tmp`;
-    }
-    case "status":
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "status.json");
-    case "incomingTemporary":
-      if (!/^[a-f0-9]{8,64}$/.test(file.token)) throw new RobotTransportError("invalid_request", "Remote Bordeaux temporary token is invalid");
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "inbox", `.bordeaux-${file.nonce}-${file.token}.tmp`);
-    case "incomingRevision":
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "inbox", `${file.nonce}.bordeaux-revision.json`);
-    case "incomingRetentionTemporary":
-      if (!/^[a-f0-9]{8,64}$/.test(file.token)) throw new RobotTransportError("invalid_request", "Remote Bordeaux temporary token is invalid");
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "inbox", `.bordeaux-${file.nonce}-${file.token}.retention.tmp`);
-    case "incomingRetention":
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "inbox", `${file.nonce}.bordeaux-retention.json`);
-    case "acknowledgement":
-      return path.posix.join(ROBOT_DEPLOYMENT_NAMESPACE, "acks", `${file.nonce}.json`);
-  }
+  const directory = validateRobotFileDirectory(file.directory);
+  const name = validateRobotFileName(file.fileName);
+  if (file.kind === "pathFile") return `${directory}/${name}`;
+  if (!/^[a-f0-9]{32}$/.test(file.token)) throw new RobotTransportError("invalid_request", "Remote path temporary token is invalid");
+  return `${directory}/.bordeaux-${name}-${file.token}.tmp`;
 }
 
 function operationError(signal: AbortSignal, timedOut: () => boolean, cause?: unknown): RobotTransportError {
@@ -249,13 +225,13 @@ class Ssh2RobotSession implements RobotSftpSession {
   }
 
   write(file: RobotRemoteFile, contents: Buffer, signal: AbortSignal): Promise<void> {
-    if (file.kind !== "incomingTemporary" && file.kind !== "incomingRetentionTemporary" && file.kind !== "pathTemporary") {
-      throw new RobotTransportError("invalid_request", "Bordeaux can write only a temporary inbox file");
+    if (file.kind !== "pathTemporary") {
+      throw new RobotTransportError("invalid_request", "Bordeaux can write only a temporary path file");
     }
     if (signal.aborted && !this.sessionSignal.aborted) throw new RobotTransportError("cancelled", "SFTP to the robot was cancelled");
     return callbackOperation(AbortSignal.any([signal, this.sessionSignal]), this.timedOut, (callback) => {
       // Admin uploads must remain readable by LabVIEW running as lvuser.
-      this.sftp.writeFile(remotePath(file), contents, { flag: "wx", mode: file.kind === "pathTemporary" ? 0o644 : 0o600 }, callback);
+      this.sftp.writeFile(remotePath(file), contents, { flag: "wx", mode: 0o644 }, callback);
     });
   }
 
@@ -277,13 +253,8 @@ class Ssh2RobotSession implements RobotSftpSession {
   }
 
   renameSameDirectory(from: RobotRemoteFile, to: RobotRemoteFile, signal: AbortSignal): Promise<void> {
-    const validRevisionRename = from.kind === "incomingTemporary" && to.kind === "incomingRevision";
-    const validRetentionRename = from.kind === "incomingRetentionTemporary" && to.kind === "incomingRetention";
-    const validPathRename = from.kind === "pathTemporary" && to.kind === "pathFile"
-      && from.directory === to.directory && from.fileName === to.fileName;
-    if (!validPathRename && ((!validRevisionRename && !validRetentionRename)
-      || !("nonce" in from) || !("nonce" in to) || from.nonce !== to.nonce)) {
-      throw new RobotTransportError("invalid_request", "Bordeaux atomic rename must keep one fixed control file inside its inbox directory");
+    if (from.kind !== "pathTemporary" || to.kind !== "pathFile" || from.directory !== to.directory || from.fileName !== to.fileName) {
+      throw new RobotTransportError("invalid_request", "Bordeaux atomic rename must move one temporary path file onto its final name");
     }
     const source = remotePath(from);
     const destination = remotePath(to);
@@ -295,9 +266,8 @@ class Ssh2RobotSession implements RobotSftpSession {
     return callbackOperation(combined, this.timedOut, (callback) => {
       this.sftp.ext_openssh_rename(source, destination, callback);
     }).catch(async (error: unknown) => {
-      // Legacy inbox publishing remains atomic. Only reviewed direct path files
-      // support servers without OpenSSH's optional POSIX rename extension.
-      if (!validPathRename || combined.aborted || !unsupportedRename(error)) throw error;
+      // Servers without OpenSSH's optional POSIX rename extension get a plain rename, or a verified overwrite.
+      if (combined.aborted || !unsupportedRename(error)) throw error;
       if (!await this.exists(to, combined)) {
         await callbackOperation(combined, this.timedOut, (callback) => this.sftp.rename(source, destination, callback));
         return;
@@ -314,8 +284,8 @@ class Ssh2RobotSession implements RobotSftpSession {
   }
 
   remove(file: RobotRemoteFile, signal: AbortSignal): Promise<void> {
-    if (file.kind !== "incomingTemporary" && file.kind !== "incomingRetentionTemporary" && file.kind !== "pathTemporary") {
-      throw new RobotTransportError("invalid_request", "Bordeaux cleanup can remove only a temporary inbox file");
+    if (file.kind !== "pathTemporary") {
+      throw new RobotTransportError("invalid_request", "Bordeaux cleanup can remove only a temporary path file");
     }
     if (signal.aborted && !this.sessionSignal.aborted) throw new RobotTransportError("cancelled", "SFTP to the robot was cancelled");
     return callbackOperation(AbortSignal.any([signal, this.sessionSignal]), this.timedOut, (callback) => this.sftp.unlink(remotePath(file), callback));
@@ -333,7 +303,7 @@ export async function connectRobotSftp(request: RobotConnectRequest): Promise<Ro
   if (!Number.isInteger(request.timeoutMs) || request.timeoutMs < 1 || request.timeoutMs > 120_000) {
     throw new RobotTransportError("invalid_request", "Robot SFTP timeout must be between 1 and 120000 milliseconds");
   }
-  const username = request.credentials.username ?? "lvuser";
+  const username = request.credentials.username;
   const client = new Client();
   const controller = new AbortController();
   let expired = false;
@@ -369,9 +339,7 @@ export async function connectRobotSftp(request: RobotConnectRequest): Promise<Ro
         readyTimeout: request.timeoutMs,
         keepaliveInterval: Math.min(2_000, Math.max(250, Math.floor(request.timeoutMs / 3))),
         keepaliveCountMax: 2,
-        ...(request.credentials.password !== undefined ? { password: request.credentials.password } : {}),
-        ...(request.credentials.privateKey !== undefined ? { privateKey: request.credentials.privateKey } : {}),
-        ...(request.credentials.passphrase !== undefined ? { passphrase: request.credentials.passphrase } : {}),
+        password: request.credentials.password,
         hostVerifier: (key: Buffer) => {
           observedFingerprint = fingerprint(key);
           if (request.expectedHostKeyFingerprint && observedFingerprint !== request.expectedHostKeyFingerprint) {

@@ -50,7 +50,7 @@ function setup(entries: Record<string, "dir" | "link" | "file">) {
   return { mkdir, stored };
 }
 const signal = new AbortController().signal;
-const connect = () => connectRobotSftp({ endpoint: { host: "robot.local", port: 22 }, credentials: { password: "" }, signal, timeoutMs: 2000 });
+const connect = () => connectRobotSftp({ endpoint: { host: "robot.local", port: 22 }, credentials: { username: "admin", password: "" }, signal, timeoutMs: 2000 });
 
 describe("direct file SSH session confinement", () => {
   it("discovers identity without providing authentication credentials", async () => {
@@ -70,20 +70,11 @@ describe("direct file SSH session confinement", () => {
     expect(mock.sftp.lstat).not.toHaveBeenCalled();
   });
 
-  it.each(["admin", undefined] as const)("connects to the specified endpoint with account %s", async (username) => {
+  it.each(["admin", "systemcore"] as const)("connects to the specified endpoint with account %s", async (username) => {
     setup({});
     const session = await connectRobotSftp({ endpoint: { host: "10.24.68.2", port: 2222 }, credentials: { username, password: "" }, signal, timeoutMs: 2000 });
     try {
-      expect(mock.connect).toHaveBeenLastCalledWith(expect.objectContaining({ host: "10.24.68.2", port: 2222, username: username ?? "lvuser", password: "" }));
-    } finally { await session.close(); }
-  });
-
-  it("keeps legacy mailbox control files private", async () => {
-    setup({});
-    const session = await connect();
-    try {
-      await session.write({ kind: "incomingTemporary", nonce: "review", token: "a".repeat(32) }, Buffer.from("revision"), signal);
-      expect(mock.sftp.writeFile).toHaveBeenCalledWith(expect.any(String), Buffer.from("revision"), { flag: "wx", mode: 0o600 }, expect.any(Function));
+      expect(mock.connect).toHaveBeenLastCalledWith(expect.objectContaining({ host: "10.24.68.2", port: 2222, username, password: "" }));
     } finally { await session.close(); }
   });
 
@@ -275,16 +266,6 @@ describe("rename fallback boundaries", () => {
   const directory = "/home/lvuser/natinst/bin/Paths";
   const temporary: RobotRemoteFile = { kind: "pathTemporary", directory, fileName: "one.bdx", token: "a".repeat(32) };
   const destination: RobotRemoteFile = { kind: "pathFile", directory, fileName: "one.bdx" };
-  it("keeps legacy inbox publishing atomic when the extension is unavailable", async () => {
-    setup({});
-    mock.sftp.ext_openssh_rename = vi.fn(() => { throw new Error("Server does not support this extended request"); });
-    const session = await connect();
-    try {
-      await expect(session.renameSameDirectory({ kind: "incomingTemporary", nonce: "n", token: "a".repeat(32) }, { kind: "incomingRevision", nonce: "n" }, signal)).rejects.toThrow("does not support");
-      expect(mock.sftp.rename).not.toHaveBeenCalled();
-      expect(mock.sftp.writeFile).not.toHaveBeenCalled();
-    } finally { await session.close(); }
-  });
   it("rejects final symlinks before compatibility copy", async () => {
     setup({ [`${directory}/one.bdx`]: "link" });
     mock.sftp.ext_openssh_rename = vi.fn(() => { throw new Error("Server does not support this extended request"); });

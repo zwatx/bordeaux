@@ -50,8 +50,6 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
-import { RobotPairingController, readRobotPairing, writeRobotPairing } from "./robotPairings";
-import { connectRobotSftp } from "./robotSsh2Session";
 import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection } from "./robotFileDelivery";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
 import type { RobotFileEndpoint } from "../core/robotFileDelivery";
@@ -67,10 +65,6 @@ import type { ProjectDepartureCoordinator } from "./projectDeparture";
 import { ProjectNativeDeparture } from "./projectNativeDeparture";
 import type { ProjectDepartureFallback, ProjectDurabilityContext } from "../core/project/projectDurability";
 import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectSaveCheckpointRequest, ProjectReloadRequest, ProjectRecoveredFrom, ProjectResumeDescriptor, ProjectStartupRequest, ProjectStartupDetachResult, ProjectTransitionToken } from "../core/project/projectPersistence";
-import {
-  BordeauxRobotTransport,
-  type RobotEndpoint,
-} from "./robotSftpTransport";
 
 // Running the entry file directly makes Electron report its own version.
 const applicationVersion: string = app.isPackaged ? app.getVersion() : require("../../package.json").version;
@@ -125,8 +119,6 @@ let linkedRobotProjectBookmarkId: string | null = null;
 let linkedRobotCatalog: RobotCommandCatalog | null = null;
 let robotConnectionGeneration = 0;
 let robotProjectBookmarks: RobotProjectBookmark[] = [];
-let robotPairings = new RobotPairingController();
-const robotTransport = new BordeauxRobotTransport(connectRobotSftp);
 let robotFileDelivery = new RobotFileDelivery(null, value => writeRobotFileConnection(robotFileConnectionFile(), value));
 const diagnosticBundleCapability = new DiagnosticBundleCapability();
 const smokeDirectory = process.env.BORDEAUX_SMOKE_DIRECTORY;
@@ -448,7 +440,6 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent | Electron.IpcMa
 function userDataPath(name: string): string { return path.join(app.getPath("userData"), name); }
 function robotProjectBookmarksFile(): string { return userDataPath("robot-projects.json"); }
 function recentProjectsFile(): string { return userDataPath("recent-projects.json"); }
-function robotPairingFile(): string { return userDataPath("robot-pairing.json"); }
 function robotFileConnectionFile(): string { return userDataPath("robot-sftp-connection.json"); }
 /** Keychain-encrypted custom SSH password; never plaintext, absent when the default is used. */
 function robotPasswordFile(): string { return userDataPath("robot-ssh-password.bin"); }
@@ -1607,23 +1598,6 @@ handle("robotProject:buildCatalog", async (_event, context) => {
   return connectRobotProject(linkedLabviewProjectFile ?? root, "labview");
 });
 
-handle("robot:getPairing", () => robotPairings.current());
-handle("robot:probe", async (_event, rawEndpoint) => {
-  const endpoint = rawEndpoint as RobotEndpoint;
-  return robotPairings.probe(() => robotTransport.probe(endpoint, { password: "" }));
-});
-handle("robot:confirmPairing", async (_event, rawFingerprint, rawRuntimeId) => {
-  if (typeof rawFingerprint !== "string" || typeof rawRuntimeId !== "string") {
-    throw new Error("Probe the robot before confirming its identity");
-  }
-  const pairing = await robotPairings.confirm(rawFingerprint, rawRuntimeId, (confirmed) => writeRobotPairing(robotPairingFile(), confirmed));
-  return pairing;
-});
-handle("robot:inspect", async () => {
-  const robotPairing = robotPairings.current();
-  if (!robotPairing) throw new Error("Pair a robot before inspecting its Bordeaux runtime");
-  return robotTransport.inspect(robotPairing, { password: "" });
-});
 handle("robotFiles:connection", () => robotFileDelivery.settings());
 handle("robotFiles:check", () => robotFileDelivery.checkConnection());
 handle("robotFiles:password", () => robotFileDelivery.passwordStatus());
@@ -1693,12 +1667,6 @@ handle("robotFiles:cancel", (_event, operationId) => {
   if (typeof operationId !== "string") throw new Error("Transfer identifier is invalid");
   return robotFileDelivery.cancel(operationId);
 });
-const BDX_RECEIVER_UNAVAILABLE = "Robot delivery needs a LabVIEW BDX receiver with verified transfer and activation support. Export a BDX file locally for now.";
-for (const channel of ["robot:inspectRetention", "robot:prepareRetention", "robot:inspectLibrary", "robot:preparePush", "robot:confirmPush", "robot:confirmRetention"]) {
-  handle(channel, () => { throw new Error(BDX_RECEIVER_UNAVAILABLE); });
-}
-handle("robot:cancelPush", () => ({ canceled: false }));
-handle("robot:cancelRetention", () => ({ canceled: false }));
 handle("appUpdates:state", appUpdateState);
 handle("appUpdates:check", () => appUpdates?.check(true));
 handle("appUpdates:download", () => appUpdates?.download());
@@ -1775,12 +1743,6 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
     recentFiles = [];
     recentStoreUnavailable = true;
     console.warn("Could not load recent Bordeaux projects:", error);
-  }
-  try {
-    robotPairings = new RobotPairingController(await readRobotPairing(robotPairingFile()));
-  } catch (error) {
-    robotPairings = new RobotPairingController();
-    console.warn("Could not load the paired Bordeaux robot:", error);
   }
   try {
     // safeStorage is usable only after app ready, which this startup path already awaits. A store

@@ -6,12 +6,10 @@ import electron from 'electron';
 import { build } from 'vite';
 const output = process.env.BORDEAUX_LIBRARY_UI_OUTPUT ? path.resolve(process.env.BORDEAUX_LIBRARY_UI_OUTPUT) : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-library-ui-'));
 await fs.mkdir(output, { recursive: true });
-// Legacy activation is a deliberately isolated integration fixture. Production desktop
-// delivery uses RobotFilePushDialog; retired revision code never enters its bundle.
-const rendererOutput = path.join(output, 'legacy-renderer');
+// The shipping renderer, with robot file delivery mocked at the preload boundary.
+const rendererOutput = path.join(output, 'renderer');
 await build({
   configFile: path.resolve('vite.renderer.config.mts'),
-  resolve: { alias: [{ find: '../components/RobotPushDialog', replacement: path.resolve('src/renderer/components/LegacyRobotPushDialog.jsx') }] },
   build: { outDir: rendererOutput, emptyOutDir: true },
 });
 const env = { ...process.env, BORDEAUX_LIBRARY_UI_OUTPUT: output,
@@ -19,7 +17,7 @@ const env = { ...process.env, BORDEAUX_LIBRARY_UI_OUTPUT: output,
 delete env.ELECTRON_RUN_AS_NODE;
 console.log('Library UI artifacts: ' + output);
 const child = spawn(electron, [path.resolve('scripts/verify-library-ui-electron.cjs')], { env, stdio: 'inherit' });
-// All 57 checks include repeated project reloads and end-to-end native scrolling of
+// All 56 checks include repeated project reloads and end-to-end native scrolling of
 // a 5000-character title. CI scrolling variance can exceed the former four-minute total.
 let timedOut = false;
 const timer = setTimeout(() => {

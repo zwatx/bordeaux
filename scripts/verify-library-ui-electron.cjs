@@ -4,15 +4,14 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const output = process.env.BORDEAUX_LIBRARY_UI_OUTPUT;
 const rendererHtml = process.env.BORDEAUX_LIBRARY_UI_RENDERER;
-if (!rendererHtml) throw new Error('Run verify-library-ui.mjs to build the isolated legacy integration fixture');
+if (!rendererHtml) throw new Error('Run verify-library-ui.mjs to build the renderer');
 app.setPath('userData', path.join(output, 'user-data'));
 const errors = [], checks = [], prepared = [], diagnosticPreviews = [], diagnosticSaves = [];
-let win, saved, finishPush, lastProblemActivationDiagnostic;
+let win, saved, finishPush, lastPrepared, lastProblemActivationDiagnostic;
 const problemActivationNative = [];
 let connectionFromSettings = false;
 let editorPlace = 'Paths';
-let deferInspection = false, finishInspection;
-const inspection = () => ({ verifiedAt: new Date().toISOString(), comparison: { paths: {}, routines: {} }, status: { activeRevision: 'fixture-revision', retainedRevisions: [] } });
+const robotConnection = { endpoint: { target: 'roborio', host: 'fixture', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'f'.repeat(43) };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
@@ -36,7 +35,7 @@ async function click(selector, text) {
     if (!el || el.disabled || el.closest('[inert]')) throw new Error('Unavailable: ' + selector + ' ' + text);
     el.click();
   }, selector, text); await delay(50);
-  if (connectionFromSettings && (selector === '[aria-label="Close robot connection"]' || selector === '[aria-label="Close diagnostic bundle"]')) {
+  if (connectionFromSettings && (selector === '[aria-label="Close robot files"]' || selector === '[aria-label="Close diagnostic bundle"]')) {
     connectionFromSettings = false; await click('.place', editorPlace);
   }
 }
@@ -198,14 +197,14 @@ ipcMain.handle('library:diagnostic-save', (_event, previewId) => {
   assert.equal(previewId, 'fixture-preview-capability'); diagnosticSaves.push(previewId);
   return { saved: true };
 });
-ipcMain.handle('library:prepare', (_event, project, scope) => {
-  prepared.push({ project, scope });
-  const selected = scope.kind === 'paths' ? project.paths.filter((item) => scope.pathIds.includes(item.id)) : project.routines.filter((item) => item.id === scope.routineId);
-  return { operationId: 'fixture-operation', robot: 'Team 2468', project: project.name, catalog: 'Fixture catalog', revision: 'fixture-revision', payloadHash: 'fixture-hash', size: 100,
-    summary: { kind: scope.kind, pathIds: scope.pathIds || [], selectedNames: selected.map((item) => item.name), addedNames: [], updatedNames: selected.map((item) => item.name), preservedPathCount: project.paths.length - (scope.pathIds?.length || 0), routine: 'Routine A' } };
+ipcMain.handle('library:connection', () => robotConnection);
+ipcMain.handle('library:prepare', (_event, project, pathIds) => {
+  prepared.push({ project, pathIds });
+  const files = project.paths.filter((item) => pathIds.includes(item.id)).map((item) => ({ pathId: item.id, name: item.name, fileName: item.id + '.bdx', size: 100, sha256: 'fixture-hash' }));
+  lastPrepared = { operationId: 'fixture-operation', connection: robotConnection, files };
+  return lastPrepared;
 });
 ipcMain.handle('library:confirm', () => new Promise((resolve) => { finishPush = resolve; }));
-ipcMain.handle('library:inspect', () => deferInspection ? new Promise((resolve) => { finishInspection = resolve; }) : inspection());
 app.whenReady().then(async () => {
   try {
     const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
@@ -401,7 +400,7 @@ app.whenReady().then(async () => {
       await click('.library-connection');
       await wait(() => evaluate(() => document.querySelector('dialog.robot-manager').open), 'robot connection modal');
       if (diagnostic) await click('[aria-label="Diagnostics"]');
-      const closeSelector = diagnostic ? '[aria-label="Close diagnostic bundle"]' : '[aria-label="Close robot connection"]';
+      const closeSelector = diagnostic ? '[aria-label="Close diagnostic bundle"]' : '[aria-label="Close robot files"]';
       if (diagnostic) {
         await evaluate(() => [...document.querySelectorAll('[aria-labelledby="beta-diagnostic-title"] button')].at(-1).focus());
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
@@ -533,41 +532,22 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.push-button').textContent.trim()), 'Push 2 paths');
     await click('.push-button');
     await wait(() => prepared.length === 1, 'captured scope');
-    assert.deepEqual(prepared[0].scope, { kind: 'paths', pathIds: ['library-path-0', 'library-path-1'] });
-    await wait(() => evaluate(() => document.querySelector('#robot-push-title')?.textContent === 'Review push'), 'review');
+    assert.deepEqual(prepared[0].pathIds, ['library-path-0', 'library-path-1']);
+    await wait(() => evaluate(() => document.querySelector('#robot-file-title')?.textContent === 'Push to robot' && Boolean(document.querySelector('.rfp-view-files'))), 'review');
     await fs.writeFile(path.join(output, 'push-review.png'), (await win.webContents.capturePage()).toPNG());
-    await click('.robot-push-dialog button', 'Push 2 paths');
+    await click('.robot-push-dialog button', 'Upload 2 paths');
     await wait(() => Boolean(finishPush), 'mock upload');
-    await click('[aria-label="Close robot connection"]');
+    await click('[aria-label="Close robot files"]');
     await input('.library-search', 'Collect');
     await click('.library-pick');
     assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Collect second');
-    assert.deepEqual(prepared[0].scope.pathIds, ['library-path-0', 'library-path-1']);
+    assert.deepEqual(prepared[0].pathIds, ['library-path-0', 'library-path-1']);
     await click('.library-connection');
     assert.match(await evaluate(() => document.querySelector('.robot-push-dialog').textContent), /Uploading/);
-    finishPush({ state: 'active', revision: 'fixture-revision' });
-    await wait(() => evaluate(() => document.querySelector('.robot-push-outcome')?.textContent.includes('Accepted by robot')), 'acceptance');
-    await click('[aria-label="Close robot connection"]');
+    finishPush({ state: 'transferred', files: lastPrepared.files, directory: robotConnection.endpoint.directory, directoryCreated: false });
+    await wait(() => evaluate(() => document.querySelector('.rfp-view-done')?.textContent.includes('2 paths uploaded')), 'verified upload');
+    await click('[aria-label="Close robot files"]');
     check('hidden batch IDs stay fixed through review, upload, dismissal, and browsing');
-    await click('.library-connection');
-    await click('.robot-push-dialog button', 'Connection and history');
-    await wait(() => evaluate(() => document.querySelector('[aria-label="Diagnostics"]')), 'diagnostics entry point');
-    await click('[aria-label="Diagnostics"]');
-    assert.equal(await evaluate(() => document.querySelector('dialog.robot-manager').open), false);
-    assert.equal(await evaluate(() => document.querySelector('[aria-labelledby="beta-diagnostic-title"]').checkVisibility()), true);
-    assert.equal(await evaluate(() => [...document.querySelectorAll('[aria-labelledby="beta-diagnostic-title"] button')].some((button) => button.textContent === 'Save bundle')), false);
-    await click('[aria-labelledby="beta-diagnostic-title"] button', 'Generate preview');
-    await wait(() => diagnosticPreviews.length === 1, 'local diagnostic preview');
-    assert.equal(diagnosticPreviews[0].name, 'Library verification');
-    const previewText = await evaluate(() => { const input = document.querySelector('[aria-label="Read-only beta diagnostic JSON"]'); return { contents: input.value, readOnly: input.readOnly }; });
-    assert.equal(previewText.readOnly, true);
-    assert.equal(JSON.parse(previewText.contents).project, 'Library verification');
-    await click('[aria-labelledby="beta-diagnostic-title"] button', 'Save bundle');
-    await wait(() => diagnosticSaves.length === 1, 'save preview capability');
-    assert.equal(diagnosticSaves[0], 'fixture-preview-capability');
-    assert.match(await evaluate(() => document.querySelector('[aria-labelledby="beta-diagnostic-title"]').textContent), /Diagnostic bundle saved/);
-    await click('[aria-label="Close diagnostic bundle"]');
-    check('connection opens usable diagnostics, then previews read-only bytes and saves the capability');
     await input('.library-search', '');
     await pointerClick('[data-library-item="library-path-0"]');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick[aria-pressed="true"]').length), 1, 'Plain click returns to one selected path');
@@ -695,6 +675,24 @@ app.whenReady().then(async () => {
     assert.deepEqual({ paths: saved.paths, pathFolders: saved.pathFolders }, restoredLibrary, 'Save and reload keep the restored library');
     folderUndoChecks();
     check('Move to is one Undo step each; undoing them and then a folder deletion keeps later folders, names, and geometry, and every membership resolves after reload');
+    await click('.library-connection');
+    await wait(() => evaluate(() => document.querySelector('.rfp-view-summary') && document.querySelector('[aria-label="Diagnostics"]')?.checkVisibility()), 'diagnostics entry point');
+    await click('[aria-label="Diagnostics"]');
+    assert.equal(await evaluate(() => document.querySelector('dialog.robot-manager').open), false);
+    assert.equal(await evaluate(() => document.querySelector('[aria-labelledby="beta-diagnostic-title"]').checkVisibility()), true);
+    assert.equal(await evaluate(() => [...document.querySelectorAll('[aria-labelledby="beta-diagnostic-title"] button')].some((button) => button.textContent === 'Save bundle')), false);
+    await click('[aria-labelledby="beta-diagnostic-title"] button', 'Generate preview');
+    await wait(() => diagnosticPreviews.length === 1, 'local diagnostic preview');
+    assert.equal(diagnosticPreviews[0].name, 'Library verification');
+    const previewText = await evaluate(() => { const input = document.querySelector('[aria-label="Read-only beta diagnostic JSON"]'); return { contents: input.value, readOnly: input.readOnly }; });
+    assert.equal(previewText.readOnly, true);
+    assert.equal(JSON.parse(previewText.contents).project, 'Library verification');
+    await click('[aria-labelledby="beta-diagnostic-title"] button', 'Save bundle');
+    await wait(() => diagnosticSaves.length === 1, 'save preview capability');
+    assert.equal(diagnosticSaves[0], 'fixture-preview-capability');
+    assert.match(await evaluate(() => document.querySelector('[aria-labelledby="beta-diagnostic-title"]').textContent), /Diagnostic bundle saved/);
+    await click('[aria-label="Close diagnostic bundle"]');
+    check('connection opens usable diagnostics, then previews read-only bytes and saves the capability');
     const managedOriginal = structuredClone(saved.paths.find((item) => item.name === 'Managed path'));
     const managedIndex = saved.paths.findIndex((item) => item.id === managedOriginal.id);
     await click('[aria-label="Actions for Managed path"]'); await click('.library-menu button', 'Delete');
@@ -1099,36 +1097,22 @@ app.whenReady().then(async () => {
     assert.ok(await evaluate(() => Boolean(document.querySelector('.rt-branch .rt-step.sel'))));
     check('adding a path in a populated decision branch selects the new step in the main flow');
     await click('.place', 'Paths');
-    deferInspection = true;
     await click('.library-connection');
-    await wait(() => Boolean(finishInspection), 'pending robot inspection');
-    await click('.robot-push-dialog button', 'Pair another robot');
-    await click('.robot-push-dialog button', 'Connect');
-    await click('.robot-push-dialog button', 'Trust and pair');
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.robot-push-dialog button')].some((button) => button.textContent === 'Refresh robot' && !button.disabled)), true, 'A superseded inspection must not leave the replacement pairing stuck refreshing');
-    deferInspection = false;
-    finishInspection(inspection());
-    await click('.robot-push-dialog button', 'Refresh robot');
-    await wait(() => evaluate(() => [...document.querySelectorAll('.robot-push-dialog button')].some((button) => button.textContent === 'Refresh robot' && !button.disabled)), 'replacement robot inspection');
-    await click('[aria-label="Close robot connection"]');
-    check('pairing another robot during inspection leaves its refresh control usable');
-    await click('.library-connection');
-    await click('.robot-push-dialog button', 'Pair another robot');
-    await wait(() => evaluate(() => document.querySelector('.robot-push-endpoint')), 'unpaired connection surface');
-    assert.equal(await evaluate(() => document.querySelector('.library-connection').textContent.trim()), 'Set up');
+    await click('.robot-push-dialog button', 'Edit');
+    await wait(() => evaluate(() => document.querySelector('.rfp-view-setup')), 'connection setup form');
     assert.equal(await evaluate(() => { const button = document.querySelector('.library-connection'); return button.scrollWidth <= button.clientWidth; }), true);
     assert.equal(await evaluate(() => document.querySelectorAll('.robot-connection-diagnostics').length), 1);
-    await wait(() => evaluate(() => document.querySelector('[aria-label="Diagnostics"]')?.checkVisibility()), 'unpaired diagnostics control');
+    await wait(() => evaluate(() => document.querySelector('[aria-label="Diagnostics"]')?.checkVisibility()), 'setup diagnostics control');
     await click('[aria-label="Diagnostics"]');
     assert.equal(await evaluate(() => document.querySelector('dialog.robot-manager').open), false);
     assert.equal(await evaluate(() => document.activeElement.getAttribute('aria-label')), 'Close diagnostic bundle');
     await click('[aria-labelledby="beta-diagnostic-title"] button', 'Generate preview');
-    await wait(() => diagnosticPreviews.length === 2, 'unpaired diagnostic preview');
+    await wait(() => diagnosticPreviews.length === 2, 'setup diagnostic preview');
     await click('[aria-labelledby="beta-diagnostic-title"] button', 'Save bundle');
-    await wait(() => diagnosticSaves.length === 2, 'unpaired local diagnostic save');
+    await wait(() => diagnosticSaves.length === 2, 'setup local diagnostic save');
     await click('[aria-label="Close diagnostic bundle"]');
     assert.equal(prepared.length, 1, 'Diagnostics must not initiate another robot push');
-    check('unpaired connection keeps diagnostics reachable, focused, and locally saveable');
+    check('connection setup keeps diagnostics reachable, focused, and locally saveable');
 
     saved = { ...saved, name: 'Simple library', paths: saved.paths.slice(0, 2).map((item) => ({ ...item, folderId: undefined })), pathFolders: [], pathLinks: [], editor: { ...saved.editor, activePathId: 'library-path-0' }, activeRoutineId: 'routine-a' };
     await win.loadFile(rendererHtml);

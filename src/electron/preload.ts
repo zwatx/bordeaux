@@ -1,13 +1,9 @@
 import type { AppUpdateState } from "../core/appUpdates";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowState, WindowMenuEntry } from "../core/windowChrome";
 import type { RobotFileEndpoint, RobotFileConnection, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
-import type { RobotPushScope, RobotDeploymentComparison } from "../core/export/robotDeployment";
 import { contextBridge, ipcRenderer } from "electron";
 import type { BordeauxProject, RobotDeliveryCapabilities } from "../core/types";
 import type { AgentProposal, AgentSessionSnapshot } from "../core/agent/types";
-import type { RobotEndpoint, RobotPairing, RobotProbe, RobotRuntimeStatus } from "./robotSftpTransport";
-import type { RobotPushPreview, RobotPushProgress, RobotPushResult } from "./robotPush";
-import type { RobotRetentionOperationResult, RobotRetentionPreview, RobotRetentionProgress } from "./robotRetention";
 import type { CreateNamedProjectRequest, OpenedProject, RecentProjectEntry, RecentProjectRevealTarget, ProjectCopyDefaultsRequest, ProjectCopyDefaults } from "../core/project/desktopProjects";
 import type { ProjectCheckpointRequest, ProjectCheckpointSaveResult, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectPersistenceUpdate, ProjectRecoveredFrom, ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectRecoveryDiscardConfirmation, ProjectSaveCheckpointRequest, ProjectSession, ProjectStartupRequest, ProjectStartupResult, ProjectStartupDetachResult, ProjectTransitionToken, RestoredProjectRecovery } from "../core/project/projectPersistence";
 import type { ProjectDepartureRequest, ProjectDepartureResponse, ProjectDepartureResume, ProjectDurabilityContext } from "../core/project/projectDurability";
@@ -131,38 +127,6 @@ const bordeauxAPI = {
     const listener = (_event: Electron.IpcRendererEvent, update: { context: ProjectDurabilityContext; catalog: unknown }) => handler(update);
     ipcRenderer.on("robotProject:catalog", listener);
     return () => { ipcRenderer.removeListener("robotProject:catalog", listener); };
-  },
-  getRobotPairing: (): Promise<RobotPairing | null> => ipcRenderer.invoke("robot:getPairing"),
-  probeRobot: (endpoint: RobotEndpoint): Promise<RobotProbe> => ipcRenderer.invoke("robot:probe", endpoint),
-  confirmRobotPairing: (hostKeyFingerprint: string, runtimeId: string): Promise<RobotPairing> => ipcRenderer.invoke("robot:confirmPairing", hostKeyFingerprint, runtimeId),
-  inspectPairedRobot: (): Promise<RobotRuntimeStatus> => ipcRenderer.invoke("robot:inspect"),
-  inspectRobotRetention: (project: BordeauxProject): Promise<{ status: RobotRuntimeStatus; localRevisionId: string }> => ipcRenderer.invoke("robot:inspectRetention", project),
-  inspectRobotLibrary: (project: BordeauxProject): Promise<{ status: RobotRuntimeStatus; comparison: RobotDeploymentComparison | null; verifiedAt: string; message?: string }> => ipcRenderer.invoke("robot:inspectLibrary", project),
-  prepareRobotPush: (project: BordeauxProject, scope?: RobotPushScope): Promise<RobotPushPreview> => ipcRenderer.invoke("robot:preparePush", project, scope),
-  confirmRobotPush: (operationId: string, adoptBaseline = false): Promise<RobotPushResult | {
-    operationId: string;
-    state: "failed" | "cancelled";
-    boundary: "upload" | "staging";
-    message: string;
-  }> => ipcRenderer.invoke("robot:confirmPush", operationId, adoptBaseline),
-  cancelRobotPush: (operationId: string): Promise<{ canceled: boolean; boundary?: "review" | "upload" }> => ipcRenderer.invoke("robot:cancelPush", operationId),
-  onRobotPushState: (handler: (progress: RobotPushProgress) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, progress: RobotPushProgress) => handler(progress);
-    ipcRenderer.on("robot:pushState", listener);
-    return () => ipcRenderer.removeListener("robot:pushState", listener);
-  },
-  prepareRobotRetention: (project: BordeauxProject, action: "rollback" | "pin", target: { revisionId: string; payloadSha256: string }): Promise<RobotRetentionPreview> => ipcRenderer.invoke("robot:prepareRetention", project, action, target),
-  confirmRobotRetention: (operationId: string): Promise<RobotRetentionOperationResult | {
-    operationId: string;
-    state: "failed" | "cancelled";
-    boundary: "upload" | "staging";
-    message: string;
-  }> => ipcRenderer.invoke("robot:confirmRetention", operationId),
-  cancelRobotRetention: (operationId: string): Promise<{ canceled: boolean; boundary?: "review" | "upload" }> => ipcRenderer.invoke("robot:cancelRetention", operationId),
-  onRobotRetentionState: (handler: (progress: RobotRetentionProgress) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, progress: RobotRetentionProgress) => handler(progress);
-    ipcRenderer.on("robot:retentionState", listener);
-    return () => ipcRenderer.removeListener("robot:retentionState", listener);
   },
   setDirty: (dirty: boolean) => ipcRenderer.send("project:setDirty", dirty),
   publishAgentSession: (snapshot: AgentSessionPublication) => ipcRenderer.send("agent:publishSession", snapshot),
