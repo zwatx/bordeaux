@@ -1,5 +1,5 @@
 {
-  "pathId": "fixture-straight",
+  "pathId": "fixture-curve",
   "project": {
     "schemaVersion": "1.0",
     "field": {
@@ -31,40 +31,58 @@
     },
     "paths": [
       {
-        "id": "fixture-straight",
-        "name": "Straight path",
+        "id": "fixture-curve",
+        "name": "Curve and typed events",
         "waypoints": [
           {
             "linked": true,
             "thetaOn": true,
-            "theta": 0,
+            "theta": 90,
             "stop": false,
             "x": 2.2,
             "y": 4,
             "segType": "bezier",
             "prevC": {
-              "x": 1.4160000000000001,
-              "y": 4
+              "x": 1.72442560653724,
+              "y": 3.6341735434901845
             },
             "nextC": {
-              "x": 2.984,
-              "y": 4
+              "x": 2.6755743934627603,
+              "y": 4.365826456509815
+            },
+            "segmentFollowMode": "time"
+          },
+          {
+            "linked": true,
+            "thetaOn": false,
+            "theta": 0,
+            "stop": false,
+            "x": 3.5,
+            "y": 5,
+            "segType": "bezier",
+            "prevC": {
+              "x": 2.716,
+              "y": 5
+            },
+            "nextC": {
+              "x": 4.284,
+              "y": 5
             }
           },
           {
             "linked": true,
             "thetaOn": true,
-            "theta": 0,
+            "theta": -90,
             "stop": false,
             "x": 5,
             "y": 4,
             "prevC": {
-              "x": 4.216,
-              "y": 4
+              "x": 4.5007698233972935,
+              "y": 4.332820117735137
             },
             "nextC": {
-              "x": 5.784,
-              "y": 4
+              "x": 5.4992301766027065,
+              "y": 3.6671798822648625
             }
           }
         ],
@@ -128,7 +146,8 @@
         "headingMode": "targets",
         "startVel": 0,
         "goalVel": 0,
-        "exportable": true
+        "exportable": true,
+        "followMode": "time"
       }
     ],
     "pathLinks": [],
@@ -142,7 +161,7 @@
     "activeRoutineId": "unrelated-routine",
     "plannerId": "profiledSpline",
     "editor": {
-      "activePathId": "fixture-straight"
+      "activePathId": "fixture-curve"
     }
   },
   "bindings": {

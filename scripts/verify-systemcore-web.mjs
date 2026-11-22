@@ -12,7 +12,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import electron from 'electron';
-import { createServer } from 'vite';
+import { createRequire } from 'node:module';
 
 const output = process.env.BORDEAUX_SYSTEMCORE_OUTPUT ? path.resolve(process.env.BORDEAUX_SYSTEMCORE_OUTPUT) : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-systemcore-'));
 await fs.mkdir(output, { recursive: true });
@@ -37,13 +37,16 @@ if (!url) {
 console.log('SystemCore web artifacts: ' + output);
 
 // The LabVIEW command list a desktop Push sends to a SystemCore, recorded from the repo's typed NI fixture
-// (tests/fixtures/binaryWriterFixture.ts), and the BDX bytes the desktop core builds with it. The robot must match them.
-const vite = await createServer({ configFile: false, logLevel: 'error', server: { middlewareMode: true }, ssr: { external: ['ssh2'] } });
-const { COMMANDS_FILE_NAME, encodeCommandsFile } = await vite.ssrLoadModule('/src/core/export/commandsFile.ts');
-const { buildRobotBinary } = await vite.ssrLoadModule('/src/core/export/robotBinary.ts');
-const fixture = JSON.parse(await fs.readFile('tests/fixtures/systemcoreCommandProject.json', 'utf8'));
-const expected = buildRobotBinary(fixture.project, { kind: 'path', id: fixture.pathId }, fixture.bindings);
-await fs.writeFile(path.join(output, 'command-project.json'), JSON.stringify({ project: fixture.project, fileName: expected.fileName, sha256: expected.sha256, catalog: fixture.bindings.catalog.projectName }));
+// (tests/fixtures/binaryWriterFixture.ts, a curved path with typed events), and the BDX the desktop app builds with it.
+// The robot must build the same bytes. The desktop builds BDX in Electron's Node, so the expected file is built there.
+execFileSync('npm', ['run', 'build:electron', '--silent'], { stdio: 'inherit' });
+const desktop = (module) => createRequire(import.meta.url)(path.resolve('dist-electron', module));
+const { COMMANDS_FILE_NAME, encodeCommandsFile } = desktop('core/export/commandsFile');
+const fixtureFile = path.resolve('tests/fixtures/systemcoreCommandProject.json');
+const fixture = JSON.parse(await fs.readFile(fixtureFile, 'utf8'));
+const expected = JSON.parse(execFileSync(electron, [path.resolve('scripts/systemcore-desktop-bdx.cjs'), fixtureFile], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }).toString());
+console.log(`Desktop BDX (${expected.engine}): ${expected.fileName} ${expected.sha256.slice(0, 16)}, ${expected.eventCount} events`);
+await fs.writeFile(path.join(output, 'command-project.json'), JSON.stringify({ project: fixture.project, ...expected, catalog: fixture.bindings.catalog.projectName }));
 const commands = Buffer.from(encodeCommandsFile(fixture.bindings));
 if (home) {
   await fs.mkdir(path.join(home, 'paths'), { recursive: true });
@@ -51,14 +54,13 @@ if (home) {
 } else if (process.env.BORDEAUX_SYSTEMCORE_SFTP) {
   // The desktop app's own SFTP transport and default SystemCore account, as a Push uses them.
   const [host, port] = process.env.BORDEAUX_SYSTEMCORE_SFTP.split(':');
-  const { discoverRobotSshIdentity } = await vite.ssrLoadModule('/src/electron/robotSsh2Session.ts');
-  const { uploadRobotFiles } = await vite.ssrLoadModule('/src/electron/robotFileTransfer.ts');
-  const { ROBOT_TARGETS } = await vite.ssrLoadModule('/src/core/robotTargets.ts');
+  const { discoverRobotSshIdentity } = desktop('electron/robotSsh2Session');
+  const { uploadRobotFiles } = desktop('electron/robotFileTransfer');
+  const { ROBOT_TARGETS } = desktop('core/robotTargets');
   const endpoint = { target: 'systemcore', host, port: Number(port), directory: ROBOT_TARGETS.systemcore.defaultDirectory };
   await uploadRobotFiles({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) }, [{ fileName: COMMANDS_FILE_NAME, contents: commands }]);
   console.log(`Sent ${COMMANDS_FILE_NAME} to ${endpoint.directory} over SFTP`);
 } else console.log('No BORDEAUX_SYSTEMCORE_SFTP: using the command list already on the robot');
-await vite.close();
 // A local run also hands over the robot home, so the page check can stage a bad destination and prove files on disk.
 const env = { ...process.env, BORDEAUX_SYSTEMCORE_URL: url, BORDEAUX_SYSTEMCORE_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', ...(home ? { BORDEAUX_SYSTEMCORE_HOME: home } : {}) };
 delete env.ELECTRON_RUN_AS_NODE;
