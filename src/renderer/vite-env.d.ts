@@ -1,8 +1,8 @@
-import type { BordeauxAPI } from "../electron/preload";
+import type { BordeauxHost } from "../hosts/contract";
 
 declare global {
   interface Window {
-    bordeauxAPI?: BordeauxAPI;
+    bordeauxAPI?: BordeauxHost;
   }
 }
 

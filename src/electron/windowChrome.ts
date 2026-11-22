@@ -1,9 +1,11 @@
 import type { BrowserWindow, IpcMainInvokeEvent, Menu, MenuItem } from "electron";
 import type { EventEmitter } from "node:events";
 import type { WindowState, WindowMenuEntry } from "../core/windowChrome";
+import type { HostChannel, HostResult } from "../hosts/contract";
 
 const menuIds = new Set(["application", "file", "robot", "agents", "view", "help"]);
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+/** Registers an IPC handler whose result must match the channel's entry in hosts/contract.ts. Arguments arrive untrusted. */
+export type Handle = <C extends HostChannel>(channel: C, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => HostResult<C> | Promise<HostResult<C>>) => void;
 
 export function windowState(window: BrowserWindow): WindowState {
   return { maximized: window.isMaximized(), fullscreen: window.isFullScreen(), focused: window.isFocused() };
