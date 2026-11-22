@@ -190,6 +190,7 @@ export function createSystemcoreHost() {
   }
   async function useDirectory(directory: string): Promise<RobotFileConnection> {
     await request("/api/settings", { pushDirectory: directory.replace(/\/+$/, "") });
+    commands = null; // The command list lives in the push folder; exports and pushes read the new folder's list.
     await serverInfo(true);
     return connection();
   }

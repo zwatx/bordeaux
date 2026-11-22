@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
 import { ROBOT_TARGETS, allowsCustomPassword, isRobotTargetId } from "../core/robotTargets";
+import { COMMANDS_FILE_NAME } from "../core/export/commandsFile";
 import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
 import { connectRobotSftp, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 
@@ -81,7 +82,8 @@ export async function uploadRobotFiles(
   if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
     throw new RobotTransportError("invalid_request", "Review the robot SSH identity before transferring files");
   }
-  if (!Array.isArray(files) || files.length < 1 || files.length > 64) {
+  const paths = Array.isArray(files) ? files.filter((file) => file?.fileName !== COMMANDS_FILE_NAME).length : 0;
+  if (paths < 1 || paths > 64) {
     throw new RobotTransportError("invalid_request", "Select between 1 and 64 robot path files");
   }
   const names = new Set<string>();
