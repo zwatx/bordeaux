@@ -62,6 +62,16 @@ function download(fileName: string, bytes: Uint8Array) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** The first BDX filename that another file also uses, ignoring case, as the desktop's Save and Push reject. */
+function sharedFileName(files: readonly { fileName: string }[]): string | undefined {
+  const seen = new Set<string>();
+  for (const { fileName } of files) {
+    if (seen.has(fileName.toLowerCase())) return fileName;
+    seen.add(fileName.toLowerCase());
+  }
+  return undefined;
+}
+
 export function createSystemcoreHost() {
   let info: Promise<ServerInfo> | null = null;
   let current: Opened | null = null;
@@ -111,6 +121,7 @@ export function createSystemcoreHost() {
     if (options.bdx) {
       try {
         const built = exportablePaths(canonical).map((path) => buildRobotBinary(canonical, { kind: "path", id: path.id }, BINDINGS));
+        if (sharedFileName(built)) throw new Error(`Duplicate BDX output filename: ${sharedFileName(built)}`);
         const next = Object.fromEntries(built.map((item) => [`Paths/${item.fileName}`, item.sha256]));
         writes.push(...built.map((item) => ({ file: `Paths/${item.fileName}`, base64: base64(item.bytes) })));
         removes.push(...Object.entries(previous?.generatedFiles ?? {}).filter(([file]) => !(file in next)).map(([file, sha256]) => ({ file, sha256 })));
@@ -172,6 +183,7 @@ export function createSystemcoreHost() {
     prepareRobotFiles: async (project, pathIds) => {
       const prepared = prepareProjectFile(project);
       const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, BINDINGS));
+      if (sharedFileName(built)) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
       const preview: RobotFilePreview = { operationId: randomUuid(), connection: await connection(),
         files: built.map((item, index) => ({ pathId: pathIds[index], name: item.name, fileName: item.fileName, size: item.bytes.length, sha256: item.sha256 })) };
       pending.set(preview.operationId, { preview, built, uploading: false });

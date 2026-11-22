@@ -61,6 +61,9 @@ class Store:
         normal = os.path.normpath(directory)
         if normal != directory.rstrip("/") or not (normal + "/").startswith(self.home + "/") or os.path.islink(normal):
             raise ValueError(f"Push folder must be inside {self.home}")
+        # Save writes and removes files under projects; robot code's folder must stay reachable only through Push.
+        if (normal + "/").startswith(self.projects + "/"):
+            raise ValueError("Push folder must be outside the projects folder")
         return normal
 
     def settings_file(self):
