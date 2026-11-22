@@ -4,15 +4,15 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { BordeauxProject } from "../core/types";
 import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../core/project/fileFormat";
+import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, PROJECT_WORKSPACE_FILE, decodeWorkspace, jsonContents, projectDocuments, withinReadLimit, workspaceContents, type FolderState } from "../core/project/folderLayout";
 import type { DecodedProjectFile } from "../core/project/fileFormat";
 import { MAX_FILE_NAME_BYTES, portableFileStem, truncateUtf8 } from "../core/portableFileName";
+
+export { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, PROJECT_WORKSPACE_FILE };
 import { projectFolderIdentity, projectFileIdentity, sameProjectFolder, type ProjectFolderIdentity } from "./projectFolderIdentity";
 
 const writeQueues = new Map<string, Promise<void>>();
 const openedProjectHashes = new Map<string, string>();
-export const MAX_PROJECT_FILE_BYTES = 16 * 1024 * 1024;
-/** A workspace holds the whole project plus its file ownership records. */
-export const MAX_WORKSPACE_FILE_BYTES = MAX_PROJECT_FILE_BYTES * 2;
 
 export interface ProjectReadOptions { recordOpened?: boolean; assertCurrent?: () => void }
 export async function readProject(filePath: string, options: ProjectReadOptions = {}): Promise<DecodedProjectFile> {
@@ -67,21 +67,6 @@ async function replaceFile(filePath: string, contents: string | Uint8Array, excl
   }
 }
 
-function jsonContents(value: unknown): string { return `${JSON.stringify(value, null, 2)}\n`; }
-
-// Readers refuse larger files, so writing one would strand the project at its
-// next open or save. Checked against the exact UTF-8 bytes before any write.
-function withinReadLimit(contents: string, maxBytes: number, label: string): string {
-  const bytes = Buffer.byteLength(contents, "utf8");
-  if (bytes <= maxBytes) return contents;
-  const needed = Math.ceil(bytes / (1024 * 1024) * 10) / 10;
-  throw new Error(`${label} would be ${needed} MiB, over the ${maxBytes / 1024 / 1024} MiB limit Bordeaux can reopen, so nothing was saved. Split the project or remove unused paths and routines, then save again.`);
-}
-
-function workspaceContents(state: FolderState): string {
-  return withinReadLimit(jsonContents(state), MAX_WORKSPACE_FILE_BYTES, "The project workspace");
-}
-
 export async function writeProject(filePath: string, value: unknown, exclusive = false): Promise<BordeauxProject> {
   const { project, contents } = encodeProjectFile(value);
   withinReadLimit(contents, MAX_PROJECT_FILE_BYTES, path.basename(filePath));
@@ -106,7 +91,6 @@ export async function writeBufferAtomically(filePath: string, value: Uint8Array,
 }
 
 export const PROJECT_EXTENSION = ".bordeaux";
-export const PROJECT_WORKSPACE_FILE = ".bordeaux-workspace.json";
 export function projectWorkspacePath(folder: string): string { return path.join(path.resolve(folder), PROJECT_WORKSPACE_FILE); }
 const folderQueues = new Map<string, Promise<unknown>>();
 // Preserve call order while asynchronous identity admission resolves a spelling of the folder.
@@ -120,7 +104,6 @@ function reserveFolderAdmission(folder: string) {
     release(); if (folderAdmissions.get(spelling) === queued) folderAdmissions.delete(spelling);
   } };
 }
-interface FolderState { format: "bordeaux-folder/1"; projectPath: string | null; project: BordeauxProject; files: Record<string, string>; pendingFiles?: Record<string, string>; generatedFiles?: Record<string, string>; pendingGeneratedFiles?: Record<string, string>; documentFiles?: Record<string, string>; legacyProjectMirror?: { file: string; hash: string }; importedFrom?: { file: string; hash: string }; }
 
 export function projectFileName(name: string): string {
   const stem = name.replace(/\.bordeaux(?:\.json)?$/i, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim().slice(0, 120) || "Project";
@@ -172,10 +155,8 @@ async function readFolderSnapshot(folder: string, assertCurrent?: () => void): P
     const stat = await fs.lstat(target); assertCurrent?.();
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_WORKSPACE_FILE_BYTES) throw new Error("Folder recovery file is not a valid regular file");
     const contents = await fs.readFile(target, "utf8"); assertCurrent?.();
-    const raw = JSON.parse(contents) as Record<string, unknown>;
-    if (raw.format !== "bordeaux-folder/1" || !raw.files || typeof raw.files !== "object") throw new Error("This folder already contains an unrelated recovery file");
+    const { raw, state } = decodeWorkspace(contents);
     const head = workspaceHead(raw);
-    const state = { ...raw, project: prepareProjectFile(raw.project) } as unknown as FolderState;
     return { raw, state, head };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -300,15 +281,6 @@ async function workspaceRecordsOpenedFile(state: FolderState, file: string): Pro
 }
 
 function digest(contents: string | Uint8Array): string { return createHash("sha256").update(contents).digest("hex"); }
-
-// Room for the widest duplicate suffix (validation allows 1,024 documents of a
-// kind) and the longest extension, so every derived name fits in one component.
-const DOCUMENT_STEM_BYTES = MAX_FILE_NAME_BYTES - " (99999)".length - ".routine".length;
-
-function safeDocumentName(name: string): string {
-  const clean = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim().replace(/[. ]+$/, "").slice(0, 120) || "Untitled";
-  return portableFileStem(clean, DOCUMENT_STEM_BYTES);
-}
 
 async function fileOwnership(folder: string, file: string, stat: { dev: number | bigint; ino: number | bigint }, records: readonly (Record<string, string> | undefined)[], assertCurrent?: () => void) {
   const hashes = records.flatMap((record) => record?.[file] ? [record[file]] : []);
@@ -540,29 +512,7 @@ export async function autosaveProjectFolder(folder: string, value: unknown, proj
         try { await fs.lstat(projectPath); throw Object.assign(new Error("Project file already exists"), { code: "EEXIST" }); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       }
-      const used = new Set<string>();
-      const documents = [
-        ...project.paths.map((item) => ({ directory: "Paths", extension: "path", item })),
-        ...project.routines.map((item) => ({ directory: "Routines", extension: "routine", item })),
-      ].map(({ directory, extension, item }) => {
-        const stem = `${directory}/${safeDocumentName(item.name)}`;
-        const key = `${extension}:${item.id}`;
-        const prior = old?.documentFiles?.[key];
-        const suffix = prior?.slice(stem.length);
-        const reusable = prior?.startsWith(stem) && (suffix === `.${extension}` || suffix?.match(/^ \([1-9][0-9]*\)\.(path|routine)$/)?.[1] === extension);
-        const file = prior && reusable && !used.has(prior.toLowerCase()) ? prior : "";
-        if (file) used.add(file.toLowerCase());
-        const pathVersion = "waypoints" in item && item.optimization?.accepted?.version === 2 ? "2.1" : "2.0";
-        return { key, stem, extension, file, contents: `${JSON.stringify(extension === "path" ? { version: pathVersion, field: project.field, robot: project.robot, ...item } : { format: "bordeaux-routine/1", ...item }, null, 2)}\n` };
-      });
-      for (const document of documents) {
-        if (document.file) continue;
-        let number = 1;
-        let file = `${document.stem}.${document.extension}`;
-        while (used.has(file.toLowerCase())) file = `${document.stem} (${++number}).${document.extension}`;
-        document.file = file; used.add(file.toLowerCase());
-      }
-      for (const document of documents) withinReadLimit(document.contents, MAX_PROJECT_FILE_BYTES, document.file);
+      const documents = projectDocuments(project, old?.documentFiles);
       for (const directory of ["Paths", "Routines"]) await checkRegularDirectory(path.join(target, directory), directory);
       const observedFiles = { ...old?.files };
       const existing = new Map<string, string>();

@@ -1,14 +1,14 @@
-import { createHash } from "node:crypto";
 import type { RobotCommandCatalog } from "../core/types";
 import type { BinaryBindings, BdxParameterType } from "../core/export/robotBinary";
+import { bdxBindingsFromDefinitions, type BdxCommandDefinition } from "../core/export/bdxBindings";
 import { discoverLabviewProject } from "./labviewProject";
 import { labviewCommandSourceChanges, withLastKnownLabviewCommands } from "./labviewNiInspection";
 import { parseLabviewXml } from "./labviewProjectDiscovery";
 
-/** Inspected NI type evidence describes bytes only. It never certifies robot execution. */
+/** Reads each command's saved NI connector types, then assembles bindings in core. */
 export function bdxBindingsFromCatalog(catalog: RobotCommandCatalog | null): BinaryBindings {
   const types: BinaryBindings["parameterTypes"] = Object.create(null);
-  const definitions = (catalog?.commands ?? []).filter((command) => command.labviewConnector).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map((command) => {
+  const definitions: BdxCommandDefinition[] = (catalog?.commands ?? []).filter((command) => command.labviewConnector).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map((command) => {
     const raw = command.labviewConnector!;
     const parameters: Record<string, BdxParameterType> = Object.create(null);
     const inputs = raw.typeXml.flatMap((xml, index) => {
@@ -25,15 +25,7 @@ export function bdxBindingsFromCatalog(catalog: RobotCommandCatalog | null): Bin
     types[command.id] = parameters;
     return { id: command.id, target: raw.target, file: raw.file, parameters: command.parameters.filter((item) => item.role === "argument").map((parameter) => ({ name: parameter.name, type: parameters[parameter.name], schema: parameter.schema, required: parameter.defaultValue === undefined, defaultValue: parameter.defaultValue })) };
   });
-  // Preserve the inspected type hash as authoring provenance. The binary writer supplies
-  // the dynamic wrapper protocol identity separately; no generated resolver is required.
-  // Absolute inspection-machine paths, timestamps and execution claims are deliberately absent.
-  const definitionBytes = Buffer.from(JSON.stringify({ schema: "bordeaux-ni-command-types/1", commands: definitions }));
-  const catalogId = definitions.length ? "bordeaux-ni-command-types/1" : "";
-  const catalogHash = definitions.length ? createHash("sha256").update(definitionBytes).digest("hex") : "";
-  return { catalog: { ...(catalog ?? { projectName: "", sourceFileCount: 0, scannedAt: "", warnings: [], commands: [] }),
-    runtime: "labview", catalogId, catalogHash, generatedSchemaVersion: "1.3" }, parameterTypes: types,
-    definitionJson: definitionBytes.toString("utf8") };
+  return bdxBindingsFromDefinitions(catalog, definitions, types);
 }
 
 /**
