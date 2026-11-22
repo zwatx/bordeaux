@@ -258,7 +258,7 @@ describe("NI legacy connector discovery", () => {
   });
 
   it("rejects unsupported ABI versions, wrong project provenance and incomplete reports", () => {
-    const value = report(); value.labviewVersion = "26.0";
+    const value = report(); value.labviewVersion = "27.0.0b1";
     expect(() => decode(value)).toThrow(/Unsupported NI/);
     value.labviewVersion = "25.3.3f3"; value.projectFile = "C:\\Other.lvproj";
     expect(() => decode(value)).toThrow(/different project/);

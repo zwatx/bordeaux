@@ -95,17 +95,18 @@ export function statusCluster(xml: XElement): boolean {
 }
 
 /**
- * LabVIEW versions whose connector reports were compared VI by VI and matched; InspectCommands.ps1 keeps the same list.
+ * LabVIEW major versions (2025, 2026) whose connector reports were compared VI by VI and matched, so any build of them
+ * is accepted. Add a major only after the same comparison; InspectCommands.ps1 keeps the same pattern.
  * LabVIEW 2026 is 64-bit only, LabVIEW 2025 FRC installs are usually 32-bit.
  */
-export const VALIDATED_LABVIEW_VERSIONS: readonly string[] = ["25.3.3f3", "26.3.1f1"];
+export const VALIDATED_LABVIEW_VERSION = /^(25|26)\./;
 
 export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sources: LabviewNiSource[]): {
   commands: RobotCommandDescriptor[]; inspection: Inspection; cacheable: boolean; dependencyPaths: string[];
 } {
   const report = record(raw, "NI inspection report");
   const labviewVersion = typeof report.labviewVersion === "string" ? report.labviewVersion : "";
-  if (report.schemaVersion !== "bordeaux-ni-inspection/1" || !VALIDATED_LABVIEW_VERSIONS.includes(labviewVersion)) throw new Error("Unsupported NI connector adapter version. This adapter was validated with LabVIEW 2025 25.3.3f3 and LabVIEW 2026 26.3.1f1.");
+  if (report.schemaVersion !== "bordeaux-ni-inspection/1" || !VALIDATED_LABVIEW_VERSION.test(labviewVersion)) throw new Error("Unsupported NI connector adapter version. This adapter was validated with LabVIEW 2025 and LabVIEW 2026.");
   if (text(report.projectFile, "NI project file", 4096) !== projectFile) throw new Error("NI inspection report belongs to a different project");
   const inspectedAt = text(report.inspectedAt, "NI inspection timestamp");
   if (!Number.isFinite(Date.parse(inspectedAt))) throw new Error("NI inspection timestamp is invalid");
