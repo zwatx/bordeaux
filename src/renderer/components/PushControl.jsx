@@ -88,6 +88,8 @@ function PushMenu({ controller, status, total, incomplete, onPushAll }) {
       item({ className: 'push-all', 'aria-disabled': allInert || undefined, title: allUnavailable || undefined,
         'aria-label': 'Push all ' + total + (total === 1 ? ' path' : ' paths'), onClick: allInert ? undefined : run(onPushAll) },
       'Push all ' + total + (total === 1 ? ' path' : ' paths'), allUnavailable || 'Includes hidden paths'),
+      controller.robotFilesAvailable && item({ 'aria-disabled': controller.busy || undefined,
+        onClick: controller.busy ? undefined : run(() => controller.requestPush({ kind: 'inventory' })) }, 'Robot files…'),
       h('hr', { role: 'separator' }),
       item({ className: 'push-menu-connection', onClick: run(() => controller.openConnection()) }, endpoint ? 'Robot connection…' : 'Set up robot…')));
 }

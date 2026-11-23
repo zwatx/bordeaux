@@ -2,8 +2,10 @@ import * as React from 'react';
 import { UI } from './ui';
 import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 import { shortFact } from '../lib/projectLifecycle';
+import { UnitPrefs } from '../lib/unitPreferences';
 import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 import { isCommandsFile } from '../../core/export/commandsFile';
+import { RobotPathField } from './RobotPathField';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
@@ -63,12 +65,163 @@ function Files({ files }) {
     h('span', { className: 'rfp-file-meta', title: file.size.toLocaleString() + ' bytes' }, file.fileName + ' · ' + kilobytes(file.size)))));
 }
 
+const inventoryFilters = [['all', 'All'], ['paired', 'On both'], ['robotOnly', 'Robot only'], ['localOnly', 'Local only']];
+const inventoryStatus = {
+  paired: 'Not compared', robotOnly: 'Only on robot', localOnly: 'Only in project', conflict: 'Name conflict',
+  same: 'Same', different: 'Different', olderName: 'Older file name', robotUnreadable: 'Unreadable',
+  otherPath: 'Another path', localFailed: 'Local build failed', readFailed: 'Read failed', missing: 'Missing on robot',
+};
+const timeOfDay = (at) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function Inventory({ c, filter, setFilter, pane, scroll }) {
+  const { rows, missing, truncated } = c.inventory;
+  const kindOf = (row) => {
+    const verdict = c.verdicts[row.fileName];
+    return verdict === 'olderName' ? 'paired' : verdict === 'robotOnly' && row.kind !== 'conflict' ? 'robotOnly' : row.kind;
+  };
+  const visible = filter === 'all' ? rows : rows.filter(row => kindOf(row) === filter);
+  return h(React.Fragment, null,
+    h(Destination, { endpoint: c.inventory.endpoint, status: 'Listed ' + timeOfDay(c.inventory.listedAt) }),
+    missing && h('p', { className: 'rfp-note' }, 'The folder is missing on the robot. Push creates it when needed.'),
+    !missing && !rows.some(row => row.robot) && h('p', { className: 'rfp-note' }, 'No BDX files in this robot folder yet.'),
+    truncated && h('p', { className: 'rfp-note' }, 'Showing the first 256 robot files. Local-only paths are omitted from a partial list.'),
+    h('div', { className: 'rfp-inventory-filters', role: 'group', 'aria-label': 'Filter robot files' },
+      inventoryFilters.map(([kind, label]) => button(label + ' ' + (kind === 'all' ? rows.length : rows.filter(row => kindOf(row) === kind).length),
+        () => { if (filter !== kind) { setFilter(kind); if (pane.current) pane.current.scrollTop = 0; } },
+        { key: kind, 'aria-pressed': filter === kind }))),
+    h('div', { ref: pane, className: 'rfp-inventory-scroll', onScroll: (event) => { scroll.current = event.currentTarget.scrollTop; } },
+      visible.length ? h('table', { className: 'rfp-compare-table rfp-inventory-table', 'aria-label': 'Project and robot paths' },
+        h('thead', null, h('tr', null, ['Path', 'On robot', 'Status', 'Action'].map(label => h('th', { key: label, scope: 'col' }, label)))),
+        h('tbody', null, visible.map(row => {
+          const kind = kindOf(row), status = c.verdicts[row.fileName] || row.kind;
+          const label = row.robot ? (kind === 'paired' ? 'Compare' : 'Inspect') : row.detail ? '' : 'Push…';
+          return h('tr', { key: row.fileName },
+            h('th', { scope: 'row' }, h('strong', null, row.name), row.name !== row.fileName && h('small', null, row.fileName)),
+            h('td', null, row.robot ? [kilobytes(row.robot.size), row.robot.mtime > 0 && h('small', { key: 'time', title: new Date(row.robot.mtime).toLocaleString() }, timeOfDay(row.robot.mtime))] : '—'),
+            h('td', { 'data-verdict': status }, inventoryStatus[status] || inventoryStatus[kind], row.detail && h('small', null, row.detail)),
+            h('td', null, label && button(label, () => c.openRobotRow(row),
+              { 'aria-label': label.replace('…', '') + ' ' + row.name, 'data-robot-file': row.fileName })));
+        }))) : h('p', { className: 'rfp-note' }, 'No paths in this view.')));
+}
+
+const formatFact = (value, unit, precision) =>
+  typeof value === 'number' && unit ? UnitPrefs.format(value, unit, precision) : value;
+const hasChange = ([, a, b]) => a !== '—' && b !== '—' && a !== b;
+
+function EventRows({ changes, counts, robotOnly }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const reveal = React.useRef(null);
+  React.useEffect(() => { if (expanded) reveal.current?.focus(); }, [expanded]);
+  const { rows, omitted, unchanged, orderChanged } = changes;
+  const previewCount = 4, columns = robotOnly ? 2 : 3;
+  const [localCount, robotCount] = counts;
+  const time = (value, precision = 2) => UnitPrefs.format(value, 's', precision);
+  const cell = (value) => h('td', { className: value == null || value === '—' ? 'rfp-absent' : undefined }, value == null || value === '—' ? 'Not present' : value);
+  const first = (index) => index === previewCount ? { ref: reveal, tabIndex: -1 } : {};
+  const fullRow = (text, key, className) => h('tr', { key, className }, h('td', { colSpan: columns }, text));
+  const summary = [unchanged ? unchanged + ' unchanged' : '', orderChanged ? 'Order differs' : ''].filter(Boolean).join(' · ');
+  return h('tbody', { className: 'rfp-events' },
+    h('tr', { className: 'rfp-events-head', 'data-changed': !robotOnly && localCount !== robotCount || undefined },
+      h('th', { scope: 'row' }, 'Events'), !robotOnly && h('td', null, localCount), h('td', null, robotCount)),
+    (expanded ? rows : rows.slice(0, previewCount)).map(({ id, local, robot, values, notes }, index) => {
+      const name = (local || robot).name;
+      if (!local || !robot) return h('tr', { key: id },
+        h('th', { scope: 'row', ...first(index) }, name),
+        !robotOnly && cell(local && time(local.time)), cell(robot && time(robot.time)));
+      const fields = [];
+      if (local.name !== robot.name) fields.push(['Name', local.name, robot.name]);
+      if (local.time !== robot.time) {
+        let precision = 2;
+        while (precision < 6 && time(local.time, precision) === time(robot.time, precision)) precision++;
+        fields.push(['Time', time(local.time, precision), time(robot.time, precision)]);
+      }
+      const rowHeader = (label) => h('th', { scope: 'row', 'aria-label': name + ', ' + label }, label);
+      return h(React.Fragment, { key: id },
+        h('tr', { className: 'rfp-event-name' }, h('th', { colSpan: columns, ...first(index) }, name)),
+        [...fields, ...values].map(([label, a, b], i) => h('tr', { key: i, className: 'rfp-event-row' }, rowHeader(label), cell(a), cell(b))),
+        notes.map(([label, detail], i) => label
+          ? h('tr', { key: i, className: 'rfp-event-row' }, rowHeader(label), h('td', { colSpan: 2, className: 'rfp-absent' }, detail))
+          : fullRow(detail, i, 'rfp-events-foot')));
+    }),
+    !expanded && rows.length > previewCount && fullRow(button(
+      'Show ' + (rows.length - previewCount) + ' more ' + (rows.length - previewCount === 1 ? 'event' : 'events'),
+      () => setExpanded(true), { className: 'qbtn quiet' }), 'expand', 'rfp-events-foot'),
+    omitted > 0 && (expanded || rows.length <= previewCount) && fullRow('+' + omitted + (omitted === 1 ? ' more event' : ' more events'), 'omitted', 'rfp-events-foot'),
+    summary && fullRow(summary, 'summary', 'rfp-events-foot'));
+}
+
+function CompareFacts({ rows, label, robotOnly = false, changesOnly = false, eventChanges, eventCounts }) {
+  return h('table', { className: 'rfp-compare-table' + (changesOnly ? ' rfp-changed-values' : ''), 'aria-label': label },
+    h('thead', null, h('tr', null, h('th', { scope: 'col' }, changesOnly ? 'Changed' : 'Value'),
+      !robotOnly && h('th', { scope: 'col' }, 'This computer'), h('th', { scope: 'col' }, 'Robot'))),
+    h('tbody', null, rows.map((row) => {
+      const [name, a, b, unit] = row, changed = hasChange(row);
+      let precision = 2;
+      while (changed && precision < 6 && formatFact(a, unit, precision) === formatFact(b, unit, precision)) precision++;
+      return h('tr', { key: name, 'data-changed': changed || undefined },
+        h('th', { scope: 'row', 'aria-label': changed ? name + ', changed' : undefined }, name),
+        !robotOnly && h('td', null, formatFact(a, unit, precision)), h('td', null, formatFact(b, unit, precision)));
+    })),
+    eventChanges && h(EventRows, { changes: eventChanges, counts: eventCounts, robotOnly }));
+}
+
+function Comparison({ controller: c, verdictRef }) {
+  const { verdict, name, robotName, fileName, localError, robotError, local, robot, facts, notes, eventChanges, expectedFileName, robotOnly, routes, widestGap } = c.comparison;
+  const verdicts = {
+    same: 'The robot file matches what Push would send.',
+    different: 'The robot has a different version of ' + name + '.',
+    missing: fileName + ' is missing from the robot.',
+    otherPath: fileName + ' belongs to another path on the robot (' + robotName + '). Pushing ' + name + ' replaces that file.',
+    robotUnreadable: 'Bordeaux couldn’t read ' + fileName + ' · ' + robotError,
+    localFailed: 'Bordeaux couldn’t build the local BDX for ' + name + '.',
+    robotOnly: name + ' is only on the robot.',
+  };
+  const gap = facts.find(([label]) => label === 'Approx. route gap')?.[2];
+  const values = facts.filter(([label]) => label !== 'Approx. route gap');
+  const changes = values.filter((row) => hasChange(row) && (!eventChanges || row[0] !== 'Events'));
+  const eventCounts = values.find(([label]) => label === 'Events')?.slice(1);
+  const eventProps = eventChanges && eventCounts ? { eventChanges, eventCounts } : {};
+  const fingerprint = (file) => file ? kilobytes(file.size) + ' · ' + file.sha256.slice(0, 8) : '—';
+  const allValues = [...values, ['File', fingerprint(local), fingerprint(robot)]];
+  const table = h(CompareFacts, { rows: robotOnly && eventChanges ? allValues.filter(([label]) => label !== 'Events') : allValues,
+    label: 'BDX values for ' + name, robotOnly, ...(robotOnly ? eventProps : {}) });
+  const comparisonNotes = notes.length > 0 && h('ul', { className: 'rfp-compare-notes' }, notes.map((note, i) => h('li', { key: i }, note)));
+  return h(React.Fragment, null,
+    h('p', { tabIndex: -1, ref: verdictRef, className: 'rfp-compare-verdict' }, h('strong', null, verdicts[verdict])),
+    robotOnly && name !== fileName && h('p', { className: 'rfp-note' }, fileName),
+    expectedFileName && h('p', { className: 'rfp-note' }, 'The robot has this path as ' + fileName + '. Push uses its current filename, ' + expectedFileName + '.'),
+    localError && h('p', { className: 'rfp-note' }, 'Local BDX unavailable · ' + localError),
+    typeof gap === 'number' && h('p', { className: 'rfp-note rfp-compare-gap' }, 'Widest gap between the routes · about ' + UnitPrefs.format(gap, 'm', 3)),
+    robotOnly || !routes || verdict === 'robotUnreadable' ? h(React.Fragment, null, table, comparisonNotes) :
+      h('div', { className: 'rfp-field-review' },
+        h(RobotPathField, { routes, verdict, widestGap, gap }),
+        h('div', { className: 'rfp-field-changes' },
+          (changes.length > 0 || eventChanges) && h(CompareFacts, { rows: changes, label: 'Changed values for ' + name,
+            changesOnly: true, ...eventProps }),
+          comparisonNotes,
+          h('details', { className: 'rfp-all-values' }, h('summary', null, 'All values (' + allValues.length + ')'), table))));
+}
+
 export function RobotFilePushDialog({ controller: c }) {
   const dialog = React.useRef(null);
+  const verdictRef = React.useRef(null), compareCancel = React.useRef(null);
+  const inventoryPane = React.useRef(null), inventoryScroll = React.useRef(0);
+  const [filter, setFilter] = React.useState('all');
   React.useEffect(() => {
     if (c.open && !dialog.current.open) dialog.current.showModal();
     else if (!c.open && dialog.current.open) { dialog.current.close(); c.returnFocus(); }
   }, [c.open]);
+  React.useEffect(() => {
+    if (!c.open) { setFilter('all'); inventoryScroll.current = 0; }
+    compareCancel.current?.focus();
+    const pane = inventoryPane.current;
+    if (c.phase === 'listed' && pane) {
+      pane.scrollTop = inventoryScroll.current;
+      const row = [...pane.querySelectorAll('[data-robot-file]')].find(button => button.dataset.robotFile === c.row);
+      (row || dialog.current.querySelector('.rfp-inventory-filters button'))?.focus();
+    }
+  }, [c.phase, c.open]);
+  React.useEffect(() => { verdictRef.current?.focus(); }, [c.comparison]);
   const endpoint = c.preview?.connection.endpoint || c.settings?.endpoint;
   const identity = c.probe && ['identity', 'trusting'].includes(c.phase);
   const files = ['review', 'uploading', 'failed'].includes(c.phase) && c.preview ? c.preview.files : null;
@@ -76,7 +229,12 @@ export function RobotFilePushDialog({ controller: c }) {
   const summary = !identity && !setup && c.settings && ['idle', 'probing', 'cancelled'].includes(c.phase);
   const working = ['loading', 'preparing'].includes(c.phase) || (c.phase === 'uploading' && !files);
   const invalidEndpoint = !c.host.trim() || !c.directory.trim() || !/^\d+$/.test(c.port) || Number(c.port) < 1 || Number(c.port) > 65535;
-  const title = identity ? 'Verify robot' : setup || summary ? 'Robot connection' : 'Push to robot';
+  const compareView = ['comparing', 'compared', 'compare-failed', 'saving-copy'].includes(c.phase);
+  const listing = c.phase === 'listing', listed = c.phase === 'listed', listFailed = c.phase === 'list-failed';
+  const title = identity ? 'Verify robot' : setup || summary ? 'Robot connection'
+    : listed || listing || listFailed || (compareView && c.inventory) ? 'Robot files'
+    : compareView ? c.comparison?.robotOnly ? 'Robot path' : 'Compare with robot' : 'Push to robot';
+  const allFiles = c.inventory && button('All files', c.backToRobotFiles, { key: 'all', disabled: c.busy });
   const errorFact = c.error && shortFact(c.error);
   const alert = c.error && h('div', { key: 'alert' },
     h('p', { className: 'rfp-alert', role: 'alert' }, errorFact),
@@ -90,7 +248,7 @@ export function RobotFilePushDialog({ controller: c }) {
 
   // Each view supplies its body and actions. The footer, and with it the diagnostics portal
   // target, is mounted once so view changes never strand the diagnostics trigger.
-  let view = 'fallback', body = null, actions = [], diagnostics = true;
+  let view = 'fallback', body = null, actions = [], downloadNote = null, diagnostics = true;
   if (setup) {
     view = 'setup';
     body = [alert, h('div', { key: 'fields', className: 'rfp-fields' },
@@ -115,6 +273,7 @@ export function RobotFilePushDialog({ controller: c }) {
     const done = (!c.connection && waiting) ? null : button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true });
     actions = [
       button('Edit', c.editConnection, { key: 'edit', disabled: c.busy }),
+      c.robotFilesAvailable && c.connection && button('Robot files', c.openRobotFiles, { key: 'files', disabled: c.busy }),
       (!c.connection || c.reachability === 'offline') && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
       done,
     ];
@@ -127,6 +286,45 @@ export function RobotFilePushDialog({ controller: c }) {
       button('Back', c.chooseAnotherRobot, { key: 'back', disabled: c.busy }),
       button(c.phase === 'trusting' ? 'Trusting…' : 'Trust host key', c.confirmPairing, { key: 'trust', className: 'qbtn primary', ...hold }),
     ];
+  } else if (listed || listing || listFailed) {
+    view = listed ? 'inventory' : 'compare';
+    diagnostics = listFailed;
+    if (listed) {
+      body = h(Inventory, { c, filter, setFilter, pane: inventoryPane, scroll: inventoryScroll });
+      actions = [button('Edit connection', c.editConnection, { key: 'edit' }), button('Refresh', c.openRobotFiles, { key: 'refresh' }),
+        button('Done', c.close, { key: 'done', className: 'qbtn primary' })];
+    } else if (listing) {
+      body = h('p', { role: 'status', className: 'rfp-view-working' }, h('span', { className: 'robot-push-spinner' }), 'Reading files in ' + c.directory + '…');
+      actions = [button('Cancel', c.close, { key: 'cancel', ref: compareCancel })];
+    } else {
+      body = alert;
+      actions = [button('Edit connection', c.editConnection, { key: 'edit' }), button('Close', c.close, { key: 'close' }),
+        button('Try again', c.openRobotFiles, { key: 'retry', className: 'qbtn primary', ref: compareCancel })];
+    }
+  } else if (compareView) {
+    view = 'compare';
+    if (c.phase === 'comparing') {
+      diagnostics = false;
+      body = h('p', { role: 'status', className: 'rfp-view-working' }, h('span', { className: 'robot-push-spinner' }), c.row ? 'Reading ' + c.row + '…' : 'Reading robot file and preparing the local BDX…');
+      actions = [button('Cancel', c.inventory ? c.backToRobotFiles : c.close, { key: 'cancel', ref: compareCancel })];
+    } else if (c.comparison) {
+      diagnostics = false;
+      body = [h(Destination, { key: 'dest', endpoint: c.comparison.endpoint,
+        status: 'Read ' + timeOfDay(c.comparison.readAt) }),
+      h(Comparison, { key: 'comparison', controller: c, verdictRef })];
+      const download = c.comparison.robot && button(c.busy ? 'Downloading…' : 'Download .bdx…', c.saveCopy,
+        { key: 'download', className: c.comparison.robotOnly ? 'qbtn primary' : 'qbtn', ...hold });
+      if (download) downloadNote = c.error ? h('p', { className: 'rfp-alert', role: 'alert' }, c.error)
+        : c.copy ? h('p', { className: 'rfp-note', role: 'status' }, 'Saved ' + c.copy.name + ' to ' + c.copy.folder + ' · ' + c.copy.size.toLocaleString() + ' bytes verified')
+        : h('p', { className: 'rfp-note' }, 'Editable waypoints require the Bordeaux project source.');
+      actions = [allFiles, download, button('Done', c.close,
+        { key: 'done', className: c.comparison.robotOnly && download ? 'qbtn' : 'qbtn primary', disabled: c.busy })];
+    } else {
+      body = alert;
+      actions = [allFiles, c.canRetry && button('Edit connection', c.editConnection, { key: 'edit' }),
+        button('Close', c.close, { key: 'close', autoFocus: true }),
+        c.canRetry && button('Try again', c.retry, { key: 'retry', className: 'qbtn primary' })];
+    }
   } else if (working) {
     view = 'working'; diagnostics = false;
     body = [h('span', { key: 'spin', className: 'robot-push-spinner' }), c.phase === 'loading' ? 'Loading robot connection…' : c.phase === 'uploading' ? 'Uploading…' : 'Preparing files…'];
@@ -164,10 +362,13 @@ export function RobotFilePushDialog({ controller: c }) {
     ];
   }
 
-  return h('dialog', { ref: dialog, className: 'robot-push-dialog robot-manager rfp', 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy, onCancel: (event) => { event.preventDefault(); c.close(); } },
-    h('header', null, h('h2', { id: 'robot-file-title' }, title), h('button', { type: 'button', className: 'robot-push-close', 'aria-label': 'Close robot files', onClick: c.close }, '×')),
+  return h('dialog', { ref: dialog, className: 'robot-push-dialog robot-manager rfp' + (listed ? ' rfp-inventory' : compareView ? ' rfp-compare' : '')
+      + (c.comparison?.routes && !c.comparison.robotOnly && c.comparison.verdict !== 'robotUnreadable' ? ' rfp-field-dialog' : ''), 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy,
+    onCancel: (event) => { event.preventDefault(); if (c.phase === 'comparing' && c.inventory) c.backToRobotFiles(); else c.close(); } },
+    h('header', null, h('h2', { id: 'robot-file-title' }, title), h('button', { type: 'button', className: 'robot-push-close', 'aria-label': 'Close robot files', disabled: c.phase === 'saving-copy', onClick: c.close }, '×')),
     h('div', { key: view, className: 'rfp-body rfp-view-' + view, role: view === 'working' || view === 'done' ? 'status' : undefined }, body),
     h('footer', { className: 'rfp-footer' },
       h('div', { className: 'robot-connection-diagnostics', hidden: !diagnostics }),
+      downloadNote && h('div', { className: 'rfp-download-note' }, downloadNote),
       h('div', { className: 'rfp-actions' }, actions)));
 }

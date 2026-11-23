@@ -438,6 +438,10 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
         }
         controller.requestPush(pathsMode ? { kind: 'paths', pathIds: menuTargets } : { kind: 'routine', routineId: menuItem.id });
       }, { disabled: controller.busy || controller.desktopAvailable === false || (pathsMode && menuTargets.some((id) => (items.find((item) => item.id === id)?.waypoints?.length || 0) < 2)) }),
+      menu.kind === 'path' && controller.robotFilesAvailable && menuButton('Compare with robot', () => {
+        closeMenu(true);
+        controller.requestPush({ kind: 'compare', pathIds: [menuItem.id] });
+      }, { disabled: controller.busy }),
       menu.kind === 'path' && menuButton('Export BDX…', () => { const pathId = menuItem.id; setMenu(null); actions.exportPath(pathId); }, { disabled: controller.desktopAvailable === false }),
       menu.kind !== 'folder' && h('hr'),
       menuButton('Rename', () => rename(menu.kind, menuItem)),

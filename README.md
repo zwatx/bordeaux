@@ -48,6 +48,8 @@ The browser plans paths and builds BDX files; the robot only stores them. **Save
 
 Pushing from the desktop app to a Systemcore with a linked LabVIEW project also sends `bordeaux-commands.json`, the project's inspected command list, listed in the push review. The robot app reads it from the push folder, so it can author command events and builds the same BDX bytes the desktop would. Without it, the robot exports paths that use no commands. LabVIEW project linking and inspection, routine export and push, recovery copies, and project copies still need the desktop app.
 
+In the desktop app, choose **Push ▾ → Robot files…** to see paths in the current project and the robot’s configured folder. **Compare** overlays both compiled routes on the field with direction arrows and highlights changed values such as robot speed limit, timing, and command events. **Inspect** opens a robot-only path, and **Download .bdx…** saves its exact `.bdx` to a folder you choose. A saved BDX contains the robot trajectory and commands. Editable waypoints and constraints require the Bordeaux project source.
+
 ## Project files
 
 Mark a waypoint **Linkable** and give it a **Point name** to make it available for reuse. On another waypoint, use **Shared position → Use named point…**; only opted-in named points appear. Turning Linkable off hides the point from the picker without breaking existing links. Editing either point updates every linked occurrence; robot facing, tangent handles relative to the point, and stop settings remain local. **Unlink** makes that occurrence independent. Duplicating an entire path retains its shared positions; duplicating an individual waypoint creates an independent, offset point. Appended path endpoints also share position only.

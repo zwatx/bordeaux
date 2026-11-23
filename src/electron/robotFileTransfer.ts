@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotPathFiles } from "../core/robotFileDelivery";
 import { ROBOT_TARGETS, allowsCustomPassword, isRobotTargetId } from "../core/robotTargets";
 import { COMMANDS_FILE_NAME } from "../core/export/commandsFile";
 import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
-import { connectRobotSftp, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
+import { connectRobotSftp, isDeployedPathName, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 
 const MAX_BYTES = 24 * 1024 * 1024;
 const TIMEOUT_MS = 60_000;
@@ -67,6 +67,53 @@ export async function probeRobotFiles(
     await requireDirectories(session)(validated.directory, false, signal);
     return { endpoint: validated, hostKeyFingerprint: session.hostKeyFingerprint };
   } finally { await session.close(); }
+}
+
+async function withPinnedReadSession<T>(
+  connection: RobotFileConnection, signal: AbortSignal | undefined, factory: RobotSftpSessionFactory, password: string | null,
+  read: (session: RobotSftpSession, directory: string, operation: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const endpoint = validateRobotFileEndpoint(connection.endpoint);
+  requirePasswordSupport(endpoint, password);
+  if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
+    throw new RobotTransportError("invalid_request", "Review the robot SSH identity before transferring files");
+  }
+  const deadline = AbortSignal.timeout(TIMEOUT_MS);
+  const operation = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  operation.throwIfAborted();
+  const session = await connect(factory, endpoint, { expectedHostKeyFingerprint: connection.hostKeyFingerprint,
+    signal: operation, timeoutMs: TIMEOUT_MS }, password);
+  try {
+    operation.throwIfAborted();
+    if (session.hostKeyFingerprint !== connection.hostKeyFingerprint) {
+      throw new RobotTransportError("re_pair_required", "The robot SSH host key changed; connect again before transferring files");
+    }
+    await requireDirectories(session)(endpoint.directory, false, operation);
+    const result = await read(session, endpoint.directory, operation);
+    operation.throwIfAborted();
+    return result;
+  } finally { await session.close(); }
+}
+
+export async function listRobotPathFiles(
+  connection: RobotFileConnection, signal?: AbortSignal, factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
+): Promise<RobotPathFiles> {
+  return withPinnedReadSession(connection, signal, factory, password, (session, directory, operation) => {
+    if (!session.listPathFiles) throw new RobotTransportError("unavailable", "Robot path listing is unavailable");
+    return session.listPathFiles(directory, operation);
+  });
+}
+
+/** Fetch one deployed file through the same pinned identity used for upload. */
+export async function readRobotPathFile(
+  connection: RobotFileConnection, fileName: string, signal?: AbortSignal,
+  factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
+): Promise<Buffer | null> {
+  if (!isDeployedPathName(fileName)) throw new RobotTransportError("invalid_request", "Choose a safe BDX path basename");
+  return withPinnedReadSession(connection, signal, factory, password, async (session, directory, operation) => {
+    const file: RobotRemoteFile = { kind: "pathFile", directory, fileName };
+    return await session.exists(file, operation) ? session.read(file, MAX_BYTES, operation) : null;
+  });
 }
 
 /** Publishes each reviewed BDX file independently; never activates robot code. */

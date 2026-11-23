@@ -1,3 +1,4 @@
+import type { RobotPathFiles } from "../core/robotFileDelivery";
 import type { RobotTargetUsername } from "../core/robotTargets";
 
 /**
@@ -18,6 +19,7 @@ export interface RobotSftpSession {
   readonly hostKeyFingerprint: string;
   /** created refers to the selected directory, not any missing ancestors. */
   ensureDirectory?(directory: string, create: boolean, signal: AbortSignal): Promise<{ created: boolean }>;
+  listPathFiles?(directory: string, signal: AbortSignal): Promise<RobotPathFiles>;
   read(file: RobotRemoteFile, maxBytes: number, signal: AbortSignal): Promise<Buffer>;
   write(file: RobotRemoteFile, contents: Buffer, signal: AbortSignal): Promise<void>;
   exists(file: RobotRemoteFile, signal: AbortSignal): Promise<boolean>;

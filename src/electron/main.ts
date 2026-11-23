@@ -54,6 +54,11 @@ import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, t
 import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
 import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
+import { binaryFileName } from "../core/export/robotBinary";
+import { portableFileStem } from "../core/portableFileName";
+import { isDeployedPathName } from "./robotSsh2Session";
+import { findLocalRobotPath, matchLocalRobotPath } from "./robotPathInventory";
+import { robotExportTargetSnapshot, saveReviewedRobotCopy } from "./robotPathCopy";
 import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../core/project/writeErrors";
 import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, canonicalProjectDigest } from "./projectSourcePersistence";
 import { projectFolderIdentity, sameProjectFolder } from "./projectFolderIdentity";
@@ -523,19 +528,6 @@ async function replaceRobotProject(projectPath: string, runtime: RobotProjectRun
     return await pending;
   } catch (error) {
     if (generation === robotConnectionGeneration && sameProjectContext(context, projectContext())) clearLinkedRobotProject();
-    throw error;
-  }
-}
-
-async function robotExportTargetSnapshot(target: string): Promise<string> {
-  try {
-    const stat = await fs.promises.lstat(target);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Existing Robot export target must be a regular file");
-    if (stat.size > 64 * 1024 * 1024) throw new Error("Existing Robot export target exceeds the 64 MiB safety limit");
-    const hash = createHash("sha256").update(await fs.promises.readFile(target)).digest("hex");
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${hash}`;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
     throw error;
   }
 }
@@ -1697,6 +1689,66 @@ handle("robotFiles:confirm", (_event, operationId) => {
 handle("robotFiles:cancel", (_event, operationId) => {
   if (typeof operationId !== "string") throw new Error("Transfer identifier is invalid");
   return robotFileDelivery.cancel(operationId);
+});
+function captureRobotPathOperation(id: unknown) {
+  if (typeof id !== "string" || !/^[\da-f-]{36}$/i.test(id)) throw new Error("Invalid robot path request");
+  const context = projectContext(), generation = robotConnectionGeneration;
+  const assertProject = () => {
+    if (!sameProjectContext(context, projectContext()) || generation !== robotConnectionGeneration) {
+      throw new Error("The project changed. Open Robot files again.");
+    }
+  };
+  return { id, assertProject };
+}
+handle("robotFiles:listPaths", (_event, rawId, rawProject) => {
+  const { id, assertProject } = captureRobotPathOperation(rawId);
+  const project = rawProject as BordeauxProject;
+  if (!Array.isArray(project?.paths) || project.paths.some(path => typeof path?.id !== "string" || typeof path.name !== "string")) {
+    throw new Error("Open a Bordeaux project to list its robot paths");
+  }
+  const paths = project.paths.map(path => ({ id: path.id, name: path.name,
+    pushable: path.exportable !== false && (path.waypoints?.length ?? 0) >= 2 }));
+  return robotFileDelivery.listPaths(id, paths, assertProject);
+});
+handle("robotFiles:compare", (_event, rawId, rawProject, pathId, robotFileName) => {
+  const { id, assertProject } = captureRobotPathOperation(rawId);
+  const project = rawProject as BordeauxProject;
+  if (pathId !== undefined && typeof pathId !== "string") throw new Error("Choose a local path to compare");
+  if (!Array.isArray(project?.paths)) throw new Error("Open a Bordeaux project to compare paths");
+  const local = findLocalRobotPath(project.paths, pathId);
+  const fileName = robotFileName ?? (local && binaryFileName(local.name));
+  if (!isDeployedPathName(fileName)) throw new Error("Choose a robot path to read");
+  return robotFileDelivery.reviewPath(id, fileName, deployedId => matchLocalRobotPath(project.paths, fileName, local, deployedId), async (matchedId, signal) => {
+    const link = captureLinkedProject(project);
+    const options = link.bindingOptions(projectCommandIds(project, { pathIds: [matchedId] }));
+    const bindings = await prepareBdxBindings(options);
+    signal.throwIfAborted();
+    assertProject();
+    const built = await buildBdxOffThread({ project, selection: { kind: "path", id: matchedId }, bindings }, signal);
+    return Buffer.from(built.bytes);
+  }, assertProject);
+});
+handle("robotFiles:cancelCompare", (_event, id) => {
+  if (typeof id === "string") robotFileDelivery.cancelCompare(id);
+});
+handle("robotFiles:saveCopy", (_event, id) => {
+  if (typeof id !== "string") throw new Error("Compare the robot path again before saving a copy");
+  return robotFileDelivery.saveCopy(id, async (copy, assertCurrent) => {
+    const stem = portableFileStem(copy.fileName.slice(0, -4).replace(/[<>:"|?*]/g, "-"), copy.robotOnly ? 251 : 245);
+    const defaultName = copy.robotOnly ? stem + copy.fileName.slice(-4) : stem + ".robot.bdx";
+    const selected = await dialog.showSaveDialog(mainWindow!, {
+      title: "Download robot BDX",
+      defaultPath: path.join(app.getPath("downloads"), defaultName),
+      filters: [{ name: "Bordeaux binary path", extensions: ["bdx"] }],
+    });
+    if (selected.canceled || !selected.filePath) return { canceled: true };
+    return saveReviewedRobotCopy(selected.filePath, copy, currentProjectFolder, assertCurrent, async (name) => {
+      const review = await dialog.showMessageBox(mainWindow!, { type: "question", title: "Replace BDX file?",
+        message: name, detail: "Replace this local file with the reviewed robot copy?",
+        buttons: ["Cancel", "Replace"], defaultId: 0, cancelId: 0 });
+      return review.response === 1;
+    });
+  });
 });
 handle("appUpdates:state", appUpdateState);
 handle("appUpdates:check", () => appUpdates?.check(true));

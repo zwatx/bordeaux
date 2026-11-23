@@ -114,6 +114,12 @@ app.whenReady().then(async () => {
     await shot('04-restored');
     check('reloading the page restores the last project from the robot', { chip });
 
+    await click('.push-menu-trigger');
+    const pushOptions = await evaluate(() => [...document.querySelectorAll('#push-menu [role="menuitem"]')].map((item) => item.textContent.trim()));
+    if (!pushOptions.length || pushOptions.includes('Robot files…')) throw new Error('Unexpected robot-hosted Push options: ' + pushOptions.join(', '));
+    await click('.push-menu-trigger');
+    check('the robot-hosted editor keeps desktop comparison out of its Push menu');
+
     await click('.push-button');
     await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'push review');
     const review = await evaluate(() => ({ destination: document.querySelector('.robot-push-dialog .rfp-body')?.textContent, files: [...document.querySelectorAll('.rfp-files li')].map((li) => li.textContent) }));

@@ -42,7 +42,10 @@ import path from "node:path";
 // about 853 KB; 836 KiB keeps bounded headroom.
 // Library folder drag and drop, sidebar range selection, batch deletion and the inline Move to menu measure
 // 861,088 B against 853,185 B at HEAD (2026-11-18); 844 KiB keeps ~3 KiB headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 844 * 1024;
+// Robot files inventory, comparison, and local copy add one 9 KiB allowance. Decoding and diff stay in main.
+// Field-first comparison measures about 878.5 KB across all application chunks.
+// Aligned, expandable event differences add about 1.8 KiB of application JavaScript.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -59,7 +62,9 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // The routine Add filter, preview radios and the current route block add 1,082 B.
 // Group/loop editors, the redesigned Commands lane and routine scrubber bring CSS to 163,823 B (2026-11-14).
 // The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
-const CSS_BUDGET_BYTES = 170 * 1024;
+// The field comparison and changed-values layout measure about 176.5 KB.
+// Event groups reuse the comparison table and add less than 1 KiB of styles.
+const CSS_BUDGET_BYTES = 174 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
