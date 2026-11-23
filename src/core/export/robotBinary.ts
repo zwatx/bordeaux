@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import type { BordeauxProject, RobotCommandCatalog, RobotCommandDescriptor, TrajectorySample } from "../types";
 import { buildRobotTrajectory, type RobotTrajectoryDocument } from "./robotTrajectory";
 import { buildCanonicalPathState } from "../planners/pathState";
 import { BinaryWriter, encodeBinaryEnvelope, utf8, type BinaryKind } from "./binaryCodec";
+import { sha256Hex } from "../bytes";
 import { densifyRobotSamples } from "./robotSamples";
 import { portableFileStem } from "../portableFileName";
 import { robotSchemaValueError } from "../robotCommands";
@@ -52,7 +52,7 @@ function resolveCommand(catalog: RobotCommandCatalog, commandId: string, eventNa
   return { command, name };
 }
 
-export function encodeBdxArgument(type: BdxParameterType, value: unknown): { tag: number; bytes: Buffer } {
+export function encodeBdxArgument(type: BdxParameterType, value: unknown): { tag: number; bytes: Uint8Array } {
   const writer = new BinaryWriter(65536);
   const integerTypes: Record<string, [number, 1 | 2 | 4 | 8, boolean]> = {
     I8: [2, 1, true], U8: [3, 1, false], I16: [4, 2, true], U16: [5, 2, false], I32: [6, 4, true], U32: [7, 4, false], I64: [8, 8, true], U64: [9, 8, false],
@@ -202,6 +202,6 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     payload.section(output);
   }
   const bytes = encodeBinaryEnvelope(payload.finish(), extended ? 2 : 1);
-  return { bytes, document, travelHeadings, moduleForcesN, sha256: createHash("sha256").update(bytes).digest("hex"), name: selected.name,
+  return { bytes, document, travelHeadings, moduleForcesN, sha256: sha256Hex(bytes), name: selected.name,
     fileName: binaryFileName(selected.name), pathCount: 1, eventCount: path.events.length, sampleCount: path.samples.length };
 }

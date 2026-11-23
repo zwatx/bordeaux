@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../bytes";
 import { FIELD_H, FIELD_W } from "../math/fieldBounds";
 import {
   ACTIVE_FIELD_REFERENCE,
@@ -70,7 +70,7 @@ function canonicalJson(value: unknown): string {
 }
 
 function digest(value: unknown): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
+  return `sha256:${sha256Hex(canonicalJson(value))}`;
 }
 
 function finitePoint(point: FieldPoint | undefined): point is FieldPoint {

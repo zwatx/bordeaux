@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { hex, sha256Hex, utf8ByteLength, utf8Bytes } from '../bytes';
 import type { BordeauxProject, CommandInvocation, RoutineNode, RoutineOutputStop } from '../types';
 import { commandInvocationValueErrors, robotParameterValueError } from '../robotCommands';
 import { preflightRoutine } from '../routineExecution';
@@ -38,7 +38,7 @@ export interface RoutineRuntimeBindings {
 }
 export interface BuiltRoutineRuntime { bytes: Uint8Array; sha256: string; name: string; fileName: string; pathCount: number; nodeCount: number; commandCount: number; document: RoutineRuntimeDocument }
 const boundedText = (value: string, label: string) => {
-  if (typeof value !== 'string' || !value.trim() || value.includes('\0') || Buffer.byteLength(value) > 1024) throw new Error(`${label} must be nonempty text of at most 1024 UTF-8 bytes`);
+  if (typeof value !== 'string' || !value.trim() || value.includes('\0') || utf8ByteLength(value) > 1024) throw new Error(`${label} must be nonempty text of at most 1024 UTF-8 bytes`);
 };
 const operations = ['otherwise', 'eq', 'neq', 'lt', 'lte', 'gt', 'gte'];
 
@@ -83,7 +83,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
   preflightRoutine(routine, descriptors, new Set(project.paths.filter(item => item.exportable !== false).map(item => item.id)));
   if (selectedPaths.size > 64) throw new Error('Routine exceeds 64 embedded paths');
   const document: RoutineRuntimeDocument = { schema: extended ? ROUTINE_RUNTIME_SCHEMA_V2 : ROUTINE_RUNTIME_SCHEMA, name: routine.name,
-    catalogHash: createHash('sha256').update(bindings.definitionJson).digest('hex'), root: routine.nodes.length ? 0 : -1,
+    catalogHash: sha256Hex(bindings.definitionJson), root: routine.nodes.length ? 0 : -1,
     nodes: [], paths: [], commands: [], comparisons: [] };
   const pathIndices = new Map<string, number>();
   let sampleCount = 0;
@@ -94,7 +94,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     const built = buildRobotBinary(project, { kind: 'path', id }, bindings.binary);
     if (built.sampleCount > 4096 || (sampleCount += built.sampleCount) > 16384) throw new Error('Runtime routine paths support at most 4096 samples per path and 16384 samples total');
     pathIndices.set(id, document.paths.length);
-    document.paths.push({ name: built.name, sha256: built.sha256, bdxHex: Buffer.from(built.bytes).toString('hex') });
+    document.paths.push({ name: built.name, sha256: built.sha256, bdxHex: hex(built.bytes) });
     if (document.paths.reduce((bytes, item) => bytes + item.bdxHex.length, 0) > MAX_ROUTINE_BYTES) throw new Error('Routine exceeds the 16 MiB runtime file limit');
   }
   const indices = new Map<string, number>(), depths: number[] = [];
@@ -113,9 +113,9 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     if (!binding) throw new Error(`Missing inspected output ${output}`);
     const operatorIndex = operations.indexOf(operator);
     if (operatorIndex < 0) throw new Error('Unsupported comparison operator');
-    const encoded = operatorIndex ? encodeBdxArgument(binding, value) : { tag: 0, bytes: Buffer.alloc(0) };
+    const encoded = operatorIndex ? encodeBdxArgument(binding, value) : { tag: 0, bytes: new Uint8Array(0) };
     const index = document.comparisons.length;
-    document.comparisons.push({ producer, output: outputIndex, operator: operatorIndex, tag: encoded.tag, valueHex: encoded.bytes.toString('hex') });
+    document.comparisons.push({ producer, output: outputIndex, operator: operatorIndex, tag: encoded.tag, valueHex: hex(encoded.bytes) });
     return index;
   };
   const list = (nodes: RoutineNode[], parent: number): number => {
@@ -136,7 +136,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
           const value = node.invocation!.arguments[input.name], error = robotParameterValueError(value, parameter);
           if (error) throw new Error(error);
           const encoded = encodeBdxArgument(input, value);
-          return { ...input, tag: encoded.tag, valueHex: encoded.bytes.toString('hex') };
+          return { ...input, tag: encoded.tag, valueHex: hex(encoded.bytes) };
         }) };
         target.command = document.commands.length; document.commands.push(command);
         const until = node.invocation!.loop?.until;
@@ -168,8 +168,8 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     return first;
   };
   list(routine.nodes, -1);
-  const bytes = Buffer.from(JSON.stringify(document), 'utf8');
+  const bytes = utf8Bytes(JSON.stringify(document));
   if (bytes.length > MAX_ROUTINE_BYTES) throw new Error('Routine exceeds the 16 MiB runtime file limit');
-  return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), document, name: routine.name,
+  return { bytes, sha256: sha256Hex(bytes), document, name: routine.name,
     fileName: binaryFileName(routine.name).replace(/\.bdx$/, '.bdr'), pathCount: document.paths.length, nodeCount: document.nodes.length, commandCount: document.commands.length };
 }

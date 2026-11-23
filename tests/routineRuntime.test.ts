@@ -147,6 +147,6 @@ describe('self-contained runtime routine compiler', () => {
     const f = routineRuntimeFixture(), before = routineEvidenceSnapshot(f.binary);
     f.command.outputs![0].terminalNumber = 13;
     expect(routineEvidenceSnapshot(f.binary)).not.toBe(before);
-    expect(encodeBdxArgument({ niType: 'DBL' }, 1).bytes.toString('hex')).toBe('3ff0000000000000');
+    expect(Buffer.from(encodeBdxArgument({ niType: 'DBL' }, 1).bytes).toString('hex')).toBe('3ff0000000000000');
   });
 });

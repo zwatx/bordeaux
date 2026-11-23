@@ -1,3 +1,4 @@
+import { utf8ByteLength } from "../bytes";
 import { buildBdxExport, buildBdxExportWithPlannerResults } from "./bdx";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
 import { robotInvocationErrors, validateProjectRobotInvocations } from "../robotCommands";
@@ -125,8 +126,8 @@ function serializedByteLengthAtMost(value: unknown, limit: number): number {
       return arrayItem ? add(4) : true;
     }
     if (item === null || typeof item === "boolean") return add(item === null ? 4 : item ? 4 : 5);
-    if (typeof item === "number") return add(Buffer.byteLength(Number.isFinite(item) ? String(item) : "null", "utf8"));
-    if (typeof item === "string") return add(Buffer.byteLength(JSON.stringify(item), "utf8"));
+    if (typeof item === "number") return add(utf8ByteLength(Number.isFinite(item) ? String(item) : "null"));
+    if (typeof item === "string") return add(utf8ByteLength(JSON.stringify(item)));
     if (typeof item === "bigint") throw new TypeError("Cannot serialize BigInt in a Robot trajectory");
     if (Array.isArray(item)) {
       if (!add(1)) return false;
@@ -142,7 +143,7 @@ function serializedByteLengthAtMost(value: unknown, limit: number): number {
       if (child === undefined || typeof child === "function" || typeof child === "symbol") continue;
       if (!first && !add(1)) return false;
       first = false;
-      if (!add(Buffer.byteLength(JSON.stringify(key), "utf8") + 1) || !visit(child)) return false;
+      if (!add(utf8ByteLength(JSON.stringify(key)) + 1) || !visit(child)) return false;
     }
     return add(1);
   };

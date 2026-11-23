@@ -246,8 +246,8 @@ describe("direct VI binary path", () => {
   });
   it("encodes every primitive NI representation exactly and rejects overflow/lossy integers", () => {
     const cases: Array<[string, unknown, string]> = [["I8", -128, "80"], ["U8", 255, "ff"], ["I16", -32768, "8000"], ["U16", 65535, "ffff"], ["I32", -2147483648, "80000000"], ["U32", "4294967295", "ffffffff"], ["I64", "-9223372036854775808", "8000000000000000"], ["U64", "18446744073709551615", "ffffffffffffffff"], ["SGL", 1.5, "3fc00000"], ["DBL", -0, "8000000000000000"], ["Boolean", false, "00"], ["String", "a\0b", "610062"]];
-    for (const [niType, value, hex] of cases) expect(encodeBdxArgument({ niType }, value).bytes.toString("hex")).toBe(hex);
-    expect(encodeBdxArgument({ niType: "DBL" }, 1e20).bytes.readDoubleBE()).toBe(1e20);
+    for (const [niType, value, hex] of cases) expect(Buffer.from(encodeBdxArgument({ niType }, value).bytes).toString("hex")).toBe(hex);
+    expect(Buffer.from(encodeBdxArgument({ niType: "DBL" }, 1e20).bytes).readDoubleBE()).toBe(1e20);
     for (const [niType, value] of [["U16", 65536], ["U64", 9007199254740993], ["I64", "9223372036854775808"], ["SGL", 1e100], ["DBL", NaN], ["String", "\ud800"]] as const) expect(() => encodeBdxArgument({ niType }, value)).toThrow();
     for (const [niType, tag, width] of [["EB", 13, 1], ["EW", 14, 2], ["EL", 15, 4]] as const) { const a = encodeBdxArgument({ niType, choices: ["Off", "On"] }, "On"); expect(a.tag).toBe(tag); expect(a.bytes.length).toBe(width); }
   });
@@ -264,7 +264,7 @@ describe("direct VI binary path", () => {
   });
   it("keeps exact integer grammar, character budgets and NI ranges at the binary boundary", () => {
     for (const value of ["+0042", "0".repeat(1000) + "42", "+0018446744073709551615"]) {
-      expect(encodeBdxArgument({ niType: "U64" }, value).bytes.readBigUInt64BE()).toBe(BigInt(value));
+      expect(Buffer.from(encodeBdxArgument({ niType: "U64" }, value).bytes).readBigUInt64BE()).toBe(BigInt(value));
     }
     for (const value of ["", " 42", "42 ", "4.2", "4e2", "0x2a", "++42", "0".repeat(1025), "-1", "+0018446744073709551616"]) {
       expect(() => encodeBdxArgument({ niType: "U64" }, value)).toThrow();
