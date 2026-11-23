@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeLabviewNiInspection } from "../src/electron/labviewNiTypes";
 import { eligibleLabviewLegacySource, inspectLabviewCommands, labviewCommandSourceChanges, refreshLabviewCommands, withCachedLabviewCommands, withSessionLabviewCommands } from "../src/electron/labviewNiInspection";
 import { discoverLabviewProject } from "../src/electron/labviewProject";
-import { bdxBindingsFromCatalog, prepareBdxBindings, prepareCommandListBindings } from "../src/electron/bdxBindings";
+import { bdxBindingsFromCatalog, commandListEvidence, prepareBdxBindings, prepareCommandListBindings } from "../src/electron/bdxBindings";
 import { robotInvocationErrors } from "../src/core/robotCommands";
 import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { decodeCommandsFile, encodeCommandsFile } from "../src/core/export/commandsFile";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 
 // Sanitized shape of NI 2025 _ExportInterface2 output. No private VI binary is included.
@@ -495,6 +496,11 @@ describe("NI legacy connector discovery", () => {
     const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog: { ...activeCatalog } };
     const current = await prepareCommandListBindings(options);
     expect(current.omitted).toEqual([]);
+    // A push re-reads the list before upload; an unchanged project confirms although its scan time is new.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const again = (await prepareCommandListBindings(options)).bindings;
+    expect(again.catalog.scannedAt).not.toBe(current.bindings.catalog.scannedAt);
+    expect(commandListEvidence(again)).toBe(commandListEvidence(current.bindings));
     expect(current.bindings.catalog.commands.map((command) => command.id)).toEqual([activeCatalog.commands[0].id]);
     // An edited VI that LabVIEW can't read again (closed) is left out and named, never sent with its old types.
     await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
@@ -502,6 +508,9 @@ describe("NI legacy connector discovery", () => {
     expect(stale.omitted).toEqual(["Start"]);
     expect(stale.bindings.catalog.commands).toEqual([]);
     expect(stale.bindings.definitionJson).not.toBe(current.bindings.definitionJson);
+    expect(commandListEvidence(stale.bindings)).not.toBe(commandListEvidence(current.bindings));
+    // With every command left out, the list the robot gets is empty but still valid, replacing any stale one.
+    expect(decodeCommandsFile(encodeCommandsFile(stale.bindings)).catalog.commands).toEqual([]);
     // A removed VI is left out too.
     await fs.rm(path.join(fixture.root, source.file));
     expect((await prepareCommandListBindings(options)).omitted).toEqual(["Start"]);

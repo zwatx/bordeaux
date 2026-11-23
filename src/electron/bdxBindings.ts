@@ -97,3 +97,9 @@ export async function prepareCommandListBindings(options: { projectFile: string;
   return { bindings: bdxBindingsFromCatalog({ ...catalog, commands: catalog.commands.filter((command) => !left.has(command.id)) }),
     omitted: stale.map((command) => command.label) };
 }
+
+/** What a reviewed command list promises the robot: its definitions and command descriptions, without discovery details
+ * (scan times, file listings) that differ on every read. A push confirms the list only if this is unchanged. */
+export function commandListEvidence(bindings: BinaryBindings): string {
+  return bindings.definitionJson + "\n" + JSON.stringify(bindings.catalog?.commands ?? []);
+}

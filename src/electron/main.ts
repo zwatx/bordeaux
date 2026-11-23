@@ -10,7 +10,7 @@ import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
 import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
-import { prepareBdxBindings, prepareCommandListBindings, usedCommandEvidence } from "./bdxBindings";
+import { commandListEvidence, prepareBdxBindings, prepareCommandListBindings, usedCommandEvidence } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildRoutineOffThread } from "./routineRuntimeWorkerClient";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
@@ -1622,16 +1622,16 @@ async function withRobotCommands(files: PreparedRobotFile[], pairing: RobotFileC
   const options = link.catalogBindingOptions();
   const none = { files, check: async () => {} };
   if (pairing.endpoint.target !== "systemcore" || !options) return none;
-  const list = async () => {
-    const { bindings, omitted } = await prepareCommandListBindings(options);
-    return bindings.catalog?.catalogId ? { contents: encodeCommandsFile(bindings), omitted } : null;
-  };
-  const reviewed = await list();
-  if (!reviewed) return none;
+  const reviewed = await prepareCommandListBindings(options);
+  // A project with no inspected commands sends nothing and leaves the robot's list alone. One whose commands all changed
+  // sends an empty list, so the robot stops offering the stale ones.
+  if (!reviewed.bindings.catalog?.catalogId && !reviewed.omitted.length) return none;
   const name = reviewed.omitted.length ? `LabVIEW commands, without ${reviewed.omitted.join(", ")} (changed in LabVIEW)` : "LabVIEW commands";
-  return { files: [...files, { pathId: COMMANDS_FILE_NAME, name, fileName: COMMANDS_FILE_NAME, contents: Buffer.from(reviewed.contents) }],
+  return { files: [...files, { pathId: COMMANDS_FILE_NAME, name, fileName: COMMANDS_FILE_NAME, contents: Buffer.from(encodeCommandsFile(reviewed.bindings)) }],
     check: async () => {
-      if ((await list())?.contents !== reviewed.contents) throw new Error("The LabVIEW command list changed after this review. Review the transfer again.");
+      if (commandListEvidence((await prepareCommandListBindings(options)).bindings) !== commandListEvidence(reviewed.bindings)) {
+        throw new Error("The LabVIEW command list changed after this review. Review the transfer again.");
+      }
     } };
 }
 handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
