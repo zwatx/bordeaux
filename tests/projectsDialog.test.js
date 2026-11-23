@@ -567,7 +567,7 @@ describe('Save copy corrections (R4)', () => {
 
 describe('Save copy form', () => {
   const form = (current, request = { mode: 'copy' }, pending = null) => renderToStaticMarkup(React.createElement(ProjectsDialog, { request, current, pending, onClose() {},
-    actions: { listRecent: () => new Promise(() => undefined), creationDefaults: () => new Promise(() => undefined), copyOwner: () => new Promise(() => undefined), ownsCopy: () => true, copy() {}, copyInside() {} } }));
+    actions: { listRecent: () => new Promise(() => undefined), creationDefaults: () => new Promise(() => undefined), copyOwner: () => new Promise(() => undefined), ownsCopy: () => true, copy() {}, copyInside() {}, chooseParent() {} } }));
   const folder = { name: 'Week 3 autos', folderPath: '/team/Week 3 autos', projectPath: '/team/Week 3 autos/.bordeaux-workspace.json' };
 
   it('is New’s form for a copy: the copy’s name, Save copy, no robot checkbox, and what stays behind', () => {
@@ -599,6 +599,17 @@ describe('Save copy form', () => {
     const [head, tail] = shown.split('…');
     expect(shown.length).toBeLessThanOrEqual(28); expect(tail).toBeTruthy();
     expect(long.startsWith(head) && long.endsWith(tail)).toBe(true);
+  });
+
+  // The robot's browser host has one projects folder and no local pickers or list to edit.
+  it('shows a fixed Location and no folder or file pickers when the host has none', () => {
+    const render = (request) => renderToStaticMarkup(React.createElement(ProjectsDialog, { request, current: folder, pending: null, onClose() {},
+      actions: { listRecent: () => new Promise(() => undefined), creationDefaults: () => new Promise(() => undefined), create() {}, openRecent() {} } }));
+    const created = render({ mode: 'new' });
+    expect(created).toMatch(/<span[^>]*class="pj-location"[^>]*data-fixed="true"/);
+    expect(created).not.toContain('Change…');
+    const listed = render({ mode: 'list' });
+    expect(listed).not.toContain('data-action="open-folder"'); expect(listed).not.toContain('data-action="open-file"');
   });
 
   // R3 finding 3: the pending copy's name and Location can't change. (React writes the boolean as HTML's `readonly`.)

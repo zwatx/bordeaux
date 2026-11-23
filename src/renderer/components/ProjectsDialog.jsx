@@ -310,7 +310,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
     const slotFact = (error) => {
       const failure = creationFailure(error);
       (s ? setCopy : setDraft)((d) => ({ ...d, error: failure.fact, errorField: failure.field }));
-      requestAnimationFrame(() => { if (!mine()) return; if (failure.field === 'location') locationButton.current?.focus(); else { nameInput.current?.focus(); nameInput.current?.select(); } });
+      requestAnimationFrame(() => { if (!mine()) return; if (failure.field === 'location' && actions.chooseParent) locationButton.current?.focus(); else { nameInput.current?.focus(); nameInput.current?.select(); } });
     };
     try {
       const result = await run({ ...options, owner: rowId || 'sheet' });
@@ -352,7 +352,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
       return;
     }
     if (row.current) { dismiss(); return; }
-    if (locates(row)) {
+    if (locates(row) && actions.openFolder) {
       // Locate opens the moved or replaced project's folder; the stale row then leaves the local list.
       void attempt(async (options) => {
         const result = await actions.openFolder(options);
@@ -433,7 +433,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
 
   // Removing a recent only changes the list; a recovered copy is discarded only through its two steps.
   const remove = async (row, index) => {
-    if (pending || row.recovery) return;
+    if (pending || row.recovery || !actions.removeRecent) return;
     try { await actions.removeRecent(row.id); } catch (error) { setRowError({ id: row.id, message: shortFact(error) }); return; }
     await list();
     if (rows.length > 2) focusRow(Math.min(index, rows.length - 2)); else search.current?.focus();
@@ -453,7 +453,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
   const rowItems = (row, index) => row.recovery ? [] : [
     row.status === 'available' && (row.id === 'current' ? current.folderPath && actions.revealCurrent : actions.revealRecent) && { key: 'reveal', label: fileManager(), run: () => void revealRow(row) },
     row.current && actions.copyOwner && { key: 'save-copy', label: current.untitled ? 'Save…' : 'Save copy…', run: () => enterCopy() },
-    !row.current && { key: 'remove', label: 'Remove from list', run: () => void remove(row, index) },
+    !row.current && actions.removeRecent && { key: 'remove', label: 'Remove from list', run: () => void remove(row, index) },
   ].filter(Boolean);
   const closeMenu = (refocus) => {
     const open = menuRef.current;
@@ -588,7 +588,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
     else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); focusRow(event.key === 'Home' ? 0 : rows.length - 1); }
     else if (event.key === 'Delete' || event.key === 'Backspace') {
       // A recent leaves the list; a recovered copy only begins its two-step discard; anything else does nothing.
-      if (!item?.current && !item?.recovery) { event.preventDefault(); void remove(item, index); }
+      if (!item?.current && !item?.recovery) { if (actions.removeRecent) { event.preventDefault(); void remove(item, index); } }
       else if (item?.recovery) { event.preventDefault(); if (item.discardable) void startDiscard(item); }
     }
     else if (event.key.length === 1 && !mod && !event.altKey && event.key !== ' ' && !manage) search.current?.focus();
@@ -720,8 +720,8 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
       // The list's commit is its row, so nothing here is primary.
       manage ? h('span') : h('button', { type: 'button', className: 'qbtn', 'data-action': 'new', onClick: () => { if (pending) return; enteredNew.current = false; switchMode('new'); } }, 'New project', h('kbd', null, shortcutLabel('N'))),
       h('span', { className: 'pj-foot-actions' }, manage ? h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'manage-back', onClick: leaveManage }, 'Back') : h(React.Fragment, null,
-        h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-folder', onClick: () => void attempt(actions.openFolder, null) }, 'Open folder…'),
-        h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-file', onClick: () => void attempt(actions.openFile, null) }, 'Open file…')))));
+        actions.openFolder && h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-folder', onClick: () => void attempt(actions.openFolder, null) }, 'Open folder…'),
+        actions.openFile && h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-file', onClick: () => void attempt(actions.openFile, null) }, 'Open file…')))));
 
   const nameErrorShown = form.error && form.errorField !== 'location', locationErrorShown = form.error && form.errorField === 'location';
   // The attempt this form shows progress for: New's, the copy's own, or the blocked switch a copy continues.
@@ -735,11 +735,13 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
     nameErrorShown && h('span', { id: 'pj-new-error', className: 'pj-new-error', role: 'alert' }, form.error),
     h('div', { className: 'pj-new-row' },
       h('span', { id: 'pj-location-label', className: 'pj-label' }, 'Location'),
-      h('button', { ref: locationButton, type: 'button', className: 'pj-location', disabled: frozen, title: form.parent || undefined, 'aria-labelledby': 'pj-location-label pj-location-value pj-location-change',
-        'aria-describedby': locationErrorShown ? 'pj-location-error' : undefined, 'aria-invalid': locationErrorShown ? true : undefined, onClick: chooseParent },
+      // A host without a folder picker (the robot) keeps every project in one place, shown as plain text.
+      h(actions.chooseParent ? 'button' : 'span', { ref: locationButton, className: 'pj-location', title: form.parent || undefined,
+        ...(actions.chooseParent ? { type: 'button', disabled: frozen, 'aria-labelledby': 'pj-location-label pj-location-value pj-location-change', onClick: chooseParent } : { 'data-fixed': true }),
+        'aria-describedby': locationErrorShown ? 'pj-location-error' : undefined, 'aria-invalid': locationErrorShown ? true : undefined },
         h(Icon, { name: 'folder', size: 13 }),
         h('span', { id: 'pj-location-value' }, form.parent ? '‎' + homeRelative(form.parent) + '‎' : form.parentStatus === 'error' ? 'None chosen' : '…'),
-        h('span', { id: 'pj-location-change', className: 'pj-location-change' }, 'Change…'))),
+        actions.chooseParent && h('span', { id: 'pj-location-change', className: 'pj-location-change' }, 'Change…'))),
     locationErrorShown && h('span', { id: 'pj-location-error', className: 'pj-new-error pj-location-error', role: 'alert' }, form.error),
     // A copy has no robot to choose (the whole project is copied); a folder project says what stays behind. First use
     // has no real robot yet to copy.
