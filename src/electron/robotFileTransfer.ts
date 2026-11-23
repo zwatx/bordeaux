@@ -86,8 +86,10 @@ export async function readRobotFiles(
   if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
     throw new RobotTransportError("invalid_request", "Review the robot SSH identity before reading its files");
   }
-  if (!Array.isArray(fileNames) || fileNames.length < 1 || fileNames.length > 64 || new Set(fileNames.map(validateRobotFileName)).size !== fileNames.length) {
-    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different robot files to read");
+  // The shared name check also admits the command list, which only an upload carries; the SystemCore route refuses it too.
+  if (!Array.isArray(fileNames) || fileNames.length < 1 || fileNames.length > 64 || fileNames.includes(COMMANDS_FILE_NAME)
+    || new Set(fileNames.map(validateRobotFileName)).size !== fileNames.length) {
+    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different .bdx or .bdr robot files to read");
   }
   const deadline = AbortSignal.timeout(TIMEOUT_MS);
   const operation = signal ? AbortSignal.any([signal, deadline]) : deadline;

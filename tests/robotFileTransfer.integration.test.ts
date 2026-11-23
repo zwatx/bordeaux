@@ -291,7 +291,7 @@ describe("reading pushed files back over a real SSH/SFTP connection", () => {
   }, 15_000);
 
   it.each<[string, unknown]>([
-    ["a name outside the folder", ["../existing.bdx"]], ["a folder in the name", ["Paths/existing.bdx"]], ["another kind of file", ["startup.rtexe"]],
+    ["a name outside the folder", ["../existing.bdx"]], ["a folder in the name", ["Paths/existing.bdx"]], ["another kind of file", ["startup.rtexe"]], ["the command list", ["bordeaux-commands.json"]],
     ["no names", []], ["a name twice", ["existing.bdx", "existing.bdx"]], ["more than 64 names", Array.from({ length: 65 }, (_, index) => `path-${index}.bdx`)],
     ["one name instead of a list", "existing.bdx"], ["a name that is not text", [7]],
   ])("refuses %s before connecting", async (_case, names) => {
