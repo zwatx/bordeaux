@@ -135,9 +135,10 @@ def write_temporary(path, data, mode=0o644):
 
 
 def remove_quietly(path):
+    """Cleanup that never hides the error being reported."""
     try:
         os.unlink(path)
-    except FileNotFoundError:
+    except OSError:
         pass
 
 
@@ -208,10 +209,21 @@ def write_project(store, folder, body, create):
         current = read_regular(target)
         found = sha256(current) if current is not None else None
         if found not in (write["expectedSha256"], sha256(data)):
-            raise Conflict(f"{write['file']} changed on the robot since this page loaded it. Reload to see the current version.")
+            # This page can't show the robot's version, so reloading would not help; a copy keeps both.
+            raise Conflict(f"{write['file']} changed on the robot since Bordeaux saved it, and Bordeaux left it as it is. "
+                           "Use Save copy to keep this version in a new project.")
+    # Every file is written beside its target before any target changes, so a full disk fails the save without leaving
+    # some source files newer than the workspace that records them.
+    staged = []
+    try:
+        for _write, target, data in writes:
+            staged.append((write_temporary(target, data), target))
+        for temporary, target in staged:
+            os.replace(temporary, target)
+    finally:
+        for temporary, _target in staged:
+            remove_quietly(temporary)
     preserved = []
-    for _write, target, data in writes:
-        replace_file(target, data)
     for remove in removes:
         file = remove["file"]
         target = os.path.join(folder, file)

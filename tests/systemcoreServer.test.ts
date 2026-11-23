@@ -65,8 +65,14 @@ describe.skipIf(!python)("SystemCore server", () => {
     const second = await json(await post("/api/commit", { name: "Team", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{\"next\":1}",
       writes: [{ file: "Paths/Auto.path", base64: b64("v2"), expectedSha256: sha256("v1") }], removes: [] }));
     expect(second).toMatchObject({ status: 409, body: { error: expect.stringContaining("Paths/Auto.path changed on the robot") } });
+    expect(second.body.error).toContain("Save copy");
     expect(await fs.readFile(file, "utf8")).toBe("edited over ssh");
     expect(await fs.readFile(path.join(home, "robot", "projects", "Team", ".bordeaux-workspace.json"), "utf8")).toBe("{}");
+    // The remedy the message names: Save copy writes this version to a new project and leaves the robot's file alone.
+    const copy = await post("/api/commit", { name: "Team copy", create: true, expectedWorkspaceSha256: null, workspace: "{\"next\":1}",
+      writes: [{ file: "Paths/Auto.path", base64: b64("v2"), expectedSha256: null }], removes: [] });
+    expect(copy.status).toBe(200);
+    expect(await fs.readFile(file, "utf8")).toBe("edited over ssh");
   });
 
   it("publishes only a reviewed batch, and a bad destination replaces nothing", async () => {
