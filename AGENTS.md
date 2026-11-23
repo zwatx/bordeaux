@@ -29,7 +29,7 @@ Follow [the UI review procedure](docs/agents/ui-review.md) for renderer changes 
 
 ## Robot boundary
 
-Saving is local and must not open a robot connection. Push, full replacement, pin, and rollback are separate explicit actions. Preserve immutable revision review, readback, and matching disabled-runtime acknowledgment. Local deletion must not delete robot contents, and selective pushes must not silently become full replacement.
+Saving is local and must not open a robot connection. Push is a separate, explicit action: the user reviews the robot host key and the exact files to send, and Push sends only those reviewed files. Each file is written to a temporary name, read back, renamed into place, and read back again; a failure names the files already replaced. Push never activates robot code. Local deletion must not delete robot contents, and a push must not delete or replace robot files outside the reviewed list.
 
 ## The Lab and domain guidance
 

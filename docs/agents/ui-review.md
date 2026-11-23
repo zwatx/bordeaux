@@ -13,7 +13,7 @@ For renderer changes, review the affected workflow in the built app before calli
 - Reuse the existing menu, dialog, row, and field patterns. Check their actual token definitions and keyboard behavior before introducing another variant. Buttons come in three tiers defined once in `app.css`: secondary (`.qbtn`), `.primary` for the single commit on a surface (rightmost in dialogs, an inverted light surface with dark text), and `.quiet`/`.delbtn` for low-emphasis and destructive actions. The chrome has no hue: brightness and a neutral surface (never a weight change) mark the current object and place, a near-white ring marks keyboard focus, and hover stays neutral. Color is reserved for meaning (alliance, zones, commands, problems, path speed, save and push outcomes).
 - The toolbar reads project · places (Paths, Routines, Settings) · the place's actions · robot (destination or last result, then Push). Push is a neutral bordered button whose label is its exact scope; the library edits which paths it sends.
 - Components imported by `App.jsx` load their stylesheets before `app.css`, while some harnesses load them after. Keep shared rules in `app.css` so both orders render the same.
-- Preserve the robot boundary: local Save, explicit scoped Push, immutable revision review, and verified acceptance remain distinct.
+- Preserve the robot boundary: local Save, explicit Push of the reviewed files, and read-back verification remain distinct.
 
 ## Verification for a UI change
 
