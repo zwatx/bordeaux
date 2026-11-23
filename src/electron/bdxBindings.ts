@@ -74,3 +74,26 @@ export async function prepareBdxBindings(options: { projectFile: string | null; 
   if (changes.changed.length) throw new Error(changedCommands(changes.changed));
   return bdxBindingsFromCatalog(catalog);
 }
+
+/**
+ * Bindings for the command list a SystemCore keeps: every inspected command whose saved VI still matches what Bordeaux
+ * read. A changed VI is read again once through `refresh` (LabVIEW open); any command still changed or missing is left
+ * out and named, so the robot can never build a command event from stale types, and edits to commands a push doesn't
+ * use never block it.
+ */
+export async function prepareCommandListBindings(options: { projectFile: string; inspectionCacheDirectory: string; activeCatalog?: RobotCommandCatalog | null;
+  refresh?: () => Promise<RobotCommandCatalog | null> }): Promise<{ bindings: BinaryBindings; omitted: string[] }> {
+  const discovered = await discoverLabviewProject(options.projectFile);
+  let catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, options.activeCatalog);
+  const inspected = () => catalog.commands.filter((command) => command.labviewConnector).map((command) => command.id);
+  let changes = await labviewCommandSourceChanges(options.projectFile, catalog, inspected());
+  if (changes.changed.length && options.refresh) {
+    const fresh = await options.refresh().catch(() => null);
+    catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, fresh ?? options.activeCatalog);
+    changes = await labviewCommandSourceChanges(options.projectFile, catalog, inspected());
+  }
+  const stale = [...changes.changed, ...changes.missing];
+  const left = new Set(stale.map((command) => command.id));
+  return { bindings: bdxBindingsFromCatalog({ ...catalog, commands: catalog.commands.filter((command) => !left.has(command.id)) }),
+    omitted: stale.map((command) => command.label) };
+}
