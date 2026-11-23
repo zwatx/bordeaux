@@ -18,7 +18,8 @@ const disconnected = { monitoring: false, reachability: 'unknown' };
 const emptyReview = { preview: null, result: null };
 const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading'].includes(phase);
 
-export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey }) {
+/** `onDirectoryChanged` runs after Connect or Save names a push folder, for a host whose command list lives there. */
+export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey, onDirectoryChanged }) {
   const api = window.bordeauxAPI;
   const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, ...disconnected, probe: null, ...emptyReview, error: '', passwordStatus: { custom: false, persistent: false } });
   const [target, setTarget] = useState('roborio');
@@ -159,6 +160,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     try {
       const probe = await api.probeRobotFiles({ target, host: host.trim(), port: Number(port), directory: directory.trim() }, passwordChange());
       if (request !== generation.current) return;
+      onDirectoryChanged?.();
       update({ probe, phase: 'identity' });
       const saved = trusted.current;
       if (saved?.endpoint.host === probe.endpoint.host && saved.endpoint.port === probe.endpoint.port
@@ -172,6 +174,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     try {
       const settings = await api.saveRobotFileSettings({ target, host: host.trim(), port: Number(port), directory: directory.trim() }, passwordChange());
       if (request !== generation.current) return;
+      onDirectoryChanged?.();
       const connection = settings.hostKeyFingerprint ? settings : null;
       trusted.current = connection;
       intent.current = null;

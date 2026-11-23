@@ -673,7 +673,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [persistenceQueue, applyRobotProjectConnection, robotProjectState.suggestion]);
 
+    // The robot's browser host has no project sessions and one command list, kept in its push folder: Refresh commands and
+    // a push folder change read that list again, so the editor's catalog and the BDX bindings stay the same list.
+    const hostCommandList = !lifecycle && typeof window !== 'undefined' && typeof window.bordeauxAPI?.restoreProjectRobotCode === 'function'
+      && typeof window.bordeauxAPI.refreshRobotProject !== 'function';
+    const reloadHostCommands = useCallback(() => restoreRobotCode(null, ++robotRestoreGeneration.current), [restoreRobotCode]);
     const refreshRobotProject = useCallback(async (rescan = false) => {
+      if (hostCommandList) return reloadHostCommands();
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.refreshRobotProject !== 'function') return;
       const generation = robotRestoreGeneration.current;
       // Like Build, a refresh keeps the link and its catalog; only the operation marks the pending work.
@@ -687,7 +693,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         if (robotRestoreGeneration.current !== generation) return;
         setRobotProjectState((current) => ({ ...current, status: current.catalog ? 'stale' : 'error', operation: null, error: operationErrorMessage(error) }));
       }
-    }, [applyRobotProjectConnection]);
+    }, [applyRobotProjectConnection, hostCommandList, reloadHostCommands]);
 
     // Main reads changed LabVIEW commands in the background (for example after a save in LabVIEW). The new
     // definitions replace the linked catalog quietly; the link, reviews and any pending operation are untouched.
@@ -824,7 +830,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onAccessChange: (enabled) => { setMcpEnabled(enabled); markAgentProposalStale(); },
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
-    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId });
+    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+      ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
     const enqueuePersistence = useCallback((operation) => persistenceQueue.enqueue(operation), [persistenceQueue]);

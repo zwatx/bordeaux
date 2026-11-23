@@ -174,6 +174,76 @@ app.whenReady().then(async () => {
       check('a hand-placed BDX in the project is kept while the sources save, and the chip reports it', { file: bdxFile });
     }
 
+
+    // The desktop's LabVIEW command list on the robot: a path that runs a typed command saves and pushes the same BDX.
+    const commandCase = JSON.parse(await fs.readFile(path.join(output, 'command-project.json'), 'utf8'));
+    await commitsSettled();
+    await evaluate(() => window.bordeauxAPI.newProject());
+    await evaluate((project) => window.bordeauxAPI.saveProject(project), commandCase.project);
+    await win.loadURL(url);
+    await editorReady();
+    const commandProject = (await api('/api/info')).lastProject;
+    await save(async () => {
+      await wait(new Function(`return document.querySelector('.project-menu-code')?.textContent.includes(${JSON.stringify(commandCase.catalog)})`), 'robot command list in the project menu');
+      await shot('10-command-list');
+    });
+    const commandWorkspace = await workspaceOf(commandProject);
+    const built = commandWorkspace.generatedFiles?.[`Paths/${commandCase.fileName}`];
+    if (built !== commandCase.sha256) throw new Error(`The robot built ${built} for ${commandCase.fileName}; the desktop builds ${commandCase.sha256}`);
+    check('with the desktop\'s command list, the robot builds the same command BDX as the desktop', { project: commandProject, file: commandCase.fileName, sha256: built });
+    await click('.push-button');
+    await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'command push review');
+    await click('.robot-push-dialog button', 'Upload 1 path');
+    await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'command push verified');
+    await shot('11-command-push');
+    check('the command path pushes into the robot code folder', { done: await evaluate(() => document.querySelector('.rfp-view-done').textContent) });
+    await click('[aria-label="Close robot files"]');
+
+    if (home) {
+      // A command list as the desktop writes it, under another catalog name, so the editor's change is visible.
+      const listFile = path.join(home, 'paths', 'bordeaux-commands.json');
+      const renamedList = async (target, projectName) => {
+        const file = JSON.parse(await fs.readFile(listFile, 'utf8'));
+        file.bindings.catalog.projectName = projectName;
+        file.sha256 = sha256(JSON.stringify(file.bindings));
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, JSON.stringify(file) + '\n');
+      };
+      const codeShows = (name) => wait(new Function(`return document.querySelector('.project-menu-code')?.textContent.includes(${JSON.stringify(name)})`), 'command list ' + name, 20_000);
+
+      await renamedList(listFile, 'Refreshed list');
+      await menuItem('Refresh commands');
+      await click('.project-chip');
+      await codeShows('Refreshed list');
+      await shot('12-refreshed-commands');
+      await click('.project-chip');
+      check('Refresh commands reads the command list on the robot again');
+
+      // Another push folder holds another list; saving the folder switches the editor's catalog with it.
+      // The server names folders by their real path (macOS temp folders sit behind /var -> /private/var).
+      const otherFolder = path.join(await fs.realpath(home), 'other-paths');
+      await renamedList(path.join(otherFolder, 'bordeaux-commands.json'), 'Other folder list');
+      await click('.push-button');
+      await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'push review before changing folder');
+      await click('.robot-push-dialog .rfp-dest button', 'Change');
+      await wait(() => [...document.querySelectorAll('.robot-push-dialog label')].some((label) => label.textContent.startsWith('Folder on robot')), 'push folder field');
+      await evaluate((value) => {
+        const input = [...document.querySelectorAll('.robot-push-dialog label')].find((label) => label.textContent.startsWith('Folder on robot')).querySelector('input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }, otherFolder);
+      await click('.robot-push-dialog button', 'Save');
+      await wait(new Function(`return (document.querySelector('.robot-push-dialog')?.textContent || '').includes(${JSON.stringify(otherFolder)}) && !document.querySelector('.robot-push-dialog label input')`), 'push folder saved');
+      await shot('13-push-folder-changed');
+      await click('[aria-label="Close robot files"]');
+      await click('.project-chip');
+      await codeShows('Other folder list');
+      await shot('14-folder-commands');
+      await click('.project-chip');
+      check('changing the push folder loads that folder\'s command list in the editor', { folder: otherFolder });
+    }
+
+    // Last: the command checks drive the host directly, which a newly opened project's autosave would race.
     // New project: the robot keeps every project in one folder, so the form shows it and offers no picker.
     await menuItem('Projects…');
     await wait(() => Boolean(document.querySelector('.pj-sheet[open] .pj-list')), 'projects list');
@@ -200,30 +270,6 @@ app.whenReady().then(async () => {
     if (!listed.includes(created) || (await api('/api/info')).lastProject !== created) throw new Error('New project is not stored on the robot: ' + JSON.stringify(listed));
     await shot('09-new-project-open');
     check('New project creates and opens a project in the robot projects folder', { created, location: location.value });
-
-    // The desktop's LabVIEW command list on the robot: a path that runs a typed command saves and pushes the same BDX.
-    const commandCase = JSON.parse(await fs.readFile(path.join(output, 'command-project.json'), 'utf8'));
-    await commitsSettled();
-    await evaluate(() => window.bordeauxAPI.newProject());
-    await evaluate((project) => window.bordeauxAPI.saveProject(project), commandCase.project);
-    await win.loadURL(url);
-    await editorReady();
-    const commandProject = (await api('/api/info')).lastProject;
-    await save(async () => {
-      await wait(new Function(`return document.querySelector('.project-menu-code')?.textContent.includes(${JSON.stringify(commandCase.catalog)})`), 'robot command list in the project menu');
-      await shot('07-command-list');
-    });
-    const commandWorkspace = await workspaceOf(commandProject);
-    const built = commandWorkspace.generatedFiles?.[`Paths/${commandCase.fileName}`];
-    if (built !== commandCase.sha256) throw new Error(`The robot built ${built} for ${commandCase.fileName}; the desktop builds ${commandCase.sha256}`);
-    check('with the desktop\'s command list, the robot builds the same command BDX as the desktop', { project: commandProject, file: commandCase.fileName, sha256: built });
-    await click('.push-button');
-    await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'command push review');
-    await click('.robot-push-dialog button', 'Upload 1 path');
-    await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'command push verified');
-    await shot('08-command-push');
-    check('the command path pushes into the robot code folder', { done: await evaluate(() => document.querySelector('.rfp-view-done').textContent) });
-    await click('[aria-label="Close robot files"]');
 
     await commitsSettled();
     const statuses = await evaluate(() => window.__commits.statuses);

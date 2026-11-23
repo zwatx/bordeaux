@@ -18,6 +18,8 @@ function callbacks() {
     projectRef: { current: createDemoProject() }, robotProjectState: { status: 'missing', suggestion: { id: 'proposal', name: 'Robot.lvproj' } },
     window: { bordeauxAPI: { linkRobotProject: vi.fn(), openRecentRobotProject: vi.fn(), useSuggestedRobotCode: vi.fn(), refreshRobotProject: vi.fn(), buildRobotCatalog: vi.fn() } },
     setExportError() {}, operationErrorMessage: error => error.message,
+    // The desktop host: Refresh goes to main, not the robot's own command list.
+    hostCommandList: false, reloadHostCommands: () => { throw new Error('Only the robot host reloads its command list'); },
   };
   sandbox.setRobotProjectState = value => { sandbox.robotProjectState = typeof value === 'function' ? value(sandbox.robotProjectState) : value; };
   sandbox.setProject = value => { sandbox.projectRef.current = typeof value === 'function' ? value(sandbox.projectRef.current) : value; };
