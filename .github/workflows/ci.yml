@@ -72,7 +72,6 @@ jobs:
               scripts/verify-command-branches-ui.mjs
               scripts/verify-project-folder-ui.mjs
               scripts/verify-routine-workspace-ui.mjs
-              scripts/verify-robot-push-ui.mjs
               scripts/verify-robot-file-push-ui.mjs
               scripts/verify-command-search-ui.mjs
               scripts/verify-app-updates-ui.mjs

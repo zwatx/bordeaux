@@ -2,15 +2,10 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RobotPage } from '../src/renderer/components/RobotPage';
-import { LegacyRobotPushDialog as RobotPushDialog } from '../src/renderer/components/LegacyRobotPushDialog';
 import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
 import { createDemoProject } from '../src/core/project/defaults';
 
-const renderConnection = (patch) => renderToStaticMarkup(React.createElement(RobotPushDialog, {
-  controller: { open: true, phase: 'idle', host: 'robot.local', port: '22', ...patch },
-}));
-
-describe('robot settings review regressions', () => {
+describe('robot settings page', () => {
   afterEach(() => UnitPrefs.set('metric'));
 
   it.each(['rev-neo', 'rev-vortex', 'ctre-kraken-x60', 'ctre-falcon-500', 'custom'])('locks only motor-provided specifications for %s', (motorId) => {
@@ -41,41 +36,5 @@ describe('robot settings review regressions', () => {
     expect(markup).toMatch(new RegExp(`<input(?=[^>]*aria-label="Vertex 1 X")(?=[^>]*step="0[.]01")(?=[^>]*value="${display.replace(".", "[.]")}")[^>]*><span class="u">${unit}</span>`));
     expect(markup).toMatch(new RegExp(`<input(?=[^>]*aria-label="Vertex 1 Y")(?=[^>]*step="0[.]01")(?=[^>]*value="-${display.replace(".", "[.]")}")[^>]*><span class="u">${unit}</span>`));
     expect(robot).toEqual(before);
-  });
-
-  it('keeps verified identity visible while pairing without reopening connection fields', () => {
-    const markup = renderConnection({
-      phase: 'pairing', busy: true,
-      probe: { hostKeyFingerprint: 'SHA256:reviewed-key', status: { teamNumber: 2468, runtimeId: 'reviewed-runtime' } },
-    });
-    expect(markup).toContain('Verify robot identity');
-    expect(markup).toContain('SHA256:reviewed-key');
-    expect(markup).toContain('reviewed-runtime');
-    expect(markup).toContain('aria-busy="true"');
-    expect(markup).toMatch(/disabled="">Back<\/button>/);
-    expect(markup).toMatch(/disabled="">Pairing…<\/button>/);
-    expect(markup).not.toContain('Robot host');
-  });
-
-  it('shows an update failure once with recovery actions', () => {
-    const markup = renderConnection({ phase: 'failed', error: 'Upload connection closed' });
-    expect(markup.match(/role="alert"/g)).toHaveLength(1);
-    expect(markup.match(/Upload connection closed/g)).toHaveLength(1);
-    expect(markup).toContain('Review current edits');
-    expect(markup).not.toContain('Robot host');
-  });
-
-  it('preserves a connection failure next to its retry fields', () => {
-    const markup = renderConnection({ error: 'Host unavailable' });
-    expect(markup.match(/role="alert"/g)).toHaveLength(1);
-    expect(markup).toContain('Robot host');
-    expect(markup).toContain('Host unavailable');
-  });
-
-  it('preserves a receipt warning alongside verified acceptance', () => {
-    const markup = renderConnection({ phase: 'active', result: { state: 'active' }, error: 'Local receipt could not be saved' });
-    expect(markup).toContain('Accepted by robot');
-    expect(markup).toContain('Local receipt could not be saved');
-    expect(markup.match(/role="alert"/g)).toHaveLength(1);
   });
 });

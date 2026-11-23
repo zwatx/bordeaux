@@ -35,7 +35,7 @@ function renderController() {
   return value;
 }
 function api(capabilities = { pathPush: false, routinePush: false }) {
-  const value = Object.fromEntries(['getRobotPairing', 'probeRobot', 'confirmRobotPairing', 'prepareRobotPush', 'inspectRobotLibrary', 'inspectPairedRobot', 'prepareRobotRetention'].map((name) => [name, vi.fn(async () => null)]));
+  const value = Object.fromEntries(['getRobotFileConnection', 'checkRobotFileConnection', 'probeRobotFiles', 'trustRobotFiles', 'prepareRobotFiles', 'prepareRobotRoutine', 'confirmRobotFiles'].map((name) => [name, vi.fn(async () => null)]));
   value.robotDeliveryCapabilities = capabilities;
   vi.stubGlobal('window', { bordeauxAPI: value });
   return value;
