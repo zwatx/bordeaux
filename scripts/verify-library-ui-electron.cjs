@@ -17,8 +17,12 @@ const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toStr
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
 async function click(selector, text) {
   if (selector === '[aria-label="Save project"]') {
+    // The checks read `saved` next, so wait for this Save to reach main. A save held open on purpose (deferredSave) or
+    // one the App blocks never arrives; after a short wait those continue as before.
+    const before = savesSettled;
     await click('.project-chip');
     await click('.project-menu [role="menuitem"][data-action="save"]');
+    for (const end = Date.now() + 3000; !deferredSave && savesSettled === before && Date.now() < end;) await delay(25);
     return;
   }
   if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.settings-general')))) {
@@ -182,12 +186,14 @@ async function keyboardUndo() {
   await delay(80);
 }
 ipcMain.handle('library:restore', () => ({ project: saved }));
-let saveFailure = '', deferredSave = null, saveAttempts = 0;
+let saveFailure = '', deferredSave = null, saveAttempts = 0, savesSettled = 0;
 ipcMain.handle('library:save', async (_event, project) => {
   saveAttempts++;
-  if (saveFailure) throw new Error(saveFailure);
-  if (deferredSave) await deferredSave.promise;
-  saved = project; return { saved: true };
+  try {
+    if (saveFailure) throw new Error(saveFailure);
+    if (deferredSave) await deferredSave.promise;
+    saved = project; return { saved: true };
+  } finally { savesSettled++; }
 });
 ipcMain.handle('library:diagnostic-preview', (_event, project) => {
   diagnosticPreviews.push(project);
@@ -857,7 +863,16 @@ app.whenReady().then(async () => {
     // The full inspector opens from the docked properties' More; Tab from the last row action reaches Push.
     const openInspector = async () => { if (await evaluate(() => document.querySelector('.pp-more').getAttribute('aria-expanded') !== 'true')) await click('.pp-more'); };
     // Push is the toolbar's robot end: Tab from the last place passes the place actions and the destination to reach it.
-    const tabToPush = async () => { await evaluate(() => document.querySelector('.place:last-child').focus()); for (let i = 0; i < 8 && !(await evaluate(() => document.activeElement?.matches('.push-button'))); i++) await key('Tab'); };
+    // Each Tab waits for focus to move before the next, so a slow frame can't swallow a step.
+    const focusToken = () => evaluate(() => { const el = document.activeElement; return el ? el.outerHTML.slice(0, 200) + [...(el.parentNode?.children || [])].indexOf(el) : ''; });
+    const tabToPush = async () => {
+      await evaluate(() => document.querySelector('.place:last-child').focus());
+      for (let i = 0; i < 8 && !(await evaluate(() => document.activeElement?.matches('.push-button'))); i++) {
+        const from = await focusToken();
+        await key('Tab');
+        for (const end = Date.now() + 1000; (await focusToken()) === from && Date.now() < end;) await delay(25);
+      }
+    };
     for (const [width, height] of [[1100, 720], [1440, 900]]) {
       win.setContentSize(width, height); await delay(150);
       await openInspector();
