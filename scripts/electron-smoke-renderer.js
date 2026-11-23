@@ -28,9 +28,21 @@
   };
   const projectMenuItem = (label) => [...document.querySelectorAll('#project-menu button')]
     .find((button) => (button.querySelector('span')?.textContent || button.textContent).trim() === label);
-  const openProjectMenu = async () => {
-    if (!document.getElementById('project-menu')) document.querySelector('.project-chip').click();
-    await waitFor(() => document.getElementById('project-menu'), 'project menu');
+  const openProjectMenu = async (action) => {
+    if (document.getElementById('project-menu')) return;
+    const chip = () => document.querySelector('.project-chip');
+    await waitFor(() => chip() && !document.querySelector('dialog:modal'), 'project chip available for ' + action);
+    // A DOM click does not focus its target. Let any focus return from the preceding action
+    // land first, then focus the chip as a pointer press would before opening its menu.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await waitFor(() => {
+      const trigger = chip();
+      if (!trigger || document.querySelector('dialog:modal')) return false;
+      trigger.focus();
+      return document.activeElement === trigger;
+    }, 'project chip focus for ' + action);
+    chip().click();
+    await waitFor(() => document.getElementById('project-menu'), 'project menu for ' + action);
   };
   // Source activation replaces the document session; checkpoint polling must only read.
   const savedCheckpoint = async () => {
@@ -118,18 +130,18 @@
     throw new Error('Smoke robot code must use the main-authored relative LabVIEW link');
   }
   // API probes above exercise real discovery/build/recents. The shipping chip action adopts the link into App.
-  await openProjectMenu();
+  await openProjectMenu('link robot code');
   const linkButton = projectMenuItem('Link robot code…');
   if (!linkButton || linkButton.disabled) throw new Error('Project menu must offer Link robot code');
   linkButton.click();
   await waitFor(() => !document.getElementById('project-menu'), 'robot-code link menu closes');
-  await openProjectMenu();
+  await openProjectMenu('change robot code');
   await waitFor(() => projectMenuItem('Change robot code…') && !projectMenuItem('Change robot code…').disabled
     && document.querySelector('.project-menu-code')?.textContent.includes('SmokeRobot'), 'linked robot code in project menu');
   const changeButton = projectMenuItem('Change robot code…');
   changeButton.click();
   await waitFor(() => !document.getElementById('project-menu'), 'robot-code change menu closes');
-  await openProjectMenu();
+  await openProjectMenu('show recent robot code');
   await waitFor(() => projectMenuItem('Change robot code…') && !projectMenuItem('Change robot code…').disabled
     && document.querySelector('.project-menu-code')?.textContent.includes('SmokeRobot'), 'changed robot code in project menu');
   const linkedCodeName = document.querySelector('.project-menu-code').textContent;
@@ -295,7 +307,7 @@
   }
   const savedFolderName = saved.location.folderPath.split(/[\\/]/).filter(Boolean).at(-1);
   const beforeReopen = await window.bordeauxAPI.getProjectSession();
-  await openProjectMenu();
+  await openProjectMenu('reopen the project');
   projectMenuItem('Projects…').click();
   await waitFor(() => document.querySelector('dialog.pj-sheet[open][aria-label="Projects"] [data-action="open-folder"]'), 'Projects Open folder action');
   document.querySelector('dialog.pj-sheet[open][aria-label="Projects"] [data-action="open-folder"]').click();
@@ -309,7 +321,7 @@
   }, 'real source reopened through App with restored active path');
   // An actual App Save checkpoints the source it just loaded. The canonical readback must belong to this
   // new session and include the loaded path/routine/editor state; no replacement of the IPC bridge is needed.
-  await openProjectMenu();
+  await openProjectMenu('save the reopened project');
   await waitFor(() => projectMenuItem('Change robot code…') && !projectMenuItem('Change robot code…').disabled
     && document.querySelector('.project-menu-code')?.textContent.includes('SmokeRobot'), 'relative LabVIEW link restored after source reopen');
   projectMenuItem('Save').click();
