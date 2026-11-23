@@ -1,4 +1,5 @@
-// Drives the SystemCore web build as a plain browser page (no preload) through save, restore, autosave and push.
+// Drives the SystemCore web build as a plain browser page (no preload) through save, restore, autosave, push and
+// reading pushed files back.
 // Run through verify-systemcore-web.mjs, which supplies the URL and the artifact folder.
 const { app, BrowserWindow } = require('electron');
 const { createHash } = require('node:crypto');
@@ -116,7 +117,8 @@ app.whenReady().then(async () => {
 
     await click('.push-button');
     await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'push review');
-    const review = await evaluate(() => ({ destination: document.querySelector('.robot-push-dialog .rfp-body')?.textContent, files: [...document.querySelectorAll('.rfp-files li')].map((li) => li.textContent) }));
+    const review = await evaluate(() => ({ destination: document.querySelector('.robot-push-dialog .rfp-body')?.textContent, files: [...document.querySelectorAll('.rfp-files li')].map((li) => li.textContent),
+      fileNames: [...document.querySelectorAll('.rfp-files .rfp-file-meta')].map((meta) => meta.textContent.split(' · ')[0]) }));
     await shot('05-push-review');
     await click('.robot-push-dialog button', 'Upload 1 path');
     await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'push verified');
@@ -124,6 +126,23 @@ app.whenReady().then(async () => {
     await shot('06-push-done');
     check('Push copies the reviewed BDX into the robot code folder and verifies it', { review, done });
     await click('[aria-label="Close robot files"]');
+
+    // The page reads pushed files back by name, to compare them with the paths being edited.
+    const [pushedName] = review.fileNames;
+    if (!/\.bdx$/.test(pushedName || '')) throw new Error('The push review named no BDX file: ' + JSON.stringify(review));
+    const reading = await evaluate((fileName) => window.bordeauxAPI.readRobotFiles([fileName, 'Never-pushed.bdx']).then((result) => ({
+      directory: result.connection.endpoint.directory, readAt: result.readAt,
+      files: result.files.map((file) => ({ fileName: file.fileName, bytes: file.contents && Array.from(file.contents) })) })), pushedName);
+    const [held, absent] = reading.files;
+    if (reading.files.length !== 2 || held.fileName !== pushedName || !held.bytes || absent.fileName !== 'Never-pushed.bdx' || absent.bytes !== null) {
+      throw new Error('Unexpected read of the robot code folder: ' + JSON.stringify(reading.files.map((file) => [file.fileName, file.bytes && file.bytes.length])));
+    }
+    const readBack = Buffer.from(held.bytes);
+    if (readBack.subarray(0, 8).toString('latin1') !== 'BDXLV1\r\n') throw new Error(pushedName + ' did not read back as a BDX');
+    if (home && !readBack.equals(await fs.readFile(path.join(home, 'paths', pushedName)))) throw new Error(pushedName + ' read back other bytes than the robot code folder holds');
+    await fs.writeFile(path.join(output, 'read-back-' + pushedName), readBack);
+    check('the page reads the pushed BDX back as the robot holds it, and reports a path never pushed as absent',
+      { fileName: pushedName, bytes: readBack.length, sha256: sha256(readBack), directory: reading.directory, readAt: reading.readAt });
 
     // A batch whose second destination can't be replaced stops before the first robot file changes.
     if (home) {

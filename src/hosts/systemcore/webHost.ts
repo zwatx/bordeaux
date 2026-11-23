@@ -2,12 +2,13 @@
  * The SystemCore host: the renderer's host calls answered by the robot's server.py over HTTP.
  *
  * It implements the simple project path (restore, save, autosave, open), which the renderer uses when the
- * desktop's checkpoint and recovery calls are absent, plus robot file push as a local copy on the robot.
+ * desktop's checkpoint and recovery calls are absent, plus robot file push as a local copy on the robot and reading
+ * pushed files back.
  * The browser builds every byte with src/core; the server only stores them in fixed folders.
  */
 import type { BordeauxHost, PathExportResult, RobotProjectRestore } from "../contract";
 import type { CreateNamedProjectRequest, OpenedProject, ProjectLocation, RecentProjectEntry } from "../../core/project/desktopProjects";
-import type { RobotFileConnection, RobotFilePreview, RobotFileResult } from "../../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFilePreview, RobotFileReading, RobotFileResult } from "../../core/robotFileDelivery";
 import type { BordeauxProject } from "../../core/types";
 import { prepareProjectFile } from "../../core/project/fileFormat";
 import { createDemoProject, defaultPathConstraints } from "../../core/project/defaults";
@@ -47,6 +48,8 @@ function base64(bytes: Uint8Array): string {
   for (let start = 0; start < bytes.length; start += 0x8000) binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
   return btoa(binary);
 }
+
+const bytesFromBase64 = (text: string) => Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
 
 /** The server keeps projects in visible folders of at most 120 characters, as well as the desktop's rules. */
 // The server also refuses U+0085 at either end, which Python's strip() removes and JavaScript's trim() keeps.
@@ -282,6 +285,14 @@ export function createSystemcoreHost() {
         const result = await request<{ directory: string; directoryCreated: boolean }>("/api/push/confirm", { operationId });
         return { state: "transferred", files: operation.preview.files, directory: result.directory, directoryCreated: result.directoryCreated };
       } finally { pending.delete(operationId); }
+    },
+    // Reads this page's push folder, the one its pushes go to, even after another browser changes the shared setting.
+    readRobotFiles: async (fileNames): Promise<RobotFileReading> => {
+      const target = await connection();
+      const query = new URLSearchParams([["directory", target.endpoint.directory], ...fileNames.map((name) => ["name", name])]);
+      const read = await request<{ files: Array<{ fileName: string; base64: string | null }> }>(`/api/push/files?${query}`);
+      return { connection: target, readAt: new Date().toISOString(),
+        files: read.files.map((file) => ({ fileName: file.fileName, contents: file.base64 === null ? null : bytesFromBase64(file.base64) })) };
     },
     cancelRobotFiles: async (operationId) => {
       const operation = pending.get(operationId);

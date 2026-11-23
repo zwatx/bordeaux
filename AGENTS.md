@@ -34,6 +34,8 @@ Follow [the UI review procedure](docs/agents/ui-review.md) for renderer changes 
 
 Saving is local and must not open a robot connection. Push is a separate, explicit action: the user reviews the robot host key and the exact files to send, and Push sends only those reviewed files. Each file is written to a temporary name, read back, renamed into place, and read back again; a failure names the files already replaced. Push never activates robot code. Local deletion must not delete robot contents, and a push must not delete or replace robot files outside the reviewed list.
 
+Reading pushed files back (`readRobotFiles`) is the one other robot access, and it is read-only. It is an explicit action like Push, so Save and autosave stay offline. It reads `.bdx` and `.bdr` files by name from the push folder of the robot whose host key is already trusted, and leaves the robot, SSH trust and a waiting push review as they are.
+
 ## The Lab and domain guidance
 
 Specs, implementation tickets, bugs, and feature requests use The Lab project `bordeaux` through the `lab` CLI. See `docs/agents/issue-tracker.md`. Prefix Codex CLI operations with `THELAB_AUTHOR=codex`.

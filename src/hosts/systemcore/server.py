@@ -7,6 +7,7 @@ lays out project files (src/core); this server only stores bytes, confined to fi
   BORDEAUX_HOME/paths/             what robot code reads, written only by an explicit Push
 
 Saving never writes where robot code reads. Push copies reviewed bytes, then reads them back and checks SHA-256.
+The page can read pushed files back by name, to compare them with the paths being edited; that changes nothing.
 
 Only pages this server served may call it: every API request must name this robot as its Host (an IP address, this
 machine's name, or BORDEAUX_ALLOWED_HOSTS), and every write must come from that same origin. Another website open in
@@ -391,6 +392,31 @@ def confirm_push(store, reviews, body):
     return {"directory": directory, "directoryCreated": created, "files": replaced}
 
 
+def read_pushed(store, query):
+    """What a push folder holds under each named file, for the page to compare with its paths. Changes nothing.
+
+    A file the folder lacks is reported as None. A link or a folder at a name is refused, as Push refuses to replace it.
+    """
+    requested = query.get("directory")
+    directory = store.push_directory(requested[0] if requested else store.read_settings().get("pushDirectory"))
+    names = query.get("name", [])
+    if not 1 <= len(names) <= MAX_PUSH_FILES or len(set(names)) != len(names):
+        raise ValueError(f"Name between 1 and {MAX_PUSH_FILES} different robot files to read")
+    files, total = [], 0
+    for name in names:
+        if not PUSH_FILE.match(name):
+            raise ValueError("Robot filename must be a safe .bdx or .bdr basename")
+        target = store.contained(os.path.join(directory, name))
+        if os.path.lexists(target) and not os.path.isfile(target):
+            raise ValueError(f"{name} on the robot is not a regular file")
+        data = read_regular(target, MAX_PUSH_BYTES)
+        total += len(data or b"")
+        if total > MAX_PUSH_BYTES:
+            raise ValueError("The robot's files total more than 24 MiB; read fewer at once")
+        files.append({"fileName": name, "base64": None if data is None else base64.b64encode(data).decode("ascii")})
+    return {"directory": directory, "files": files}
+
+
 def host_names():
     """Names this robot answers to, besides IP addresses."""
     name = socket.gethostname().lower()
@@ -512,6 +538,9 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.read_json()
             with LOCK:
                 return commit_project(store, body)
+        if method == "GET" and route == "/api/push/files":
+            # Like the command list, the page names the folder it pushes to. Renames are atomic, so no lock is needed.
+            return read_pushed(store, parse_qs(urlparse(self.path).query))
         if method == "POST" and route == "/api/push/prepare":
             body = self.read_json()
             with LOCK:

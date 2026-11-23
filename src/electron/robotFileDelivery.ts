@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../core/robotFileDelivery";
 import { COMMANDS_FILE_NAME } from "../core/export/commandsFile";
 import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../core/robotTargets";
 import { writeJsonAtomically } from "./projectFiles";
 import { sessionRobotPasswordStore, type RobotPasswordStore } from "./robotPasswordStore";
 import { discoverRobotSshIdentity } from "./robotSsh2Session";
-import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
+import { probeRobotFiles, readRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
 
 /** Validates a password change arriving over IPC; omitted means keep the password in effect. */
 export function robotPasswordChange(raw: unknown): RobotPasswordChange {
@@ -58,6 +58,7 @@ interface RobotFileTransport {
   probe(endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string): Promise<RobotFileConnection>;
   discover?(endpoint: RobotFileEndpoint): Promise<RobotFileConnection>;
   upload(connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null): Promise<{ directoryCreated: boolean }>;
+  read?(connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null): Promise<RobotFileReading["files"]>;
 }
 
 /**
@@ -80,6 +81,8 @@ export class RobotFileDelivery {
       probe: (endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string) => probeRobotFiles(endpoint, undefined, timeoutMs, password ?? null, expectedHostKeyFingerprint),
       upload: (connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null) =>
         uploadRobotFiles(connection, files, signal, undefined, password ?? null),
+      read: (connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null) =>
+        readRobotFiles(connection, fileNames, signal, undefined, password ?? null),
     },
     private readonly passwords: RobotPasswordStore = sessionRobotPasswordStore()) {
     this.saved = initial ? settings(initial) : null;
@@ -113,6 +116,20 @@ export class RobotFileDelivery {
         || observed.endpoint.host !== trusted.endpoint.host || observed.endpoint.port !== trusted.endpoint.port) return null;
       return structuredClone(trusted);
     } catch { return null; }
+  }
+  /**
+   * Reads the named files from the trusted robot's push folder, for comparing with local paths. Read-only: it changes
+   * nothing on the robot, in SSH trust, or in a file review that is waiting to be confirmed. The result names the
+   * connection it read, so a caller can discard one that arrives after the robot settings changed.
+   */
+  async read(rawFileNames: unknown): Promise<RobotFileReading> {
+    const trusted = this.trusted;
+    if (!trusted || this.trusting) throw new Error("Connect a robot before reading its files");
+    if (!this.transport.read) throw new Error("Reading robot files is unavailable");
+    const names: unknown[] | null = Array.isArray(rawFileNames) ? rawFileNames : null;
+    if (!names?.every((name): name is string => typeof name === "string")) throw new Error("Name the robot files to read");
+    const files = await this.transport.read(trusted, names, undefined, this.passwordFor(trusted.endpoint, { kind: "keep" }));
+    return { connection: structuredClone(trusted), readAt: new Date().toISOString(), files };
   }
   async saveSettings(endpoint: RobotFileEndpoint, rawPassword?: unknown): Promise<RobotFileSettings> {
     if (this.active || this.trusting) throw new Error("Finish the current robot operation before editing settings");

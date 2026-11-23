@@ -15,6 +15,16 @@ export interface RobotFilePreview {
   connection: RobotFileConnection;
   files: Array<{ pathId: string; name: string; fileName: string; size: number; sha256: string }>;
 }
+/**
+ * What a robot's push folder held under each requested file name, read without changing anything there.
+ * `contents` is null for a file the robot does not have.
+ */
+export interface RobotFileReading {
+  connection: RobotFileConnection;
+  /** When the read finished, as an ISO 8601 time. Another computer may push after it. */
+  readAt: string;
+  files: Array<{ fileName: string; contents: Uint8Array | null }>;
+}
 export interface RobotFileResult {
   state: "transferred";
   files: RobotFilePreview["files"];
