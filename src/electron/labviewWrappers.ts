@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { RobotCommandDescriptor } from "../shared/types";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { runLabviewNiAdapter } from "./labviewNiInspection";
+import { VALIDATED_WRAPPER_LABVIEW_VERSION, WRAPPER_LABVIEW_VERSION_ERROR } from "./labviewNiTypes";
 import { writeJsonAtomically } from "./projectFiles";
 
 export function commandWrapperPath(projectFile: string, command: RobotCommandDescriptor): { source: string; wrapper: string } {
@@ -25,6 +26,7 @@ export async function ensureLabviewCommandWrapper(projectFile: string, command: 
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const terminals = command.labviewConnector!.terminalNumbers;
   if (!terminals?.length || new Set(terminals).size !== terminals.length || terminals.some(number => !Number.isInteger(number) || number < 0 || number > 255)) throw new Error("Rescan command inputs before creating this wrapper.");
+  if (!VALIDATED_WRAPPER_LABVIEW_VERSION.test(command.labviewConnector!.labviewVersion ?? "")) throw new Error(WRAPPER_LABVIEW_VERSION_ERROR);
   if (process.platform !== "win32" && adapter === runLabviewNiAdapter) throw new Error("Open this robot project in LabVIEW on Windows to create its missing command wrapper.");
   const sourceHash = async () => {
     const stat = await statLabviewLocalPath(source);

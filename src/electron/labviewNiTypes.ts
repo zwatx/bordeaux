@@ -101,6 +101,10 @@ export function statusCluster(xml: XElement): boolean {
  */
 export const VALIDATED_LABVIEW_VERSION = /^(25|26)\./;
 
+/** Wrapper scripting (CreateCommandWrapper.vi) was validated only in LabVIEW 2025; InspectCommands.ps1 keeps the same pattern. */
+export const VALIDATED_WRAPPER_LABVIEW_VERSION = /^25\./;
+export const WRAPPER_LABVIEW_VERSION_ERROR = "Bordeaux creates command wrappers only in LabVIEW 2025. Create the wrapper in LabVIEW 2025, or add it to the project by hand.";
+
 export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sources: LabviewNiSource[]): {
   commands: RobotCommandDescriptor[]; inspection: Inspection; cacheable: boolean; dependencyPaths: string[];
 } {

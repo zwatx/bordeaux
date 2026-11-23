@@ -99,6 +99,8 @@ try {
   # Major versions whose connector reports were compared and found identical; keep in sync with labviewNiTypes.ts.
   if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^(25|26)\.') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 and LabVIEW 2026. Use a declared or previously cached catalog for this NI version.' }
   if ($request.schemaVersion -eq 'bordeaux-ni-wrapper/1') {
+    # CreateCommandWrapper.vi scripting was validated only in LabVIEW 2025; keep in sync with labviewNiTypes.ts.
+    if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^25\.') { throw 'Bordeaux creates command wrappers only in LabVIEW 2025. Create the wrapper in LabVIEW 2025, or add it to the project by hand.' }
     $commandFile = Assert-LocalFile ([string]$request.commandFile)
     $wrapperFile = [IO.Path]::GetFullPath([string]$request.wrapperFile)
     if ([IO.Path]::GetDirectoryName($commandFile) -ne [IO.Path]::GetDirectoryName($wrapperFile) -or [IO.Path]::GetFileName($wrapperFile) -notmatch '^\.bordeaux-wrapper-[a-f0-9-]+\.vi$') { throw 'Wrapper output must be a Bordeaux temporary VI alongside the command.' }
