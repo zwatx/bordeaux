@@ -14,6 +14,12 @@ let editorPlace = 'Paths';
 const robotConnection = { endpoint: { target: 'roborio', host: 'fixture', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'f'.repeat(43) };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Native input is handled on the renderer's own schedule; after a nudge or an Undo key, let two frames pass (or 150 ms
+// when the hidden window draws none) so a slow CI renderer has applied it before the next save reads the project.
+const inputSettled = () => evaluate(() => new Promise((resolve) => {
+  let done = false; const finish = () => { if (!done) { done = true; resolve(); } };
+  requestAnimationFrame(() => requestAnimationFrame(finish)); setTimeout(finish, 150);
+}));
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
 async function click(selector, text) {
   if (selector === '[aria-label="Save project"]') {
@@ -176,14 +182,15 @@ const editorReady = (label) => wait(() => evaluate(() => !document.querySelector
 // Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
   await pointerClick('.pt-wp[data-selection="wp:1"]');
+  for (const end = Date.now() + 2000; (await evaluate(() => document.activeElement?.dataset.selection)) !== 'wp:1' && Date.now() < end;) await delay(25);
   assert.equal(await evaluate(() => document.activeElement?.dataset.selection), 'wp:1', 'The waypoint owns native keyboard input');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
-  await delay(80);
+  await delay(80); await inputSettled();
 }
 async function keyboardUndo() {
   await evaluate(() => document.activeElement?.blur());
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] });
-  await delay(80);
+  await delay(80); await inputSettled();
 }
 ipcMain.handle('library:restore', () => ({ project: saved }));
 let saveFailure = '', deferredSave = null, saveAttempts = 0, savesSettled = 0;
