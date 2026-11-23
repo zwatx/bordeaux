@@ -26,6 +26,7 @@ import re
 import secrets
 import shutil
 import socket
+import socketserver
 import sys
 import threading
 import time
@@ -572,6 +573,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_json({"error": "Unknown request"}, HTTPStatus.NOT_FOUND)
 
 
+class Server(ThreadingHTTPServer):
+    def server_bind(self):
+        """Binds without http.server's reverse DNS lookup of its own address.
+
+        That lookup only names the server for CGI scripts, and it runs before the server listens. On a network whose
+        DNS does not answer it, such as a robot's, it holds up startup for many seconds.
+        """
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=int(os.environ.get("BORDEAUX_PORT", "2468")))
@@ -582,7 +594,7 @@ def main():
     Handler.store = Store(args.home)
     Handler.static_root = os.path.realpath(args.static)
     Handler.allowed_names = frozenset(host_names())
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server = Server((args.host, args.port), Handler)
     sys.stderr.write(f"bordeaux: serving {Handler.static_root} on {args.host}:{args.port}, files in {Handler.store.home}\n")
     server.serve_forever()
 
