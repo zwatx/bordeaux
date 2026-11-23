@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { appToOfficialPoint, officialToAppPoint, REBUILT_2026_CROSSINGS, REBUILT_2026_FIELD, REBUILT_2026_FIELD_LENGTH_M, REBUILT_2026_INITIAL_FUEL_REGION } from "../src/shared/field/rebuilt2026";
-import { resolveFieldTerm, resolveProjectFieldTerm, resolveStrategyTerm } from "../src/shared/field/vocabulary";
-import { validateProject } from "../src/shared/validation";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { appToOfficialPoint, officialToAppPoint, REBUILT_2026_CROSSINGS, REBUILT_2026_FIELD, REBUILT_2026_FIELD_LENGTH_M, REBUILT_2026_INITIAL_FUEL_REGION } from "../src/core/field/rebuilt2026";
+import { resolveFieldTerm, resolveProjectFieldTerm, resolveStrategyTerm } from "../src/core/field/vocabulary";
+import { validateProject } from "../src/core/validation";
+import { createDemoProject } from "../src/core/project/defaults";
 
 describe("2026 field vocabulary", () => {
   it("uses official dimensions directly in the blue-origin frame", () => {

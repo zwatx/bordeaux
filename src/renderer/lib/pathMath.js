@@ -1,10 +1,10 @@
-import { indexIntervalPolicies } from "../../shared/planners/intervalPolicies";
-import { robotHardLimits as sharedRobotHardLimits } from "../../shared/robotLimits";
-import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../shared/math/geometry";
-import { headingAt, buildAnchors } from "../../shared/math/headingAnchors";
-import { waypointFracs, effectiveRanges, featureFraction, remapWaypointRange } from "../../shared/math/pathRanges";
-import { metricColor, metricGradient, METRICS } from "../../shared/math/metricDisplay";
-import { deriveHeadingGeometry } from "../../shared/math/pm";
+import { indexIntervalPolicies } from "../../core/planners/intervalPolicies";
+import { robotHardLimits as sharedRobotHardLimits } from "../../core/robotLimits";
+import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../core/math/geometry";
+import { headingAt, buildAnchors } from "../../core/math/headingAnchors";
+import { waypointFracs, effectiveRanges, featureFraction, remapWaypointRange } from "../../core/math/pathRanges";
+import { metricColor, metricGradient, METRICS } from "../../core/math/metricDisplay";
+import { deriveHeadingGeometry } from "../../core/math/pm";
   function reversePathAnchors(doc, totalDistance) {
     const total = Math.max(0, Number(totalDistance) || 0);
     const fraction = (value) => Math.max(0, Math.min(1, Number(value) || 0));

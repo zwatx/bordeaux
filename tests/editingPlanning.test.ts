@@ -9,13 +9,13 @@ import { PM } from '../src/renderer/lib/pathMath';
 import { editingGeometry, editingPoseAtTime, projectEditingTiming } from '../src/renderer/assets/editing-planning';
 // @ts-expect-error Intentional renderer JS API.
 import { PathPreview } from '../src/renderer/assets/path-preview';
-import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
-import { getPlanner } from '../src/shared/planners';
-import { optimizeFixedGeometryFinal } from '../src/shared/planners/fixedGeometryFinal';
-import { createAcceptedTrajectory } from '../src/shared/planners/acceptedTrajectory';
-import { buildBdxExportWithPlannerResults } from '../src/shared/export/bdx';
-import { headingAt } from '../src/shared/math/headingAnchors';
-import { effectiveRanges } from '../src/shared/math/pathRanges';
+import { buildWaypoints, createDemoProject } from '../src/core/project/defaults';
+import { getPlanner } from '../src/core/planners';
+import { optimizeFixedGeometryFinal } from '../src/core/planners/fixedGeometryFinal';
+import { createAcceptedTrajectory } from '../src/core/planners/acceptedTrajectory';
+import { buildBdxExportWithPlannerResults } from '../src/core/export/bdx';
+import { headingAt } from '../src/core/math/headingAnchors';
+import { effectiveRanges } from '../src/core/math/pathRanges';
 
 function overlayProject() {
   const project = createDemoProject(), path = project.paths[0];

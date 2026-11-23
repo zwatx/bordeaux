@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
-import { blankPath, createDemoProject } from "../src/shared/project/defaults";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { blankPath, createDemoProject } from "../src/core/project/defaults";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "../src/electron/bdxWorkerClient";
 import type { BdxBatchJob, BdxJob } from "../src/electron/bdxProtocol";

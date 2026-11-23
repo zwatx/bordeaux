@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectDepartureCoordinator } from "../src/electron/projectDeparture";
-import type { ProjectCheckpointUpdate, ProjectDepartureRequest, ProjectDepartureResponse, ProjectDurabilityContext, ProjectDurabilityReceipt } from "../src/shared/project/projectDurability";
+import type { ProjectCheckpointUpdate, ProjectDepartureRequest, ProjectDepartureResponse, ProjectDurabilityContext, ProjectDurabilityReceipt } from "../src/core/project/projectDurability";
 
 const digest = "a".repeat(64), capturedAt = "2026-10-12T12:00:00.000Z";
 function fixture() {

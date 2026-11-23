@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 afterEach(() => vi.unstubAllGlobals());
 

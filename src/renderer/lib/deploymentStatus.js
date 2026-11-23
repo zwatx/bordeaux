@@ -1,4 +1,4 @@
-import { routineChildLists } from "../../shared/routineChildren";
+import { routineChildLists } from "../../core/routineChildren";
 
 function pathInput(path) {
   if (!path) return null;

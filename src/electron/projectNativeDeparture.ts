@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ProjectDepartureCoordinator, type ProjectDepartureDependencies } from "./projectDeparture";
-import type { ProjectDeparturePermit, ProjectDepartureReason, ProjectDurabilityContext } from "../shared/project/projectDurability";
+import type { ProjectDeparturePermit, ProjectDepartureReason, ProjectDurabilityContext } from "../core/project/projectDurability";
 
 interface Dependencies extends Omit<ProjectDepartureDependencies, "onContinue" | "onCancelled"> {
   onCancelled(requestId: string): void;

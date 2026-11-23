@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { editorGeometry, withTiming } from "./planning";
 import { removeWaypoint } from "../../../src/renderer/lib/pathEditing";
 import { createProject } from "./project";
-import { buildWaypoints } from "../../../src/shared/project/defaults";
+import { buildWaypoints } from "../../../src/core/project/defaults";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 

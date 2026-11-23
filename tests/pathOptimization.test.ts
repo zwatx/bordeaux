@@ -10,9 +10,9 @@ import { PathOptimization } from "../src/renderer/assets/path-optimization";
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 // @ts-expect-error Production renderer module is JavaScript.
 import { PM } from "../src/renderer/lib/pathMath";
-import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile } from "../src/shared/project/fileFormat";
+import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
+import { createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile } from "../src/core/project/fileFormat";
 
 class FakeWorker {
   readonly jobs: Array<{ id: number }> = [];

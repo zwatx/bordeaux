@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import type { RobotFileConnection, RobotFileEndpoint } from "../shared/robotFileDelivery";
-import { ROBOT_TARGETS, allowsCustomPassword, isRobotTargetId } from "../shared/robotTargets";
+import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
+import { ROBOT_TARGETS, allowsCustomPassword, isRobotTargetId } from "../core/robotTargets";
 import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
 import { connectRobotSftp, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 

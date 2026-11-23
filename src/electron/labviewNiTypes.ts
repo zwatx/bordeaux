@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import type { XElement } from "builder-util-runtime/out/xml";
-import type { RobotCommandDescriptor, RobotCommandOutput, LabviewProjectDiscovery } from "../shared/types";
+import type { RobotCommandDescriptor, RobotCommandOutput, LabviewProjectDiscovery } from "../core/types";
 import type { LabviewNiSource } from "./labviewNiInspection";
 import { compileLabviewCatalog } from "./labviewProject";
 import { parseLabviewXml } from "./labviewProjectDiscovery";

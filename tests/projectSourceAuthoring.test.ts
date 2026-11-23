@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { validateProject } from "../src/shared/validation";
-import { buildBdxExport } from "../src/shared/export/bdx";
+import { createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import { validateProject } from "../src/core/validation";
+import { buildBdxExport } from "../src/core/export/bdx";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { autosaveProjectFolder, openProjectFolder } from "../src/electron/projectFiles";
 

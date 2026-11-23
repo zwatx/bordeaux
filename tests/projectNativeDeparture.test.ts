@@ -11,10 +11,10 @@ import { ProjectNativeDeparture } from "../src/electron/projectNativeDeparture";
 import { ProjectPersistence } from "../src/electron/projectPersistence";
 import { ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { openProjectFolder } from "../src/electron/projectFiles";
 import { UpdateQuitCoordinator } from "../src/electron/appUpdates";
-import type { ProjectDepartureRequest, ProjectDurabilityContext } from "../src/shared/project/projectDurability";
+import type { ProjectDepartureRequest, ProjectDurabilityContext } from "../src/core/project/projectDurability";
 const roots: string[] = [];
 const adapters: ProjectNativeDeparture[] = [];
 afterEach(async () => {

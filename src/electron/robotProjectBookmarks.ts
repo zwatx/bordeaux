@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { RobotProjectBookmarkSummary } from "../shared/types";
+import type { RobotProjectBookmarkSummary } from "../core/types";
 import { writeJsonAtomically } from "./projectFiles";
 import type { RobotProjectRuntime } from "./robotProjectRuntime";
 

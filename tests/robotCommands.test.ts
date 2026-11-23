@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { BordeauxProject, RobotCommandCatalog, RobotCommandDescriptor } from "../src/shared/types";
-import { validateProject } from "../src/shared/validation";
-import { validateProjectRobotInvocations } from "../src/shared/robotCommands";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { BordeauxProject, RobotCommandCatalog, RobotCommandDescriptor } from "../src/core/types";
+import { validateProject } from "../src/core/validation";
+import { validateProjectRobotInvocations } from "../src/core/robotCommands";
 
 describe("Robot command marker invocations", () => {
   it("preserves JSON-compatible custom arguments in native planner output", () => {

@@ -10,9 +10,9 @@ import { PathTimeline } from "../src/renderer/components/PathTimeline";
 // @ts-expect-error The timeline model is a JavaScript module.
 import { buildTimeline } from "../src/renderer/components/pathTimelineModel";
 import { createPlaybackStore } from "../src/renderer/lib/playbackStore";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { robotParameterValueError } from "../src/shared/robotCommands";
-import type { RobotCommandParameter, RobotValueSchema } from "../src/shared/types";
+import { createDemoProject } from "../src/core/project/defaults";
+import { robotParameterValueError } from "../src/core/robotCommands";
+import type { RobotCommandParameter, RobotValueSchema } from "../src/core/types";
 
 describe("timeline marker timing", () => {
   it("places an endpoint marker after the endpoint wait, matching the exported time", () => {

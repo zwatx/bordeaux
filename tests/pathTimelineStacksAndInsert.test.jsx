@@ -5,7 +5,7 @@ import corpus from '../benchmarks/planner-corpus/v2/corpus.bordeaux.json';
 import { PathTimeline, CommandStackMenu, insertionReason } from '../src/renderer/components/PathTimeline';
 import { buildTimeline, fAtT, MIN_WAYPOINT_GAP, waypointInsertionAt } from '../src/renderer/components/pathTimelineModel';
 import { PM } from '../src/renderer/lib/pathMath';
-import { sample } from '../src/shared/math/geometry';
+import { sample } from '../src/core/math/geometry';
 
 const pathOf = (id) => structuredClone(corpus.paths.find((p) => p.id === id));
 const plan = (doc) => PM.derivePath(doc, corpus.robot, 60, 'profiledSpline');

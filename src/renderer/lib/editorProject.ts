@@ -1,6 +1,6 @@
-import { createDemoProject } from "../../shared/project/defaults";
-import { createRoutineId } from "../../shared/project/ids";
-import type { AutonomousRoutine, BordeauxProject } from "../../shared/types";
+import { createDemoProject } from "../../core/project/defaults";
+import { createRoutineId } from "../../core/project/ids";
+import type { AutonomousRoutine, BordeauxProject } from "../../core/types";
 import { UnitPrefs } from "./unitPreferences";
 
 export function freshProject(): BordeauxProject {

@@ -1,4 +1,4 @@
-import { planPath } from "../../../src/shared/planners/planPath";
+import { planPath } from "../../../src/core/planners/planPath";
 
 self.onmessage = ({ data }) => {
   if (data.inputs) {

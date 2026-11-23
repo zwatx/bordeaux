@@ -1,6 +1,6 @@
 import type { BrowserWindow, IpcMainInvokeEvent, Menu, MenuItem } from "electron";
 import type { EventEmitter } from "node:events";
-import type { WindowState, WindowMenuEntry } from "../shared/windowChrome";
+import type { WindowState, WindowMenuEntry } from "../core/windowChrome";
 
 const menuIds = new Set(["application", "file", "robot", "agents", "view", "help"]);
 type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;

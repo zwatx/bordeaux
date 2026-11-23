@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { blankPath, createDemoProject } from "../src/shared/project/defaults";
+import { blankPath, createDemoProject } from "../src/core/project/defaults";
 import { MAX_WORKSPACE_FILE_BYTES, autosaveProjectFolder, openProjectFolder, writeProjectFolderBdx } from "../src/electron/projectFiles";
-import { binaryFileName } from "../src/shared/export/robotBinary";
+import { binaryFileName } from "../src/core/export/robotBinary";
 
 const directories: string[] = [];
 async function folder() {

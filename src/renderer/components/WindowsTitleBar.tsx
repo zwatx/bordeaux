@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { WindowAction, WindowMenu, WindowState } from "../../shared/windowChrome";
+import type { WindowAction, WindowMenu, WindowState } from "../../core/windowChrome";
 import "../styles/windows-title-bar.css";
 import { WindowsApplicationMenu } from './WindowsApplicationMenu';
 

@@ -18,7 +18,7 @@ async function identities() {
     if (stat.isDirectory()) for (const name of (await fs.readdir(file)).sort()) await visit(path.join(file, name));
     else { assert.ok(stat.isFile()); const bytes = await fs.readFile(file); files[file] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }; }
   }
-  for (const file of ['src/renderer', 'src/shared', 'dist-renderer', 'scripts/verify-routine-workspace-ui.mjs',
+  for (const file of ['src/renderer', 'src/core', 'dist-renderer', 'scripts/verify-routine-workspace-ui.mjs',
     'scripts/verify-routine-workspace-ui-electron.cjs', 'scripts/verify-command-branches-ui-preload.cjs',
     'package.json', 'package-lock.json', 'benchmarks/planner-corpus/v2/corpus.bordeaux.json']) await visit(file);
   return files;

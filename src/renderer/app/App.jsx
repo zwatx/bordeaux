@@ -11,15 +11,15 @@ import { PathPreview } from "../assets/path-preview";
 import { liveEditingPreview } from "../assets/editing-planning";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
-import { authoredPath, isOptimizationOutdated, optimizationInputKey } from "../../shared/planners/acceptedTrajectoryIdentity";
-import { routeInputKey } from "../../shared/planners/routeIdentity";
-import { stageAcceptedRouteTrajectory } from "../../shared/planners/acceptedRouteStaging";
+import { authoredPath, isOptimizationOutdated, optimizationInputKey } from "../../core/planners/acceptedTrajectoryIdentity";
+import { routeInputKey } from "../../core/planners/routeIdentity";
+import { stageAcceptedRouteTrajectory } from "../../core/planners/acceptedRouteStaging";
 import { durationResult } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
 import { ContextInspector, commandArguments } from "../components/ContextInspector";
 import { FIELD_DIMS, FieldView } from "../components/FieldView";
-import { FIELD_IMAGE } from "../../shared/field/imageCalibration";
+import { FIELD_IMAGE } from "../../core/field/imageCalibration";
 import { Panels } from "../components/Panels";
 import { ProjectChip, firstFact, shortFact } from "../components/ProjectChip";
 import { DepartureHint, ProjectDeparture, ProjectPending, ProjectsDialog } from "../components/ProjectsDialog";
@@ -56,12 +56,12 @@ import {
   createPathId as pathId,
   createPathLinkId as pathLinkId,
   createRoutineId as routineId,
-} from "../../shared/project/ids";
-import { normalizeProject as normalizeProjectData } from "../../shared/project/normalize";
-import { promoteRoutineProjectSchema } from "../../shared/project/routineSchema";
-import { robotValueSchemasEqual } from "../../shared/robotValueSchema";
-import { markerInvocations } from "../../shared/markerCommands";
-import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../shared/project/defaults";
+} from "../../core/project/ids";
+import { normalizeProject as normalizeProjectData } from "../../core/project/normalize";
+import { promoteRoutineProjectSchema } from "../../core/project/routineSchema";
+import { robotValueSchemasEqual } from "../../core/robotValueSchema";
+import { markerInvocations } from "../../core/markerCommands";
+import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../core/project/defaults";
 import { blankProject, blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setTangentDirection, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";

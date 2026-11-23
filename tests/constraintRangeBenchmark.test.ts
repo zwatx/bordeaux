@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { validateProject } from "../src/shared/validation";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { validateProject } from "../src/core/validation";
 
 const benchmark = process.env.BENCHMARK_CONSTRAINT_RANGES === "1" ? it : it.skip;
 

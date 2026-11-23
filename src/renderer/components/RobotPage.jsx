@@ -4,9 +4,9 @@ import { committedDraftValue } from "../lib/numericDraft";
 import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { UI } from "./ui";
-import { DRIVE_MOTOR_PRESETS } from "../../shared/motorPresets";
-import { resolveElectricalDriveInputs } from "../../shared/robotLimits";
-import { resolveCgHeightM } from "../../shared/loadTransfer";
+import { DRIVE_MOTOR_PRESETS } from "../../core/motorPresets";
+import { resolveElectricalDriveInputs } from "../../core/robotLimits";
+import { resolveCgHeightM } from "../../core/loadTransfer";
 import { PowerSettings } from './PowerSettings';
 import "../styles/settings.css";
 

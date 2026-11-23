@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseXml, type XElement } from "builder-util-runtime/out/xml";
-import type { LabviewProjectDiscovery } from "../shared/types";
+import type { LabviewProjectDiscovery } from "../core/types";
 
 const MAX_XML_BYTES = 2 * 1024 * 1024;
 const MAX_ITEMS = 10000;

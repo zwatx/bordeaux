@@ -24,7 +24,7 @@ vi.mock('react', async (original) => ({
 
 import { PathPanel } from '../src/renderer/components/PathPanel';
 import { PathLinks } from '../src/renderer/lib/pathLinks';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 function findElement(element, predicate) {
   if (!element || typeof element !== 'object') return null;

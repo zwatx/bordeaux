@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { PathLinks } from '../src/renderer/lib/pathLinks';
 import { replaceEditedPath } from '../src/renderer/app/App';
-import { metricColor, metricGradient } from '../src/shared/math/metricDisplay';
+import { metricColor, metricGradient } from '../src/core/math/metricDisplay';
 
 describe('Mac editor linked waypoint identity', () => {
   it('names every occurrence after its named source and propagates edits in either direction', () => {

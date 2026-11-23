@@ -1,4 +1,4 @@
-import { clone } from "../../shared/project/defaults";
+import { clone } from "../../core/project/defaults";
 
 /**
  * Deep-copies a path's authored data for editing and history. The accepted

@@ -1,11 +1,11 @@
 import corpus from "../benchmarks/planner-corpus/v2/corpus.bordeaux.json";
 import { describe, expect, it, vi } from "vitest";
-import { buildBdxExportWithPlannerResults } from "../src/shared/export/bdx";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { getPlanner } from "../src/shared/planners";
-import * as plannerRegistry from "../src/shared/planners";
-import { planPath, type PlanPathResult } from "../src/shared/planners/planPath";
-import type { PlannerInput, PlannerResult, SegmentType } from "../src/shared/types";
+import { buildBdxExportWithPlannerResults } from "../src/core/export/bdx";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { getPlanner } from "../src/core/planners";
+import * as plannerRegistry from "../src/core/planners";
+import { planPath, type PlanPathResult } from "../src/core/planners/planPath";
+import type { PlannerInput, PlannerResult, SegmentType } from "../src/core/types";
 
 type DemoProject = ReturnType<typeof createDemoProject>;
 

@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { absentProjectSource, ownProjectSource, autosaveProjectFolder, openProjectFolder, projectWorkspacePath, readProject } from "../src/electron/projectFiles";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
-import type { ProjectDurabilityContext } from "../src/shared/project/projectDurability";
+import type { ProjectDurabilityContext } from "../src/core/project/projectDurability";
 
 const directories: string[] = [];
 async function folder() { const value = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-source-lease-"))); directories.push(value); return value; }

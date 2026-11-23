@@ -12,7 +12,7 @@ import {
   proposeRobotProfileInputSchema,
   repairPathInputSchema,
   resolveFieldTermsInputSchema,
-} from "../shared/agent/schemas";
+} from "../core/agent/schemas";
 
 export interface BordeauxMcpBridge {
   request(request: AgentRequest, signal?: AbortSignal): Promise<unknown>;

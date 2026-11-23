@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { StepInspector } from '../src/renderer/components/RoutineInspector';
 import { RoutinePanel } from '../src/renderer/components/RoutinePanel';
 import { AUTO } from '../src/renderer/lib/routineModel';
-import { createDemoProject } from '../src/shared/project/defaults';
-import { getPlanner } from '../src/shared/planners';
+import { createDemoProject } from '../src/core/project/defaults';
+import { getPlanner } from '../src/core/planners';
 
 function renderMetadata(project, routine, planning, outcomes = {}) {
   const run = AUTO.buildRun(routine, project.paths, project.robot, outcomes, project.plannerId, undefined, planning);

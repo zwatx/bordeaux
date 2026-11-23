@@ -2,10 +2,10 @@ import { ProjectBdxChangedError } from "./projectBdxExport";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { BordeauxProject } from "../shared/types";
-import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../shared/project/fileFormat";
-import type { DecodedProjectFile } from "../shared/project/fileFormat";
-import { MAX_FILE_NAME_BYTES, portableFileStem, truncateUtf8 } from "../shared/portableFileName";
+import type { BordeauxProject } from "../core/types";
+import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../core/project/fileFormat";
+import type { DecodedProjectFile } from "../core/project/fileFormat";
+import { MAX_FILE_NAME_BYTES, portableFileStem, truncateUtf8 } from "../core/portableFileName";
 import { projectFolderIdentity, projectFileIdentity, sameProjectFolder, type ProjectFolderIdentity } from "./projectFolderIdentity";
 
 const writeQueues = new Map<string, Promise<void>>();

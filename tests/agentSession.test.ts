@@ -5,11 +5,11 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AgentBridgeClient, AgentBridgeServer } from "../src/electron/agentBridge";
 import { AgentSessionService, runAgentPlanningJobDirect } from "../src/electron/agentSession";
-import type { RepairCandidate } from "../src/shared/agent/types";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/shared/types";
-import { validateProject, validateProjectSource } from "../src/shared/validation";
-import { buildBdxExport } from "../src/shared/export/bdx";
+import type { RepairCandidate } from "../src/core/agent/types";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { RobotCommandCatalog, RobotCommandDescriptor } from "../src/core/types";
+import { validateProject, validateProjectSource } from "../src/core/validation";
+import { buildBdxExport } from "../src/core/export/bdx";
 
 function snapshot(revision = 0) {
   const project = createDemoProject();

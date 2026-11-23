@@ -11,9 +11,9 @@ import { ProjectPersistence } from "../src/electron/projectPersistence";
 import { ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { autosaveProjectFolder, projectWorkspacePath } from "../src/electron/projectFiles";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
-import type { ProjectStartupDetachResult, ProjectStartupRequest } from "../src/shared/project/projectPersistence";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
+import type { ProjectStartupDetachResult, ProjectStartupRequest } from "../src/core/project/projectPersistence";
 
 it("executes the actual main startup-detach handler before blank persistence without touching the retained source", async () => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-startup-main-")));

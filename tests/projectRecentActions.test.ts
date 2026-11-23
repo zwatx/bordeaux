@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { revealRecentProject, type RecentRevealDependencies } from "../src/electron/projectRecentActions";
 import { recentProjectId } from "../src/electron/recentProjectFiles";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
 
 let root: string;
 beforeEach(async () => { root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-recent-reveal-"))); });

@@ -7,7 +7,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { createHash } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, projectWorkspacePath, writeBufferAtomically, writeProjectFolderBdx } from "../src/electron/projectFiles";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
 import { ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";

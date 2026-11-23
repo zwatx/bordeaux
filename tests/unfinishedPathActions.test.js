@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
-import { buildWaypoints, blankPath, clampWorldPoint, createDemoProject } from '../src/shared/project/defaults';
+import { buildWaypoints, blankPath, clampWorldPoint, createDemoProject } from '../src/core/project/defaults';
 import { moveWaypointTo, reversePath as reversePathDraft, setWaypointFacing } from '../src/renderer/lib/pathEditing';
 import { PathLinks } from '../src/renderer/lib/pathLinks';
 import { ContextInspector } from '../src/renderer/components/ContextInspector';

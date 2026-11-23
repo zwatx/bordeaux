@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { ACTIVE_FIELD_REFERENCE } from "../shared/field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE } from "../core/field/rebuilt2026";
 
 export const DIAGNOSTIC_FILE_NAME = "bordeaux-beta-diagnostic.json";
 

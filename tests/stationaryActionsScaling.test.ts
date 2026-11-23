@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import { getPlanner } from "../src/shared/planners";
-import { profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { applyStationaryActions } from "../src/shared/planners/stationaryActions";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { getPlanner } from "../src/core/planners";
+import { profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { applyStationaryActions } from "../src/core/planners/stationaryActions";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 function mixedActionProject() {
   const project = createDemoProject();

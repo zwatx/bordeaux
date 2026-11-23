@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { minimumRobotFieldClearance } from "../../shared/agent/fieldClearance";
-import { PM } from "../../shared/math/pm";
-import { activeRanges, effectiveRanges } from "../../shared/planners/rotationPriority";
-import { MAX_TRAJECTORY_SAMPLES } from "../../shared/planners/limits";
-import { decodeProjectFile } from "../../shared/project/fileFormat";
-import type { BordeauxProject, PathDoc, TrajectorySample } from "../../shared/types";
+import { minimumRobotFieldClearance } from "../../core/agent/fieldClearance";
+import { PM } from "../../core/math/pm";
+import { activeRanges, effectiveRanges } from "../../core/planners/rotationPriority";
+import { MAX_TRAJECTORY_SAMPLES } from "../../core/planners/limits";
+import { decodeProjectFile } from "../../core/project/fileFormat";
+import type { BordeauxProject, PathDoc, TrajectorySample } from "../../core/types";
 
 const NUMBER_PLACES = 9;
 const MAX_DENSE_STEP_M = 0.02;

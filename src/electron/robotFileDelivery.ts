@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../shared/robotFileDelivery";
-import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../shared/robotFileDelivery";
-import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../shared/robotTargets";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
+import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../core/robotFileDelivery";
+import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../core/robotTargets";
 import { writeJsonAtomically } from "./projectFiles";
 import { sessionRobotPasswordStore, type RobotPasswordStore } from "./robotPasswordStore";
 import { discoverRobotSshIdentity } from "./robotSsh2Session";

@@ -12,8 +12,8 @@ import { ProjectRecoveryCatalog } from "../src/electron/projectRecoveryCatalog";
 import { ProjectPersistence } from "../src/electron/projectPersistence";
 import { sameProjectContext, ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
-import { createDemoProject } from "../src/shared/project/defaults";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
+import { createDemoProject } from "../src/core/project/defaults";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
 const roots: string[] = [];
 afterEach(async () => { vi.useRealTimers(); vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 async function fixture(options: { write?: ConstructorParameters<typeof ProjectSourcePersistence>[0]["write"] } = {}) {

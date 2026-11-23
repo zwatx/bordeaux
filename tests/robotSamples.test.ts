@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { densifyRobotSamples } from "../src/shared/export/robotSamples";
-import type { TrajectorySample } from "../src/shared/types";
+import { densifyRobotSamples } from "../src/core/export/robotSamples";
+import type { TrajectorySample } from "../src/core/types";
 
 const sample = (i: number, t: number, velocityMps = 0): TrajectorySample => ({
   i, t, velocityMps, s: t, f: t, x: t, y: 0, headingRad: 0,

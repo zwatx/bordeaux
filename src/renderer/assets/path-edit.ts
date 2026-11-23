@@ -1,4 +1,4 @@
-import type { PathDoc } from "../../shared/types";
+import type { PathDoc } from "../../core/types";
 
   /** A tiny external store that confines high-frequency canvas drafts to subscribers. */
   function create<T extends { id: string } = PathDoc>() {

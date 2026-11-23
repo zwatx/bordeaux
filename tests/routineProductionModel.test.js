@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { PM } from '../src/renderer/lib/pathMath';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { referencingRoutines } from '../src/renderer/components/EditorLibrary';
 import { deploymentInputKey } from '../src/renderer/lib/deploymentStatus';
 

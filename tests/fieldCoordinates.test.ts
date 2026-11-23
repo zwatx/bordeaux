@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { FIELD_H, FIELD_W } from "../src/shared/math/fieldBounds";
-import { FIELD_IMAGE, worldToFieldImage, fieldImageToWorld } from "../src/shared/field/imageCalibration";
-import { ACTIVE_FIELD_REFERENCE, officialToAppPoint } from "../src/shared/field/rebuilt2026";
+import { FIELD_H, FIELD_W } from "../src/core/math/fieldBounds";
+import { FIELD_IMAGE, worldToFieldImage, fieldImageToWorld } from "../src/core/field/imageCalibration";
+import { ACTIVE_FIELD_REFERENCE, officialToAppPoint } from "../src/core/field/rebuilt2026";
 // @ts-expect-error The production worker is an intentional JavaScript module.
 import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectValue, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { createAcceptedTrajectory, createAcceptedRouteTrajectory, getAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { getPlanner } from "../src/shared/planners";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { createAcceptedTrajectory, createAcceptedRouteTrajectory, getAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { getPlanner } from "../src/core/planners";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/shared/planners/routeGeometry";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { stationaryTurnDelta } from "../src/shared/math/angles";
+import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { stationaryTurnDelta } from "../src/core/math/angles";
 
 function flipProjectPaths(project: ReturnType<typeof createDemoProject>) {
   const result = processPathPreviewJob({ id: 1, mode: 'flip', project });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PathLinks } from '../src/renderer/lib/pathLinks';
-import { createDemoProject } from '../src/shared/project/defaults';
-import { normalizeProject } from '../src/shared/project/normalize';
-import { validateProject } from '../src/shared/validation';
+import { createDemoProject } from '../src/core/project/defaults';
+import { normalizeProject } from '../src/core/project/normalize';
+import { validateProject } from '../src/core/validation';
 
 function fixture() {
   const project = createDemoProject();

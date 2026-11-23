@@ -91,7 +91,7 @@ const revision = (reference) => execFileSync("git", ["rev-parse", "--short=12", 
 
 async function archive(reference, destination) {
   await fs.mkdir(destination, { recursive: true });
-  const trackedRoots = ["src/renderer", "src/shared"].filter((entry) => {
+  const trackedRoots = ["src/renderer", "src/core"].filter((entry) => {
     try {
       execFileSync("git", ["cat-file", "-e", `${reference}:${entry}`], { cwd: repository, stdio: "ignore" });
       return true;

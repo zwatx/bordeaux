@@ -1,5 +1,5 @@
 import { FinalPlanning } from './final-planning';
-import { routeInputKey } from '../../shared/planners/routeIdentity';
+import { routeInputKey } from '../../core/planners/routeIdentity';
 
 /** Owns explicit search jobs. Results are candidates; only the editor can apply one. */
 function create({ getProject, planner = FinalPlanning.create() }) {

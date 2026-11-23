@@ -1,4 +1,4 @@
-import type { RobotConfig } from "../../src/shared/types";
+import type { RobotConfig } from "../../src/core/types";
 
 /** Synthetic drivetrain evidence, never a claim about the team's robot. */
 export function forceExportRobot(): RobotConfig {

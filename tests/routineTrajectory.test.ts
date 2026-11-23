@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Routine playback remains an intentional JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
-import { getPlanner } from "../src/shared/planners";
-import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
+import { getPlanner } from "../src/core/planners";
+import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 
 describe("routine trajectory playback", () => {
   it("uses the shared planned trajectory for a backward path", () => {

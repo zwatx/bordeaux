@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { checkpointMatch, createCheckpointChannel, creationFailure, departureCopy, lifecycleApi, originLocation, recoveryAfterListing, recoveryOutcome, recoveryToken,
   rememberOfferedRecoveries, readOfferedRecoveries, sourceFact, unofferedRecoveries } from '../src/renderer/lib/projectLifecycle';
 import { blankProject } from '../src/renderer/lib/editorProject';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { ProjectDeparture, ProjectsDialog } from '../src/renderer/components/ProjectsDialog';
 import { ProjectChip } from '../src/renderer/components/ProjectChip';
 

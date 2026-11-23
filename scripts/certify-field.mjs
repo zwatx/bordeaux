@@ -17,7 +17,7 @@ function emit(value) {
 try {
   const { output } = parseArguments(process.argv.slice(2));
   const require = createRequire(import.meta.url);
-  const { certifyField } = require("../dist-electron/shared/field/certification.js");
+  const { certifyField } = require("../dist-electron/core/field/certification.js");
   const report = certifyField();
   const contents = `${JSON.stringify(report, null, 2)}\n`;
 

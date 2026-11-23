@@ -3,11 +3,11 @@ import {
   FIELD_CERTIFICATION_EXPECTED_DIGEST,
   FIELD_SUPPORT_PROMISES,
   certifyField,
-} from "../src/shared/field/certification";
+} from "../src/core/field/certification";
 import {
   REBUILT_2026_FIELD,
   appToOfficialPoint,
-} from "../src/shared/field/rebuilt2026";
+} from "../src/core/field/rebuilt2026";
 
 describe("field certification", () => {
   it("produces reproducible evidence for the active field", () => {

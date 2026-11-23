@@ -9,7 +9,7 @@ import { ProjectSourcePersistence, canonicalProjectDigest } from "../src/electro
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { autosaveProjectFolder, projectWorkspacePath, writeProjectFolderBdx, ownProjectSource, assertProjectSource } from "../src/electron/projectFiles";
 import { loadProjectSelection } from "../src/electron/projectOpening";
-import { createDemoProject, blankPath } from "../src/shared/project/defaults";
+import { createDemoProject, blankPath } from "../src/core/project/defaults";
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 async function bytes(folder: string) {

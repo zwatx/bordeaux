@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { REV_40A_ATO_BREAKER, BUSSMANN_185_120A_BREAKER } from '../../shared/breakerPresets';
+import { REV_40A_ATO_BREAKER, BUSSMANN_185_120A_BREAKER } from '../../core/breakerPresets';
 import { UI } from './ui';
 
 const h = React.createElement;

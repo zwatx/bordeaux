@@ -10,9 +10,9 @@ import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { autosaveProjectFolder, openProjectFolder, projectWorkspacePath, writeProjectFolderBdx } from "../src/electron/projectFiles";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
 import { ProjectBdxExport, projectBdxBudget } from "../src/electron/projectBdxExport";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import type { ProjectBdxExportScope } from "../src/electron/projectBdxExport";
-import type { ProjectLocation } from "../src/shared/project/desktopProjects";
+import type { ProjectLocation } from "../src/core/project/desktopProjects";
 const roots: string[] = [];
 function gate() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
 afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await Promise.all(roots.splice(0).map(root => fs.rm(root, { force: true, recursive: true }))); });

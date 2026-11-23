@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { generateRouteCandidates as generateBlueRouteCandidates } from "../src/shared/agent/routeCandidates";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { generateRouteCandidates as generateBlueRouteCandidates } from "../src/core/agent/routeCandidates";
+import { createDemoProject } from "../src/core/project/defaults";
 
 // Preserve these older scenario sketches' named alliance structures and guardrail lanes.
 // Only fixture field locations are converted; robot-local mechanism geometry stays physical.

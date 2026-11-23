@@ -7,7 +7,7 @@ import { PathPreview } from '../src/renderer/assets/path-preview';
 import { liveEditingPreview, editingGeometry } from '../src/renderer/assets/editing-planning';
 // @ts-expect-error Intentional renderer JS API.
 import { buildTimeline } from '../src/renderer/components/pathTimelineModel';
-import { buildWaypoints, createDemoProject } from '../src/shared/project/defaults';
+import { buildWaypoints, createDemoProject } from '../src/core/project/defaults';
 
 // A drag preview must show the profile the release solve will settle on, not a cheaper model.
 

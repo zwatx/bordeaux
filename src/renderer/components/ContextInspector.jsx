@@ -8,8 +8,8 @@ import { tangentDirectionDeg, tangentHandleUse } from "../lib/pathEditing";
 import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { FIELD_DIMS } from "./FieldView";
 import { UI } from "./ui";
-import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../shared/robotCommands";
-import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../shared/markerCommands";
+import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
+import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerCommands";
 
   const h = React.createElement;
   const { Num, DraftText, Toggle, Seg, TurnDirection, Icon, Dropdown, ChoiceBrowser, constraintRangeSummary } = UI;

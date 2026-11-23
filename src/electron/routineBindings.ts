@@ -1,8 +1,8 @@
 import type { XElement } from 'builder-util-runtime/out/xml';
-import type { BinaryBindings } from '../shared/export/robotBinary';
-import { encodeBdxArgument } from '../shared/export/robotBinary';
-import type { RoutineRuntimeBindings, RuntimeScalar, RuntimeOutput } from '../shared/export/routineRuntime';
-import type { RobotValueSchema } from '../shared/types';
+import type { BinaryBindings } from '../core/export/robotBinary';
+import { encodeBdxArgument } from '../core/export/robotBinary';
+import type { RoutineRuntimeBindings, RuntimeScalar, RuntimeOutput } from '../core/export/routineRuntime';
+import type { RobotValueSchema } from '../core/types';
 import { parseLabviewXml } from './labviewProjectDiscovery';
 import { statusCluster, typedefs } from './labviewNiTypes';
 

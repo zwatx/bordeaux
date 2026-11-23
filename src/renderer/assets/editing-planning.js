@@ -1,6 +1,6 @@
-import { sample as sampleGeometry, pointAtFraction } from '../../shared/math/geometry';
-import { buildAnchors, headingAt } from '../../shared/math/headingAnchors';
-import { directedHeadingSampleFractions, insertHeadingTargetSamples, effectiveRanges, featureFraction } from '../../shared/math/pathRanges';
+import { sample as sampleGeometry, pointAtFraction } from '../../core/math/geometry';
+import { buildAnchors, headingAt } from '../../core/math/headingAnchors';
+import { directedHeadingSampleFractions, insertHeadingTargetSamples, effectiveRanges, featureFraction } from '../../core/math/pathRanges';
 
 // Authored facing only. Tracking limits, heading transitions and stationary
 // actions belong to the worker's timing solve, never this pending projection.

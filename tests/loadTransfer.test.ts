@@ -7,11 +7,11 @@ import {
   DRIVE_CG_HEIGHT_DEFAULT_M,
   GRAVITY_MPS2,
   resolveCgHeightM,
-} from "../src/shared/loadTransfer";
-import { robotHardLimits } from "../src/shared/robotLimits";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { validateProject } from "../src/shared/validation";
-import type { RobotConfig } from "../src/shared/types";
+} from "../src/core/loadTransfer";
+import { robotHardLimits } from "../src/core/robotLimits";
+import { createDemoProject } from "../src/core/project/defaults";
+import { validateProject } from "../src/core/validation";
+import type { RobotConfig } from "../src/core/types";
 
 const MASS_KG = 54;
 const WHEELBASE_M = 0.57;

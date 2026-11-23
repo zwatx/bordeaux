@@ -1,12 +1,12 @@
-import { planPath } from "../../shared/planners/planPath";
-import { isOptimizationOutdated } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { planPath } from "../../core/planners/planPath";
+import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
-import { optimizeRouteFinal } from "../../shared/planners/routeFinal";
-import { getPlanner } from "../../shared/planners";
-import { authoredPath, getAcceptedTrajectory } from "../../shared/planners/acceptedTrajectory";
-import { flipProjectPaths } from "../../shared/project/flipField";
-import { analyzeRoutinePower, analyzeTrajectoryPower } from '../../shared/planners/trajectoryPower';
+import { optimizeRouteFinal } from "../../core/planners/routeFinal";
+import { getPlanner } from "../../core/planners";
+import { authoredPath, getAcceptedTrajectory } from "../../core/planners/acceptedTrajectory";
+import { flipProjectPaths } from "../../core/project/flipField";
+import { analyzeRoutinePower, analyzeTrajectoryPower } from '../../core/planners/trajectoryPower';
 
 const FINAL_POSITION_TOLERANCE_M = 1e-4;
 const FINAL_INTERPOLATION_POSITION_TOLERANCE_M = 1e-3;

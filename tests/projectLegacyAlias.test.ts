@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { loadProjectSelection } from "../src/electron/projectOpening";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
 import { autosaveProjectFolder, projectWorkspacePath, writeProject } from "../src/electron/projectFiles";

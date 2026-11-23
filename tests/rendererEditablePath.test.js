@@ -3,8 +3,8 @@ import { replaceEditedPath } from "../src/renderer/app/App";
 import { editablePath } from "../src/renderer/lib/editablePath";
 import { duplicateWaypoint, moveWaypointTo, removeWaypoint, reorderWaypoint, reversePath, setWaypointFacing } from "../src/renderer/lib/pathEditing";
 import { PM } from "../src/renderer/lib/pathMath";
-import { optimizationInputKey } from "../src/shared/planners/acceptedTrajectoryIdentity";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { optimizationInputKey } from "../src/core/planners/acceptedTrajectoryIdentity";
+import { createDemoProject } from "../src/core/project/defaults";
 
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {

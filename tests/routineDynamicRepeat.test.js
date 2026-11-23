@@ -3,9 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { StepInspector } from '../src/renderer/components/RoutineInspector';
-import { createDemoProject } from '../src/shared/project/defaults';
-import { decodeProjectFile, encodeProjectFile } from '../src/shared/project/fileFormat';
-import { validateProjectSource } from '../src/shared/validation';
+import { createDemoProject } from '../src/core/project/defaults';
+import { decodeProjectFile, encodeProjectFile } from '../src/core/project/fileFormat';
+import { validateProjectSource } from '../src/core/validation';
 
 const schema = { kind: 'boolean', valueType: 'Boolean' };
 const cmd = { id: 'C', type: 'function', cat: 'command', invocation: { commandId: 'check', arguments: {} } };

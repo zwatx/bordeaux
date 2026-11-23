@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { Client, type Callback, type SFTPWrapper, type Stats } from "ssh2";
-import { ROBOT_DIRECTORY_ROOTS } from "../shared/robotTargets";
+import { ROBOT_DIRECTORY_ROOTS } from "../core/robotTargets";
 import {
   ROBOT_DEPLOYMENT_NAMESPACE,
   RobotTransportError,

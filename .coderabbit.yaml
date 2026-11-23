@@ -41,7 +41,7 @@ reviews:
     - "!**/*.woff2"
 
   path_instructions:
-    - path: "src/shared/**"
+    - path: "src/core/**"
       instructions: >-
         Treat planner math, validation, file normalization, and export formats as
         compatibility-sensitive. Check numeric bounds and non-finite values, and

@@ -3,12 +3,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CorridorCorpus } from "../src/electron/benchmark/corridor";
-import { robotFootprintAt, robotFootprintRadius } from "../src/shared/agent/robotFootprint";
-import { PM } from "../src/shared/math/pm";
-import { sweptFootprintInsideCorridor } from "../src/shared/planners/corridorFinal";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { decodeProjectFile } from "../src/shared/project/fileFormat";
-import type { ControlPoint, RobotConfig, TrajectorySample } from "../src/shared/types";
+import { robotFootprintAt, robotFootprintRadius } from "../src/core/agent/robotFootprint";
+import { PM } from "../src/core/math/pm";
+import { sweptFootprintInsideCorridor } from "../src/core/planners/corridorFinal";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { decodeProjectFile } from "../src/core/project/fileFormat";
+import type { ControlPoint, RobotConfig, TrajectorySample } from "../src/core/types";
 
 const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
 const corpus = CorridorCorpus.loadV2(directory);

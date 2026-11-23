@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildModuleForces } from "../src/shared/export/moduleForces";
-import { contactLoads, driveContacts, GRAVITY_MPS2 } from "../src/shared/loadTransfer";
-import { getPlanner } from "../src/shared/planners";
-import { evaluateDrivetrainForces, projectDrivetrainAtPoint } from "../src/shared/planners/drivetrainProjection";
-import type { CanonicalPathPoint } from "../src/shared/planners/pathState";
-import { accelerationBoundsForSpeedSquared, solveReachabilityProfile } from "../src/shared/planners/reachability";
-import { validateOptimizedTrajectory } from "../src/shared/planners/trajectoryValidation";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { physicalPlannerInput, robotHardLimits } from "../src/shared/robotLimits";
-import type { RobotConfig } from "../src/shared/types";
+import { buildModuleForces } from "../src/core/export/moduleForces";
+import { contactLoads, driveContacts, GRAVITY_MPS2 } from "../src/core/loadTransfer";
+import { getPlanner } from "../src/core/planners";
+import { evaluateDrivetrainForces, projectDrivetrainAtPoint } from "../src/core/planners/drivetrainProjection";
+import type { CanonicalPathPoint } from "../src/core/planners/pathState";
+import { accelerationBoundsForSpeedSquared, solveReachabilityProfile } from "../src/core/planners/reachability";
+import { validateOptimizedTrajectory } from "../src/core/planners/trajectoryValidation";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { physicalPlannerInput, robotHardLimits } from "../src/core/robotLimits";
+import type { RobotConfig } from "../src/core/types";
 
 const MASS_KG = 54;
 const MU = 1.2;

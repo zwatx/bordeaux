@@ -1,11 +1,11 @@
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { BordeauxProject } from "../shared/types";
+import type { BordeauxProject } from "../core/types";
 import { ProjectBdxChangedError, ProjectBdxExport, projectBdxFailure, PROJECT_BDX_MAX_OUTSTANDING, type ProjectBdxLimits, type ProjectBdxExportScope } from "./projectBdxExport";
-import type { ProjectCheckpointSaveResult } from "../shared/project/projectPersistence";
-import type { ProjectLocation } from "../shared/project/desktopProjects";
-import type { ProjectDurabilityContext } from "../shared/project/projectDurability";
-import { encodeProjectFile } from "../shared/project/fileFormat";
+import type { ProjectCheckpointSaveResult } from "../core/project/projectPersistence";
+import type { ProjectLocation } from "../core/project/desktopProjects";
+import type { ProjectDurabilityContext } from "../core/project/projectDurability";
+import { encodeProjectFile } from "../core/project/fileFormat";
 import { autosaveProjectFolder, MAX_WORKSPACE_FILE_BYTES, projectWorkspacePath, readProject, assertProjectSource, type ProjectSourceOwner } from "./projectFiles";
 import { projectFolderIdentity, projectFileIdentity, sameProjectFolder, type ProjectFolderIdentity } from "./projectFolderIdentity";
 

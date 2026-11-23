@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listRecentProjects, recentProjectId, recentProjectPathById, removeRecentProjectById, readRecentProjectFiles, rememberRecentProject, writeRecentProjectFiles } from "../src/electron/recentProjectFiles";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, MAX_PROJECT_FILE_BYTES, projectWorkspacePath } from "../src/electron/projectFiles";
 import { loadProjectSelection } from "../src/electron/projectOpening";
 

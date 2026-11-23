@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { routeInputKey, routeIntentKey } from "../src/shared/planners/routeIdentity";
-import { routeCandidateFailure } from "../src/shared/planners/routeValidation";
-import { getPlanner } from "../src/shared/planners";
-import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { routeSafetyFailure } from "../src/shared/planners/routeSafety";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/shared/planners/routeGeometry";
-import { observeRobotFieldPortalSequence } from "../src/shared/agent/fieldClearance";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { PM } from "../src/shared/math/pm";
-import type { PathDoc, PlannerResult } from "../src/shared/types";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
+import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { routeInputKey, routeIntentKey } from "../src/core/planners/routeIdentity";
+import { routeCandidateFailure } from "../src/core/planners/routeValidation";
+import { getPlanner } from "../src/core/planners";
+import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { routeSafetyFailure } from "../src/core/planners/routeSafety";
+import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { observeRobotFieldPortalSequence } from "../src/core/agent/fieldClearance";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { PM } from "../src/core/math/pm";
+import type { PathDoc, PlannerResult } from "../src/core/types";
 
 function fixture(points = [{ x: 6.5, y: 2 }, { x: 10, y: 2 }]) {
   const project = createDemoProject();

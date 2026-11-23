@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createDemoProject, buildWaypoints } from "../src/shared/project/defaults";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { validateProject } from "../src/shared/validation";
-import { profiledSplinePlanner } from "../src/shared/planners/profiledSpline";
-import { optimizedTrajectoryPlanner } from "../src/shared/planners/optimizedTrajectory";
-import { buildLinearConstraintProfile } from "../src/shared/planners/optimizationConstraints";
+import { createDemoProject, buildWaypoints } from "../src/core/project/defaults";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
+import { validateProject } from "../src/core/validation";
+import { profiledSplinePlanner } from "../src/core/planners/profiledSpline";
+import { optimizedTrajectoryPlanner } from "../src/core/planners/optimizedTrajectory";
+import { buildLinearConstraintProfile } from "../src/core/planners/optimizationConstraints";
 
 const keys = ["maxVel", "maxAccel", "maxDecel", "maxAngVel", "maxAngAccel"] as const;
 

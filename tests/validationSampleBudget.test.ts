@@ -1,11 +1,11 @@
 import { expect, it, vi } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { buildDenseValidationSamples } from "../src/shared/planners/optimizedTrajectory";
-import type { TrajectorySample } from "../src/shared/types";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { buildDenseValidationSamples } from "../src/core/planners/optimizedTrajectory";
+import type { TrajectorySample } from "../src/core/types";
 
 // Exercise the production budget boundary without generating 250,000 points.
-vi.mock("../src/shared/planners/limits", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../src/shared/planners/limits")>(),
+vi.mock("../src/core/planners/limits", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/core/planners/limits")>(),
   MAX_TRAJECTORY_SAMPLES: 1_000,
 }));
 

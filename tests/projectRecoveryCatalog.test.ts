@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectRecoveryStore } from "../src/electron/projectRecoveryStore";
 import { ProjectRecoveryCatalog } from "../src/electron/projectRecoveryCatalog";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 
 const directories: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(directories.splice(0).map(value => fs.rm(value, { recursive: true, force: true }))); });

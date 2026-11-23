@@ -4,12 +4,12 @@ import { readFileSync } from "node:fs";
 import { applyFinalTrajectoryToPreview, previewForTrajectory, processPathPreviewJob } from "../src/renderer/assets/path-preview-worker";
 // @ts-expect-error The renderer path math is an intentional JavaScript module.
 import { PM } from "../src/renderer/lib/pathMath";
-import { fixedPathSamples, getPlanner } from "../src/shared/planners";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import { optimizeCorridorFinal } from "../src/shared/planners/corridorFinal";
-import { createAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { scaleTrajectoryTiming } from "../src/shared/planners/optimizedTrajectory";
-import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/shared/project/defaults";
+import { fixedPathSamples, getPlanner } from "../src/core/planners";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
+import { createAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { scaleTrajectoryTiming } from "../src/core/planners/optimizedTrajectory";
+import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/core/project/defaults";
 
 function derived(): any {
   return {

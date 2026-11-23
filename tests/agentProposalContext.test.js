@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { agentProposalMatchesPublishedContext } from "../src/renderer/lib/agentProposalContext";
 import { freshProject } from "../src/renderer/lib/editorProject";
-import { buildBdxExport } from "../src/shared/export/bdx";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { validateProject } from "../src/shared/validation";
+import { buildBdxExport } from "../src/core/export/bdx";
+import { createDemoProject } from "../src/core/project/defaults";
+import { validateProject } from "../src/core/validation";
 
 describe("renderer agent proposal context", () => {
   it("creates an immediately exportable project with the active field reference", () => {

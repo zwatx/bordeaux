@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { BordeauxProject } from '../shared/types';
-import type { BinaryBindings } from '../shared/export/robotBinary';
-import type { BuiltRoutineRuntime } from '../shared/export/routineRuntime';
+import type { BordeauxProject } from '../core/types';
+import type { BinaryBindings } from '../core/export/robotBinary';
+import type { BuiltRoutineRuntime } from '../core/export/routineRuntime';
 import { runWorkerTask } from './workerTask';
 
 export interface RoutineRuntimeJob { project: BordeauxProject; routineId: string; bindings: BinaryBindings }

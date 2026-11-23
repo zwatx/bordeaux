@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { RobotPage } from '../src/renderer/components/RobotPage';
 import { LegacyRobotPushDialog as RobotPushDialog } from '../src/renderer/components/LegacyRobotPushDialog';
 import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 const renderConnection = (patch) => renderToStaticMarkup(React.createElement(RobotPushDialog, {
   controller: { open: true, phase: 'idle', host: 'robot.local', port: '22', ...patch },

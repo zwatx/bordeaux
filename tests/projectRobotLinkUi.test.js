@@ -7,7 +7,7 @@ import { expect, it, vi } from 'vitest';
 import { ProjectChip } from '../src/renderer/components/ProjectChip';
 import { createPersistenceQueue } from '../src/renderer/lib/projectLifecycle';
 import { withRobotLink } from '../src/renderer/lib/projectRobotLink';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 const gate = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 function callbacks() {

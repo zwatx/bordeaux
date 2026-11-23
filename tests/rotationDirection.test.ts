@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { PM, deriveHeadingGeometry } from '../src/shared/math/pm';
-import { headingAt, buildAnchors } from '../src/shared/math/headingAnchors';
-import { buildWaypoints, defaultPathConstraints, createDemoProject } from '../src/shared/project/defaults';
-import { getPlanner } from '../src/shared/planners';
-import { buildBdxExport } from '../src/shared/export/bdx';
-import { buildRobotBinary } from '../src/shared/export/robotBinary';
+import { PM, deriveHeadingGeometry } from '../src/core/math/pm';
+import { headingAt, buildAnchors } from '../src/core/math/headingAnchors';
+import { buildWaypoints, defaultPathConstraints, createDemoProject } from '../src/core/project/defaults';
+import { getPlanner } from '../src/core/planners';
+import { buildBdxExport } from '../src/core/export/bdx';
+import { buildRobotBinary } from '../src/core/export/robotBinary';
 import { bdxBindingsFromCatalog } from '../src/electron/bdxBindings';
 import { forceExportRobot } from './fixtures/forceExportRobot';
-import { validateProjectSource } from '../src/shared/validation';
-import { decodeProjectFile, encodeProjectFile } from '../src/shared/project/fileFormat';
+import { validateProjectSource } from '../src/core/validation';
+import { decodeProjectFile, encodeProjectFile } from '../src/core/project/fileFormat';
 import { reversePath } from '../src/renderer/lib/pathEditing';
 // @ts-expect-error Renderer JavaScript API shares the actual heading interpolation.
 import { editingGeometry, liveEditingPreview, projectEditingTiming } from '../src/renderer/assets/editing-planning';
 // @ts-expect-error Renderer JavaScript API.
 import { PM as rendererPM } from '../src/renderer/lib/pathMath';
-import type { RotationDirection } from '../src/shared/types';
+import type { RotationDirection } from '../src/core/types';
 
 const radians = (degrees: number) => degrees * Math.PI / 180;
 function fullTurnProject(direction: RotationDirection) {

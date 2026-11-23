@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { RobotCommandCatalog } from "../shared/types";
-import type { BinaryBindings, BdxParameterType } from "../shared/export/robotBinary";
+import type { RobotCommandCatalog } from "../core/types";
+import type { BinaryBindings, BdxParameterType } from "../core/export/robotBinary";
 import { discoverLabviewProject } from "./labviewProject";
 import { labviewCommandSourceChanges, withLastKnownLabviewCommands } from "./labviewNiInspection";
 import { parseLabviewXml } from "./labviewProjectDiscovery";

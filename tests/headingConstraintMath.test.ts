@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { profiledSplineOptimizationSeed } from "../src/shared/planners/profiledSpline";
-import { buildReachabilityInput, insertOptimizationBoundaries } from "../src/shared/planners/optimizationConstraints";
-import { buildCanonicalPathState } from "../src/shared/planners/pathState";
-import type { PlannerInput, TrajectorySample } from "../src/shared/types";
-import { buildDenseValidationSamples, remapTiming } from "../src/shared/planners/optimizedTrajectory";
-import { solveReachabilityProfile } from "../src/shared/planners/reachability";
-import { getPlanner } from "../src/shared/planners";
-import { validateOptimizedTrajectory } from "../src/shared/planners/trajectoryValidation";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { profiledSplineOptimizationSeed } from "../src/core/planners/profiledSpline";
+import { buildReachabilityInput, insertOptimizationBoundaries } from "../src/core/planners/optimizationConstraints";
+import { buildCanonicalPathState } from "../src/core/planners/pathState";
+import type { PlannerInput, TrajectorySample } from "../src/core/types";
+import { buildDenseValidationSamples, remapTiming } from "../src/core/planners/optimizedTrajectory";
+import { solveReachabilityProfile } from "../src/core/planners/reachability";
+import { getPlanner } from "../src/core/planners";
+import { validateOptimizedTrajectory } from "../src/core/planners/trajectoryValidation";
 import turnFixture from "./fixtures/rotation-target-turn.json";
 
 describe("heading constraint math", () => {

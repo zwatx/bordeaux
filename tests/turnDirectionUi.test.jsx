@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ContextInspector } from '../src/renderer/components/ContextInspector';
 import { Panels } from '../src/renderer/components/Panels';
 import { UI } from '../src/renderer/components/ui';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 import { PM } from '../src/renderer/lib/pathMath';
 
 const h = React.createElement;

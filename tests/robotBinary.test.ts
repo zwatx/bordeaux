@@ -1,18 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { BinaryWriter, crc32, encodeBinaryEnvelope } from "../src/shared/export/binaryCodec";
-import { buildRobotBinary, encodeBdxArgument } from "../src/shared/export/robotBinary";
+import { BinaryWriter, crc32, encodeBinaryEnvelope } from "../src/core/export/binaryCodec";
+import { buildRobotBinary, encodeBdxArgument } from "../src/core/export/robotBinary";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
-import { buildWaypoints } from "../src/shared/project/defaults";
-import { buildCanonicalPathState } from "../src/shared/planners/pathState";
-import * as pathState from "../src/shared/planners/pathState";
-import * as trajectory from "../src/shared/export/robotTrajectory";
-import * as moduleForces from "../src/shared/export/moduleForces";
-import { densifyRobotSamples } from "../src/shared/export/robotSamples";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { robotSchemaValueError, validateProjectRobotInvocations } from "../src/shared/robotCommands";
+import { buildWaypoints } from "../src/core/project/defaults";
+import { buildCanonicalPathState } from "../src/core/planners/pathState";
+import * as pathState from "../src/core/planners/pathState";
+import * as trajectory from "../src/core/export/robotTrajectory";
+import * as moduleForces from "../src/core/export/moduleForces";
+import { densifyRobotSamples } from "../src/core/export/robotSamples";
+import { createDemoProject } from "../src/core/project/defaults";
+import { robotSchemaValueError, validateProjectRobotInvocations } from "../src/core/robotCommands";
 
 const build = (fixture = binaryWriterFixture()) => buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
 

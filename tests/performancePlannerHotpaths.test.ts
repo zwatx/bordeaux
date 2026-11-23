@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { PM } from "../src/shared/math/pm";
-import { optimizedTrajectoryPlanner } from "../src/shared/planners/optimizedTrajectory";
-import * as trajectoryValidation from "../src/shared/planners/trajectoryValidation";
+import { PM } from "../src/core/math/pm";
+import { optimizedTrajectoryPlanner } from "../src/core/planners/optimizedTrajectory";
+import * as trajectoryValidation from "../src/core/planners/trajectoryValidation";
 import retimingFixture from "./fixtures/optimizer-local-retiming.json";
-import { headingAt } from "../src/shared/math/headingAnchors";
-import { buildCanonicalPathState } from "../src/shared/planners/pathState";
-import { accelerationBoundsForSpeedSquared, solveReachabilityProfile } from "../src/shared/planners/reachability";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { PlannerInput, TrajectorySample } from "../src/shared/types";
+import { headingAt } from "../src/core/math/headingAnchors";
+import { buildCanonicalPathState } from "../src/core/planners/pathState";
+import { accelerationBoundsForSpeedSquared, solveReachabilityProfile } from "../src/core/planners/reachability";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { PlannerInput, TrajectorySample } from "../src/core/types";
 
 describe("planner hot-path regressions", () => {
   it("reuses dense geometry while freshly validating each local retiming", () => {

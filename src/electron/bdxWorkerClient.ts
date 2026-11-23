@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { BuiltRobotBinary } from "../shared/export/robotBinary";
+import type { BuiltRobotBinary } from "../core/export/robotBinary";
 import type { BdxBatchJob, BdxJob } from "./bdxProtocol";
 import { runWorkerTask } from "./workerTask";
 export function buildBdxOffThread(job: BdxJob, signal?: AbortSignal): Promise<BuiltRobotBinary> {

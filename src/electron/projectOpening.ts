@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createDemoProject } from "../shared/project/defaults";
-import type { BordeauxProject } from "../shared/types";
+import { createDemoProject } from "../core/project/defaults";
+import type { BordeauxProject } from "../core/types";
 import { openProjectFolderSource, readProjectSource, saveTargetForOpenedProject, workspaceContinuesLegacyFile, PROJECT_WORKSPACE_FILE, type ProjectReadOptions, type ProjectSourceEvidence } from "./projectFiles";
 export interface ProjectSelectionReadOptions extends ProjectReadOptions { requireSource?: boolean }
 

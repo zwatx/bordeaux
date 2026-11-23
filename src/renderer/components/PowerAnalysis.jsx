@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { minimumBusVoltage } from '../../shared/electricalPower';
+import { minimumBusVoltage } from '../../core/electricalPower';
 import '../styles/power-analysis.css';
 
 const h = React.createElement;

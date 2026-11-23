@@ -5,7 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, openProjectFolder } from "../src/electron/projectFiles";
 import { projectFolderIdentity, sameProjectFolder } from "../src/electron/projectFolderIdentity";
 import { loadProjectSelection } from "../src/electron/projectOpening";

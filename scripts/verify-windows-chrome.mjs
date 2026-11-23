@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 if (process.platform !== 'win32') { console.log('Windows native chrome check requires Windows; IPC contracts run in unit tests.'); process.exit(0); }
 const output = process.env.BORDEAUX_CHROME_UI_OUTPUT ? path.resolve(process.env.BORDEAUX_CHROME_UI_OUTPUT) : await fs.mkdtemp(path.join(os.tmpdir(), 'bordeaux-windows-chrome-'));
 await fs.mkdir(output, { recursive: true });
-const { createDemoProject } = require('../dist-electron/shared/project/defaults.js');
+const { createDemoProject } = require('../dist-electron/core/project/defaults.js');
 const { autosaveProjectFolder } = require('../dist-electron/electron/projectFiles.js');
 const { writeRecentProjectFiles } = require('../dist-electron/electron/recentProjectFiles.js');
 const folder = path.join(output, 'Project'); await fs.mkdir(folder);

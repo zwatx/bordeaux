@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FinalPlanning } from '../assets/final-planning';
-import { isOptimizationOutdated } from '../../shared/planners/acceptedTrajectoryIdentity';
+import { isOptimizationOutdated } from '../../core/planners/acceptedTrajectoryIdentity';
 import { finalPlanningError } from '../lib/planningFeedback';
 
 // Final worker success must contain the complete renderer projection, not a duration/sample fallback.

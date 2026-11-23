@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildLabviewCatalog, compileLabviewCatalog, discoverLabviewProject, isLabviewProject, safeLabviewPath } from "../src/electron/labviewProject";
 import { parseGeneratedRobotCatalog } from "../src/electron/robotGeneratedCatalog";
 import { rememberRobotProject, readRobotProjectBookmarks, writeRobotProjectBookmarks } from "../src/electron/robotProjectBookmarks";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import { robotInvocationErrors } from "../src/shared/robotCommands";
+import { createDemoProject } from "../src/core/project/defaults";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import { robotInvocationErrors } from "../src/core/robotCommands";
 
 const dirs: string[] = [];
 async function temp() { const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-labview-"))); dirs.push(dir); return dir; }

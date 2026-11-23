@@ -1,7 +1,7 @@
 // Renderer side of project durability: matching main's checkpoint progress to the request that started it,
 // departure wording, receipt times, recovery offer tokens and creation failure placement. No state lives here;
 // App's persistence queue and its one project transition owner stay authoritative.
-import { projectWriteFactFromMessage } from '../../shared/project/writeErrors';
+import { projectWriteFactFromMessage } from '../../core/project/writeErrors';
 
 /** First sentence of a desktop error, without the IPC prefix. A raw `ECODE:` message becomes its plain fact. */
 export function firstFact(error) {

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { RobotCommandDescriptor } from "../shared/types";
+import type { RobotCommandDescriptor } from "../core/types";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { runLabviewNiAdapter } from "./labviewNiInspection";
 import { VALIDATED_WRAPPER_LABVIEW_VERSION, WRAPPER_LABVIEW_VERSION_ERROR } from "./labviewNiTypes";

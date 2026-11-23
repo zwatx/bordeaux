@@ -1,6 +1,6 @@
 import * as React from "react";
 import { FinalPlanning } from "../assets/final-planning";
-import { isOptimizationOutdated } from "../../shared/planners/acceptedTrajectoryIdentity";
+import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { finalPlanningOutcome } from "../lib/finalPlanningResult";
 import { AUTO } from "../lib/routineModel";
 

@@ -11,10 +11,10 @@ app.setPath('userData', userData);
 const robotProjectFile = path.join(output, 'OfflineRobot.lvproj');
 fs.writeFileSync(robotProjectFile, '<Project><Item Name="Robot" Type="RT roboRIO"/></Project>');
 fs.writeFileSync(path.join(userData, 'robot-sftp-connection.json'), JSON.stringify({ endpoint: { host: 'test-only.invalid', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'a'.repeat(43) }));
-const { createDemoProject, blankPath } = require('../dist-electron/shared/project/defaults');
-const { buildRobotBinary } = require('../dist-electron/shared/export/robotBinary');
+const { createDemoProject, blankPath } = require('../dist-electron/core/project/defaults');
+const { buildRobotBinary } = require('../dist-electron/core/export/robotBinary');
 const { bdxBindingsFromCatalog } = require('../dist-electron/electron/bdxBindings');
-const { buildRoutineRuntime } = require('../dist-electron/shared/export/routineRuntime');
+const { buildRoutineRuntime } = require('../dist-electron/core/export/routineRuntime');
 const { routineBindingsFromBinary } = require('../dist-electron/electron/routineBindings');
 const fixture = createDemoProject(), route = blankPath('A long selected path name for local BDX export verification');
 fixture.robot.driveModel = { motorId: 'test-force-export', motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4,

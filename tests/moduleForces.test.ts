@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildModuleForces as buildForces } from "../src/shared/export/moduleForces";
-import { buildRobotBinary } from "../src/shared/export/robotBinary";
-import { buildWaypoints } from "../src/shared/project/defaults";
-import type { RobotConfig, TrajectorySample } from "../src/shared/types";
+import { buildModuleForces as buildForces } from "../src/core/export/moduleForces";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { buildWaypoints } from "../src/core/project/defaults";
+import type { RobotConfig, TrajectorySample } from "../src/core/types";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 import { forceExportRobot } from "./fixtures/forceExportRobot";
 

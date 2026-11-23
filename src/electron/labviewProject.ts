@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import type { RobotCommandCatalog, RobotCommandParameter } from "../shared/types";
+import type { RobotCommandCatalog, RobotCommandParameter } from "../core/types";
 import { BORDEAUX_WAIT, generatedCatalogHash, parseGeneratedRobotCatalog } from "./robotGeneratedCatalog";
 import { writeJsonAtomically } from "./projectFiles";
 import { resolveLabviewProject, scanLabviewProject } from "./labviewProjectDiscovery";

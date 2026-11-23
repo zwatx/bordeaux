@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { loadRendererExport } from "./helpers/loadRendererExport";
 import { committedDraftValue, parseFiniteDraftNumber } from "../src/renderer/lib/numericDraft";
 import { formatAngularLimit } from "../src/renderer/lib/unitPreferences";
-import { DRIVE_MOTOR_PRESETS } from "../src/shared/motorPresets";
-import { resolveElectricalDriveInputs } from "../src/shared/robotLimits";
-import { resolveCgHeightM } from "../src/shared/loadTransfer";
+import { DRIVE_MOTOR_PRESETS } from "../src/core/motorPresets";
+import { resolveElectricalDriveInputs } from "../src/core/robotLimits";
+import { resolveCgHeightM } from "../src/core/loadTransfer";
 
 type ElementNode = { type: unknown; props: Record<string, unknown>; children: unknown[] };
 

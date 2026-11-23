@@ -1,5 +1,5 @@
 // Background timing for the non-active paths: same planPath call the core uses, reduced to what the list shows.
-import { planPath } from "../../../../src/shared/planners/planPath";
+import { planPath } from "../../../../src/core/planners/planPath";
 
 self.onmessage = ({ data }) => {
   let time = null, error = true, reason = "Can't time this path";

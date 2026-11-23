@@ -5,7 +5,7 @@ import { StepInspector, RoutineTransport } from '../src/renderer/components/Rout
 import { RoutinePanel, addMenuSteps } from '../src/renderer/components/RoutinePanel';
 import { PREVIEW_HELP, RoutineWorkspace } from '../src/renderer/components/RoutineWorkspace';
 import { AUTO } from '../src/renderer/lib/routineModel';
-import { createDemoProject } from '../src/shared/project/defaults';
+import { createDemoProject } from '../src/core/project/defaults';
 
 // Routine flow redesign: closings and loop-backs follow authored flow (AUTO.flowSummary), never the preview route,
 // and unsupported saved data is described truthfully.

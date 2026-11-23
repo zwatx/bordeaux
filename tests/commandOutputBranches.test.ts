@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { decodeProjectFile, decodeProjectValue, encodeProjectFile } from "../src/shared/project/fileFormat";
-import { validateProject } from "../src/shared/validation";
-import { validateProjectRobotInvocations } from "../src/shared/robotCommands";
-import * as robotCommands from "../src/shared/robotCommands";
-import { buildRobotTrajectory } from "../src/shared/export/robotTrajectory";
-import type { RobotCommandCatalog, RoutineCommandOutputBranch, RoutineFunctionNode } from "../src/shared/types";
+import { createDemoProject } from "../src/core/project/defaults";
+import { decodeProjectFile, decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
+import { validateProject } from "../src/core/validation";
+import { validateProjectRobotInvocations } from "../src/core/robotCommands";
+import * as robotCommands from "../src/core/robotCommands";
+import { buildRobotTrajectory } from "../src/core/export/robotTrajectory";
+import type { RobotCommandCatalog, RoutineCommandOutputBranch, RoutineFunctionNode } from "../src/core/types";
 // @ts-expect-error Routine authoring remains a JavaScript module.
 import { AUTO } from "../src/renderer/lib/routineModel";
 // @ts-expect-error Renderer library remains JavaScript.

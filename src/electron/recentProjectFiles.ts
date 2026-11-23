@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import type { RecentProjectEntry, RecentProjectCode } from "../shared/project/desktopProjects";
+import type { RecentProjectEntry, RecentProjectCode } from "../core/project/desktopProjects";
 import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, PROJECT_WORKSPACE_FILE, writeJsonAtomically } from "./projectFiles";
 import { loadProjectSelection } from "./projectOpening";
 

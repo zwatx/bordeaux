@@ -1,4 +1,4 @@
-import type { BordeauxProject, ProjectEditorState } from "../../shared/types";
+import type { BordeauxProject, ProjectEditorState } from "../../core/types";
 
 // Only main-authored link fields are reconciled; a newer explicit selection wins over an older save.
 export const sameRobotLink = (a: ProjectEditorState | undefined, b: ProjectEditorState | undefined) => a?.labviewProjectPath === b?.labviewProjectPath && a?.robotProjectBookmarkId === b?.robotProjectBookmarkId;

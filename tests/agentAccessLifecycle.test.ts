@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSessionService } from "../src/electron/agentSession";
 // @ts-expect-error The renderer session sync is JavaScript.
 import { createAgentSessionSync } from "../src/renderer/lib/agentSessionSync";
-import { createDemoProject } from "../src/shared/project/defaults";
+import { createDemoProject } from "../src/core/project/defaults";
 
 function editorSnapshot(revision: number, accessGeneration: number, project = createDemoProject()) {
   return {

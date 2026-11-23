@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getPlanner } from "../src/shared/planners";
-import { evaluateDrivetrainForces } from "../src/shared/planners/drivetrainProjection";
-import type { CanonicalPathPoint } from "../src/shared/planners/pathState";
-import { solveReachabilityProfile } from "../src/shared/planners/reachability";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { driveMotorPreset } from "../src/shared/motorPresets";
-import { ELECTRICAL_DRIVE_DEFAULTS, hasElectricalDriveModel, resolveElectricalDriveInputs, robotHardLimits } from "../src/shared/robotLimits";
-import { validateProject } from "../src/shared/validation";
+import { getPlanner } from "../src/core/planners";
+import { evaluateDrivetrainForces } from "../src/core/planners/drivetrainProjection";
+import type { CanonicalPathPoint } from "../src/core/planners/pathState";
+import { solveReachabilityProfile } from "../src/core/planners/reachability";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { driveMotorPreset } from "../src/core/motorPresets";
+import { ELECTRICAL_DRIVE_DEFAULTS, hasElectricalDriveModel, resolveElectricalDriveInputs, robotHardLimits } from "../src/core/robotLimits";
+import { validateProject } from "../src/core/validation";
 // @ts-expect-error The production preview engine is an intentional JavaScript module.
 import { PM as RendererPM } from "../src/renderer/lib/pathMath";
 

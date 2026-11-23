@@ -4,7 +4,7 @@ import type {
   ProjectDeparturePermit, ProjectDeparturePhase, ProjectDepartureReason, ProjectDepartureRequest,
   ProjectDepartureResponse, ProjectDepartureResume, ProjectDurabilityContext, ProjectDurabilityReceipt,
   ProjectUpdateDeparture, StoredProjectRecoveryReceipt,
-} from "../shared/project/projectDurability";
+} from "../core/project/projectDurability";
 
 export const PROJECT_DEPARTURE_TIMEOUT_MS = 10_000;
 type Timer = ReturnType<typeof setTimeout>;

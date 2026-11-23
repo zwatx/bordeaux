@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Intentional renderer JS API.
 import { createFieldGestureOwner, fieldRangeEndpoint } from '../src/renderer/components/FieldView';
 import { PathEdit } from '../src/renderer/assets/path-edit';
-import { effectiveRanges } from '../src/shared/math/pathRanges';
-import { buildWaypoints } from '../src/shared/project/defaults';
-import { sample } from '../src/shared/math/geometry';
-import type { ConstraintRange } from '../src/shared/types';
+import { effectiveRanges } from '../src/core/math/pathRanges';
+import { buildWaypoints } from '../src/core/project/defaults';
+import { sample } from '../src/core/math/geometry';
+import type { ConstraintRange } from '../src/core/types';
 
 describe('field gesture draft ownership', () => {
   it('allows its own synchronous updates and yields one finished edit', () => {

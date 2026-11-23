@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { duplicatePathForLibrary } from "../src/renderer/app/App";
-import { createDemoProject } from "../src/shared/project/defaults";
-import { validateProject } from "../src/shared/validation";
+import { createDemoProject } from "../src/core/project/defaults";
+import { validateProject } from "../src/core/validation";
 
 describe("renderer path library", () => {
   it("regenerates marker IDs when duplicating a path", () => {

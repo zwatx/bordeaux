@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import * as geometry from '../src/shared/agent/robotFootprint';
-import { measureRobotFieldClearance, observeRobotFieldPortalSequence } from '../src/shared/agent/fieldClearance';
-import { REBUILT_2026_FIELD, REBUILT_2026_FIELD_WIDTH_M, officialToAppPoint } from '../src/shared/field/rebuilt2026';
-import { FIELD_H, FIELD_W } from '../src/shared/math/fieldBounds';
-import { createDemoProject } from '../src/shared/project/defaults';
-import type { ControlPoint, TrajectorySample } from '../src/shared/types';
+import * as geometry from '../src/core/agent/robotFootprint';
+import { measureRobotFieldClearance, observeRobotFieldPortalSequence } from '../src/core/agent/fieldClearance';
+import { REBUILT_2026_FIELD, REBUILT_2026_FIELD_WIDTH_M, officialToAppPoint } from '../src/core/field/rebuilt2026';
+import { FIELD_H, FIELD_W } from '../src/core/math/fieldBounds';
+import { createDemoProject } from '../src/core/project/defaults';
+import type { ControlPoint, TrajectorySample } from '../src/core/types';
 
 // Exhaustive SAT/edge-distance oracle, deliberately independent of pruning.
 function exhaustiveClearance(first: ControlPoint[], second: ControlPoint[]): number {

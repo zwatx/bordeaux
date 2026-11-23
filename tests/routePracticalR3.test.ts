@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import { optimizeRouteFinal } from "../src/shared/planners/routeFinal";
-import { routeCandidateFailure, routeCandidateIssue } from "../src/shared/planners/routeValidation";
-import { routeFieldModel, routeSafetyIssue, routeSweepStatus } from "../src/shared/planners/routeSafety";
-import { routeCandidates } from "../src/shared/planners/routeCandidates";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/shared/planners/routeGeometry";
-import * as fixedFinal from "../src/shared/planners/fixedGeometryFinal";
-import { optimizeFixedGeometryFinal } from "../src/shared/planners/fixedGeometryFinal";
-import * as planners from "../src/shared/planners";
-import { routeInputKey, routeIntentKey } from "../src/shared/planners/routeIdentity";
-import { applyAcceptedRouteTrajectory, getAcceptedTrajectory } from "../src/shared/planners/acceptedTrajectory";
-import { stageAcceptedRouteTrajectory } from "../src/shared/planners/acceptedRouteStaging";
-import type { ControlPoint, PlannerResult, RouteGeometry } from "../src/shared/types";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
+import { routeCandidateFailure, routeCandidateIssue } from "../src/core/planners/routeValidation";
+import { routeFieldModel, routeSafetyIssue, routeSweepStatus } from "../src/core/planners/routeSafety";
+import { routeCandidates } from "../src/core/planners/routeCandidates";
+import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import * as fixedFinal from "../src/core/planners/fixedGeometryFinal";
+import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
+import * as planners from "../src/core/planners";
+import { routeInputKey, routeIntentKey } from "../src/core/planners/routeIdentity";
+import { applyAcceptedRouteTrajectory, getAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { stageAcceptedRouteTrajectory } from "../src/core/planners/acceptedRouteStaging";
+import type { ControlPoint, PlannerResult, RouteGeometry } from "../src/core/types";
 
 function fixture(points: ControlPoint[], size = 0.84) {
   const project = createDemoProject();

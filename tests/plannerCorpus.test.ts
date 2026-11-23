@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyzePath } from "../src/shared/agent/pathAnalysis";
-import { ACTIVE_FIELD_REFERENCE, REBUILT_2026_CROSSINGS } from "../src/shared/field/rebuilt2026";
-import { decodeProjectFile, encodeProjectFile } from "../src/shared/project/fileFormat";
+import { analyzePath } from "../src/core/agent/pathAnalysis";
+import { ACTIVE_FIELD_REFERENCE, REBUILT_2026_CROSSINGS } from "../src/core/field/rebuilt2026";
+import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
 
 type FrozenScenario = {
   pathId: string;

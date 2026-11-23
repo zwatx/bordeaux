@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { BordeauxProject, ProjectEditorState } from "../shared/types";
-import { normalizeLabviewProjectPath } from "../shared/project/labviewLink";
+import type { BordeauxProject, ProjectEditorState } from "../core/types";
+import { normalizeLabviewProjectPath } from "../core/project/labviewLink";
 import { resolveLabviewProject, statLabviewLocalPath } from "./labviewProjectDiscovery";
 
 export function relativeLabviewLink(folder: string, projectFile: string): string | null {

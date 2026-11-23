@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { getPlanner } from "../src/shared/planners";
-import { PM } from "../src/shared/math/pm";
-import { buildWaypoints, createDemoProject } from "../src/shared/project/defaults";
-import type { TrajectoryPlannerId } from "../src/shared/types";
-import { validateProject } from "../src/shared/validation";
-import { decodeProjectFile } from "../src/shared/project/fileFormat";
-import { applyRotationPriority, translationPriorityIntervalMask } from "../src/shared/planners/rotationPriority";
+import { getPlanner } from "../src/core/planners";
+import { PM } from "../src/core/math/pm";
+import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import type { TrajectoryPlannerId } from "../src/core/types";
+import { validateProject } from "../src/core/validation";
+import { decodeProjectFile } from "../src/core/project/fileFormat";
+import { applyRotationPriority, translationPriorityIntervalMask } from "../src/core/planners/rotationPriority";
 import {
   headingTransitionGoals,
   headingTransitionWindows,
   smoothHeadingTransitions,
-} from "../src/shared/planners/headingTransitions";
-import type { PlannerResult } from "../src/shared/types";
+} from "../src/core/planners/headingTransitions";
+import type { PlannerResult } from "../src/core/types";
 
 const PLANNERS: TrajectoryPlannerId[] = ["profiledSpline", "optimizedTrajectory"];
 

@@ -23,7 +23,7 @@ async function identities() {
   }
   for (const file of ['scripts/verify-optimizer-ui.mjs', 'scripts/verify-optimizer-ui-electron.cjs',
     'scripts/verify-optimizer-ui-preload.cjs', 'scripts/verify-optimizer-ui-workers.cjs',
-    'src/renderer', 'src/shared', 'package.json', 'package-lock.json',
+    'src/renderer', 'src/core', 'package.json', 'package-lock.json',
     'benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'dist-renderer']) await visit(file);
   return inputs;
 }

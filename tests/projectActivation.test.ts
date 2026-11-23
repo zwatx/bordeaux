@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenedProject, ProjectLocation } from "../src/shared/project/desktopProjects";
+import type { OpenedProject, ProjectLocation } from "../src/core/project/desktopProjects";
 import { completeProjectActivation } from "../src/electron/projectActivation";
 import { createNamedProjectSelection } from "../src/electron/projectCreation";
 import { loadProjectSelection, type ProjectSelection } from "../src/electron/projectOpening";
