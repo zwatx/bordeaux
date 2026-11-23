@@ -96,10 +96,10 @@ export function createSystemcoreHost() {
   };
   // Reviews the server holds; confirm publishes the bytes it checked at review, never new ones from this page.
   const pending = new Map<string, { preview: RobotFilePreview; uploading: boolean }>();
-  // The command list a desktop Push left on the robot. Each project load reads it again, so the catalog and the export
-  // bindings both pick up a list pushed after the page opened.
+  // The command list a desktop Push left in this page's push folder, the same folder its pushes go to. Each project load
+  // reads it again, so the catalog and the export bindings both pick up a list pushed after the page opened.
   let commands: Promise<{ bindings: BinaryBindings } | { error: string } | null> | null = null;
-  const robotCommands = () => commands ??= fetch("/api/commands").then(async (response) => {
+  const robotCommands = () => commands ??= serverInfo().then((server) => fetch(`/api/commands?directory=${encodeURIComponent(server.pushDirectory)}`)).then(async (response) => {
     if (response.status === 404) return null;
     const value = await response.json() as { contents?: string; error?: string };
     if (!response.ok || typeof value.contents !== "string") return { error: value.error || `The robot answered ${response.status}` };

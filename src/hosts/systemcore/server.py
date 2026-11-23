@@ -31,7 +31,7 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 WORKSPACE = ".bordeaux-workspace.json"
 # Folder-relative files a commit may write or remove. Mirrors MANAGED_*_FILE in src/core/project/folderLayout.ts.
@@ -493,7 +493,10 @@ class Handler(SimpleHTTPRequestHandler):
         if method == "GET" and route == "/api/projects":
             return list_projects(store)
         if method == "GET" and route == "/api/commands":
-            directory = store.push_directory(store.read_settings().get("pushDirectory"))
+            # The page names the push folder it will push to, so its commands and its destination are one folder even
+            # after another browser changes the shared setting.
+            requested = parse_qs(urlparse(self.path).query).get("directory")
+            directory = store.push_directory(requested[0] if requested else store.read_settings().get("pushDirectory"))
             data = read_regular(os.path.join(directory, COMMANDS_FILE), 32 * 1024 * 1024)
             if data is None:
                 return HTTPStatus.NOT_FOUND, {"error": "Push from the desktop app with a linked LabVIEW project to bring its commands here"}
