@@ -5,7 +5,7 @@
 //   BORDEAUX_SYSTEMCORE_SFTP=127.0.0.1:2222                 with a robot URL: the robot's SSH (tunnel it too), for the
 //                                                            desktop transport that delivers the LabVIEW command list
 //
-// Artifacts (screenshots, report.json, and the pushed files' hashes) go to BORDEAUX_SYSTEMCORE_OUTPUT or a temp folder.
+// Artifacts (screenshots, report.json, the pushed files' hashes and their decoded contents) go to BORDEAUX_SYSTEMCORE_OUTPUT or a temp folder.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -73,12 +73,28 @@ const code = await new Promise((resolve) => {
   const timer = setTimeout(() => child.kill('SIGKILL'), 180_000);
   child.on('exit', (exitCode) => { clearTimeout(timer); resolve(exitCode); });
 });
+let readBack = true;
 if (home) {
-  // A local run can also prove the pushed bytes on disk.
-  const pushed = {};
-  for (const name of await fs.readdir(path.join(home, 'paths'))) pushed[name] = createHash('sha256').update(await fs.readFile(path.join(home, 'paths', name))).digest('hex');
+  // A local run can also prove the pushed bytes on disk, and that every pushed path reads back as a BDX.
+  const { decodeBdx } = desktop('core/export/bdxReader');
+  const pushed = {}, decoded = {};
+  for (const name of await fs.readdir(path.join(home, 'paths'))) {
+    const bytes = await fs.readFile(path.join(home, 'paths', name));
+    pushed[name] = createHash('sha256').update(bytes).digest('hex');
+    if (!name.endsWith('.bdx')) continue;
+    try {
+      const bdx = decodeBdx(bytes);
+      decoded[name] = { version: `1.${bdx.minor}`, pathId: bdx.id, name: bdx.name, seconds: bdx.totalTimeS, meters: bdx.totalDistanceM, samples: bdx.samples.length,
+        first: bdx.samples[0], last: bdx.samples.at(-1), followSections: bdx.followSections, events: bdx.events };
+    } catch (error) { readBack = false; decoded[name] = { error: String(error?.message || error) }; console.error(`FAIL ${name} does not read back: ${decoded[name].error}`); }
+  }
+  // The command path's events are counted by the desktop's writer, independently of the reader.
+  const commandEvents = decoded[expected.fileName]?.events?.length;
+  if (code === 0 && commandEvents !== expected.eventCount) { readBack = false; console.error(`FAIL ${expected.fileName} reads back ${commandEvents} events; the desktop wrote ${expected.eventCount}`); }
   await fs.writeFile(path.join(output, 'pushed.json'), JSON.stringify(pushed, null, 2));
+  await fs.writeFile(path.join(output, 'pushed-decoded.json'), JSON.stringify(decoded, null, 2));
   console.log('Pushed files: ' + JSON.stringify(pushed));
+  if (readBack) console.log(`PASS ${Object.keys(decoded).length} pushed BDX files read back (pushed-decoded.json)`);
 }
 server?.kill();
-process.exitCode = code === 0 ? 0 : 1;
+process.exitCode = code === 0 && readBack ? 0 : 1;
