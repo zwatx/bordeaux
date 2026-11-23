@@ -46,7 +46,8 @@ const fixtureFile = path.resolve('tests/fixtures/systemcoreCommandProject.json')
 const fixture = JSON.parse(await fs.readFile(fixtureFile, 'utf8'));
 const expected = JSON.parse(execFileSync(electron, [path.resolve('scripts/systemcore-desktop-bdx.cjs'), fixtureFile], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }).toString());
 console.log(`Desktop BDX (${expected.engine}): ${expected.fileName} ${expected.sha256.slice(0, 16)}, ${expected.eventCount} events`);
-await fs.writeFile(path.join(output, 'command-project.json'), JSON.stringify({ project: fixture.project, ...expected, catalog: fixture.bindings.catalog.projectName }));
+const { base64: desktopBdx, ...expectedFile } = expected;
+await fs.writeFile(path.join(output, 'command-project.json'), JSON.stringify({ project: fixture.project, ...expectedFile, catalog: fixture.bindings.catalog.projectName }));
 const commands = Buffer.from(encodeCommandsFile(fixture.bindings));
 if (home) {
   await fs.mkdir(path.join(home, 'paths'), { recursive: true });
@@ -58,8 +59,11 @@ if (home) {
   const { uploadRobotFiles } = desktop('electron/robotFileTransfer');
   const { ROBOT_TARGETS } = desktop('core/robotTargets');
   const endpoint = { target: 'systemcore', host, port: Number(port), directory: ROBOT_TARGETS.systemcore.defaultDirectory };
-  await uploadRobotFiles({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) }, [{ fileName: COMMANDS_FILE_NAME, contents: commands }]);
-  console.log(`Sent ${COMMANDS_FILE_NAME} to ${endpoint.directory} over SFTP`);
+  // A desktop Push sends the list only beside the paths that use it (the transport refuses a list alone), so it goes
+  // with the desktop's own BDX for the command path.
+  await uploadRobotFiles({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) },
+    [{ fileName: expected.fileName, contents: Buffer.from(desktopBdx, 'base64') }, { fileName: COMMANDS_FILE_NAME, contents: commands }]);
+  console.log(`Sent ${expected.fileName} and ${COMMANDS_FILE_NAME} to ${endpoint.directory} over SFTP`);
 } else console.log('No BORDEAUX_SYSTEMCORE_SFTP: using the command list already on the robot');
 // A local run also hands over the robot home, so the page check can stage a bad destination and prove files on disk.
 const env = { ...process.env, BORDEAUX_SYSTEMCORE_URL: url, BORDEAUX_SYSTEMCORE_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', ...(home ? { BORDEAUX_SYSTEMCORE_HOME: home } : {}) };

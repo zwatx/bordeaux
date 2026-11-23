@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "../src/electron/robotFileTransfer";
+import { COMMANDS_FILE_NAME } from "../src/core/export/commandsFile";
 import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession } from "../src/electron/robotSftpTransport";
 
 const endpoint = { target: "roborio" as const, host: "roborio-2468-frc.local", port: 22, directory: "/natinst/bin/Paths" };
@@ -84,6 +85,15 @@ describe("direct robot SFTP path delivery", () => {
     expect(f.stored.get("unrelated.bdx")?.toString()).toBe("preserve");
     expect(f.stored.size).toBe(2);
     expect(f.closed()).toBe(1);
+  });
+
+  it("sends the command list beside a path, never alone", async () => {
+    const f = fixture(), list = { fileName: COMMANDS_FILE_NAME, contents: Buffer.from("{}\n") };
+    await expect(uploadRobotFiles(connection, [list], undefined, f.factory)).rejects.toThrow("Select between 1 and 64 robot path files");
+    expect(f.requests).toHaveLength(0);
+    await uploadRobotFiles(connection, [...files, list], undefined, f.factory);
+    expect(f.stored.get(COMMANDS_FILE_NAME)).toEqual(list.contents);
+    expect(f.stored.get("opening.bdx")).toEqual(files[0].contents);
   });
 
   it("reports a confirmed folder creation even when later read-back fails", async () => {
