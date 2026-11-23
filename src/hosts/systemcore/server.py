@@ -40,7 +40,7 @@ PROJECT_NAME = re.compile(r"^[^/\\\x00-\x1f\x7f<>:\"|?*.][^/\\\x00-\x1f\x7f<>:\"
 # The desktop's rules too (src/core/project/projectName.ts): at most 255 UTF-8 bytes, no trailing dot or space, and
 # no Windows device name, so a robot project can be copied to any team laptop.
 MAX_NAME_BYTES = 255
-WINDOWS_DEVICE_NAME = re.compile(r"^(?:con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]) *(?:\.|$)", re.IGNORECASE)
+WINDOWS_DEVICE_NAME = re.compile(r"^(?:con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]) *(?:\.|$)", re.IGNORECASE | re.ASCII)
 PUSH_FILE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(bdx|bdr)$")
 MAX_BODY_BYTES = 160 * 1024 * 1024
 # Push limits match the desktop's SFTP transfer (src/electron/robotFileTransfer.ts).
@@ -227,13 +227,15 @@ def write_project(store, folder, body, create):
         current = read_regular(workspace_path)
         if (sha256(current) if current is not None else None) != body.get("expectedWorkspaceSha256"):
             raise Conflict("The project changed on the robot, maybe from another browser. Reload to see the current version.")
+    requested, removes = body.get("writes", []), body.get("removes", [])
+    if not isinstance(requested, list) or not isinstance(removes, list) or not all(isinstance(item, dict) for item in requested + removes):
+        raise ValueError("Writes and removes must be lists of files")
     writes = []
-    for write in body.get("writes", []):
+    for write in requested:
         file = write.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
             raise ValueError(f"Refusing to write {file!r}")
         writes.append((write, store.contained(os.path.join(folder, file)), base64.b64decode(write.get("base64", ""), validate=True)))
-    removes = body.get("removes", [])
     for remove in removes:
         file = remove.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
@@ -243,18 +245,25 @@ def write_project(store, folder, body, create):
     if not isinstance(workspace, str):
         raise ValueError("Missing workspace contents")
     workspace_data = workspace.encode("utf-8")
-    # Each file carries the hash this tab last saw (None when it expects no file). Any other bytes on disk, such as an
-    # edit made over SSH, stop the whole save before anything is written.
-    for write, target, data in writes:
+    # Each file carries the hash Bordeaux last wrote there (None when it wrote none). Any other bytes on disk, such as an
+    # edit made over SSH, are kept. A source file stops the whole save; a generated BDX is only left out, so the sources
+    # still save and the page reports the BDX, as the desktop does.
+    kept = []
+    for write, target, data in list(writes):
         if "expectedSha256" not in write:
             raise ValueError(f"{write['file']} has no expected hash; reload the page")
         current = read_regular(target)
         found = sha256(current) if current is not None else None
         # A missing file is written, as on the desktop: replacing nothing loses nothing.
-        if found not in (None, write["expectedSha256"], sha256(data)):
-            # This page can't show the robot's version, so reloading would not help; a copy keeps both.
-            raise Conflict(f"{write['file']} changed on the robot since Bordeaux saved it, and Bordeaux left it as it is. "
-                           "Use Save copy to keep this version in a new project.")
+        if found in (None, write["expectedSha256"], sha256(data)):
+            continue
+        if write["file"].lower().endswith(".bdx"):
+            kept.append(write["file"])
+            writes.remove((write, target, data))
+            continue
+        # This page can't show the robot's version, so reloading would not help; a copy keeps both.
+        origin = "changed on the robot since Bordeaux saved it" if write["expectedSha256"] else "is on the robot but Bordeaux didn't write it"
+        raise Conflict(f"{write['file']} {origin}, and Bordeaux left it as it is. Use Save copy to keep this version in a new project.")
     # Every file, the workspace included, is written beside its target before any target changes, so a full disk fails
     # the save with nothing replaced. The workspace is renamed last, after the files it records.
     staged, workspace_temporary, preserved = [], None, []
@@ -278,8 +287,12 @@ def write_project(store, folder, body, create):
         for temporary in [item[0] for item in staged] + [workspace_temporary]:
             if temporary:
                 remove_quietly(temporary)
-    store.write_settings({"lastProject": os.path.basename(folder)})
-    return {"workspaceSha256": sha256(workspace_data), "preserved": preserved}
+    # The project is saved; remembering it as the last project is a convenience whose failure must not hide that.
+    try:
+        store.write_settings({"lastProject": os.path.basename(folder)})
+    except OSError:
+        pass
+    return {"workspaceSha256": sha256(workspace_data), "preserved": preserved, "keptBinaries": kept}
 
 
 class PushReviews:
@@ -412,6 +425,8 @@ def list_projects(store):
 
 
 class Handler(SimpleHTTPRequestHandler):
+    # Seconds a connection may sit idle mid-request before it is dropped, so a stalled client can't hold a thread forever.
+    timeout = 30
     store = None
     static_root = None
     reviews = PushReviews()
@@ -437,10 +452,20 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def read_json(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        """The request's JSON object, read in full and bounded. Routes read it before taking LOCK."""
+        lengths = self.headers.get_all("Content-Length") or []
+        if self.headers.get("Transfer-Encoding") or len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,10}", lengths[0].strip()):
+            raise ValueError("Send the request with one Content-Length")
+        length = int(lengths[0])
         if length > MAX_BODY_BYTES:
             raise ValueError("Request is too large")
-        return json.loads(self.rfile.read(length) or b"{}")
+        data = self.rfile.read(length)
+        if len(data) != length:
+            raise ValueError("The request ended before its body did")
+        value = json.loads(data or b"{}")
+        if not isinstance(value, dict):
+            raise ValueError("The request body must be a JSON object")
+        return value
 
     def authorize(self, method):
         """Same-origin only: a page from another site, or a name rebound to this robot, is refused."""
@@ -472,8 +497,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return HTTPStatus.NOT_FOUND, {"error": "No project with this name on the robot"}
             return {"contents": data.decode("utf-8"), "sha256": sha256(data)}
         if method == "POST" and route == "/api/commit":
+            # Read before locking: a slow or stalled upload must never hold up other browsers' saves and pushes.
+            body = self.read_json()
             with LOCK:
-                return commit_project(store, self.read_json())
+                return commit_project(store, body)
         if method == "POST" and route == "/api/push/prepare":
             body = self.read_json()
             with LOCK:
@@ -515,6 +542,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
         except (ValueError, KeyError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+        except (TypeError, AttributeError):
+            self.send_json({"error": "The request is not in the form Bordeaux sends"}, HTTPStatus.BAD_REQUEST)
+        except TimeoutError:
+            # The client stopped sending; there is no one left to answer.
+            self.close_connection = True
         except OSError as error:
             self.send_json({"error": f"The robot could not write the file: {error.strerror or error}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 

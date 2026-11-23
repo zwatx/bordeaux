@@ -101,21 +101,47 @@ describe.skipIf(!python)("SystemCore server", () => {
   const create = (name: string, writes: Array<Record<string, unknown>> = [], workspace = "{}") =>
     post("/api/commit", { name, create: true, expectedWorkspaceSha256: null, workspace, writes, removes: [] });
 
-  it("refuses a generated BDX that isn't the one Bordeaux wrote", async () => {
+  it("keeps a generated BDX that isn't the one Bordeaux wrote, and still saves the sources", async () => {
     const first = await json(await create("Outputs", [{ file: "Paths/Auto.bdx", base64: b64("bdx1"), expectedSha256: null }]));
-    const bdx = path.join(home, "robot", "projects", "Outputs", "Paths", "Auto.bdx");
+    const folder = path.join(home, "robot", "projects", "Outputs"), bdx = path.join(folder, "Paths", "Auto.bdx");
     await fs.writeFile(bdx, "placed by hand");
-    const second = await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{}",
-      writes: [{ file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx1") }], removes: [] });
-    expect(second.status).toBe(409);
+    const second = await json(await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{\"next\":1}",
+      writes: [{ file: "Paths/Auto.path", base64: b64("source"), expectedSha256: null }, { file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx1") }], removes: [] }));
+    expect(second).toMatchObject({ status: 200, body: { keptBinaries: ["Paths/Auto.bdx"] } });
     expect(await fs.readFile(bdx, "utf8")).toBe("placed by hand");
+    expect(await fs.readFile(path.join(folder, "Paths", "Auto.path"), "utf8")).toBe("source");
     expect((await create("No hash", [{ file: "Paths/Auto.bdx", base64: b64("bdx1") }])).status).toBe(400);
+    // A source file Bordeaux never wrote stops the save, and says so.
+    await fs.mkdir(path.join(folder, "Routines"), { recursive: true });
+    await fs.writeFile(path.join(folder, "Routines", "Hand.routine"), "by hand");
+    const foreign = await json(await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: second.body.workspaceSha256, workspace: "{}",
+      writes: [{ file: "Routines/Hand.routine", base64: b64("r"), expectedSha256: null }], removes: [] }));
+    expect(foreign).toMatchObject({ status: 409, body: { error: expect.stringContaining("Bordeaux didn't write it") } });
     // A tracked file deleted over SSH is written again, as on the desktop.
     await fs.rm(bdx);
-    const third = await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{}",
-      writes: [{ file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx1") }], removes: [] });
+    const third = await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: second.body.workspaceSha256, workspace: "{}",
+      writes: [{ file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx2") }], removes: [] });
     expect(third.status).toBe(200);
     expect(await fs.readFile(bdx, "utf8")).toBe("bdx2");
+  });
+
+  it("answers malformed requests with 400 and never lets a stalled upload hold up others", async () => {
+    const raw = (request: string) => new Promise<string>((resolve) => {
+      const socket = net.connect(Number(host.split(":")[1]), "127.0.0.1", () => socket.write(request));
+      let reply = ""; socket.on("data", (chunk) => { reply += chunk; socket.end(); }).on("close", () => resolve(reply.split("\r\n")[0]));
+    });
+    const headers = (length: string) => `Host: ${host}\r\nOrigin: ${base}\r\nContent-Type: application/json\r\nContent-Length: ${length}\r\nConnection: close\r\n\r\n`;
+    expect(await raw(`POST /api/settings HTTP/1.1\r\n${headers("-1")}{}`)).toContain("400");
+    expect(await raw(`POST /api/settings HTTP/1.1\r\n${headers("2")}[]`)).toContain("400");
+    expect((await post("/api/commit", { name: "Shapes", create: true, workspace: "{}", writes: "abc", removes: [] })).status).toBe(400);
+    expect((await post("/api/commit", { name: "Shapes", create: true, workspace: "{}", writes: [1], removes: [] })).status).toBe(400);
+    // One browser's save stalls halfway through its upload; another browser saves at once.
+    const stalled = net.connect(Number(host.split(":")[1]), "127.0.0.1", () => stalled.write(`POST /api/commit HTTP/1.1\r\n${headers("1000")}{"name":"Slow",`));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const started = Date.now();
+    expect((await create("Not held up")).status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(2000);
+    stalled.destroy();
   });
 
   it("never reads or writes through a linked folder", async () => {
@@ -146,6 +172,8 @@ describe.skipIf(!python)("SystemCore server", () => {
       expect((await create(name)).status, name).toBe(400);
     }
     expect((await create("Week 3 autos")).status).toBe(200);
+    // Only ASCII letters fold when matching device names, as in the browser: a dotless ı is not an i.
+    expect((await create("con\u0131n$")).status).toBe(200);
     // A project saved under an older rule still opens, and its save points to Save copy.
     await fs.mkdir(path.join(home, "robot", "projects", "Aux"));
     await fs.writeFile(path.join(home, "robot", "projects", "Aux", ".bordeaux-workspace.json"), "{}");

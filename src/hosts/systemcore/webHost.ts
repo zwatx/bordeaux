@@ -49,13 +49,15 @@ function base64(bytes: Uint8Array): string {
 
 /** The server keeps projects in visible folders of at most 120 characters, as well as the desktop's rules. */
 // The server also refuses U+0085 at either end, which Python's strip() removes and JavaScript's trim() keeps.
-const robotProjectName = (name: string) => isPortableProjectName(name) && !name.startsWith(".") && name.length <= 120 && !/^\u0085|\u0085$/.test(name);
+const robotProjectName = (name: string) => isPortableProjectName(name) && name.trim() === name && !name.startsWith(".") && name.length <= 120 && !/^\u0085|\u0085$/.test(name);
 
 /** A folder name the server and the desktop accept, unused on the robot. */
 function freeName(name: string, taken: readonly string[]): string {
   const cleaned = name.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "-").replace(/[\uD800-\uDFFF]/gu, "").trim().slice(0, 110);
   // Room for a " (n)" suffix within the byte limit; a device name gains a leading underscore.
-  const base = portableFileStem(cleaned.replace(/^[. ]+|[. ]+$/g, ""), MAX_FILE_NAME_BYTES - 8).replace(/[. ]+$/, "") || "Robot paths";
+  const stem = portableFileStem(cleaned.replace(/^[\s.\u0085]+|[\s.\u0085]+$/g, ""), MAX_FILE_NAME_BYTES - 8).replace(/[\s.\u0085]+$/, "");
+  // Anything the strips above still leave unacceptable falls back to a plain name.
+  const base = robotProjectName(stem) ? stem : "Robot paths";
   const used = new Set(taken.map((item) => item.toLowerCase()));
   let candidate = base;
   for (let number = 2; used.has(candidate.toLowerCase()); number++) candidate = `${base} (${number})`;
@@ -145,9 +147,16 @@ export function createSystemcoreHost() {
     }
     const state: FolderState = { format: "bordeaux-folder/1", projectPath: where.projectPath, project: canonical, files,
       documentFiles: Object.fromEntries(documents.map((document) => [document.key, document.file])), ...(generatedFiles ? { generatedFiles } : {}) };
-    const committed = await request<{ workspaceSha256: string }>("/api/commit", {
+    const committed = await request<{ workspaceSha256: string; keptBinaries?: string[] }>("/api/commit", {
       name, create, expectedWorkspaceSha256: create ? null : current!.workspaceSha256, writes, removes, workspace: workspaceContents(state) });
     current = { name, state, workspaceSha256: committed.workspaceSha256 };
+    // The server leaves a BDX alone when the robot's copy isn't the one Bordeaux wrote; the sources are saved regardless.
+    const kept = committed.keptBinaries ?? [];
+    if (kept.length && !exportError) {
+      exportError = `${kept.join(", ")} on the robot ${kept.length === 1 ? "isn't the file" : "aren't the files"} Bordeaux saved, so Bordeaux left `
+        + `${kept.length === 1 ? "it" : "them"} as ${kept.length === 1 ? "it is" : "they are"}. Rename or remove ${kept.length === 1 ? "it" : "them"} on the robot, then save again.`;
+      bdxCount = (bdxCount ?? kept.length) - kept.length;
+    }
     return { location: where, canonicalProject: canonical, bdxCount, exportError };
   }
 
