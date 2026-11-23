@@ -5,12 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
-import { createHash } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { createDemoProject } from "../src/core/project/defaults";
 import { autosaveProjectFolder, projectWorkspacePath, writeBufferAtomically, writeProjectFolderBdx } from "../src/electron/projectFiles";
 import { projectFolderIdentity } from "../src/electron/projectFolderIdentity";
 import { ProjectSourcePersistence } from "../src/electron/projectSourcePersistence";
+
+import { robotExportTargetSnapshot } from "../src/electron/robotPathCopy";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
@@ -25,7 +26,7 @@ async function fixture() {
   let target = path.join(folder, "Paths", "Selected.bdx"), review: () => Promise<void> = async () => {};
   let handler!: (_event: unknown, project: unknown, id: string) => Promise<unknown>;
   // Execute the actual IPC listener and writer routing; only native dialogs and compiler bytes are supplied.
-  const sandbox = { fs: { promises: fs }, path, createHash, projectCommandIds, usedCommandEvidence, refreshLinkedCommands: async () => null, smokeDirectory: null, mainWindow: {}, projectSources: source,
+  const sandbox = { fs: { promises: fs }, path, robotExportTargetSnapshot, projectCommandIds, usedCommandEvidence, refreshLinkedCommands: async () => null, smokeDirectory: null, mainWindow: {}, projectSources: source,
     projectWorkspacePath, projectFolderIdentity, writeBufferAtomically, writeProjectFolderBdx,
     captureLinkedProject: () => ({ isCurrent: () => true, bindingOptions: () => ({ projectFile: null }) }),
     prepareBdxBindings: async () => ({ definitionJson: "fixture" }),
@@ -34,7 +35,7 @@ async function fixture() {
     handle: (_channel: string, listener: typeof handler) => { handler = listener; } };
   const text = await fs.readFile(path.resolve("src/electron/main.ts"), "utf8"), ast = ts.createSourceFile("main.ts", text, ts.ScriptTarget.Latest, true);
   const statements = ast.statements.filter(node => ts.isFunctionDeclaration(node)
-    ? ["robotExportTargetSnapshot", "writeSelectedProjectBdx"].includes(node.name?.text ?? "")
+    ? node.name?.text === "writeSelectedProjectBdx"
     : ts.isExpressionStatement(node) && ts.isCallExpression(node.expression) && node.expression.expression.getText(ast) === "handle" && node.expression.arguments[0]?.getText(ast) === '"project:exportBdx"');
   vm.runInNewContext(ts.transpileModule(statements.map(node => node.getText(ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, sandbox);
   return { folder, project, source, export: () => handler(null, project, project.paths[0].id), setTarget: (value: string) => { target = value; }, setReview: (value: typeof review) => { review = value; } };

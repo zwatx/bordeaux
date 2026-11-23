@@ -3,7 +3,7 @@ import { Server, utils, type Connection } from "ssh2";
 import type { AddressInfo } from "node:net";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { RobotFileDelivery } from "../src/electron/robotFileDelivery";
-import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTransfer";
+import { listRobotPathFiles, probeRobotFiles, readRobotPathFile, uploadRobotFiles } from "../src/electron/robotFileTransfer";
 
 const { STATUS_CODE: S, OPEN_MODE: O } = utils.sftp;
 const directory = "/home/lvuser/natinst/bin/Paths";
@@ -28,7 +28,7 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
   if (missingFolder) { directories.delete(folder); if (kind === "systemcore") directories.delete("/home/systemcore/bordeaux"); }
   if (missingHome) directories.delete("/home/systemcore");
   const created: string[] = [];
-  const writes: string[] = [];
+  const writes: string[] = [], reads: string[] = [];
   const writeModes: Array<number | undefined> = [];
   const authentication: string[] = [];
   const clients = new Set<Connection>();
@@ -47,6 +47,7 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
       accept().on("sftp", (acceptSftp) => {
         const sftp = acceptSftp();
         const handles = new Map<string, string>();
+        const dirReads = new Map<string, number>();
         let nextHandle = 0;
         const stat = (id: number, target: string, follow: boolean) => {
           const data = files.get(target);
@@ -62,6 +63,26 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
           if (denyMkdir) { sftp.status(id, S.PERMISSION_DENIED); return; }
           if (directories.has(target)) { sftp.status(id, S.FAILURE); return; }
           directories.add(target); created.push(target); sftp.status(id, S.OK);
+        });
+        sftp.on("OPENDIR", (id, target) => {
+          if (!directories.has(target)) { sftp.status(id, S.NO_SUCH_FILE); return; }
+          const idText = String(++nextHandle);
+          handles.set(idText, target); dirReads.set(idText, 0); sftp.handle(id, Buffer.from(idText));
+        });
+        sftp.on("READDIR", (id, handle) => {
+          const idText = handle.toString(), target = handles.get(idText), offset = dirReads.get(idText)!;
+          if (!target) { sftp.status(id, S.FAILURE); return; }
+          // The first packet might contain only dot entries; later packets contain files.
+          dirReads.set(idText, offset + 128);
+          const names = offset === 0 ? [{ filename: ".", longname: ".", attrs: { mode: 0o40755, size: 0, mtime: 0, atime: 0, uid: 1000, gid: 1000 } }]
+            : [...new Set([...files.keys(), ...directories])].filter(name => name.slice(0, name.lastIndexOf("/")) === target)
+              .slice(offset - 128, offset).map(full => {
+                const filename = full.slice(target.length + 1), symlink = links.includes(filename);
+                return { filename, longname: filename, attrs: { mode: symlink ? 0o120755 : directories.has(full) ? 0o40755 : 0o100644,
+                  size: files.get(full)?.length ?? 0, mtime: 120, atime: 0, uid: 1000, gid: 1000 } };
+              });
+          if (names.length) sftp.name(id, names);
+          else sftp.status(id, S.EOF);
         });
         sftp.on("OPEN", (id, target, flags, attrs) => {
           if (flags & O.WRITE) {
@@ -80,7 +101,9 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
           previous.copy(next); data.copy(next, offset); files.set(target, next); sftp.status(id, S.OK);
         });
         sftp.on("READ", (id, handle, offset, length) => {
-          const data = files.get(handles.get(handle.toString())!)!;
+          const target = handles.get(handle.toString())!;
+          reads.push(target);
+          const data = files.get(target)!;
           if (offset >= data.length) sftp.status(id, S.EOF);
           else sftp.data(id, data.subarray(offset, offset + length));
         });
@@ -100,10 +123,58 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
     for (const client of clients) client.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  return { files, writes, writeModes, created, authentication, endpoint: { target: kind, host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory: folder } };
+  return { files, writes, reads, directories, writeModes, created, authentication, endpoint: { target: kind, host: "127.0.0.1", port: (server.address() as AddressInfo).port, directory: folder } };
 }
 
 describe("path delivery against a real SSH/SFTP connection", () => {
+  it("reads a pinned robot file and reports a missing peer without modifying the robot", async () => {
+    const r = await robot({ linked: true, denyWrite: true });
+    const connection = await probeRobotFiles(r.endpoint), before = new Map(r.files);
+    await expect(readRobotPathFile(connection, "existing.bdx")).resolves.toEqual(Buffer.from("old"));
+    await expect(readRobotPathFile(connection, "missing.bdx")).resolves.toBeNull();
+    await expect(readRobotPathFile({ ...connection, hostKeyFingerprint: "SHA256:" + "x".repeat(43) }, "existing.bdx")).rejects.toThrow(/host key changed/i);
+    expect(r.files).toEqual(before);
+    expect(r.writes).toEqual([]);
+    expect(r.created).toEqual([]);
+  }, 15_000);
+
+  it("lists only regular BDX files, without reading contents, and opens legacy basenames exactly", async () => {
+    const r = await robot({ linked: true, links: ["existing.bdx"] });
+    r.files.set(`${directory}/Practice path.BDX`, Buffer.from("archive"));
+    r.files.set(`${directory}/routine.bdr`, Buffer.from("routine"));
+    r.files.set(`${directory}/.hidden.bdx`, Buffer.from("hidden"));
+    r.directories.add(`${directory}/folder.bdx`);
+    const connection = await probeRobotFiles(r.endpoint);
+    const inventory = await listRobotPathFiles(connection);
+    expect(inventory).toEqual({ missing: false, truncated: false, files: [
+      { fileName: "unrelated.bdx", size: 9, mtime: 120000 }, { fileName: "Practice path.BDX", size: 7, mtime: 120000 },
+    ] });
+    expect(r.reads).toEqual([]);
+    await expect(readRobotPathFile(connection, "Practice path.BDX")).resolves.toEqual(Buffer.from("archive"));
+    expect(r.writes).toEqual([]);
+    expect(r.created).toEqual([]);
+    await expect(readRobotPathFile(connection, "../Practice path.BDX")).rejects.toThrow(/basename/);
+  }, 15_000);
+
+  it("reports a partial inventory at the display cap", async () => {
+    const r = await robot({ missingFolder: false });
+    for (let i = 0; i < 300; i++) r.files.set(`${directory}/fixture-${i}.bdx`, Buffer.alloc(1));
+    const inventory = await listRobotPathFiles(await probeRobotFiles(r.endpoint));
+    expect(inventory).toMatchObject({ truncated: true, missing: false });
+    expect(inventory.files).toHaveLength(256);
+    expect(r.reads).toEqual([]);
+  }, 15_000);
+
+  it("treats a missing Paths directory as missing without creating it and refuses file symlinks", async () => {
+    const empty = await robot({ missingFolder: true });
+    const connection = await probeRobotFiles(empty.endpoint);
+    await expect(listRobotPathFiles(connection)).resolves.toEqual({ files: [], missing: true, truncated: false });
+    await expect(readRobotPathFile(connection, "missing.bdx")).resolves.toBeNull();
+    expect(empty.created).toEqual([]);
+    const linked = await robot({ links: ["existing.bdx"] });
+    await expect(readRobotPathFile(await probeRobotFiles(linked.endpoint), "existing.bdx")).rejects.toThrow(/regular file/);
+    expect(linked.writes).toEqual([]);
+  }, 15_000);
   it.each([false, true])("copies new and existing files without rename extensions (linked directory: %s)", async (linked) => {
     const r = await robot({ linked });
     const connection = await probeRobotFiles(r.endpoint);
@@ -172,6 +243,23 @@ describe("Systemcore path delivery against a real SSH/SFTP connection", () => {
     await expect(probeRobotFiles(r.endpoint, undefined, 5000, "test-custom", `SHA256:${"a".repeat(43)}`))
       .rejects.toThrow(/identity|host key/i);
     expect(r.authentication).toEqual([]);
+    await expect(readRobotPathFile({ endpoint: r.endpoint, hostKeyFingerprint: `SHA256:${"a".repeat(43)}` },
+      "existing.bdx", undefined, undefined, "test-custom")).rejects.toThrow(/identity|host key/i);
+    expect(r.authentication).toEqual([]);
+  }, 15_000);
+
+  it("reads the reviewed path using the remembered Systemcore password", async () => {
+    const robotFixture = await robot({ kind: "systemcore", password: "test-custom", denyWrite: true });
+    const delivery = new RobotFileDelivery(null, async () => {});
+    const identity = await delivery.probe(robotFixture.endpoint, { kind: "custom", password: "test-custom" });
+    await delivery.trust(identity.hostKeyFingerprint);
+    const compared = await delivery.reviewPath("review", "existing.bdx", () => undefined, async () => Buffer.from("local"), () => {});
+    expect(compared).toMatchObject({ verdict: "robotUnreadable", robot: { size: 3 } });
+    await expect(delivery.saveCopy("review", async (copy) => {
+      expect(copy.bytes).toEqual(Buffer.from("old"));
+      return { canceled: true };
+    })).resolves.toEqual({ canceled: true });
+    expect(robotFixture.writes).toEqual([]);
   }, 15_000);
 
   it("creates the Bordeaux folder on first upload and delivers a path and a routine readable by the robot", async () => {

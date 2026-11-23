@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { Client, type Callback, type SFTPWrapper, type Stats } from "ssh2";
+import { Client, type Callback, type SFTPWrapper, type Stats, type FileEntryWithStats } from "ssh2";
+import type { RobotPathFiles } from "../core/robotFileDelivery";
 import { ROBOT_DIRECTORY_ROOTS } from "../core/robotTargets";
 import { isCommandsFile } from "../core/export/commandsFile";
 import {
@@ -57,9 +58,15 @@ export function validateRobotFileName(fileName: unknown): string {
   return fileName;
 }
 
-function remotePath(file: RobotRemoteFile): string {
+export function isDeployedPathName(name: unknown): name is string {
+  return typeof name === "string" && /\.bdx$/i.test(name) && name.length > 4
+    && !name.startsWith(".") && !/[/\\\x00-\x1f\x7f\ufffd]/.test(name) && Buffer.byteLength(name) <= 255;
+}
+
+function remotePath(file: RobotRemoteFile, reading = false): string {
   const directory = validateRobotFileDirectory(file.directory);
-  const name = validateRobotFileName(file.fileName);
+  const name = reading && file.kind === "pathFile" && isDeployedPathName(file.fileName)
+    ? file.fileName : validateRobotFileName(file.fileName);
   if (file.kind === "pathFile") return `${directory}/${name}`;
   if (!/^[a-f0-9]{32}$/.test(file.token)) throw new RobotTransportError("invalid_request", "Remote path temporary token is invalid");
   return `${directory}/.bordeaux-${name}-${file.token}.tmp`;
@@ -192,11 +199,49 @@ class Ssh2RobotSession implements RobotSftpSession {
     return { created };
   }
 
+  async listPathFiles(directory: string, signal: AbortSignal): Promise<RobotPathFiles> {
+    const target = validateRobotFileDirectory(directory);
+    const combined = AbortSignal.any([signal, this.sessionSignal]);
+    const handle = await guarded<Buffer | null>(combined, this.timedOut, (resolve, reject) => {
+      this.sftp.opendir(target, (error, value) => {
+        if (!error) resolve(value);
+        else if ((error as Error & { code?: number }).code === 2) resolve(null);
+        else reject(operationError(combined, this.timedOut, error));
+      });
+    });
+    if (!handle) return { files: [], missing: true, truncated: false };
+
+    const files = new Map<string, RobotPathFiles["files"][number]>();
+    let inspected = 0, batches = 0;
+    try {
+      for (;;) {
+        if (++batches > 1024) throw new RobotTransportError("transfer_failed", "The robot folder has too many batches to inspect");
+        const entries = await guarded<FileEntryWithStats[] | null>(combined, this.timedOut, (resolve, reject) => {
+          this.sftp.readdir(handle, (error, values) => {
+            if (!error) resolve(values);
+            else if ((error as Error & { code?: number }).code === 1) resolve(null);
+            else reject(operationError(combined, this.timedOut, error));
+          });
+        });
+        if (!entries) return { files: [...files.values()], missing: false, truncated: false };
+        for (const { filename, attrs } of entries) {
+          if (++inspected > 10_000) throw new RobotTransportError("transfer_failed", "The robot folder has too many entries to inspect");
+          if (!isDeployedPathName(filename) || !attrs.isFile() || attrs.isSymbolicLink() || files.has(filename)) continue;
+          if (files.size === 256) return { files: [...files.values()], missing: false, truncated: true };
+          files.set(filename, { fileName: filename, size: attrs.size ?? 0, mtime: (attrs.mtime ?? 0) * 1000 });
+        }
+      }
+    } finally {
+      // The caller closes the SSH session even when the operation is cancelled.
+      if (!combined.aborted) await callbackOperation(combined, this.timedOut, (done) => this.sftp.close(handle, done));
+    }
+  }
+
   async read(file: RobotRemoteFile, maxBytes: number, signal: AbortSignal): Promise<Buffer> {
     if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 24 * 1024 * 1024) {
       throw new RobotTransportError("invalid_request", "Remote Bordeaux read limit is invalid");
     }
-    const target = remotePath(file);
+    const target = remotePath(file, true);
     const stat = await guarded<Stats>(AbortSignal.any([signal, this.sessionSignal]), this.timedOut, (resolve, reject) => {
       this.sftp.lstat(target, (error, value) => error ? reject(operationError(this.sessionSignal, this.timedOut, error)) : resolve(value));
     });
@@ -238,7 +283,7 @@ class Ssh2RobotSession implements RobotSftpSession {
   }
 
   async exists(file: RobotRemoteFile, signal: AbortSignal): Promise<boolean> {
-    const target = remotePath(file);
+    const target = remotePath(file, true);
     if (signal.aborted && !this.sessionSignal.aborted) throw new RobotTransportError("cancelled", "SFTP to the robot was cancelled");
     return guarded<boolean>(AbortSignal.any([signal, this.sessionSignal]), this.timedOut, (resolve, reject) => {
       this.sftp.lstat(target, (error, stat) => {

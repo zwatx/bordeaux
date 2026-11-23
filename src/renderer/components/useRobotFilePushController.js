@@ -16,7 +16,10 @@ export function linkedOutside(project, pathIds) {
 }
 const disconnected = { monitoring: false, reachability: 'unknown' };
 const emptyReview = { preview: null, result: null };
-const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading'].includes(phase);
+const robotFiles = { inventory: null, row: null, verdicts: {}, comparison: null, copy: null };
+const readScope = (scope) => scope?.kind === 'inventory' || scope?.kind === 'compare';
+const readPhase = (phase) => ['listing', 'listed', 'list-failed', 'comparing', 'compared', 'compare-failed', 'saving-copy'].includes(phase);
+const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading', 'listing', 'comparing', 'saving-copy'].includes(phase);
 
 /** `onDirectoryChanged` runs after Connect or Save names a push folder, for a host whose command list lives there. */
 export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey, onDirectoryChanged }) {
@@ -33,12 +36,18 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const state = useRef(view);
   const generation = useRef(0);
   const intent = useRef(null);
+  const readId = useRef(null);
   const origin = useRef(null);
   const trusted = useRef(null);
   const source = useRef(getProject); source.current = getProject;
   const context = useRef({ projectKey, catalogKey, bookmarkKey });
   const update = (patch) => { state.current = { ...state.current, ...patch }; setView(state.current); };
   const discard = async (preview) => { if (preview) await api.cancelRobotFiles(preview.operationId); };
+  const discardRead = () => {
+    const id = readId.current;
+    readId.current = null;
+    if (id) void api.cancelRobotPathCompare(id).catch(() => undefined);
+  };
   const passwordChange = () => !allowsCustomPassword(target) ? { kind: 'keep' } : password ? { kind: 'custom', password } : useDefault ? { kind: 'default' } : { kind: 'keep' };
   const refreshPassword = async () => {
     try { update({ passwordStatus: await api.getRobotFilePassword() }); } catch { /* The status only shapes the field's hint. */ }
@@ -53,6 +62,26 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (!intent.current) return;
     const request = ++generation.current;
     const captured = intent.current;
+    if (readScope(captured.scope)) {
+      const id = readId.current = crypto.randomUUID();
+      const listing = captured.scope.kind === 'inventory';
+      update({ phase: listing ? 'listing' : 'comparing', comparison: null, copy: null, error: '' });
+      try {
+        if (listing) {
+          const inventory = await api.listRobotPaths(id, captured.project);
+          if (request === generation.current) update({ inventory, phase: 'listed' });
+        } else {
+          const comparison = await api.compareRobotPath(id, captured.project, captured.pathIds[0], captured.scope.fileName);
+          if (request !== generation.current) return;
+          const status = comparison.expectedFileName ? 'olderName' : comparison.verdict;
+          update({ comparison, verdicts: { ...state.current.verdicts, [comparison.fileName]: status }, phase: 'compared' });
+        }
+      } catch (error) {
+        if (request === generation.current) update({ phase: listing ? 'list-failed' : 'compare-failed', error: message(error),
+          ...(captured.scope.fileName && { verdicts: { ...state.current.verdicts, [captured.scope.fileName]: 'readFailed' } }) });
+      }
+      return;
+    }
     update({ phase: 'preparing', ...emptyReview, error: '' });
     try {
       const preview = captured.scope.kind === 'routine'
@@ -75,7 +104,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       if (connection && intent.current) void prepare();
       void refreshPassword();
     }).catch((error) => { if (live && request === generation.current) update({ phase: 'idle', error: message(error) }); });
-    return () => { live = false; generation.current += 1; };
+    return () => { live = false; generation.current += 1; discardRead(); };
   }, []);
   useEffect(() => {
     // Remembered SSH trust is not evidence of a live robot. Start only after explicit Connect or Upload,
@@ -103,6 +132,15 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const previous = context.current;
     context.current = { projectKey, catalogKey, bookmarkKey };
     if (previous.projectKey === projectKey && previous.catalogKey === catalogKey && previous.bookmarkKey === bookmarkKey) return;
+    if (readScope(intent.current?.scope)) {
+      intent.current = null;
+      discardRead();
+      if (readPhase(state.current.phase) || state.current.phase === 'preparing') {
+        generation.current += 1;
+        update({ ...robotFiles, phase: 'list-failed', error: 'The project changed. Refresh to list paths for the current project.' });
+      }
+      return;
+    }
     // Only a push captured from the previous project is stale; the connection itself, and its views, are not.
     const captured = intent.current || state.current.preview || state.current.phase === 'preparing';
     intent.current = null;
@@ -124,6 +162,16 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const show = () => { if (!state.current.open) origin.current = document.activeElement; update({ open: true }); };
   const returnFocus = () => focusIfAvailable(origin.current);
   const close = () => {
+    if (state.current.phase === 'saving-copy') return;
+    const reading = readScope(intent.current?.scope) || readPhase(state.current.phase);
+    if (reading) {
+      intent.current = null;
+      discardRead();
+      if (readPhase(state.current.phase) || state.current.phase === 'preparing') {
+        generation.current += 1;
+        update({ ...robotFiles, phase: state.current.result ? 'transferred' : 'idle', error: '' });
+      }
+    }
     discardPasswordDraft();
     if (['probing', 'identity'].includes(state.current.phase)) {
       generation.current += 1;
@@ -135,23 +183,37 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const requestPush = async (scope) => {
     show();
     if (working(state.current.phase) && state.current.phase !== 'loading') return;
-    if (!['paths', 'routine'].includes(scope?.kind)) {
+    const reading = readScope(scope);
+    if (!reading && !['paths', 'routine'].includes(scope?.kind)) {
       intent.current = null;
       void discard(state.current.preview).catch(() => undefined);
       update({ error: 'Choose paths or one routine to push.', phase: 'unsupported', ...emptyReview }); return;
     }
-    if (scope.kind === 'paths' ? !scope.pathIds?.length : !scope.routineId) { intent.current = null; update({ error: 'Select paths or one routine to push.', phase: 'failed', preview: null }); return; }
+    if (!reading && (scope.kind === 'routine' ? !scope.routineId : !scope.pathIds?.length)) { intent.current = null; update({ error: 'Select paths or one routine to push.', phase: 'failed', preview: null }); return; }
     const previous = state.current.preview;
-    const project = structuredClone(source.current()), pathIds = scope.kind === 'paths' ? [...scope.pathIds] : [];
+    discardRead();
+    const project = structuredClone(source.current()), pathIds = [...(scope.pathIds ?? [])];
     const captured = intent.current = { project, scope: structuredClone(scope), pathIds, projectKey, linked: scope.kind === 'paths' ? linkedOutside(project, pathIds) : [] };
     const request = generation.current;
     const wasLoading = state.current.phase === 'loading';
-    update({ ...emptyReview, error: '', phase: wasLoading ? 'loading' : 'preparing' });
+    const detail = scope.kind === 'compare' && scope.fileName;
+    update({ ...(reading ? { preview: null } : emptyReview), ...(detail ? { row: scope.fileName, comparison: null, copy: null } : robotFiles),
+      error: '', phase: wasLoading ? 'loading' : 'preparing' });
     try { await discard(previous); }
-    catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); return; }
+    catch (error) { if (request === generation.current && intent.current === captured) update({ phase: reading ? 'list-failed' : 'failed', error: message(error) }); return; }
     if (request !== generation.current || intent.current !== captured) return;
     if (state.current.connection) await prepare();
     else if (!wasLoading) update({ phase: 'idle' });
+  };
+  const openRobotFiles = () => requestPush({ kind: 'inventory' });
+  const openRobotRow = (row) => requestPush(row.robot
+    ? { kind: 'compare', fileName: row.fileName, pathIds: row.pathId ? [row.pathId] : [] }
+    : { kind: 'paths', pathIds: [row.pathId] });
+  const backToRobotFiles = () => {
+    if (!state.current.inventory || state.current.phase === 'saving-copy') return;
+    generation.current += 1;
+    discardRead();
+    update({ phase: 'listed', comparison: null, copy: null, error: '' });
   };
   const probeRobot = async () => {
     if (working(state.current.phase)) return;
@@ -197,6 +259,17 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   const confirmPairing = async () => {
     if (working(state.current.phase) || !state.current.probe) return;
     await acceptPairing(state.current.probe, ++generation.current);
+  };
+  const saveCopy = async () => {
+    if (state.current.phase !== 'compared' || !state.current.comparison?.robot) return;
+    const request = generation.current, id = readId.current;
+    update({ phase: 'saving-copy', error: '', copy: null });
+    try {
+      const copy = await api.saveRobotPathCopy(id);
+      if (request === generation.current) update({ phase: 'compared', copy: copy.canceled ? null : copy });
+    } catch (error) {
+      if (request === generation.current) update({ phase: 'compared', error: message(error) });
+    }
   };
   const confirmPush = async () => {
     if (state.current.phase !== 'review' || !state.current.preview) return;
@@ -247,8 +320,10 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (working(state.current.phase)) return;
     const request = ++generation.current;
     const previous = state.current;
+    if (previous.inventory && intent.current) intent.current.scope = { kind: 'inventory' };
+    discardRead();
     update({ phase: 'preparing' });
-    try { await discard(previous.preview); if (request === generation.current) update({ editing: true, connection: null, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected }); }
+    try { await discard(previous.preview); if (request === generation.current) update({ ...robotFiles, editing: true, connection: null, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
   // Edit from the summary starts a fresh form. Back from identity and Change in a review keep the drafts,
@@ -259,17 +334,18 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     intent.current = null;
     const request = ++generation.current;
     const previous = state.current;
+    discardRead();
     update({ phase: 'preparing' });
     try { await discard(previous.preview); if (request === generation.current) update({ ...emptyReview, phase: 'idle', error: '' }); }
     catch (error) { if (request === generation.current) update({ phase: previous.phase, error: message(error) }); }
   };
-  return { ...view, fileTransfer: true, target, chooseTarget, host, setHost, port, setPort, directory, setDirectory, password, setPassword, useDefault, useDefaultPassword, keepSavedPassword,
+  return { ...view, fileTransfer: true, robotFilesAvailable: Boolean(api.listRobotPaths), target, chooseTarget, host, setHost, port, setPort, directory, setDirectory, password, setPassword, useDefault, useDefaultPassword, keepSavedPassword,
     busy: working(view.phase), canRetry: Boolean(intent.current), desktopAvailable: true, deliveryAvailable: true,
     pairing: view.settings,
     connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.reachability === 'online' ? ' · connected' : view.reachability === 'offline' ? ' · disconnected' : ' · not connected') : 'Not set up',
-    itemStatus: (kind, id) => working(view.phase) && intent.current?.projectKey === projectKey && (kind === 'path' ? intent.current.pathIds.includes(id) : kind === 'routine' && intent.current.scope.routineId === id)
+    itemStatus: (kind, id) => working(view.phase) && !readScope(intent.current?.scope) && intent.current?.projectKey === projectKey && (kind === 'path' ? intent.current.pathIds.includes(id) : kind === 'routine' && intent.current.scope.routineId === id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads the selected files over SFTP.', tone: 'muted' },
-    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
+    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, saveCopy, openRobotFiles, openRobotRow, backToRobotFiles, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
     retry: () => intent.current && requestPush(intent.current.scope) };
 }

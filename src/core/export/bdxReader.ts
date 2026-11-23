@@ -146,6 +146,8 @@ function eventExtension(event: BinaryReader): Pick<DecodedBdxEvent, "loop" | "gr
   const limit = event.dbl("loop limit"), id = event.text("group ID");
   if (loopKind > 3) throw malformed(`loop kind ${loopKind} is unknown`);
   if (groupMode > 2) throw malformed(`group mode ${groupMode} is unknown`);
+  if (groupMode === 0 && (order !== 0 || id)) throw malformed("ungrouped event has group fields");
+  if ((loopKind === 0 || loopKind === 3) && limit !== 0) throw malformed("unexpected loop limit");
   const loop: PathLoopUntil | undefined = loopKind === 1 ? { kind: "time", seconds: limit } : loopKind === 2 ? { kind: "distance", meters: limit }
     : loopKind === 3 ? { kind: "pathEnd" } : undefined;
   return { ...(loop ? { loop } : {}), ...(groupMode ? { group: { id, mode: groupMode === 1 ? "parallel" : "sequential", order } } : {}) };
@@ -178,7 +180,7 @@ export function decodeBdx(bytes: Uint8Array): DecodedBdx {
   const commandProtocolId = metadata.text("command protocol ID"), catalogHash = metadata.text("catalog hash");
   const driveType = metadata.u16("drive type");
   if (driveType !== 0) throw malformed(`drive type ${driveType} is not supported`);
-  metadata.u16("metadata"); // Reserved.
+  if (metadata.u16("metadata flags") !== 0) throw malformed("metadata flags are not zero");
   const totalTimeS = metadata.dbl("path duration"), totalDistanceM = metadata.dbl("path distance");
   const robot = { widthM: metadata.dbl("robot width"), lengthM: metadata.dbl("robot length"), maxSpeedMps: metadata.dbl("robot maximum speed") };
   metadata.end("the metadata");
@@ -193,7 +195,7 @@ export function decodeBdx(bytes: Uint8Array): DecodedBdx {
   const followSections = Array.from({ length: reader.count(16, "follow sections") }, (): RobotFollowSection => {
     const segmentIndex = reader.u32("a follow section"), startSample = reader.u32("a follow section"), endSample = reader.u32("a follow section");
     const mode = reader.u16("a follow mode");
-    reader.u16("a follow section"); // Reserved.
+    if (reader.u16("follow section flags") !== 0) throw malformed("follow section flags are not zero");
     if (mode > 1) throw malformed(`follow mode ${mode} is unknown`);
     return { segmentIndex, mode: mode === 0 ? "time" : "position", startSample, endSample };
   });
@@ -204,12 +206,12 @@ export function decodeBdx(bytes: Uint8Array): DecodedBdx {
     const eventId = event.text("event ID"), eventName = event.text("event name"), vi = event.text("command VI name"), conditionId = event.text("condition ID");
     const timeS = event.dbl("event time"), fraction = event.dbl("event fraction"), repeatEveryS = event.dbl("event repeat interval"), endTimeS = event.dbl("event end time");
     const trigger = event.u8("event trigger"), cancel = event.u8("cancel flag");
-    event.u16("an event"); // Reserved.
+    if (event.u16("event flags") !== 0) throw malformed("event flags are not zero");
     if (trigger > 1) throw malformed(`event trigger ${trigger} is unknown`);
     if (cancel > 1) throw malformed(`an event's cancel flag is ${cancel}, not 0 or 1`);
     const args = Array.from({ length: event.count(12, "arguments") }, (): DecodedBdxArgument => {
       const key = event.text("argument key"), tag = event.u16("argument type");
-      event.u16("an argument"); // Reserved.
+      if (event.u16("argument flags") !== 0) throw malformed("argument flags are not zero");
       return { key, ...decodeBdxArgument(tag, event.bytes(event.u32("an argument"), "an argument value")) };
     });
     const extension = minor === 2 ? eventExtension(event) : {};

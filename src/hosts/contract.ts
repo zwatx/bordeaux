@@ -16,7 +16,7 @@ import type {
   ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectSaveCheckpointRequest,
   ProjectSession, ProjectStartupDetachResult, ProjectStartupRequest, ProjectStartupResult, ProjectTransitionToken, RestoredProjectRecovery,
 } from "../core/project/projectPersistence";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathInventory } from "../core/robotFileDelivery";
 import type { BordeauxProject, RobotCommandCatalog, RobotDeliveryCapabilities, RobotIntegrationStatus, RobotProjectBookmarkSummary, ValidationResult } from "../core/types";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowMenuEntry, WindowState } from "../core/windowChrome";
 
@@ -80,6 +80,10 @@ export interface HostInvokes {
   /** Reads pushed .bdx or .bdr files by name from the trusted robot's push folder. It changes nothing on the robot. */
   "robotFiles:read": { method: "readRobotFiles"; call: (fileNames: string[]) => Promise<RobotFileReading> };
 
+  "robotFiles:listPaths": { method: "listRobotPaths"; call: (id: string, project: BordeauxProject) => Promise<RobotPathInventory> };
+  "robotFiles:compare": { method: "compareRobotPath"; call: (id: string, project: BordeauxProject, pathId?: string, fileName?: string) => Promise<RobotPathComparison> };
+  "robotFiles:cancelCompare": { method: "cancelRobotPathCompare"; call: (id: string) => Promise<void> };
+  "robotFiles:saveCopy": { method: "saveRobotPathCopy"; call: (id: string) => Promise<RobotPathCopyResult> };
   "project:exportBdx": { method: "exportBdx"; call: (project: BordeauxProject, pathId: string) => Promise<PathExportResult> };
   "project:exportRoutine": { method: "exportRoutine"; call: (project: BordeauxProject, routineId: string) => Promise<RoutineExportResult> };
   "project:location": { method: "getProjectLocation"; call: () => Promise<ProjectLocation> };

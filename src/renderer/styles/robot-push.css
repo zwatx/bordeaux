@@ -152,3 +152,82 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
   .robot-push-details>div{grid-template-columns:1fr;gap:4px}
   .robot-push-endpoint{grid-template-columns:1fr}
 }
+
+.rfp-compare[open]{display:flex;flex-direction:column;overflow:hidden}
+.rfp-view-compare{overflow:auto;overflow-wrap:anywhere}
+.rfp-compare .rfp-footer{flex:none}
+.rfp-compare-table{width:100%;table-layout:fixed;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.rfp-compare-table :is(th,td){padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
+.rfp-compare-table th{font-weight:500;color:var(--txt)}
+.rfp-compare-table tbody th{color:var(--txt-2)}
+.rfp-compare-table [data-changed] td{font-weight:550;color:var(--txt)}
+.rfp-compare-table thead td{width:36%}
+.rfp-compare-notes{margin:0;padding-left:16px;color:var(--txt-2)}
+.rfp-compare-gap{margin-top:-8px}
+.rfp-download-note{min-width:0;overflow-wrap:anywhere;font-size:12px}
+.rfp-download-note+.rfp-actions{flex-shrink:0;max-width:100%}
+@media (max-width:400px){
+  .rfp-footer:has(.rfp-download-note){flex-wrap:wrap}
+  .rfp-download-note{flex-basis:100%}
+}
+.rfp-inventory{width:min(680px,calc(100vw - 32px))}
+.rfp-inventory-filters{display:flex;flex-wrap:wrap;gap:6px}
+.rfp-inventory-filters [aria-pressed=true]{background:var(--bg-3);border-color:var(--line-3)}
+.rfp-inventory-scroll{overflow:auto;max-height:min(420px,52vh)}
+.rfp-inventory-table{overflow-wrap:anywhere}
+.rfp-inventory-table thead th{position:sticky;top:0;background:var(--bg)}
+.rfp-inventory-table thead th:nth-child(1){width:43%}
+.rfp-inventory-table th:nth-child(even){width:16%}
+.rfp-inventory-table :is(th,td):last-child{text-align:right}
+.rfp-inventory-table small{display:block;color:var(--txt-3);font-size:11px}
+.rfp-inventory-table [data-verdict=conflict],.rfp-inventory-table [data-verdict=robotUnreadable]{color:var(--warn)}
+
+.rfp-field-dialog{width:min(760px,calc(100vw - 32px));--robot-route:oklch(.77 .13 295)}
+.rfp-field-review,.rfp-field-changes{display:grid;align-content:start;gap:12px;min-width:0}
+.rfp-field-changes{gap:8px}
+.rfp-field-dialog .rfp-footer{padding-block:12px}
+.rfp-field{display:grid;align-content:start;gap:8px;min-width:0;margin:0}
+/* Route toggles double as the legend; the field view is the editor's segmented control. */
+.rfp-field-tools{display:flex;flex-wrap:wrap-reverse;align-items:center;justify-content:space-between;gap:6px}
+.rfp-field-tools>[role=group]:not(.seg){display:flex;flex-wrap:wrap;gap:2px;margin-left:-8px}
+.rfp-field-tools>.seg{order:1;min-height:0}
+.rfp-field-tools .qbtn[data-route]{min-height:28px;padding:0 8px;border-color:transparent;background:none}
+.rfp-field-tools [aria-pressed=false]{color:var(--txt-3)}
+.rfp-field-tools [data-route]::before{content:"";width:16px;border-top:2px solid var(--accent)}
+.rfp-field-tools [aria-pressed=false]::before{opacity:.35}
+.rfp-field-tools [data-route=robot]::before{border-top:2px dashed var(--robot-route)}
+.rfp-field-map{display:block;width:100%;aspect-ratio:2.05/1;background:#0a0b0d;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden}
+.rfp-field-art{filter:brightness(.38) saturate(.32) contrast(1.06)}
+.rfp-field-border,.rfp-field-grid{fill:none;stroke:var(--line-3)}
+.rfp-field-grid line,.rfp-field-map :is(rect,polyline,path,circle,line){vector-effect:non-scaling-stroke}
+.rfp-field-map [data-route]{--trace:var(--accent)}
+.rfp-field-map [data-route=robot]{--trace:var(--robot-route)}
+.rfp-field-map :is(polyline,path,circle,rect){fill:none;stroke-linejoin:round;stroke-linecap:round}
+.rfp-route-casing{stroke:#05060a;stroke-width:6;opacity:.75}
+.rfp-route-stroke,.rfp-route-arrow,.rfp-route-start,.rfp-route-end{stroke:var(--trace);stroke-width:2}
+.rfp-route-stroke{stroke-width:3}
+.rfp-field-map [data-route=robot] :is(.rfp-route-stroke,.rfp-route-end){stroke-dasharray:7 5;stroke-width:2}
+.rfp-field-map .rfp-route-end{stroke-width:1.25;opacity:.85;fill:var(--trace);fill-opacity:.1}
+.rfp-field-map .rfp-route-start{fill:#0a0b0d}
+.rfp-gap-casing{stroke:#05060a;stroke-width:3.5;opacity:.85}
+.rfp-gap-line{stroke:var(--warn-txt);stroke-width:1.5;stroke-dasharray:4 3;stroke-linecap:round}
+.rfp-field-map .rfp-field-gap circle{fill:var(--trace);stroke:#05060a;stroke-width:1}
+.rfp-field-caution{display:block;color:var(--warn-txt);font-size:12px}
+.rfp-compare .rfp-compare-table thead th:first-child{width:38%}
+.rfp-changed-values thead th{color:var(--txt-3);font-size:11.5px}
+/* Column swatches repeat the route legend so each value reads against its line on the field. */
+.rfp-changed-values thead th+th::before{content:"";display:inline-block;width:12px;margin-right:6px;border-top:2px solid var(--accent);vertical-align:middle}
+.rfp-changed-values thead th:last-child::before{border-top:2px dashed var(--robot-route)}
+.rfp-changed-values tbody td{font:12px/1.45 var(--mono)}
+.rfp-changed-values :is(th,td),.rfp-events :is(th,td){padding-block:4px}
+.rfp-events-head>*{border-top:1px solid var(--line-2)}
+.rfp-events .rfp-events-head th{color:var(--txt);font-weight:550}
+.rfp-events .rfp-event-name th{padding-top:8px;padding-bottom:0;border-bottom:0;color:var(--txt)}
+.rfp-event-row th{padding-left:20px}
+.rfp-events .rfp-absent,.rfp-compare-table .rfp-events-foot td{font:12px/1.45 var(--ui);color:var(--txt-3)}
+.rfp-all-values summary{cursor:pointer;color:var(--txt-2)}
+.rfp-all-values[open] summary{margin-bottom:6px}
+@media (min-width:1000px){
+  .rfp-field-dialog{width:min(1040px,calc(100vw - 48px))}
+  .rfp-field-review{grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:20px}
+}

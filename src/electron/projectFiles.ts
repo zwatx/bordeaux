@@ -86,8 +86,8 @@ export async function writeJsonAtomically(filePath: string, value: unknown): Pro
   await replaceFile(filePath, jsonContents(value));
 }
 
-export async function writeBufferAtomically(filePath: string, value: Uint8Array, effect?: { assertCurrent(): void }): Promise<void> {
-  await replaceFile(filePath, value, false, effect);
+export async function writeBufferAtomically(filePath: string, value: Uint8Array, effect?: { assertCurrent(): void; exclusive?: boolean }): Promise<void> {
+  await replaceFile(filePath, value, effect?.exclusive, effect);
 }
 
 export const PROJECT_EXTENSION = ".bordeaux";

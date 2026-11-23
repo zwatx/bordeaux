@@ -5,7 +5,9 @@ import '../src/renderer/styles/robot-push.css';
 import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/RobotPushDialog';
 import { DiagnosticBundleDialog } from '../src/renderer/components/DiagnosticBundleDialog';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/core/robotFileDelivery';
+import { ACTIVE_FIELD_REFERENCE } from '../src/core/field/rebuilt2026';
 import { PushControl } from '../src/renderer/components/PushControl';
+import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const results = [], root = createRoot(document.getElementById('root'));
@@ -22,11 +24,11 @@ const reject = async (request, message) => act(async () => request.reject(new Er
 async function native(request) { await new Promise((resolve) => { window.__pushUiRequest = request; window.__finishPushUiRequest = () => { window.__pushUiRequest = null; resolve(); }; }); }
 const button = (label) => [...document.querySelectorAll('button')].find((button) => button.textContent === label || button.getAttribute('aria-label') === label);
 async function pointer(label) { const rect = button(label).getBoundingClientRect(); await act(async () => native({ pointer: { x: Math.round(rect.x + rect.width/2), y: Math.round(rect.y + rect.height/2) } })); }
-function Harness() { controller = useRobotPushController(props); return <><button id="origin" onClick={() => controller.requestPush({ kind: 'paths', pathIds: ['A','B'] })}>Push selection</button><button id="connection-origin" onClick={() => controller.openConnection()}>Manage connection</button><PushControl place={props.place || 'paths'} activeRoutine={{ id: 'R', name: 'Long routine with typed branch and repeated pickup attempts' }} paths={files.map(f => ({ ...f, id: f.pathId, waypoints: [{}, {}] }))} selection={{ selected: ['A', 'B'] }} controller={controller} /><RobotPushDialog controller={controller} /><DiagnosticBundleDialog getProject={props.getProject} targetSelector=".robot-connection-diagnostics" onOpen={controller.close} onClose={() => controller.returnFocus()} renderKey={controller.open + ":" + controller.phase} /></>; }
+function Harness() { controller = useRobotPushController(props); return <><button id="origin" onClick={() => controller.requestPush({ kind: 'paths', pathIds: ['A','B'] })}>Push selection</button><button id="connection-origin" onClick={() => controller.openConnection()}>Manage connection</button><PushControl place={props.place || 'paths'} activeRoutine={{ id: 'R', name: 'Long routine with typed branch and repeated pickup attempts' }} paths={files.map(f => ({ ...f, id: f.pathId, waypoints: [{}, {}] }))} selection={{ selected: props.noSelection ? [] : ['A', 'B'] }} controller={controller} /><RobotPushDialog controller={controller} /><DiagnosticBundleDialog getProject={props.getProject} targetSelector=".robot-connection-diagnostics" onOpen={controller.close} onClose={() => controller.returnFocus()} renderKey={controller.open + ":" + controller.phase} /></>; }
 async function mount(saved = connection) {
   await act(async () => root.render(null));
   props = { getProject: () => ({ paths: files.map((f) => ({ id: f.pathId, name: f.name })), routines: [] }), projectKey: 'project-1', catalogKey: 'catalog-1' };
-  mock = { probes: [], trusts: [], prepares: [], preparesRoutine: [], confirms: [], canceled: [], saves: [], checks: [] };
+  mock = { probes: [], trusts: [], prepares: [], preparesRoutine: [], confirms: [], canceled: [], saves: [], checks: [], lists: [], comparisons: [], copies: [], canceledComparisons: [] };
   const enqueue = (name,args) => { const request = { args: structuredClone(args), ...deferred() }; mock[name].push(request); return request.promise; };
   window.bordeauxAPI = { robotDeliveryCapabilities: { fileTransfer: true, pathPush: true, routinePush: true },
     previewBetaDiagnostic: async () => ({ previewId: 'diagnostic', contents: '{}' }),
@@ -38,6 +40,9 @@ async function mount(saved = connection) {
     probeRobotFiles: (...args) => enqueue('probes',args), trustRobotFiles: (...args) => enqueue('trusts',args),
     prepareRobotFiles: (...args) => enqueue('prepares',args), confirmRobotFiles: (...args) => enqueue('confirms',args),
     prepareRobotRoutine: (...args) => enqueue('preparesRoutine',args),
+    listRobotPaths: (...args) => enqueue('lists', args),
+    compareRobotPath: (...args) => enqueue('comparisons', args), saveRobotPathCopy: (...args) => enqueue('copies', args),
+    cancelRobotPathCompare: async (id) => { mock.canceledComparisons.push(id); },
     cancelRobotFiles: async (id) => { mock.canceled.push(id); return { canceled: true }; } };
   await act(async () => root.render(<Harness />));
 }
@@ -330,6 +335,227 @@ await test('A disconnected robot clears the live green indicator while preservin
   await pointer('Manage connection');
   assert(button('Connect'), 'Disconnected state offers reconnect');
   await native({ capture: 'disconnected' });
+});
+async function enterRobotFiles(keyboard = false) {
+  props = { ...props, noSelection: true }; await act(async () => root.render(<Harness />));
+  const trigger = document.querySelector('.push-menu-trigger');
+  if (keyboard) {
+    trigger.focus();
+    await act(async () => native({ key: 'Enter' }));
+    await act(async () => native({ key: 'Down' }));
+    assert(document.activeElement.textContent === 'Robot files…', 'Arrow Down reaches Robot files');
+    await act(async () => native({ key: 'Enter' }));
+  } else {
+    await pointer(trigger.getAttribute('aria-label'));
+    await pointer('Robot files…');
+  }
+  return trigger;
+}
+const listedAt = new Date('2026-11-23T16:32:00Z').getTime();
+const robotFile = (fileName, size) => ({ fileName, size, mtime: listedAt });
+const inventoryFixture = {
+  endpoint, listedAt, missing: false, truncated: false,
+  rows: [
+    { fileName: 'Old center path.BDX', name: 'Old center path.BDX', kind: 'robotOnly', robot: robotFile('Old center path.BDX', 11832) },
+    { fileName: 'Left-side-scoring.bdx', name: files[0].name, kind: 'paired', pathId: 'A', robot: robotFile('Left-side-scoring.bdx', 18112) },
+    { fileName: 'Return-to-pickup.bdx', name: files[1].name, kind: 'localOnly', pathId: 'B' },
+  ],
+};
+const localRoute = { field: ACTIVE_FIELD_REFERENCE, endHeading: -.8, length: .88, width: .71, points: [[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.1, 5.12],
+  [4.62, 4.46], [4.9, 3.82], [5.01, 3.06], [5.121, 2.4]] };
+const robotRoute = { ...localRoute, endHeading: -1.1, points: [[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.24, 5.12],
+  [4.88, 4.58], [5.16, 3.96], [5.22, 3.35], [5.124, 2.81]] };
+const comparisonFixture = (request, extra = {}) => ({
+  id: request.args[0], endpoint, readAt: listedAt, verdict: 'different',
+  name: files[0].name, fileName: 'Left-side-scoring.bdx',
+  routes: { local: localRoute, robot: robotRoute },
+  widestGap: { local: localRoute.points.at(-1), robot: robotRoute.points.at(-1) },
+  local: { size: 18840, sha256: 'a'.repeat(64) }, robot: { size: 18112, sha256: 'b'.repeat(64) },
+  facts: [['Duration', 4.82, 5.10, 's'], ['Distance', 6.31, 6.31, 'm'], ['Peak speed', 2.5, 2.7, 'm/s'],
+    ['Events', 3, 4], ['Robot speed limit', 3.2, 3.6, 'm/s'], ['Approx. route gap', '—', 0.42, 'm'], ['End X', 5.121, 5.124, 'm'], ['End Y', 2.4, 2.81, 'm']],
+  notes: [],
+  eventChanges: { omitted: 0, unchanged: 2, rows: [
+    { id: 'intake-on', robot: { name: 'Intake on', time: 1.2 }, values: [], notes: [] },
+    { id: 'arm-up', local: { name: 'Arm up', time: 0.8 }, robot: { name: 'Arm up', time: 1.1 },
+      values: [['height', '1.2', '1.4']], notes: [] },
+  ] },
+  ...extra,
+});
+await test('Robot files opens without a selection, compares a matched row and returns to that row', async () => {
+  UnitPrefs.set('metric');
+  const trigger = await enterRobotFiles(true);
+  assert(mock.lists.length === 1 && !mock.comparisons.length && !mock.prepares.length && !mock.confirms.length, 'Inventory reads the folder only');
+  assert(document.activeElement.textContent === 'Cancel', 'Listing initially focuses Cancel');
+  await native({ capture: 'robot-files-listing' });
+  await resolve(mock.lists[0], inventoryFixture);
+  assert(document.activeElement.textContent === 'All 3', 'Inventory focuses its filters');
+  await native({ capture: 'robot-files-inventory' });
+  await pointer('On both 1');
+  assert(!button('Inspect') && button('Compare'), 'On both filter shows just the matched path');
+  button('Compare').focus();
+  await act(async () => native({ key: 'Enter' }));
+  const request = mock.comparisons[0];
+  assert(request?.args[2] === 'A' && request.args[3] === 'Left-side-scoring.bdx', 'Comparison reads just the matched row');
+  assert(document.activeElement.textContent === 'Cancel', 'Reading initially focuses Cancel');
+  await resolve(request, comparisonFixture(request));
+  assert(document.activeElement.classList.contains('rfp-compare-verdict'), 'Review focuses the verdict');
+  const table = document.querySelector('.rfp-changed-values'), map = document.querySelector('.rfp-field-map');
+  assert(!document.querySelector('.rfp-field figcaption'), 'The field has no explanatory caption when both routes can be shown');
+  assert(map.querySelectorAll('.rfp-route-stroke').length === 2 && map.querySelectorAll('.rfp-route-arrow').length === 6, 'Both compiled traces show travel direction');
+  assert(map.querySelectorAll('.rfp-route-end').length === 2 && map.querySelector('.rfp-field-gap'), 'Both end footprints and the largest separation are marked');
+  assert(!table.textContent.includes('Distance') && table.textContent.includes('5.10 s') && table.textContent.includes('Robot speed limit'), 'Changed timing and settings are highlighted above unchanged values');
+  const events = table.querySelector('.rfp-events');
+  assert(events && table.querySelectorAll('tbody').length === 2, 'Event changes align under the same local and robot column headers');
+  const intake = [...events.rows].find(row => row.cells[0].textContent === 'Intake on');
+  assert(intake.cells[1].textContent === 'Not present' && intake.cells[2].textContent === '1.20 s', 'Robot-only events identify the missing side');
+  const eventTime = [...events.rows].find(row => row.cells[0].textContent === 'Time');
+  assert(eventTime.cells[1].textContent === '0.80 s' && eventTime.cells[2].textContent === '1.10 s', 'Changed times appear in separate columns');
+  assert(events.querySelector('th[aria-label="Arm up, height"]') && !document.querySelector('.rfp-compare-notes'), 'Changed inputs have their own rows and event context');
+  assert(table.textContent.includes('5.121 m') && table.textContent.includes('5.124 m'), 'Measured changes survive display rounding');
+  await native({ capture: 'robot-files-paired-metric' });
+  UnitPrefs.set('imperial');
+  await act(async () => root.render(<Harness />));
+  assert(table.textContent.includes('9.22 ft') && table.textContent.includes('11.81 ft/s'), 'Changed values use the current units');
+  assert(document.querySelector('.rfp-field-map').getAttribute('aria-label').includes('ft'), 'The map description uses the current units');
+  await native({ capture: 'robot-files-paired-imperial' });
+  const fit = map.getAttribute('viewBox');
+  await act(async () => native({ key: 'Tab' }));
+  assert(document.activeElement.textContent === 'Fit paths', 'Tab reaches view controls from the verdict');
+  await act(async () => native({ key: 'Tab' }));
+  await act(async () => native({ key: 'Enter' }));
+  assert(map.getAttribute('viewBox') !== fit && button('Whole field').getAttribute('aria-pressed') === 'true', 'Whole field changes the visible extent');
+  await native({ capture: 'robot-files-whole-field' });
+  await pointer('Fit paths');
+  await pointer('Robot');
+  assert(!map.querySelector('g[data-route="robot"]') && map.getAttribute('viewBox') === fit, 'Toggling Robot keeps the local route and stable framing');
+  await pointer('Robot');
+  const all = document.querySelector('.rfp-all-values');
+  assert(!all.open && all.textContent.includes('20.70 ft'), 'Unchanged distance stays available in All values');
+  all.querySelector('summary').focus();
+  await act(async () => native({ key: 'Enter' }));
+  assert(all.open, 'All values is keyboard operable');
+  await act(async () => native({ key: 'Enter' }));
+  await act(async () => native({ key: 'Tab' }));
+  assert(document.activeElement === button('All files'), 'Tab reaches the review footer from All values');
+  await act(async () => native({ key: 'Tab' }));
+  assert(document.activeElement === button('Download .bdx…') && button('Download .bdx…').closest('footer'), 'Download is keyboard accessible in the footer');
+  assert(!button('Compare again'), 'Completed reviews do not offer a redundant repeat action');
+  await act(async () => native({ key: 'Enter' }));
+  assert(mock.copies[0]?.args[0] === request.args[0] && !mock.confirms.length, 'Save selects the reviewed bytes only');
+  await resolve(mock.copies[0], { canceled: true });
+  assert(document.activeElement === button('Download .bdx…') && !controller.copy, 'Native cancellation preserves review and focus');
+  await pointer('All files');
+  assert(document.activeElement === button('Compare') && document.querySelector('[data-verdict="different"]'), 'Back restores the row and keeps its verdict');
+  assert(mock.lists.length === 1, 'Back keeps the inventory snapshot');
+  await pointer('Compare');
+  const conflict = mock.comparisons[1];
+  const conflicting = comparisonFixture(conflict, { verdict: 'otherPath', robotName: 'A path from another project', widestGap: undefined });
+  conflicting.facts = conflicting.facts.filter(([label]) => !label.startsWith('End ') && label !== 'Approx. route gap');
+  await resolve(conflict, conflicting);
+  assert(document.querySelector('.rfp-compare-verdict').textContent.includes('replaces that file'), 'Filename conflict warns about replacement');
+  assert(document.querySelectorAll('.rfp-route-stroke').length === 2 && !document.querySelector('.rfp-field-gap'), 'Filename conflict shows both routes without presenting them as one revised route');
+  await native({ capture: 'robot-files-filename-conflict' });
+  await pointer('All files');
+  assert(document.querySelector('[data-verdict="otherPath"]').textContent === 'Another path' && button('On both 1'), 'Filename conflict stays visible under On both');
+  await act(async () => native({ key: 'Escape' }));
+  assert(!controller.open && document.activeElement === trigger && mock.canceledComparisons.includes(request.args[0]), 'Escape returns to Push options');
+  UnitPrefs.set('metric');
+});
+await test('Field comparison handles identical routes and refuses to align incompatible coordinates', async () => {
+  await enterRobotFiles();
+  await resolve(mock.lists[0], inventoryFixture);
+  await pointer('Compare');
+  const same = mock.comparisons[0], sameFile = { size: 18840, sha256: 'a'.repeat(64) };
+  await resolve(same, comparisonFixture(same, { verdict: 'same', routes: { local: localRoute, robot: localRoute }, local: sameFile, robot: sameFile,
+    widestGap: undefined, eventChanges: undefined, notes: [], facts: [['Duration', 4.82, 4.82, 's']] }));
+  assert(document.querySelectorAll('.rfp-route-stroke').length === 2 && !document.querySelector('.rfp-changed-values'), 'Matching files show both routes with no changed rows');
+  await native({ capture: 'robot-files-field-same' });
+  await pointer('All files');
+  await pointer('Compare');
+  const mismatched = mock.comparisons[1];
+  await resolve(mismatched, comparisonFixture(mismatched, { routes: { local: localRoute, robot: { ...robotRoute,
+    field: { ...ACTIVE_FIELD_REFERENCE, coordinateSchemaId: 'bordeaux-field/1.0' } } }, widestGap: undefined, eventChanges: undefined, notes: [],
+    facts: [['Duration', 4.82, 5.10, 's'], ['Field frame', ACTIVE_FIELD_REFERENCE.coordinateSchemaId, 'bordeaux-field/1.0']] }));
+  assert(document.querySelectorAll('.rfp-route-stroke').length === 1 && button('Robot · unsupported frame').disabled, 'Legacy coordinates never appear on the current field');
+  assert(document.querySelector('.rfp-field-caution').textContent.includes('can’t be placed') && button('Download .bdx…'), 'Unsupported frame is explained and copy remains available');
+  await native({ capture: 'robot-files-field-frame-mismatch' });
+  await pointer('All files');
+  await pointer('Compare');
+  const many = mock.comparisons[2];
+  const changes = comparisonFixture(many).eventChanges;
+  changes.rows = Array.from({ length: 5 }, (_, i) => ({ id: 'ev-' + i, robot: { name: 'Event ' + i, time: i }, values: [], notes: [] }));
+  await resolve(many, comparisonFixture(many, { eventChanges: changes }));
+  const showMore = button('Show 1 more event');
+  assert(showMore && !document.querySelector('.rfp-events').textContent.includes('Event 4'), 'Long event changes are initially limited');
+  showMore.focus();
+  await act(async () => native({ key: 'Enter' }));
+  assert(document.activeElement.textContent === 'Event 4' && !button('Show 1 more event'), 'Keyboard expansion focuses the first newly revealed event');
+});
+await test('Inventory retries a failed listing, cancels a row read and reviews a local-only Push', async () => {
+  await enterRobotFiles();
+  await reject(mock.lists[0], 'Robot SSH host key changed. Connect again before transferring files.');
+  assert(button('Try again') && button('Edit connection'), 'List failure offers recovery');
+  await native({ capture: 'robot-files-list-failed' });
+  await pointer('Try again');
+  await resolve(mock.lists[1], inventoryFixture);
+  await pointer('Compare');
+  const old = mock.comparisons[0];
+  await act(async () => native({ key: 'Escape' }));
+  await resolve(old, comparisonFixture(old));
+  assert(controller.phase === 'listed' && !controller.comparison && mock.canceledComparisons.includes(old.args[0]), 'Escape dismisses only the in-flight row read');
+  await pointer('Compare');
+  await reject(mock.comparisons[1], 'Robot file could not be read.');
+  assert(button('Try again') && !button('Download .bdx…'), 'An unsuccessful comparison offers a retry');
+  await pointer('Try again');
+  assert(mock.comparisons[2]?.args[3] === mock.comparisons[1].args[3], 'Retry requests the same file');
+  await act(async () => native({ key: 'Escape' }));
+  await pointer('Local only 1');
+  await pointer('Push…');
+  assert(mock.prepares[0]?.args[1].join(',') === 'B' && mock.confirms.length === 0, 'Local-only opens the existing scoped Push review');
+  await resolve(mock.prepares[0], { ...preview, files: [files[1]] });
+  assert(button('Upload 1 path') && !mock.confirms.length, 'Uploading still requires confirmation');
+});
+await test('Robot files pairs a new robot and downloads an absent local path after inspection', async () => {
+  await enterRobotFiles();
+  assert(!mock.lists.length && !mock.comparisons.length, 'No listing or download before trust');
+  await action(() => controller.setHost(endpoint.host));
+  await pointer('Connect'); await resolve(mock.probes[0], connection);
+  await pointer('Trust host key'); await resolve(mock.trusts[0], connection);
+  assert(mock.lists.length === 1 && !mock.prepares.length, 'Trust continues to the inventory');
+  await resolve(mock.lists[0], inventoryFixture);
+  await pointer('Robot only 1');
+  await pointer('Inspect');
+  const request = mock.comparisons[0];
+  assert(!request.args[2] && request.args[3] === 'Old center path.BDX', 'Robot-only inspection needs no local path ID');
+  await resolve(request, comparisonFixture(request, { verdict: 'robotOnly', robotOnly: true, name: 'Center pickup', routes: { robot: robotRoute },
+    fileName: 'Old center path.BDX', robot: { size: 11832, sha256: 'b'.repeat(64) }, local: undefined,
+    facts: [['Duration', '—', 4.4, 's'], ['Distance', '—', 5.2, 'm'], ['Peak speed', '—', 2.4, 'm/s'],
+      ['Events', '—', 2], ['Field frame', '—', '2026 Rebuilt · wpilib-blue-origin'], ['Planner', '—', 'bezier'], ['Format', '—', 'BDX 1.1']],
+    eventChanges: { omitted: 0, rows: [['Intake on', 1.2], ['Intake off', 3.9]].map(([name, time]) =>
+      ({ id: name, robot: { name, time }, values: [], notes: [] })) } }));
+  assert(!button('Read again') && button('Download .bdx…')?.closest('footer') && !document.querySelector('.rfp-compare-table').textContent.includes('This computer'), 'Robot-only details show only deployed values');
+  assert(document.querySelector('.rfp-events').textContent.includes('Intake off3.90 s')
+    && !document.querySelector('.rfp-events').textContent.includes('Not present'), 'Robot-only review lists events in one value column');
+  await native({ capture: 'robot-files-orphan' });
+  await pointer('Download .bdx…');
+  await reject(mock.copies[0], 'Paths/ is rebuilt from your project on every Save. Choose another folder.');
+  assert(button('Download .bdx…') && document.querySelector('footer .rfp-alert'), 'Save failure appears next to the download action');
+  await native({ capture: 'robot-files-copy-failure' });
+  await pointer('Download .bdx…');
+  await resolve(mock.copies[1], { name: 'Old center path.BDX', folder: 'Downloads', size: 11832 });
+  assert(document.querySelector('dialog').textContent.includes('11,832 bytes verified'), 'Copy confirms the original filename and exact byte count');
+  await native({ capture: 'robot-files-copy-saved' });
+  const dialogBox = document.querySelector('.rfp').getBoundingClientRect(), doneBox = button('Done').getBoundingClientRect();
+  assert(doneBox.bottom <= dialogBox.bottom && doneBox.bottom <= innerHeight, 'Copy result keeps the footer inside the window');
+  assert(Math.abs(doneBox.top - button('Download .bdx…').getBoundingClientRect().top) <= 1, 'Download and Done stay on the same footer row');
+  props = { ...props, projectKey: 'other' }; await act(async () => root.render(<Harness />));
+  assert(!controller.comparison && !controller.inventory && !button('Download .bdx…') && document.querySelector('.rfp-alert').textContent.includes('The project changed'), 'Project switch invalidates the file and inventory');
+}, null);
+await test('A missing robot folder leaves local paths available and reports no robot files', async () => {
+  await enterRobotFiles();
+  await resolve(mock.lists[0], { ...inventoryFixture, missing: true, rows: [inventoryFixture.rows[2]] });
+  assert(document.querySelector('dialog').textContent.includes('folder is missing') && button('Push…') && !button('Inspect'), 'Missing folder is read-only and preserves local-only actions');
+  await native({ capture: 'robot-files-missing-folder' });
 });
 await act(async () => root.render(null));
 const report = document.createElement('pre'); report.id = 'verification-report'; report.textContent = JSON.stringify(results, null, 2); document.body.append(report);
