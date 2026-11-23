@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { crc32 } from "../src/core/export/binaryCodec";
+import type { RobotFileConnection } from "../src/core/robotFileDelivery";
 import { RobotFileDelivery } from "../src/electron/robotFileDelivery";
 import { inspectRobotPath } from "../src/electron/robotPathBinary";
 import { matchLocalRobotPath, pairRobotPathFiles } from "../src/electron/robotPathInventory";
@@ -24,15 +25,17 @@ const compiled = async () => {
 describe("robot path differences", () => {
   it.each([["", 0], ["blue-origin", 0], ["forces-v1.1", 1]] as const)("reads the published %s BDX fixture", async (version, minor) => {
     const bytes = await fixture(version), info = inspectRobotPath(bytes);
-    expect(info).toMatchObject({ minor, eventCount: 2 });
-    expect(info.sampleCount).toBeGreaterThan(2);
+    expect(info.minor).toBe(minor);
+    expect(info.events).toHaveLength(2);
+    expect(info.samples.length).toBeGreaterThan(2);
     expect(compareRobotPath(info.id, bytes, bytes).verdict).toBe("same");
   });
 
   it("shows changed route geometry and a same-name file from another authored path", async () => {
     const { binary, bytes } = await compiled();
     const robot = Buffer.from(bytes), sampleStart = 32 + 4 + robot.readUInt32BE(32) + 4;
-    for (let offset = sampleStart; offset < sampleStart + binary.samples.length; offset += binary.stride) {
+    const sampleSize = binary.minor === 0 ? 88 : 120;
+    for (let offset = sampleStart; offset < sampleStart + binary.samples.length * sampleSize; offset += sampleSize) {
       robot.writeDoubleBE(robot.readDoubleBE(offset + 32) + 0.4, offset + 32);
     }
     robot.writeUInt32BE(crc32(robot.subarray(32)), 20);
@@ -42,15 +45,15 @@ describe("robot path differences", () => {
     expect(local?.field).toEqual(ACTIVE_FIELD_REFERENCE);
     expect(deployed?.field).toEqual(local?.field);
     expect(local?.points.length).toBeLessThanOrEqual(400);
-    const pointAt = (index: number) => [24, 32].map(offset => binary.samples.readDoubleBE(index * binary.stride + offset));
+    const pointAt = (index: number) => [binary.samples[index].x, binary.samples[index].y];
     expect(local?.points[0]).toEqual(pointAt(0));
-    expect(local?.points.at(-1)).toEqual(pointAt(binary.sampleCount - 1));
-    expect(deployed?.points.at(-1)?.[1]).toBeCloseTo(pointAt(binary.sampleCount - 1)[1] + 0.4);
+    expect(local?.points.at(-1)).toEqual(pointAt(binary.samples.length - 1));
+    expect(deployed?.points.at(-1)?.[1]).toBeCloseTo(pointAt(binary.samples.length - 1)[1] + 0.4);
     expect(changed.facts.find(([label]) => label === "Approx. route gap")?.[2]).toBeCloseTo(0.4);
     expect(changed.widestGap?.robot[1]).toBeCloseTo(changed.widestGap!.local[1] + 0.4);
-    expect(local?.endHeading).toBe(binary.samples.readDoubleBE((binary.sampleCount - 1) * binary.stride + 40));
-    expect(local?.width).toBe(binary.width);
-    expect(local?.length).toBe(binary.length);
+    expect(local?.endHeading).toBe(binary.samples.at(-1)!.headingRad);
+    expect(local?.width).toBe(binary.robot.widthM);
+    expect(local?.length).toBe(binary.robot.lengthM);
     expect(changed.facts.some(([label]) => label === "End Y")).toBe(true);
     const conflict = compareRobotPath("another-id", bytes, robot);
     expect(conflict).toMatchObject({ verdict: "otherPath", robotName: binary.name });
@@ -104,11 +107,22 @@ describe("robot path differences", () => {
     const build = () => Buffer.from(buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings).bytes);
     fixture.path.markers[0].invocation!.loop = { until: { kind: "time", seconds: 1.5 } };
     const local = build();
-    expect(inspectRobotPath(local)).toMatchObject({ minor: 2, eventCount: 2 });
+    expect(inspectRobotPath(local).minor).toBe(2);
+    expect(inspectRobotPath(local).events).toHaveLength(2);
     fixture.path.markers[0].invocation!.loop = { until: { kind: "time", seconds: 2 } };
     const result = compareRobotPath(fixture.path.id, local, build());
     expect(result.verdict).toBe("different");
     expect(result.eventChanges?.rows[0]?.notes).toContainEqual(["Loop or group", "Different"]);
+  });
+
+  it("rejects decoded geometry that cannot describe a valid path comparison", async () => {
+    const { bytes, binary } = await compiled();
+    const invalid = Buffer.from(bytes), startOfSamples = 36 + invalid.readUInt32BE(32) + 4;
+    invalid.writeDoubleBE(-1, startOfSamples);
+    invalid.writeUInt32BE(crc32(invalid.subarray(32)), 20);
+    expect(compareRobotPath(binary.id, bytes, invalid)).toMatchObject({
+      verdict: "robotUnreadable", robotError: expect.stringContaining("zero time and distance"),
+    });
   });
 
   it("preserves evidence for missing, unsupported, corrupted and unbuildable files", async () => {
@@ -120,22 +134,24 @@ describe("robot path differences", () => {
     expect(missing.routes?.local?.points.length).toBeGreaterThan(1);
     expect(missing.routes?.robot).toBeUndefined();
     expect(compareRobotPath(binary.id, bytes, corrupted)).toMatchObject({
-      verdict: "robotUnreadable", robot: { size: corrupted.length }, robotError: "BDX checksum failed",
+      verdict: "robotUnreadable", robot: { size: corrupted.length }, robotError: expect.stringMatching(/checksum/),
     });
     expect(compareRobotPath(binary.id, bytes, Buffer.from("legacy file")).verdict).toBe("robotUnreadable");
-    expect(() => inspectRobotPath(bytes.subarray(0, -1))).toThrow("Invalid BDX path data");
-    expect(() => inspectRobotPath(Buffer.concat([bytes, Buffer.alloc(1)]))).toThrow("Invalid BDX path data");
+    expect(() => inspectRobotPath(bytes.subarray(0, -1))).toThrow(/cut short/);
+    expect(() => inspectRobotPath(Buffer.concat([bytes, Buffer.alloc(1)]))).toThrow(/extra bytes/);
     expect(compareRobotPath(binary.id, { error: new Error("No NI command inputs") }, bytes)).toMatchObject({
       verdict: "localFailed", localError: "No NI command inputs", robot: { size: bytes.length },
-      facts: expect.arrayContaining([["Duration", "—", binary.duration, "s"]]),
+      facts: expect.arrayContaining([["Duration", "—", binary.totalTimeS, "s"]]),
     });
   });
 });
 
 const connection = { endpoint: { target: "roborio" as const, host: "robot.local", port: 22, directory: "/home/lvuser/Paths" }, hostKeyFingerprint: "SHA256:" + "x".repeat(43) };
-function deliveryWith(read: NonNullable<ConstructorParameters<typeof RobotFileDelivery>[2]>["read"]) {
+function deliveryWith(read: (target: RobotFileConnection, fileName: string, signal?: AbortSignal) => Promise<Buffer | null>) {
   const upload = vi.fn();
-  return { upload, delivery: new RobotFileDelivery(connection, vi.fn(), { probe: vi.fn(), upload, read }) };
+  return { upload, delivery: new RobotFileDelivery(connection, vi.fn(), {
+    probe: vi.fn(), upload, read: async (target, [fileName], signal) => [{ fileName, contents: await read(target, fileName, signal) }],
+  }) };
 }
 
 describe("robot file inventory", () => {

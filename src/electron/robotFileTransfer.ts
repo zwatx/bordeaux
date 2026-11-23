@@ -104,16 +104,44 @@ export async function listRobotPathFiles(
   });
 }
 
-/** Fetch one deployed file through the same pinned identity used for upload. */
+/** Read the named path and routine files without changing the robot. Missing files are null. */
+export async function readRobotFiles(
+  connection: RobotFileConnection, fileNames: readonly string[], signal?: AbortSignal,
+  factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
+): Promise<Array<{ fileName: string; contents: Buffer | null }>> {
+  if (!Array.isArray(fileNames) || fileNames.length < 1 || fileNames.length > 64 || fileNames.includes(COMMANDS_FILE_NAME)
+    || new Set(fileNames.map((name) => isDeployedPathName(name) ? name : validateRobotFileName(name))).size !== fileNames.length) {
+    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different .bdx or .bdr robot files to read");
+  }
+  return withPinnedReadSession(connection, signal, factory, password, async (session, directory, operation) => {
+    const files: Array<{ fileName: string; contents: Buffer | null }> = [];
+    let total = 0;
+    for (const fileName of fileNames) {
+      const file: RobotRemoteFile = { kind: "pathFile", directory, fileName };
+      let contents: Buffer | null;
+      try {
+        contents = await session.exists(file, operation) ? await session.read(file, MAX_BYTES, operation) : null;
+      } catch (error) {
+        const code = error instanceof RobotTransportError ? error.code : "transfer_failed";
+        const detail = error instanceof Error ? error.message : "SFTP read failed";
+        throw new RobotTransportError(code, `Could not read ${fileName} from the robot: ${detail}`, { cause: error });
+      }
+      total += contents?.length ?? 0;
+      if (total > MAX_BYTES) throw new RobotTransportError("transfer_failed", "The robot's files total more than 24 MiB; read fewer at once");
+      files.push({ fileName, contents });
+    }
+    return files;
+  });
+}
+
+/** Review one deployed path through the same reader as a named batch. */
 export async function readRobotPathFile(
   connection: RobotFileConnection, fileName: string, signal?: AbortSignal,
   factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
 ): Promise<Buffer | null> {
   if (!isDeployedPathName(fileName)) throw new RobotTransportError("invalid_request", "Choose a safe BDX path basename");
-  return withPinnedReadSession(connection, signal, factory, password, async (session, directory, operation) => {
-    const file: RobotRemoteFile = { kind: "pathFile", directory, fileName };
-    return await session.exists(file, operation) ? session.read(file, MAX_BYTES, operation) : null;
-  });
+  const [file] = await readRobotFiles(connection, [fileName], signal, factory, password);
+  return file.contents;
 }
 
 /** Publishes each reviewed BDX file independently; never activates robot code. */

@@ -1,25 +1,23 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import type { DecodedBdxArgument, DecodedBdxEvent } from "../core/export/bdxReader";
 import type { RobotPathComparison, RobotPathEventChange, RobotPathFact, RobotPathRoute } from "../core/robotFileDelivery";
 import { inspectRobotPath } from "./robotPathBinary";
 
 type PathBinary = ReturnType<typeof inspectRobotPath>;
 type Point = [number, number];
-const identity = (bytes: Buffer) => ({ size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+const identity = (bytes: Uint8Array) => ({ size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
 const message = (error: unknown) => error instanceof Error ? error.message : "Invalid BDX path data";
 const firstLine = (error: unknown) => message(error).split("\n")[0].slice(0, 400);
 
-function coordinate(path: PathBinary, index: number, offset: number) {
-  return path.samples.readDoubleBE(index * path.stride + offset);
-}
-
 function route(path: PathBinary): RobotPathRoute {
-  const count = Math.min(path.sampleCount, 400);
+  const count = Math.min(path.samples.length, 400);
   return {
-    field: { id: path.field, revision: path.revision, coordinateSchemaId: path.coordinates },
-    endHeading: coordinate(path, path.sampleCount - 1, 40), width: path.width, length: path.length,
+    field: path.field,
+    endHeading: path.samples.at(-1)!.headingRad, width: path.robot.widthM, length: path.robot.lengthM,
     points: Array.from({ length: count }, (_, i) => {
-      const index = Math.round(i * (path.sampleCount - 1) / (count - 1));
-      return [coordinate(path, index, 24), coordinate(path, index, 32)];
+      const { x, y } = path.samples[Math.round(i * (path.samples.length - 1) / (count - 1))];
+      return [x, y];
     }),
   };
 }
@@ -50,46 +48,45 @@ function directedGap(from: Point[], to: Point[]) {
   return { distance: Math.sqrt(largest), from: worst, to: closest };
 }
 
-function argumentValue(argument: Buffer | undefined): string {
+function argumentValue(argument: DecodedBdxArgument | undefined): string {
   if (!argument) return "—";
-  const tag = argument.readUInt16BE(), value = argument.subarray(8);
-  if (tag === 1) return String(value[0] === 1);
-  if (tag === 8) return String(value.readBigInt64BE());
-  if (tag === 9) return String(value.readBigUInt64BE());
-  if (tag === 10) return String(value.readFloatBE());
-  if (tag === 11) return String(value.readDoubleBE());
-  if (tag === 12) {
-    const text = value.toString("utf8");
+  if ("choiceIndex" in argument) return "choice #" + argument.choiceIndex;
+  if (argument.niType === "String") {
+    const text = argument.value;
     return JSON.stringify(text.length > 40 ? text.slice(0, 39) + "…" : text);
   }
-  if (tag >= 13) return "choice #" + value.readUIntBE(0, value.length);
-  return String(tag % 2 === 0 ? value.readIntBE(0, value.length) : value.readUIntBE(0, value.length));
+  return String(argument.value);
 }
 
 const EVENT_PREVIEW_LIMIT = 24;
-const eventVersion = ({ name, time }: { name: string; time: number }) => ({ name, time });
+const eventVersion = ({ name, timeS }: DecodedBdxEvent) => ({ name, time: timeS });
+const eventsById = (events: DecodedBdxEvent[]) => new Map(events.map(event => [event.eventId, event]));
+const schedule = ({ fraction, repeatEveryS, endTimeS, trigger, cancelOnPathEnd, conditionId }: DecodedBdxEvent) =>
+  [fraction, repeatEveryS, endTimeS, trigger, cancelOnPathEnd, conditionId];
 
 function eventDifferences(local: PathBinary, robot: PathBinary, result: Binaries) {
+  const aEvents = eventsById(local.events), bEvents = eventsById(robot.events);
   const rows: RobotPathEventChange[] = [];
   let omitted = 0, unchanged = 0;
-  const robotOnly = [...robot.events.keys()].filter(id => !local.events.has(id));
-  const localOnly = [...local.events.keys()].filter(id => !robot.events.has(id));
-  const shared = [...local.events.keys()].filter(id => robot.events.has(id));
-  const timeSorted = (ids: string[], events: PathBinary["events"]) =>
-    ids.sort((a, b) => events.get(a)!.time - events.get(b)!.time);
-  const robotOrder = [...robot.events.keys()].filter(id => local.events.has(id));
+  const robotOnly = [...bEvents.keys()].filter(id => !aEvents.has(id));
+  const localOnly = [...aEvents.keys()].filter(id => !bEvents.has(id));
+  const shared = [...aEvents.keys()].filter(id => bEvents.has(id));
+  const timeSorted = (ids: string[], events: Map<string, DecodedBdxEvent>) =>
+    ids.sort((a, b) => events.get(a)!.timeS - events.get(b)!.timeS);
+  const robotOrder = [...bEvents.keys()].filter(id => aEvents.has(id));
   const orderChanged = shared.some((id, index) => id !== robotOrder[index]);
-  for (const id of [...timeSorted(robotOnly, robot.events), ...timeSorted(localOnly, local.events), ...timeSorted(shared, local.events)]) {
-    const a = local.events.get(id), b = robot.events.get(id);
+  for (const id of [...timeSorted(robotOnly, bEvents), ...timeSorted(localOnly, aEvents), ...timeSorted(shared, aEvents)]) {
+    const a = aEvents.get(id), b = bEvents.get(id);
     const values: RobotPathEventChange["values"] = [], notes: RobotPathEventChange["notes"] = [];
     if (a && b) {
-      if (a.command !== b.command) values.push(["Command", a.command, b.command]);
-      if (a.schedule.some((value, i) => value !== b.schedule[i])) notes.push(["Schedule", "Different"]);
-      if (a.extension.some((value, i) => value !== b.extension[i])) notes.push(["Loop or group", "Different"]);
+      if (a.vi !== b.vi) values.push(["Command", a.vi, b.vi]);
+      if (!isDeepStrictEqual(schedule(a), schedule(b))) notes.push(["Schedule", "Different"]);
+      if (!isDeepStrictEqual(a.loop, b.loop) || !isDeepStrictEqual(a.group, b.group)) notes.push(["Loop or group", "Different"]);
       let inputChanges = 0;
-      for (const key of new Set([...a.args.keys(), ...b.args.keys()])) {
-        const before = a.args.get(key), after = b.args.get(key);
-        if (before && after && before.equals(after)) continue;
+      const aArgs = new Map(a.arguments.map(arg => [arg.key, arg])), bArgs = new Map(b.arguments.map(arg => [arg.key, arg]));
+      for (const key of new Set([...aArgs.keys(), ...bArgs.keys()])) {
+        const before = aArgs.get(key), after = bArgs.get(key);
+        if (isDeepStrictEqual(before, after)) continue;
         if (++inputChanges > 3) continue;
         const previous = argumentValue(before), next = argumentValue(after);
         if (previous === next) notes.push([key, "Different value"]);
@@ -97,7 +94,7 @@ function eventDifferences(local: PathBinary, robot: PathBinary, result: Binaries
       }
       const extraInputs = inputChanges - 3;
       if (extraInputs > 0) notes.push(["", "+" + extraInputs + (extraInputs === 1 ? " more input" : " more inputs")]);
-      if (a.name === b.name && a.time === b.time && !values.length && !notes.length) {
+      if (a.name === b.name && a.timeS === b.timeS && !values.length && !notes.length) {
         unchanged++;
         continue;
       }
@@ -108,24 +105,28 @@ function eventDifferences(local: PathBinary, robot: PathBinary, result: Binaries
   if (rows.length || orderChanged) result.eventChanges = { rows, omitted, unchanged, orderChanged };
 }
 
+const frameName = ({ id, revision, coordinateSchemaId }: PathBinary["field"]) => [id, revision, coordinateSchemaId].join(" · ");
+const peakSpeed = (path: PathBinary | undefined) => path?.samples.reduce((peak, sample) => Math.max(peak, sample.velocityMps), 0);
+
 function describe(local: PathBinary | undefined, robot: PathBinary | undefined, result: Binaries) {
   const { facts, notes, routes } = result;
   if (!local && !robot) return;
   const add = (label: string, a: string | number | undefined, b: string | number | undefined, unit?: RobotPathFact[3]) =>
     facts.push([label, a ?? "—", b ?? "—", unit]);
-  add("Duration", local?.duration, robot?.duration, "s");
-  add("Distance", local?.distance, robot?.distance, "m");
-  add("Peak speed", local?.peakSpeed, robot?.peakSpeed, "m/s");
-  add("Events", local?.eventCount, robot?.eventCount);
+  add("Duration", local?.totalTimeS, robot?.totalTimeS, "s");
+  add("Distance", local?.totalDistanceM, robot?.totalDistanceM, "m");
+  add("Peak speed", peakSpeed(local), peakSpeed(robot), "m/s");
+  add("Events", local?.events.length, robot?.events.length);
   if (robot && !local) {
-    add("Field frame", undefined, [robot.field, robot.revision, robot.coordinates].join(" · "));
+    add("Field frame", undefined, frameName(robot.field));
     add("Planner", undefined, robot.planner);
     add("Format", undefined, `BDX 1.${robot.minor}`);
   }
-  if (!local || !robot) return;
+  if (!local || !robot || result.verdict === "same") return;
 
-  const sameFrame = local.coordinates === robot.coordinates && local.field === robot.field && local.revision === robot.revision;
-  if (sameFrame && result.verdict !== "otherPath" && routes?.local && routes.robot && (local.stride !== robot.stride || !local.samples.equals(robot.samples))) {
+  const sameFrame = isDeepStrictEqual(local.field, robot.field);
+  const differentSamples = !isDeepStrictEqual(local.samples, robot.samples);
+  if (sameFrame && result.verdict !== "otherPath" && routes?.local && routes.robot && differentSamples) {
     const a = routes.local.points, b = routes.robot.points;
     const fromLocal = directedGap(a, b), fromRobot = directedGap(b, a);
     const gap = Math.max(fromLocal.distance, fromRobot.distance);
@@ -134,30 +135,31 @@ function describe(local: PathBinary | undefined, robot: PathBinary | undefined, 
         ? { local: fromLocal.from, robot: fromLocal.to } : { local: fromRobot.to, robot: fromRobot.from };
       add("Approx. route gap", undefined, gap, "m");
     }
-    for (const [label, i, j] of [["Start", 0, 0], ["End", local.sampleCount - 1, robot.sampleCount - 1]] as const) {
-      for (const [axis, offset] of [["X", 24], ["Y", 32]] as const) {
-        const a = coordinate(local, i, offset), b = coordinate(robot, j, offset);
-        if (Math.abs(a - b) > 0.001) add(`${label} ${axis}`, a, b, "m");
+    for (const [label, i] of [["Start", 0], ["End", -1]] as const) {
+      const localPose = local.samples.at(i)!, robotPose = robot.samples.at(i)!;
+      for (const axis of ["x", "y"] as const) {
+        const a = localPose[axis], b = robotPose[axis];
+        if (Math.abs(a - b) > 0.001) add(`${label} ${axis.toUpperCase()}`, a, b, "m");
       }
       const degrees = (radians: number) => (radians % (2 * Math.PI)) * 180 / Math.PI;
-      const a = degrees(coordinate(local, i, 40)), b = degrees(coordinate(robot, j, 40));
+      const a = degrees(localPose.headingRad), b = degrees(robotPose.headingRad);
       if (Math.abs(((a - b + 900) % 360) - 180) > 0.1) add(`${label} heading`, a.toFixed(1) + "°", b.toFixed(1) + "°");
     }
   }
-  if (!sameFrame) add("Field frame", [local.field, local.revision, local.coordinates].join(" · "), [robot.field, robot.revision, robot.coordinates].join(" · "));
-  if (local.sampleCount !== robot.sampleCount) add("Samples", local.sampleCount, robot.sampleCount);
+  if (!sameFrame) add("Field frame", frameName(local.field), frameName(robot.field));
+  if (local.samples.length !== robot.samples.length) add("Samples", local.samples.length, robot.samples.length);
   if (local.minor !== robot.minor) add("Format", `BDX 1.${local.minor}`, `BDX 1.${robot.minor}`);
   if (local.planner !== robot.planner) add("Planner", local.planner, robot.planner);
-  for (const [field, label, unit] of [["width", "Robot width", "m"], ["length", "Robot length", "m"], ["maxSpeed", "Robot speed limit", "m/s"]] as const) {
-    if (local[field] !== robot[field]) add(label, local[field], robot[field], unit);
+  for (const [field, label, unit] of [["widthM", "Robot width", "m"], ["lengthM", "Robot length", "m"], ["maxSpeedMps", "Robot speed limit", "m/s"]] as const) {
+    if (local.robot[field] !== robot.robot[field]) add(label, local.robot[field], robot.robot[field], unit);
   }
   eventDifferences(local, robot, result);
-  if (local.catalog !== robot.catalog || local.catalogHash !== robot.catalogHash) notes.push("Command definitions differ.");
-  if (!local.following.equals(robot.following)) notes.push("Follow section boundaries or modes differ.");
-  if (local.stride !== robot.stride || !local.samples.equals(robot.samples)) notes.push("Trajectory samples or wheel forces differ.");
+  if (local.commandProtocolId !== robot.commandProtocolId || local.catalogHash !== robot.catalogHash) notes.push("Command definitions differ.");
+  if (!isDeepStrictEqual(local.followSections, robot.followSections)) notes.push("Follow section boundaries or modes differ.");
+  if (differentSamples) notes.push("Trajectory samples or wheel forces differ.");
 }
 
-export function inspectDeployedPath(bytes: Buffer) {
+export function inspectDeployedPath(bytes: Uint8Array) {
   const file = identity(bytes);
   try { return { file, path: inspectRobotPath(bytes) }; }
   catch (error) { return { file, error: firstLine(error) }; }
@@ -165,7 +167,7 @@ export function inspectDeployedPath(bytes: Buffer) {
 
 type Binaries = Omit<RobotPathComparison, "id" | "endpoint" | "readAt" | "name" | "fileName">;
 export function compareRobotPath(
-  pathId: string | undefined, local: Buffer | { error: unknown } | undefined, robot: Buffer | null,
+  pathId: string | undefined, local: Buffer | { error: unknown } | undefined, robot: Uint8Array | null,
   deployed = robot === null ? null : inspectDeployedPath(robot),
 ): Binaries {
   const result: Binaries = { verdict: "missing", facts: [], notes: [] };
@@ -188,10 +190,10 @@ export function compareRobotPath(
     robot: robotPath && route(robotPath),
   };
   describe(localPath, robotPath, result);
-  if (result.verdict === "robotOnly" && robotPath?.events.size) {
-    const events = [...robotPath.events].sort(([, a], [, b]) => a.time - b.time);
+  if (result.verdict === "robotOnly" && robotPath?.events.length) {
+    const events = [...robotPath.events].sort((a, b) => a.timeS - b.timeS);
     result.eventChanges = {
-      rows: events.slice(0, EVENT_PREVIEW_LIMIT).map(([id, event]) => ({ id, robot: eventVersion(event), values: [], notes: [] })),
+      rows: events.slice(0, EVENT_PREVIEW_LIMIT).map(event => ({ id: event.eventId, robot: eventVersion(event), values: [], notes: [] })),
       omitted: Math.max(0, events.length - EVENT_PREVIEW_LIMIT),
     };
   }

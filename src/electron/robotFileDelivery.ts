@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathFiles, RobotPathInventory } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathFiles, RobotPathInventory } from "../core/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../core/robotFileDelivery";
 import { binaryFileName } from "../core/export/robotBinary";
 import { pairRobotPathFiles, type LocalRobotPath } from "./robotPathInventory";
@@ -11,7 +11,7 @@ import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../cor
 import { writeJsonAtomically } from "./projectFiles";
 import { sessionRobotPasswordStore, type RobotPasswordStore } from "./robotPasswordStore";
 import { discoverRobotSshIdentity } from "./robotSsh2Session";
-import { listRobotPathFiles, probeRobotFiles, readRobotPathFile, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
+import { listRobotPathFiles, probeRobotFiles, readRobotFiles, readRobotPathFile, uploadRobotFiles, validateRobotFileEndpoint } from "./robotFileTransfer";
 
 /** Validates a password change arriving over IPC; omitted means keep the password in effect. */
 export function robotPasswordChange(raw: unknown): RobotPasswordChange {
@@ -60,9 +60,9 @@ export async function writeRobotFileConnection(file: string, value: RobotFileSet
 interface RobotFileTransport {
   probe(endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string): Promise<RobotFileConnection>;
   list?(connection: RobotFileConnection, signal: AbortSignal, password: string | null): Promise<RobotPathFiles>;
-  read?(connection: RobotFileConnection, fileName: string, signal: AbortSignal, password: string | null): Promise<Buffer | null>;
   discover?(endpoint: RobotFileEndpoint): Promise<RobotFileConnection>;
   upload(connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null): Promise<{ directoryCreated: boolean }>;
+  read?(connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null): Promise<RobotFileReading["files"]>;
 }
 
 /**
@@ -88,6 +88,8 @@ export class RobotFileDelivery {
       probe: (endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string) => probeRobotFiles(endpoint, undefined, timeoutMs, password ?? null, expectedHostKeyFingerprint),
       upload: (connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null) =>
         uploadRobotFiles(connection, files, signal, undefined, password ?? null),
+      read: (connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null) =>
+        readRobotFiles(connection, fileNames, signal, undefined, password ?? null),
     },
     private readonly passwords: RobotPasswordStore = sessionRobotPasswordStore()) {
     this.saved = initial ? settings(initial) : null;
@@ -122,6 +124,24 @@ export class RobotFileDelivery {
         || observed.endpoint.host !== trusted.endpoint.host || observed.endpoint.port !== trusted.endpoint.port) return null;
       return structuredClone(trusted);
     } catch { return null; }
+  }
+  /**
+   * Reads the named files from the trusted robot's push folder, for comparing with local paths. Read-only: it changes
+   * nothing on the robot, in SSH trust, or in a file review that is waiting to be confirmed. The result names the
+   * connection it read, so a caller can discard one that arrives after the robot settings changed.
+   */
+  async read(rawFileNames: unknown): Promise<RobotFileReading> {
+    const trusted = this.trusted;
+    if (!trusted || this.trusting) throw new Error("Connect a robot before reading its files");
+    const read = this.transport.read?.bind(this.transport);
+    if (!read) throw new Error("Reading robot files is unavailable");
+    const names: unknown[] | null = Array.isArray(rawFileNames) ? rawFileNames : null;
+    if (!names?.every((name): name is string => typeof name === "string")) throw new Error("Name the robot files to read");
+    return this.readPathOperation(randomUUID(), async (connection, signal, password) => {
+      const files = await read(connection, names, signal, password);
+      signal.throwIfAborted();
+      return { connection: structuredClone(connection), readAt: new Date().toISOString(), files };
+    });
   }
   async saveSettings(endpoint: RobotFileEndpoint, rawPassword?: unknown): Promise<RobotFileSettings> {
     if (this.busy) throw new Error("Finish the current robot operation before editing settings");
@@ -235,7 +255,6 @@ export class RobotFileDelivery {
     if (!connection) throw new Error("Connect a robot before reading paths");
     const controller = new AbortController();
     const password = this.passwordFor(connection.endpoint, { kind: "keep" });
-    this.compared = null;
     const done = Promise.resolve().then(() => run(connection, controller.signal, password));
     const operation = this.reading = { id, controller, done };
     try { return await done; } finally { if (this.reading === operation) this.reading = null; }
@@ -243,6 +262,7 @@ export class RobotFileDelivery {
 
   async listPaths(id: string, paths: LocalRobotPath[], assertProject: () => void): Promise<RobotPathInventory> {
     return this.readPathOperation(id, async (connection, signal, password) => {
+      this.compared = null;
       assertProject();
       const remote = await (this.transport.list?.(connection, signal, password)
         ?? listRobotPathFiles(connection, signal, undefined, password));
@@ -256,9 +276,11 @@ export class RobotFileDelivery {
   async reviewPath(id: string, fileName: string, match: (deployedId?: string) => { id: string; name: string } | undefined,
     build: (pathId: string, signal: AbortSignal) => Promise<Buffer>, assertProject: () => void): Promise<RobotPathComparison> {
     return this.readPathOperation(id, async (connection, signal, password) => {
+      this.compared = null;
       assertProject();
-      const robot = await (this.transport.read?.(connection, fileName, signal, password)
-        ?? readRobotPathFile(connection, fileName, signal, undefined, password));
+      const robot = this.transport.read
+        ? (await this.transport.read(connection, [fileName], signal, password))[0]?.contents ?? null
+        : await readRobotPathFile(connection, fileName, signal, undefined, password);
       const readAt = Date.now();
       signal.throwIfAborted();
       assertProject();

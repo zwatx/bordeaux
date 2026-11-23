@@ -1690,6 +1690,7 @@ handle("robotFiles:cancel", (_event, operationId) => {
   if (typeof operationId !== "string") throw new Error("Transfer identifier is invalid");
   return robotFileDelivery.cancel(operationId);
 });
+handle("robotFiles:read", (_event, fileNames) => robotFileDelivery.read(fileNames));
 function captureRobotPathOperation(id: unknown) {
   if (typeof id !== "string" || !/^[\da-f-]{36}$/i.test(id)) throw new Error("Invalid robot path request");
   const context = projectContext(), generation = robotConnectionGeneration;

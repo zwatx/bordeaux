@@ -30,6 +30,7 @@ const invokeChannels = {
   "robotFiles:confirm": "confirmRobotFiles",
   "robotFiles:cancelProbe": "cancelRobotFileProbe",
   "robotFiles:cancel": "cancelRobotFiles",
+  "robotFiles:read": "readRobotFiles",
   "robotFiles:listPaths": "listRobotPaths",
   "robotFiles:compare": "compareRobotPath",
   "robotFiles:cancelCompare": "cancelRobotPathCompare",
