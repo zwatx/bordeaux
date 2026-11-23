@@ -3,6 +3,7 @@ import path from "node:path";
 import { createDemoProject, defaultPathConstraints } from "../core/project/defaults";
 import { MAX_FILE_NAME_BYTES, portableFileStem } from "../core/portableFileName";
 import { validateProject } from "../core/validation";
+import { PROJECT_NAME_RULE, isPortableProjectName } from "../core/project/projectName";
 import type { CreateNamedProjectRequest, ProjectCopyRequest, ProjectCopyDefaults } from "../core/project/desktopProjects";
 import { absentProjectSource, autosaveProjectFolder, projectWorkspacePath, type ProjectSourceOwner } from "./projectFiles";
 import { projectFolderIdentity, type ProjectFolderIdentity } from "./projectFolderIdentity";
@@ -13,11 +14,7 @@ export function parseNamedProjectRequest(value: unknown): CreateNamedProjectRequ
   const request = value as CreateNamedProjectRequest;
   if (typeof request.name !== "string") throw new Error("Project name must be text");
   const name = request.name.trim();
-  if (!name || name === "." || name === ".." || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(name)
-    || /[. ]$/.test(name) || /[\uD800-\uDFFF]/u.test(name)
-    || Buffer.byteLength(name, "utf8") > MAX_FILE_NAME_BYTES || portableFileStem(name, MAX_FILE_NAME_BYTES) !== name) {
-    throw new Error("Choose a plain project name without reserved characters or device names");
-  }
+  if (!isPortableProjectName(name)) throw new Error(PROJECT_NAME_RULE);
   if (typeof request.parentDirectory !== "string" || !path.isAbsolute(request.parentDirectory)
     || request.parentDirectory.length > 4_096 || request.parentDirectory.includes("\0")) {
     throw new Error("Choose an absolute parent directory");

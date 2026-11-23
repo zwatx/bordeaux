@@ -104,7 +104,7 @@
 .pj-location{display:flex;flex:1;align-items:center;gap:8px;min-width:0;height:34px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt-2);font:12px var(--mono)}
 .pj-location>span:not(.pj-location-change){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
 .pj-location-change{flex:none;color:var(--txt-3);font:550 12px var(--ui)}
-.pj-location:hover{border-color:var(--line-3);background:var(--bg-3);color:var(--txt)}
+.pj-location:not([data-fixed]):hover{border-color:var(--line-3);background:var(--bg-3);color:var(--txt)}
 .pj-name-input[aria-invalid="true"],.pj-location[aria-invalid="true"]{border-color:var(--bad)}
 .pj-check-row{padding-bottom:14px;color:var(--txt-2);font-size:12.5px;cursor:pointer}
 .pj-check-row input{width:16px;height:16px;margin:0 0 0 1px;accent-color:var(--accent)}

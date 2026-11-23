@@ -1,3 +1,4 @@
+import { randomUuid } from './randomUuid';
 import type { AutonomousRoutine, CommandInvocation, CommandLoop, RobotCommandDescriptor, RobotCommandOutput, RobotValueSchema, RoutineCommandOutputBranch, RoutineCommandOutputRoute, RoutineNode, RoutineOutputStop } from './types';
 import { commandInvocationValueErrors, compareExactDecimals, robotParameterValueError, robotSchemaValueError } from './robotCommands';
 import { robotValueSchemasEqual } from './robotValueSchema';
@@ -171,7 +172,7 @@ export function preflightRoutine(routine: AutonomousRoutine, commands: Map<strin
 export async function executeRoutine(source: AutonomousRoutine, descriptors: RobotCommandDescriptor[], pathIds: ReadonlySet<string>, host: RoutineExecutionAdapters, signal: AbortSignal): Promise<'completed' | 'ended' | 'cancelled'> {
   const routine = structuredClone(source), commands = new Map(structuredClone(descriptors).map(command => [command.id, command]));
   preflightRoutine(routine, commands, pathIds);
-  const runId = crypto.randomUUID(); let occurrence = 0, stepsSinceYield = 0;
+  const runId = randomUuid(); let occurrence = 0, stepsSinceYield = 0;
   const cancelled = () => new DOMException('Routine cancelled', 'AbortError');
   const checked = (scope: AbortSignal) => { if (scope.aborted) throw cancelled(); };
   const call = async <T>(work: () => Promise<T>, scope: AbortSignal): Promise<T> => {

@@ -48,14 +48,16 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
   const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
-  expect(desktopScripts).toHaveLength(21);
-  expect(new Set(desktopScripts).size).toBe(21);
+  expect(desktopScripts).toHaveLength(22);
+  expect(new Set(desktopScripts).size).toBe(22);
   expect(desktopScripts).toContain("scripts/verify-rotation-focus-ui.mjs");
   expect(desktopScripts).toContain("scripts/verify-routine-scrubber-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_ROTATION_FOCUS_UI_OUTPUT).toBe(".ui-artifacts/rotation-focus");
   expect(ci.jobs.desktop.env.BORDEAUX_ROUTINE_SCRUBBER_UI_OUTPUT).toBe(".ui-artifacts/routine-scrubber");
   expect(desktopScripts).toContain("scripts/verify-notification-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_NOTIFICATION_UI_OUTPUT).toBe(".ui-artifacts/notifications");
+  expect(desktopScripts).toContain("scripts/verify-systemcore-web.mjs");
+  expect(ci.jobs.desktop.env.BORDEAUX_SYSTEMCORE_OUTPUT).toBe(".ui-artifacts/systemcore");
   expect(desktopScripts).toContain("scripts/verify-command-search-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_COMMAND_SEARCH_UI_OUTPUT).toBe(".ui-artifacts/command-search");
   expect(desktopScripts).toContain("scripts/verify-editor-interactions.mjs");

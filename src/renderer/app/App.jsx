@@ -2748,7 +2748,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [flushProjectDraft, materializeProject]);
 
     useEffect(() => {
-      if (!window.bordeauxAPI) return undefined;
+      // Native menus exist only on the desktop; a web host has none.
+      if (typeof window.bordeauxAPI?.onMenuCommand !== 'function') return undefined;
       const api = window.bordeauxAPI;
       return api.onMenuCommand(({ command, payload }) => {
         // A project transition owns the window; native commands are ignored until it ends.
@@ -2817,7 +2818,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       current: { name: projectFolderName(projectLocation) || project.name, folderPath: projectFolder, projectPath: projectLocation?.projectPath || null,
         ...(projectLocation?.legacyFile ? { legacyFile: projectLocation.legacyFile } : {}), recoveryRecordId: sessionRecordId, untitled: !projectFolder && !recoveredFrom },
       actions: {
-        listRecent: () => api.listRecentProjects(), removeRecent: (id) => api.removeRecentProject(id),
+        listRecent: () => api.listRecentProjects(),
+        // The robot's browser host lists the projects stored on the robot: there is no local list to edit, no folder or file
+        // picker, and one fixed place for new projects.
+        ...(typeof api?.removeRecentProject === 'function' ? { removeRecent: (id) => api.removeRecentProject(id) } : {}),
         // Show in Finder/Explorer: main resolves a recent by its stable id, and an unlisted current project only for the exact
         // context (target generation included) shown when it was chosen, so a retarget meanwhile reveals nothing. A
         // displayed path is never sent.
@@ -2826,10 +2830,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             const context = sessionContext.current, session = await api.getProjectSession();
             return sameContext(context, session?.context) && sessionContext.current === context ? api.revealRecentProject({ current: context }) : { revealed: false, code: 'stale', fact: 'The project changed' };
           } } : {}) } : {}),
-        creationDefaults: () => api.getProjectCreationDefaults(), chooseParent: (current) => api.chooseProjectParentDirectory(current),
+        creationDefaults: () => api.getProjectCreationDefaults(),
+        ...(typeof api?.chooseProjectParentDirectory === 'function' ? { chooseParent: (current) => api.chooseProjectParentDirectory(current) } : {}),
         openRecent: (id, options) => switchProject(() => api.openRecentProjectById(id), options),
-        openFolder: (options) => switchProject(() => api.openProjectFolder(), options),
-        openFile: (options) => switchProject(() => api.openProjectFile(), options),
+        ...(typeof api?.openProjectFolder === 'function' ? { openFolder: (options) => switchProject(() => api.openProjectFolder(), options) } : {}),
+        ...(typeof api?.openProjectFile === 'function' ? { openFile: (options) => switchProject(() => api.openProjectFile(), options) } : {}),
         // Only the robot and the current path's limits carry over; paths, routines, commands and links never do.
         create: ({ name, parentDirectory, sameRobot }, options) => switchProject(() => api.createNamedProject({ name, parentDirectory,
           ...(sameRobot ? { template: { robot: projectRef.current.robot, ...(docRef.current?.constraints ? { constraints: docRef.current.constraints } : {}) } } : {}) }), options),

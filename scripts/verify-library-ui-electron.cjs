@@ -14,11 +14,21 @@ let editorPlace = 'Paths';
 const robotConnection = { endpoint: { target: 'roborio', host: 'fixture', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'f'.repeat(43) };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Native input is handled on the renderer's own schedule; after a nudge or an Undo key, let two frames pass (or 150 ms
+// when the hidden window draws none) so a slow CI renderer has applied it before the next save reads the project.
+const inputSettled = () => evaluate(() => new Promise((resolve) => {
+  let done = false; const finish = () => { if (!done) { done = true; resolve(); } };
+  requestAnimationFrame(() => requestAnimationFrame(finish)); setTimeout(finish, 150);
+}));
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
 async function click(selector, text) {
   if (selector === '[aria-label="Save project"]') {
+    // The checks read `saved` next, so wait for this Save to reach main. A save held open on purpose (deferredSave), or
+    // one with nothing to save (an invalid draft the App didn't apply), never arrives; after a short wait those continue.
+    const before = savesSettled;
     await click('.project-chip');
     await click('.project-menu [role="menuitem"][data-action="save"]');
+    for (const end = Date.now() + 3000; !deferredSave && savesSettled === before && Date.now() < end;) await delay(25);
     return;
   }
   if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.settings-general')))) {
@@ -172,22 +182,25 @@ const editorReady = (label) => wait(() => evaluate(() => !document.querySelector
 // Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
   await pointerClick('.pt-wp[data-selection="wp:1"]');
+  for (const end = Date.now() + 2000; (await evaluate(() => document.activeElement?.dataset.selection)) !== 'wp:1' && Date.now() < end;) await delay(25);
   assert.equal(await evaluate(() => document.activeElement?.dataset.selection), 'wp:1', 'The waypoint owns native keyboard input');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
-  await delay(80);
+  await delay(80); await inputSettled();
 }
 async function keyboardUndo() {
   await evaluate(() => document.activeElement?.blur());
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] });
-  await delay(80);
+  await delay(80); await inputSettled();
 }
 ipcMain.handle('library:restore', () => ({ project: saved }));
-let saveFailure = '', deferredSave = null, saveAttempts = 0;
+let saveFailure = '', deferredSave = null, saveAttempts = 0, savesSettled = 0;
 ipcMain.handle('library:save', async (_event, project) => {
   saveAttempts++;
-  if (saveFailure) throw new Error(saveFailure);
-  if (deferredSave) await deferredSave.promise;
-  saved = project; return { saved: true };
+  try {
+    if (saveFailure) throw new Error(saveFailure);
+    if (deferredSave) await deferredSave.promise;
+    saved = project; return { saved: true };
+  } finally { savesSettled++; }
 });
 ipcMain.handle('library:diagnostic-preview', (_event, project) => {
   diagnosticPreviews.push(project);
@@ -857,7 +870,16 @@ app.whenReady().then(async () => {
     // The full inspector opens from the docked properties' More; Tab from the last row action reaches Push.
     const openInspector = async () => { if (await evaluate(() => document.querySelector('.pp-more').getAttribute('aria-expanded') !== 'true')) await click('.pp-more'); };
     // Push is the toolbar's robot end: Tab from the last place passes the place actions and the destination to reach it.
-    const tabToPush = async () => { await evaluate(() => document.querySelector('.place:last-child').focus()); for (let i = 0; i < 8 && !(await evaluate(() => document.activeElement?.matches('.push-button'))); i++) await key('Tab'); };
+    // Each Tab waits for focus to move before the next, so a slow frame can't swallow a step.
+    const focusToken = () => evaluate(() => { const el = document.activeElement; return el ? el.outerHTML.slice(0, 200) + [...(el.parentNode?.children || [])].indexOf(el) : ''; });
+    const tabToPush = async () => {
+      await evaluate(() => document.querySelector('.place:last-child').focus());
+      for (let i = 0; i < 8 && !(await evaluate(() => document.activeElement?.matches('.push-button'))); i++) {
+        const from = await focusToken();
+        await key('Tab');
+        for (const end = Date.now() + 1000; (await focusToken()) === from && Date.now() < end;) await delay(25);
+      }
+    };
     for (const [width, height] of [[1100, 720], [1440, 900]]) {
       win.setContentSize(width, height); await delay(150);
       await openInspector();

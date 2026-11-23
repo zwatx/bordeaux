@@ -9,7 +9,8 @@ declare function structuredClone<T>(value: T): T;
 declare function setTimeout(handler: () => void, timeout?: number): unknown;
 
 declare var performance: { now(): number };
-declare var crypto: { randomUUID(): string };
+// randomUUID exists only in secure contexts (HTTPS or localhost); the SystemCore serves plain http. Use core/randomUuid.ts.
+declare var crypto: { randomUUID?(): string; getRandomValues<T extends Uint8Array>(array: T): T };
 
 interface AbortSignal {
   readonly aborted: boolean;

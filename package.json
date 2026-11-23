@@ -12,6 +12,8 @@
     "build": "npm run verify:renderer && npm run build:electron",
     "build:renderer": "vite build --config vite.renderer.config.mts",
     "build:electron": "node scripts/clean-electron-build.mjs && tsc -p tsconfig.electron.build.json",
+    "build:systemcore": "vite build --config vite.systemcore.config.mts",
+    "test:systemcore": "node scripts/verify-systemcore-web.mjs",
     "benchmark:renderer:browser": "node scripts/benchmark-renderer-browser.mjs",
     "benchmark:planner-beta": "npm run build:electron && node scripts/evaluate-planner-beta.mjs",
     "certify:field": "npm run build:electron && node scripts/certify-field.mjs",
