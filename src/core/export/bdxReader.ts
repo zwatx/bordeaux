@@ -156,7 +156,8 @@ function eventExtension(event: BinaryReader): Pick<DecodedBdxEvent, "loop" | "gr
  * or do not follow the layout. `bytes` is only read.
  */
 export function decodeBdx(bytes: Uint8Array): DecodedBdx {
-  if (bytes.length < HEADER_BYTES || MAGIC.some((byte, index) => bytes[index] !== byte)) throw new Error("This is not a BDX path file");
+  if (MAGIC.some((byte, index) => bytes[index] !== byte)) throw new Error("This is not a BDX path file");
+  if (bytes.length < HEADER_BYTES) throw new Error(`BDX file is cut short: it holds ${bytes.length} of its ${HEADER_BYTES} header bytes`);
   const header = new DataView(bytes.buffer, bytes.byteOffset, HEADER_BYTES);
   const major = header.getUint16(8), minor = header.getUint16(10);
   // The version decides the layout, so it is checked before anything is read with it.

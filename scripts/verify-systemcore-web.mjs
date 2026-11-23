@@ -5,7 +5,8 @@
 //   BORDEAUX_SYSTEMCORE_SFTP=127.0.0.1:2222                 with a robot URL: the robot's SSH (tunnel it too), for the
 //                                                            desktop transport that delivers the LabVIEW command list
 //
-// Artifacts (screenshots, report.json, the pushed files' hashes and their decoded contents) go to BORDEAUX_SYSTEMCORE_OUTPUT or a temp folder.
+// Artifacts (screenshots and report.json; a local run adds the pushed files' hashes and their decoded contents) go to
+// BORDEAUX_SYSTEMCORE_OUTPUT or a temp folder.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';

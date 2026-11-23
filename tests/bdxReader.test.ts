@@ -178,7 +178,8 @@ describe("refusing a file that is not a readable BDX", () => {
   const u32 = (offset: number, value: number) => (payload: Buffer) => { payload.writeUInt32BE(value, offset); };
   it.each<[string, () => Uint8Array, RegExp]>([
     ["an empty file", () => new Uint8Array(0), /not a BDX path file/],
-    ["a file shorter than the header", () => plain.bytes.subarray(0, 31), /not a BDX path file/],
+    ["a file shorter than the BDX mark", () => plain.bytes.subarray(0, 7), /not a BDX path file/],
+    ["a BDX cut short inside its header", () => plain.bytes.subarray(0, 31), /cut short/],
     ["a routine file", () => Buffer.from(`{"schema":"bordeaux-routine-runtime/1","name":"Auto","nodes":[]}`.padEnd(64)), /not a BDX path file/],
     [COMMANDS_FILE_NAME, () => Buffer.from(encodeCommandsFile(plainFixture.bindings)), /not a BDX path file/],
     ["a newer major version", () => withHeader(plain.bytes, (header) => header.writeUInt16BE(2, 8)), /version 2\.1.*newer/],
