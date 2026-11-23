@@ -57,6 +57,7 @@ jobs:
               scripts/verify-rotation-focus-ui.mjs
               scripts/verify-routine-scrubber-ui.mjs
               scripts/verify-notification-ui.mjs
+              scripts/verify-systemcore-web.mjs
           - group: planning
             checks: |
               scripts/verify-planning-recovery-ui.mjs
@@ -97,6 +98,7 @@ jobs:
       BORDEAUX_ROUTINE_SCRUBBER_UI_OUTPUT: .ui-artifacts/routine-scrubber
       BORDEAUX_NOTIFICATION_UI_OUTPUT: .ui-artifacts/notifications
       BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT: .ui-artifacts/timeline-commands
+      BORDEAUX_SYSTEMCORE_OUTPUT: .ui-artifacts/systemcore
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install
@@ -135,6 +137,7 @@ jobs:
           path: |
             .ui-artifacts/**/*.png
             .ui-artifacts/**/result*.json
+            .ui-artifacts/systemcore/report.json
             .ui-artifacts/**/failure-dom.txt
             .ui-artifacts/update-quit/identity.json
             .ui-artifacts/update-quit/stdout.log

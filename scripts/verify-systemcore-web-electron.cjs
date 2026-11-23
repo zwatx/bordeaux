@@ -1,11 +1,14 @@
 // Drives the SystemCore web build as a plain browser page (no preload) through save, restore, autosave and push.
 // Run through verify-systemcore-web.mjs, which supplies the URL and the artifact folder.
 const { app, BrowserWindow } = require('electron');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const url = process.env.BORDEAUX_SYSTEMCORE_URL;
 const output = process.env.BORDEAUX_SYSTEMCORE_OUTPUT;
+// Set only for a local server; an installed robot skips the checks that need its disk.
+const home = process.env.BORDEAUX_SYSTEMCORE_HOME;
 if (!url || !output) throw new Error('Run verify-systemcore-web.mjs');
 app.setPath('userData', path.join(output, 'user-data'));
 
@@ -49,6 +52,13 @@ async function save() {
   const statuses = await evaluate(() => window.__commits.statuses);
   if (statuses.some((status) => status !== 200)) throw new Error('A project write was refused: ' + JSON.stringify(statuses));
 }
+async function menuItem(label) {
+  await click('.project-chip');
+  await wait(new Function(`return [...document.querySelectorAll('.project-menu [role="menuitem"]')].some((el) => el.textContent.trim().startsWith(${JSON.stringify(label)}))`), 'menu item ' + label);
+  await evaluate((label) => [...document.querySelectorAll('.project-menu [role="menuitem"]')].find((el) => el.textContent.trim().startsWith(label)).click(), label);
+  await delay(200);
+}
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 async function editorReady() { await wait(() => Boolean(document.querySelector('.library-pick, .pt-wp')) && !document.querySelector('.fieldcol[data-planning-ready="false"]'), 'editor ready', 60_000); }
 
 app.whenReady().then(async () => {
@@ -113,6 +123,62 @@ app.whenReady().then(async () => {
     await shot('06-push-done');
     check('Push copies the reviewed BDX into the robot code folder and verifies it', { review, done });
     await click('[aria-label="Close robot files"]');
+
+    // A batch whose second destination can't be replaced stops before the first robot file changes.
+    if (home) {
+      const pushed = path.join(home, 'paths');
+      const [first] = await fs.readdir(pushed);
+      const firstBefore = sha256(await fs.readFile(path.join(pushed, first)));
+      const prepared = await evaluate(async (name) => {
+        const workspace = JSON.parse((await (await fetch(`/api/projects/${encodeURIComponent(name)}/workspace`)).json()).contents);
+        const project = workspace.project, original = project.paths.find((item) => item.exportable !== false && item.waypoints.length >= 2);
+        // The first file gets new bytes under its old name; the second is a new path.
+        const moved = { ...original, waypoints: original.waypoints.map((point, index) => index === 0 ? { ...point, x: point.x + 0.05 } : point) };
+        const second = { ...original, id: original.id + '-second', name: original.name + ' second' };
+        const changed = { ...project, paths: project.paths.map((item) => item.id === original.id ? moved : item).concat(second) };
+        const preview = await window.bordeauxAPI.prepareRobotFiles(changed, [original.id, second.id]);
+        return { operationId: preview.operationId, files: preview.files.map((file) => ({ fileName: file.fileName, sha256: file.sha256 })) };
+      }, name);
+      if (prepared.files.length !== 2 || prepared.files[0].fileName !== first || prepared.files[0].sha256 === firstBefore) throw new Error('Unexpected two-file review: ' + JSON.stringify({ first, prepared }));
+      if ((await fs.readdir(pushed)).length !== 1) throw new Error('Review alone changed the robot code folder');
+      await fs.mkdir(path.join(pushed, prepared.files[1].fileName));
+      const failure = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
+      await fs.rmdir(path.join(pushed, prepared.files[1].fileName));
+      if (!/No robot files were replaced/.test(failure)) throw new Error('A failed batch did not say nothing was replaced: ' + failure);
+      if (sha256(await fs.readFile(path.join(pushed, first))) !== firstBefore) throw new Error('A failed batch replaced ' + first);
+      const left = (await fs.readdir(pushed)).filter((file) => file !== first);
+      if (left.length) throw new Error('A failed batch left files behind: ' + left.join(', '));
+      const replay = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
+      if (!/Review the selected files again/.test(replay)) throw new Error('A failed review could be confirmed again: ' + replay);
+      check('a two-file push whose second destination fails replaces neither file, and the review cannot be replayed', { failure });
+    }
+
+    // New project: the robot keeps every project in one folder, so the form shows it and offers no picker.
+    await menuItem('Projects…');
+    await wait(() => Boolean(document.querySelector('.pj-sheet[open] .pj-list')), 'projects list');
+    const listActions = await evaluate(() => [...document.querySelectorAll('.pj-sheet .pj-foot button')].map((button) => button.textContent.trim()));
+    if (listActions.some((label) => /^Open (folder|file)/.test(label))) throw new Error('The robot offers a local folder or file picker: ' + listActions);
+    const rows = await evaluate(() => [...document.querySelectorAll('.pj-sheet .pj-list .pj-name')].map((row) => row.textContent.trim()));
+    if (rows.filter((row) => row === name).length !== 1) throw new Error('The open project is not listed exactly once: ' + JSON.stringify(rows));
+    await shot('07-projects');
+    await click('.pj-sheet .pj-foot button[data-action="new"]');
+    await wait(() => Boolean(document.querySelector('.pj-new .pj-location[data-fixed]')) && !document.querySelector('#pj-location-value')?.textContent.includes('…'), 'new project form');
+    const location = await evaluate(() => ({ value: document.querySelector('#pj-location-value').textContent.replace(/\u200e/g, ''), change: Boolean(document.querySelector('.pj-location-change')) }));
+    if (location.change || !location.value.endsWith('/projects')) throw new Error('New project location is not the robot projects folder: ' + JSON.stringify(location));
+    const created = `Robot check ${Date.now().toString(36)}`;
+    await evaluate((value) => {
+      const input = document.querySelector('#pj-new-name');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, created);
+    await shot('08-new-project');
+    await click('.pj-new button.primary', 'Create');
+    await wait(new Function(`return !document.querySelector('.pj-sheet[open]') && (document.querySelector('.project-chip')?.textContent || '').includes(${JSON.stringify(created)})`), 'new project opened', 30_000);
+    await editorReady();
+    const listed = (await api('/api/projects')).map((item) => item.name);
+    if (!listed.includes(created) || (await api('/api/info')).lastProject !== created) throw new Error('New project is not stored on the robot: ' + JSON.stringify(listed));
+    await shot('09-new-project-open');
+    check('New project creates and opens a project in the robot projects folder', { created, location: location.value });
 
     await commitsSettled();
     const statuses = await evaluate(() => window.__commits.statuses);

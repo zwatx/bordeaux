@@ -32,7 +32,8 @@ if (!url) {
   if (!up) { server.kill(); throw new Error(`The local server did not answer at ${url}`); }
 }
 console.log('SystemCore web artifacts: ' + output);
-const env = { ...process.env, BORDEAUX_SYSTEMCORE_URL: url, BORDEAUX_SYSTEMCORE_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' };
+// A local run also hands over the robot home, so the page check can stage a bad destination and prove files on disk.
+const env = { ...process.env, BORDEAUX_SYSTEMCORE_URL: url, BORDEAUX_SYSTEMCORE_OUTPUT: output, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', ...(home ? { BORDEAUX_SYSTEMCORE_HOME: home } : {}) };
 delete env.ELECTRON_RUN_AS_NODE;
 const code = await new Promise((resolve) => {
   const child = spawn(electron, [path.resolve('scripts/verify-systemcore-web-electron.cjs')], { env, stdio: 'inherit' });
