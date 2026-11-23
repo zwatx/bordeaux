@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Server, utils, type Connection } from "ssh2";
 import type { AddressInfo } from "node:net";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { RobotFileDelivery } from "../src/electron/robotFileDelivery";
 import { probeRobotFiles, uploadRobotFiles } from "../src/electron/robotFileTransfer";
 
@@ -17,7 +17,8 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 // A real SSH/SFTP v3 server, deliberately without OpenSSH rename extensions.
 // Its filesystem models the selected runtime directory, including a linked parent.
 // A roboRIO accepts `admin` with no password; a Systemcore accepts `systemcore` with its password.
-async function robot({ kind = "roborio" as "roborio" | "systemcore", password = "systemcore", missingHome = false, linked = false, denyWrite = false, missingFolder = false, denyMkdir = false } = {}) {
+// `links` names files in the folder that are symbolic links.
+async function robot({ kind = "roborio" as "roborio" | "systemcore", password = "systemcore", missingHome = false, linked = false, denyWrite = false, missingFolder = false, denyMkdir = false, links = [] as string[] } = {}) {
   const folder = kind === "systemcore" ? systemcoreDirectory : directory;
   const files = new Map<string, Buffer>(missingFolder ? [] : [[`${folder}/existing.bdx`, Buffer.from("old")], [`${folder}/unrelated.bdx`, Buffer.from("untouched")]]);
   const directories = new Set(kind === "systemcore"
@@ -50,7 +51,8 @@ async function robot({ kind = "roborio" as "roborio" | "systemcore", password = 
         const stat = (id: number, target: string, follow: boolean) => {
           const data = files.get(target);
           if (!data && !directories.has(target)) { sftp.status(id, S.NO_SUCH_FILE); return; }
-          const type = linked && target === "/home/lvuser/natinst" && !follow ? 0o120000 : directories.has(target) ? 0o040000 : 0o100000;
+          const link = (linked && target === "/home/lvuser/natinst") || links.some((name) => target === `${folder}/${name}`);
+          const type = link && !follow ? 0o120000 : directories.has(target) ? 0o040000 : 0o100000;
           sftp.attrs(id, { mode: type | 0o755, size: data?.length ?? 0, uid: 1000, gid: 1000, atime: 0, mtime: 0 });
         };
         sftp.on("LSTAT", (id, target) => stat(id, target, false));
@@ -220,4 +222,108 @@ describe("Systemcore path delivery against a real SSH/SFTP connection", () => {
     await expect(probeRobotFiles(r.endpoint)).rejects.toThrow("Required robot directory /home/systemcore is unavailable");
     expect(r.created).toEqual([]); expect(r.writes).toEqual([]);
   }, 15_000);
+});
+
+/**
+ * Reading asks a robot what it holds, so it must never change the robot and never trust more than Push does.
+ *
+ * Ways it can fail, each covered below:
+ *  1. It writes, renames, removes or creates something on the robot.
+ *  2. It returns other bytes than the robot holds: binary values, or a file longer than one SFTP read.
+ *  3. A file or a whole folder the robot lacks is reported as an error instead of as absent.
+ *  4. It follows a link placed at a file name, and returns a file from outside the push folder.
+ *  5. It logs in to a robot whose host key is not the trusted one, or with no trusted robot at all.
+ *  6. It reads a name that is not a reviewed kind of file, or reaches outside the push folder.
+ *  7. It logs in with the default password on a robot whose trusted login uses a custom one.
+ *  8. It discards a push review the person is still looking at.
+ *  9. A robot folder full of large files exhausts memory.
+ */
+describe("reading pushed files back over a real SSH/SFTP connection", () => {
+  async function trusted(r: Awaited<ReturnType<typeof robot>>, password?: { kind: "custom"; password: string }) {
+    const delivery = new RobotFileDelivery(null, async () => {});
+    const identity = await delivery.probe(r.endpoint, password);
+    await delivery.trust(identity.hostKeyFingerprint);
+    return { delivery, identity };
+  }
+  const contents = (reading: Awaited<ReturnType<RobotFileDelivery["read"]>>) => reading.files.map((file) => [file.fileName, file.contents && Buffer.from(file.contents)]);
+
+  it("returns each named file's bytes, reports a missing one as absent, and changes nothing", async () => {
+    const r = await robot({ linked: true });
+    // Longer than one SFTP read, with every byte value.
+    const long = randomBytes(200_000);
+    r.files.set(`${directory}/long.bdx`, long);
+    const before = new Map(r.files);
+    const { delivery, identity } = await trusted(r);
+    const started = Date.now();
+    const reading = await delivery.read(["existing.bdx", "long.bdx", "absent.bdx"]);
+    expect(contents(reading)).toEqual([["existing.bdx", Buffer.from("old")], ["long.bdx", long], ["absent.bdx", null]]);
+    expect(reading.connection).toEqual(identity);
+    expect(Date.parse(reading.readAt)).toBeGreaterThanOrEqual(started);
+    expect(r.files).toEqual(before); expect(r.writes).toEqual([]); expect(r.created).toEqual([]);
+  }, 15_000);
+
+  it("reports every file absent when the robot has no push folder yet, without creating it", async () => {
+    const r = await robot({ kind: "systemcore", missingFolder: true });
+    const { delivery } = await trusted(r);
+    expect(contents(await delivery.read(["Opening.bdx", "Opening.bdr"]))).toEqual([["Opening.bdx", null], ["Opening.bdr", null]]);
+    expect(r.created).toEqual([]); expect(r.writes).toEqual([]); expect(r.files.size).toBe(0);
+  }, 15_000);
+
+  it("refuses a link at a file name and returns no file", async () => {
+    const r = await robot({ links: ["existing.bdx"] });
+    const { delivery } = await trusted(r);
+    await expect(delivery.read(["unrelated.bdx", "existing.bdx"])).rejects.toThrow(/existing\.bdx.*not a regular file/);
+  }, 15_000);
+
+  it("refuses a robot whose host key is not the trusted one, before sending a password", async () => {
+    const r = await robot({ kind: "systemcore" });
+    const delivery = new RobotFileDelivery({ endpoint: r.endpoint, hostKeyFingerprint: `SHA256:${"a".repeat(43)}` }, async () => {});
+    await expect(delivery.read(["existing.bdx"])).rejects.toThrow(/host key changed/);
+    expect(r.authentication).toEqual([]);
+  }, 15_000);
+
+  it("refuses without a trusted robot", async () => {
+    const r = await robot();
+    const unpaired = new RobotFileDelivery(null, async () => {}), untrusted = new RobotFileDelivery({ endpoint: r.endpoint }, async () => {});
+    await expect(unpaired.read(["existing.bdx"])).rejects.toThrow(/Connect a robot/);
+    await expect(untrusted.read(["existing.bdx"])).rejects.toThrow(/Connect a robot/);
+    expect(r.authentication).toEqual([]);
+  }, 15_000);
+
+  it.each<[string, unknown]>([
+    ["a name outside the folder", ["../existing.bdx"]], ["a folder in the name", ["Paths/existing.bdx"]], ["another kind of file", ["startup.rtexe"]], ["the command list", ["bordeaux-commands.json"]],
+    ["no names", []], ["a name twice", ["existing.bdx", "existing.bdx"]], ["more than 64 names", Array.from({ length: 65 }, (_, index) => `path-${index}.bdx`)],
+    ["one name instead of a list", "existing.bdx"], ["a name that is not text", [7]],
+  ])("refuses %s before connecting", async (_case, names) => {
+    const r = await robot();
+    const { delivery } = await trusted(r);
+    const logins = r.authentication.length;
+    await expect(delivery.read(names)).rejects.toThrow();
+    expect(r.authentication).toHaveLength(logins);
+  }, 15_000);
+
+  it("logs in with the trusted custom password", async () => {
+    const r = await robot({ kind: "systemcore", password: "team-2468" });
+    const { delivery } = await trusted(r, { kind: "custom", password: "team-2468" });
+    expect(contents(await delivery.read(["existing.bdx"]))).toEqual([["existing.bdx", Buffer.from("old")]]);
+  }, 15_000);
+
+  it("leaves a push review ready to confirm", async () => {
+    const r = await robot();
+    const { delivery } = await trusted(r);
+    const review = delivery.prepare([{ pathId: "path-1", name: "New", fileName: "new.bdx", contents: Buffer.from("reviewed") }], async () => {});
+    await delivery.read(["existing.bdx", "new.bdx"]);
+    await expect(delivery.confirm(review.operationId)).resolves.toMatchObject({ state: "transferred" });
+    expect(r.files.get(`${directory}/new.bdx`)).toEqual(Buffer.from("reviewed"));
+  }, 15_000);
+
+  it("refuses a file over 24 MiB, and files that pass 24 MiB together", async () => {
+    const r = await robot();
+    r.files.set(`${directory}/huge.bdx`, Buffer.alloc(24 * 1024 * 1024 + 1));
+    r.files.set(`${directory}/half-a.bdx`, Buffer.alloc(13 * 1024 * 1024, 1));
+    r.files.set(`${directory}/half-b.bdx`, Buffer.alloc(13 * 1024 * 1024, 2));
+    const { delivery } = await trusted(r);
+    await expect(delivery.read(["huge.bdx"])).rejects.toThrow(/huge\.bdx/);
+    await expect(delivery.read(["half-a.bdx", "half-b.bdx"])).rejects.toThrow(/more than 24 MiB/);
+  }, 30_000);
 });

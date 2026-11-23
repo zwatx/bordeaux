@@ -197,6 +197,39 @@ describe.skipIf(!python)("SystemCore server", () => {
     expect(await fs.readFile(path.join(folder, ".bordeaux-workspace.json"), "utf8")).toBe("{}");
     expect((await fs.readdir(path.join(folder, "Paths"))).filter((name) => name.startsWith("."))).toEqual([]);
   });
+  // Ways reading pushed files can fail: it returns other bytes than the disk holds; a missing file or folder is an
+  // error instead of absent; it reads a name or folder outside the push folder, or through a link; it changes the disk.
+  it("reads pushed files back by name from the push folder the page names, and changes nothing", async () => {
+    const robot = path.join(home, "robot"), folder = path.join(robot, "read-paths"), bytes = Buffer.from([0, 255, 128, 10, 0, 7]);
+    const read = (names: string[], directory: string | null = folder) => fetch(`${base}/api/push/files?${new URLSearchParams([
+      ...(directory === null ? [] : [["directory", directory]]), ...names.map((name) => ["name", name])])}`).then(json);
+    // A folder the robot does not have yet holds nothing, and reading does not make it.
+    expect(await read(["Opening.bdx"])).toEqual({ status: 200, body: { directory: folder, files: [{ fileName: "Opening.bdx", base64: null }] } });
+    await expect(fs.stat(folder)).rejects.toThrow();
+
+    await fs.mkdir(path.join(folder, "Folder.bdx"), { recursive: true });
+    await fs.writeFile(path.join(folder, "Opening.bdx"), bytes);
+    await fs.writeFile(path.join(folder, "Opening.bdr"), "{}");
+    await fs.writeFile(path.join(robot, "secret.bdx"), "outside the push folder");
+    await fs.symlink(path.join(robot, "secret.bdx"), path.join(folder, "Linked.bdx"));
+    const before = (await fs.readdir(folder)).sort();
+    expect(await read(["Opening.bdx", "Absent.bdx", "Opening.bdr"])).toEqual({ status: 200, body: { directory: folder, files: [
+      { fileName: "Opening.bdx", base64: bytes.toString("base64") }, { fileName: "Absent.bdx", base64: null }, { fileName: "Opening.bdr", base64: Buffer.from("{}").toString("base64") }] } });
+    // Without a named folder it reads the shared push folder.
+    expect((await read(["Opening.bdx"], null)).body).toMatchObject({ directory: path.join(robot, "paths"), files: [{ fileName: "Opening.bdx", base64: null }] });
+
+    for (const names of [["Linked.bdx"], ["Folder.bdx"], ["../secret.bdx"], ["settings.json"], ["bordeaux-commands.json"], [], ["Opening.bdx", "Opening.bdx"],
+      Array.from({ length: 65 }, (_, index) => `path-${index}.bdx`)]) {
+      const refused = await read(names);
+      expect(refused.status, names.join()).toBe(400);
+      expect(JSON.stringify(refused.body)).not.toContain(Buffer.from("outside the push folder").toString("base64"));
+    }
+    expect((await read(["Opening.bdx"], "/etc")).status).toBe(400);
+    expect((await read(["Opening.bdx"], path.join(robot, "projects", "Team", "Paths"))).status).toBe(400);
+    expect((await fs.readdir(folder)).sort()).toEqual(before);
+    expect(await fs.readFile(path.join(folder, "Opening.bdx"))).toEqual(bytes);
+  });
+
   it("reads the command list from the push folder the page names", async () => {
     const robot = path.join(home, "robot"), other = path.join(robot, "other-paths");
     await fs.mkdir(other, { recursive: true });

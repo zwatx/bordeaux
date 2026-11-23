@@ -69,6 +69,61 @@ export async function probeRobotFiles(
   } finally { await session.close(); }
 }
 
+/**
+ * Reads named files from the trusted robot's push folder, to compare them with local paths. It only checks folders
+ * and reads files: nothing on the robot is created, written, renamed or removed. A file the robot lacks is null.
+ * A link or a folder at a file name fails the whole read, as it fails an upload.
+ */
+export async function readRobotFiles(
+  connection: RobotFileConnection,
+  fileNames: readonly string[],
+  signal?: AbortSignal,
+  factory: RobotSftpSessionFactory = connectRobotSftp,
+  password: string | null = null,
+): Promise<Array<{ fileName: string; contents: Buffer | null }>> {
+  const endpoint = validateRobotFileEndpoint(connection.endpoint);
+  requirePasswordSupport(endpoint, password);
+  if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
+    throw new RobotTransportError("invalid_request", "Review the robot SSH identity before reading its files");
+  }
+  // The shared name check also admits the command list, which only an upload carries; the SystemCore route refuses it too.
+  if (!Array.isArray(fileNames) || fileNames.length < 1 || fileNames.length > 64 || fileNames.includes(COMMANDS_FILE_NAME)
+    || new Set(fileNames.map(validateRobotFileName)).size !== fileNames.length) {
+    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different .bdx or .bdr robot files to read");
+  }
+  const deadline = AbortSignal.timeout(TIMEOUT_MS);
+  const operation = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  operation.throwIfAborted();
+  // A changed host key is refused here, before the login is sent.
+  const session = await connect(factory, endpoint, { expectedHostKeyFingerprint: connection.hostKeyFingerprint, signal: operation, timeoutMs: TIMEOUT_MS }, password);
+  let stage = "check the robot's folder";
+  try {
+    if (session.hostKeyFingerprint !== connection.hostKeyFingerprint) {
+      throw new RobotTransportError("re_pair_required", "The robot SSH host key changed; connect again before reading its files");
+    }
+    // A folder the robot does not have yet is left missing; every file in it is then absent.
+    await requireDirectories(session)(endpoint.directory, false, operation);
+    const files: Array<{ fileName: string; contents: Buffer | null }> = [];
+    let total = 0;
+    for (const fileName of fileNames) {
+      stage = `read ${fileName} from the robot`;
+      const file: RobotRemoteFile = { kind: "pathFile", directory: endpoint.directory, fileName };
+      // exists() refuses a link or a folder at the name before any byte is read.
+      const contents = await session.exists(file, operation) ? await session.read(file, MAX_BYTES, operation) : null;
+      total += contents?.length ?? 0;
+      if (total > MAX_BYTES) throw new RobotTransportError("transfer_failed", "The robot's files total more than 24 MiB; read fewer at once");
+      files.push({ fileName, contents });
+    }
+    return files;
+  } catch (error) {
+    const reason = deadline.aborted ? "SFTP read timed out" : signal?.aborted ? "SFTP read was cancelled"
+      : error instanceof Error ? error.message : "SFTP read failed";
+    const code = deadline.aborted ? "timed_out" : signal?.aborted ? "cancelled"
+      : error instanceof RobotTransportError ? error.code : "transfer_failed";
+    throw new RobotTransportError(code, `Could not ${stage}: ${reason}. Nothing on the robot was changed.`, { cause: error });
+  } finally { await session.close(); }
+}
+
 /** Publishes each reviewed BDX file independently; never activates robot code. */
 export async function uploadRobotFiles(
   connection: RobotFileConnection,

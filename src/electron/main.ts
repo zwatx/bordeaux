@@ -1698,6 +1698,7 @@ handle("robotFiles:cancel", (_event, operationId) => {
   if (typeof operationId !== "string") throw new Error("Transfer identifier is invalid");
   return robotFileDelivery.cancel(operationId);
 });
+handle("robotFiles:read", (_event, fileNames) => robotFileDelivery.read(fileNames));
 handle("appUpdates:state", appUpdateState);
 handle("appUpdates:check", () => appUpdates?.check(true));
 handle("appUpdates:download", () => appUpdates?.download());

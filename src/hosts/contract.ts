@@ -16,7 +16,7 @@ import type {
   ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectSaveCheckpointRequest,
   ProjectSession, ProjectStartupDetachResult, ProjectStartupRequest, ProjectStartupResult, ProjectTransitionToken, RestoredProjectRecovery,
 } from "../core/project/projectPersistence";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
 import type { BordeauxProject, RobotCommandCatalog, RobotDeliveryCapabilities, RobotIntegrationStatus, RobotProjectBookmarkSummary, ValidationResult } from "../core/types";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowMenuEntry, WindowState } from "../core/windowChrome";
 
@@ -77,6 +77,8 @@ export interface HostInvokes {
   "robotFiles:confirm": { method: "confirmRobotFiles"; call: (operationId: string) => Promise<RobotFileResult> };
   "robotFiles:cancelProbe": { method: "cancelRobotFileProbe"; call: () => Promise<void> };
   "robotFiles:cancel": { method: "cancelRobotFiles"; call: (operationId: string) => Promise<{ canceled: boolean }> };
+  /** Reads pushed .bdx or .bdr files by name from the trusted robot's push folder. It changes nothing on the robot. */
+  "robotFiles:read": { method: "readRobotFiles"; call: (fileNames: string[]) => Promise<RobotFileReading> };
 
   "project:exportBdx": { method: "exportBdx"; call: (project: BordeauxProject, pathId: string) => Promise<PathExportResult> };
   "project:exportRoutine": { method: "exportRoutine"; call: (project: BordeauxProject, routineId: string) => Promise<RoutineExportResult> };

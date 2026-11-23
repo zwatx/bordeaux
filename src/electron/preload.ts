@@ -30,6 +30,7 @@ const invokeChannels = {
   "robotFiles:confirm": "confirmRobotFiles",
   "robotFiles:cancelProbe": "cancelRobotFileProbe",
   "robotFiles:cancel": "cancelRobotFiles",
+  "robotFiles:read": "readRobotFiles",
   "project:exportBdx": "exportBdx",
   "project:exportRoutine": "exportRoutine",
   "project:location": "getProjectLocation",
