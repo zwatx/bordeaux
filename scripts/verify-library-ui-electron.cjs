@@ -23,8 +23,8 @@ const inputSettled = () => evaluate(() => new Promise((resolve) => {
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(50); } throw new Error('Timed out: ' + label); }
 async function click(selector, text) {
   if (selector === '[aria-label="Save project"]') {
-    // The checks read `saved` next, so wait for this Save to reach main. A save held open on purpose (deferredSave) or
-    // one the App blocks never arrives; after a short wait those continue as before.
+    // The checks read `saved` next, so wait for this Save to reach main. A save held open on purpose (deferredSave), or
+    // one with nothing to save (an invalid draft the App didn't apply), never arrives; after a short wait those continue.
     const before = savesSettled;
     await click('.project-chip');
     await click('.project-menu [role="menuitem"][data-action="save"]');
