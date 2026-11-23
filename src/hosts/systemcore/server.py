@@ -8,19 +8,27 @@ lays out project files (src/core); this server only stores bytes, confined to fi
 
 Saving never writes where robot code reads. Push copies reviewed bytes, then reads them back and checks SHA-256.
 
+Only pages this server served may call it: every API request must name this robot as its Host (an IP address, this
+machine's name, or BORDEAUX_ALLOWED_HOSTS), and every write must come from that same origin. Another website open in
+a browser on the robot network therefore cannot read or change projects, even through DNS rebinding. Devices on the
+robot network are trusted, as they are for the robot's SSH login.
+
 Run: python3 server.py [--port 2468] [--home /home/systemcore/bordeaux] [--static ./static]
 """
 
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
+import socket
 import sys
 import threading
+import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
@@ -31,6 +39,12 @@ MANAGED_FILE = re.compile(r"^(Paths/[^/\\\x00]+\.(path|bdx)|Routines/[^/\\\x00]+
 PROJECT_NAME = re.compile(r"^[^/\\\x00-\x1f<>:\"|?*.][^/\\\x00-\x1f<>:\"|?*]{0,119}$")
 PUSH_FILE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(bdx|bdr)$")
 MAX_BODY_BYTES = 160 * 1024 * 1024
+# Push limits match the desktop's SFTP transfer (src/electron/robotFileTransfer.ts).
+MAX_PUSH_FILES = 64
+MAX_PUSH_BYTES = 24 * 1024 * 1024
+# A reviewed push waits in memory until confirmed or canceled; old reviews expire.
+PUSH_REVIEW_SECONDS = 15 * 60
+MAX_PUSH_REVIEWS = 4
 # One writer at a time; the robot serves a handful of browsers.
 LOCK = threading.Lock()
 
@@ -103,8 +117,8 @@ def read_regular(path, limit=MAX_BODY_BYTES):
         return None
 
 
-def replace_file(path, data, mode=0o644):
-    """Write next to the target, then rename over it, so readers see old or new bytes and never a partial file."""
+def write_temporary(path, data, mode=0o644):
+    """A hidden, synced copy of `data` next to `path`, ready to rename over it."""
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
     temporary = os.path.join(directory, f".{os.path.basename(path)[:100]}.{secrets.token_hex(8)}.tmp")
@@ -114,6 +128,23 @@ def replace_file(path, data, mode=0o644):
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, mode)
+    except BaseException:
+        remove_quietly(temporary)
+        raise
+    return temporary
+
+
+def remove_quietly(path):
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def replace_file(path, data, mode=0o644):
+    """Write next to the target, then rename over it, so readers see old or new bytes and never a partial file."""
+    temporary = write_temporary(path, data, mode)
+    try:
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -122,6 +153,14 @@ def replace_file(path, data, mode=0o644):
 
 class Conflict(Exception):
     pass
+
+
+class Forbidden(Exception):
+    pass
+
+
+class PushFailed(Exception):
+    """A push that stopped partway; the message names every file already replaced."""
 
 
 def commit_project(store, body):
@@ -150,16 +189,31 @@ def write_project(store, folder, body, create):
         current = read_regular(workspace_path)
         if (sha256(current) if current is not None else None) != body.get("expectedWorkspaceSha256"):
             raise Conflict("The project changed on the robot, maybe from another browser. Reload to see the current version.")
-    preserved = []
+    writes = []
     for write in body.get("writes", []):
         file = write.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
             raise ValueError(f"Refusing to write {file!r}")
-        replace_file(os.path.join(folder, file), base64.b64decode(write.get("base64", ""), validate=True))
-    for remove in body.get("removes", []):
+        writes.append((write, os.path.join(folder, file), base64.b64decode(write.get("base64", ""), validate=True)))
+    removes = body.get("removes", [])
+    for remove in removes:
         file = remove.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
             raise ValueError(f"Refusing to remove {file!r}")
+    # A source file carries the hash this tab last saw (None when it expects no file). Any other bytes on disk, such as
+    # an edit made over SSH, stop the whole save before anything is written.
+    for write, target, data in writes:
+        if "expectedSha256" not in write:
+            continue
+        current = read_regular(target)
+        found = sha256(current) if current is not None else None
+        if found not in (write["expectedSha256"], sha256(data)):
+            raise Conflict(f"{write['file']} changed on the robot since this page loaded it. Reload to see the current version.")
+    preserved = []
+    for _write, target, data in writes:
+        replace_file(target, data)
+    for remove in removes:
+        file = remove["file"]
         target = os.path.join(folder, file)
         data = read_regular(target)
         # Only bytes Bordeaux recorded may be deleted; anything edited by hand stays.
@@ -176,27 +230,123 @@ def write_project(store, folder, body, create):
     return {"workspaceSha256": sha256(data), "preserved": preserved}
 
 
-def push_files(store, body):
-    """Copies reviewed files into the robot code's folder, then proves each one by reading it back."""
+class PushReviews:
+    """Bytes the person reviewed, held until they confirm. Confirm publishes exactly these bytes and nothing else."""
+
+    def __init__(self):
+        self.reviews = {}
+
+    def add(self, review):
+        now = time.monotonic()
+        for key in [key for key, value in self.reviews.items() if now - value["at"] > PUSH_REVIEW_SECONDS]:
+            del self.reviews[key]
+        while len(self.reviews) >= MAX_PUSH_REVIEWS:
+            del self.reviews[min(self.reviews, key=lambda key: self.reviews[key]["at"])]
+        operation = secrets.token_hex(16)
+        self.reviews[operation] = {**review, "at": now}
+        return operation
+
+    def take(self, operation):
+        review = self.reviews.pop(operation, None) if isinstance(operation, str) else None
+        if review is None or time.monotonic() - review["at"] > PUSH_REVIEW_SECONDS:
+            raise Conflict("Review the selected files again before pushing")
+        return review
+
+
+def prepare_push(store, reviews, body):
+    """Checks a whole batch and holds it for review. Nothing on the robot changes yet."""
     directory = store.push_directory(body.get("directory"))
-    created = not os.path.isdir(directory)
-    os.makedirs(directory, exist_ok=True)
-    results = []
-    for file in body.get("files", []):
-        name = file.get("fileName")
+    files = body.get("files")
+    if not isinstance(files, list) or not 1 <= len(files) <= MAX_PUSH_FILES:
+        raise ValueError(f"Select between 1 and {MAX_PUSH_FILES} robot files")
+    names, held, total = set(), [], 0
+    for file in files:
+        name = file.get("fileName") if isinstance(file, dict) else None
         if not isinstance(name, str) or not PUSH_FILE.match(name):
             raise ValueError("Robot filename must be a safe .bdx or .bdr basename")
+        if name.lower() in names:
+            raise ValueError(f"Two files are named {name}; rename one before pushing")
+        names.add(name.lower())
         data = base64.b64decode(file.get("base64", ""), validate=True)
+        total += len(data)
+        if not data or total > MAX_PUSH_BYTES:
+            raise ValueError("Robot files must not be empty and must total at most 24 MiB")
         if sha256(data) != file.get("sha256"):
             raise ValueError(f"{name} arrived damaged; nothing was replaced")
-        target = os.path.join(directory, name)
-        if os.path.islink(target):
-            raise ValueError(f"{name} on the robot is a link; it was left alone")
-        replace_file(target, data)
-        if sha256(read_regular(target) or b"") != file["sha256"]:
-            raise ValueError(f"{name} did not read back as written")
-        results.append(name)
-    return {"directory": directory, "directoryCreated": created, "files": results}
+        held.append({"fileName": name, "data": data, "sha256": sha256(data)})
+    operation = reviews.add({"directory": directory, "files": held})
+    return {"operationId": operation, "directory": directory,
+            "files": [{"fileName": item["fileName"], "size": len(item["data"]), "sha256": item["sha256"]} for item in held]}
+
+
+def confirm_push(store, reviews, body):
+    """Publishes a reviewed batch into the robot code's folder.
+
+    Every file is first written and read back beside its destination, so a bad destination or a full disk stops the
+    push before any robot file changes. Only then is each copy renamed into place and read back again.
+    """
+    review = reviews.take(body.get("operationId"))
+    directory = store.push_directory(review["directory"])
+    files = review["files"]
+    created = not os.path.isdir(directory)
+    staged = []
+    try:
+        os.makedirs(directory, exist_ok=True)
+        for item in files:
+            name, target = item["fileName"], os.path.join(directory, item["fileName"])
+            if os.path.islink(target) or (os.path.lexists(target) and not os.path.isfile(target)):
+                raise ValueError(f"{name} on the robot is not a regular file")
+            temporary = write_temporary(target, item["data"])
+            staged.append((item, temporary, target))
+            if sha256(read_regular(temporary) or b"") != item["sha256"]:
+                raise ValueError(f"{name} did not read back as written")
+    except (OSError, ValueError) as error:
+        for _item, temporary, _target in staged:
+            remove_quietly(temporary)
+        reason = error.strerror if isinstance(error, OSError) and error.strerror else str(error)
+        raise PushFailed(f"Could not push: {reason}. No robot files were replaced.") from error
+    replaced, publishing = [], None
+    try:
+        for item, temporary, target in staged:
+            publishing = item["fileName"]
+            os.replace(temporary, target)
+            if sha256(read_regular(target) or b"") != item["sha256"]:
+                raise ValueError(f"{publishing} did not read back as written")
+            replaced.append(publishing)
+            publishing = None
+    except (OSError, ValueError) as error:
+        for _item, temporary, _target in staged:
+            remove_quietly(temporary)
+        reason = error.strerror if isinstance(error, OSError) and error.strerror else str(error)
+        listed = f" ({', '.join(replaced)})" if replaced else ""
+        unsure = f" {publishing} may have been replaced; its final bytes were not verified." if publishing else ""
+        raise PushFailed(f"Could not push: {reason}. {len(replaced)} of {len(files)} files replaced and verified{listed}.{unsure}") from error
+    return {"directory": directory, "directoryCreated": created, "files": replaced}
+
+
+def host_names():
+    """Names this robot answers to, besides IP addresses."""
+    name = socket.gethostname().lower()
+    extra = {item.strip().lower() for item in os.environ.get("BORDEAUX_ALLOWED_HOSTS", "").split(",") if item.strip()}
+    return {"localhost", name, f"{name}.local", name.split(".")[0], f"{name.split('.')[0]}.local"} | extra
+
+
+def host_name(host):
+    """The name in a Host header without its port, or None when it is malformed."""
+    if not isinstance(host, str) or not host:
+        return None
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end].lower() if end > 0 else None
+    return host.rsplit(":", 1)[0].lower() if host.count(":") == 1 else host.lower()
+
+
+def is_ip_address(name):
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
 
 
 def list_projects(store):
@@ -212,6 +362,8 @@ def list_projects(store):
 class Handler(SimpleHTTPRequestHandler):
     store = None
     static_root = None
+    reviews = PushReviews()
+    allowed_names = frozenset()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=self.static_root, **kwargs)
@@ -238,7 +390,21 @@ class Handler(SimpleHTTPRequestHandler):
             raise ValueError("Request is too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def authorize(self, method):
+        """Same-origin only: a page from another site, or a name rebound to this robot, is refused."""
+        host = self.headers.get("Host")
+        name = host_name(host)
+        if name is None or not (is_ip_address(name) or name in self.allowed_names):
+            raise Forbidden(f"Open Bordeaux at this robot's address, not {host or 'an unnamed host'}")
+        if method != "GET":
+            origin = self.headers.get("Origin")
+            if origin not in (f"http://{host}", f"https://{host}"):
+                raise Forbidden("Bordeaux accepts changes only from its own page on this robot")
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                raise Forbidden("Bordeaux accepts changes only as JSON")
+
     def api(self, method):
+        self.authorize(method)
         route = unquote(urlparse(self.path).path)
         store = self.store
         if method == "GET" and route == "/api/info":
@@ -256,9 +422,22 @@ class Handler(SimpleHTTPRequestHandler):
         if method == "POST" and route == "/api/commit":
             with LOCK:
                 return commit_project(store, self.read_json())
-        if method == "POST" and route == "/api/push":
+        if method == "POST" and route == "/api/push/prepare":
+            body = self.read_json()
             with LOCK:
-                return push_files(store, self.read_json())
+                return prepare_push(store, self.reviews, body)
+        if method == "POST" and route == "/api/push/confirm":
+            body = self.read_json()
+            with LOCK:
+                return confirm_push(store, self.reviews, body)
+        if method == "POST" and route == "/api/push/cancel":
+            body = self.read_json()
+            with LOCK:
+                try:
+                    self.reviews.take(body.get("operationId"))
+                    return {"canceled": True}
+                except Conflict:
+                    return {"canceled": False}
         if method == "POST" and route == "/api/settings":
             body = self.read_json()
             changes = {}
@@ -276,8 +455,12 @@ class Handler(SimpleHTTPRequestHandler):
             result = self.api(method)
             status, value = result if isinstance(result, tuple) else (HTTPStatus.OK, result)
             self.send_json(value, status)
+        except Forbidden as error:
+            self.send_json({"error": str(error)}, HTTPStatus.FORBIDDEN)
         except Conflict as error:
             self.send_json({"error": str(error)}, HTTPStatus.CONFLICT)
+        except PushFailed as error:
+            self.send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
         except (ValueError, KeyError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
         except OSError as error:
@@ -303,6 +486,7 @@ def main():
     args = parser.parse_args()
     Handler.store = Store(args.home)
     Handler.static_root = os.path.realpath(args.static)
+    Handler.allowed_names = frozenset(host_names())
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     sys.stderr.write(f"bordeaux: serving {Handler.static_root} on {args.host}:{args.port}, files in {Handler.store.home}\n")
     server.serve_forever()

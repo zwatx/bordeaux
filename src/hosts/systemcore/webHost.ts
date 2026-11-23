@@ -6,20 +6,21 @@
  * The browser builds every byte with src/core; the server only stores them in fixed folders.
  */
 import type { BordeauxHost, PathExportResult } from "../contract";
-import type { OpenedProject, ProjectLocation, RecentProjectEntry } from "../../core/project/desktopProjects";
+import type { CreateNamedProjectRequest, OpenedProject, ProjectLocation, RecentProjectEntry } from "../../core/project/desktopProjects";
 import type { RobotFileConnection, RobotFilePreview, RobotFileResult } from "../../core/robotFileDelivery";
 import type { BordeauxProject } from "../../core/types";
 import { prepareProjectFile } from "../../core/project/fileFormat";
+import { createDemoProject, defaultPathConstraints } from "../../core/project/defaults";
 import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceContents, type FolderState } from "../../core/project/folderLayout";
-import { buildRobotBinary, type BuiltRobotBinary } from "../../core/export/robotBinary";
+import { buildRobotBinary } from "../../core/export/robotBinary";
 import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
 import { sha256Hex, utf8Bytes } from "../../core/bytes";
-import { randomUuid } from "../../core/randomUuid";
 import { validateProject } from "../../core/validation";
 
 interface ServerInfo { projectsRoot: string; pushDirectory: string; defaultPushDirectory: string; lastProject: string | null }
 interface Opened { name: string; state: FolderState; workspaceSha256: string }
-interface FileWrite { file: string; base64: string }
+/** `expectedSha256` is the hash this page last saw for a source file (null: no file yet); the server refuses other bytes. */
+interface FileWrite { file: string; base64: string; expectedSha256?: string | null }
 
 /** The robot exports paths without commands; command types come from the desktop's LabVIEW inspection. */
 const BINDINGS = bdxBindingsFromDefinitions(null, [], {});
@@ -82,7 +83,8 @@ export function createSystemcoreHost() {
     tail = next;
     return next;
   };
-  const pending = new Map<string, { preview: RobotFilePreview; built: BuiltRobotBinary[]; uploading: boolean }>();
+  // Reviews the server holds; confirm publishes the bytes it checked at review, never new ones from this page.
+  const pending = new Map<string, { preview: RobotFilePreview; uploading: boolean }>();
 
   const serverInfo = (refresh = false) => (info && !refresh ? info : (info = request<ServerInfo>("/api/info")));
   const location = async (name: string | null): Promise<ProjectLocation> => {
@@ -103,18 +105,19 @@ export function createSystemcoreHost() {
    * Lays out the whole folder in the browser and commits it. Save also builds BDX files; a BDX failure keeps the
    * saved source and reports `exportError`, as the desktop does.
    */
-  async function write(project: unknown, options: { bdx: boolean; copy?: boolean }) {
+  async function write(project: unknown, options: { bdx: boolean; copy?: boolean; name?: string }) {
     const prepared = prepareProjectFile(project);
-    const create = !current || options.copy === true;
-    const projects = create ? await request<Array<{ name: string }>>("/api/projects") : [];
-    const name = create ? freeName(options.copy ? `${prepared.name} copy` : prepared.name, projects.map((item) => item.name)) : current!.name;
+    const create = !current || options.copy === true || options.name !== undefined;
+    const projects = create && options.name === undefined ? await request<Array<{ name: string }>>("/api/projects") : [];
+    const name = options.name ?? (create ? freeName(options.copy ? `${prepared.name} copy` : prepared.name, projects.map((item) => item.name)) : current!.name);
     const canonical: BordeauxProject = { ...prepared, name };
     const previous = create ? null : current!.state;
     const where = await location(name);
 
     const documents = projectDocuments(canonical, previous?.documentFiles);
     const files = Object.fromEntries(documents.map((document) => [document.file, sha256Hex(document.contents)]));
-    const writes: FileWrite[] = documents.map((document) => ({ file: document.file, base64: base64(utf8Bytes(document.contents)) }));
+    const writes: FileWrite[] = documents.map((document) => ({ file: document.file, base64: base64(utf8Bytes(document.contents)),
+      expectedSha256: previous?.files[document.file] ?? null }));
     const removes = Object.entries(previous?.files ?? {}).filter(([file]) => !(file in files)).map(([file, sha256]) => ({ file, sha256 }));
 
     let generatedFiles = previous?.generatedFiles, bdxCount: number | undefined, exportError: string | undefined;
@@ -147,6 +150,22 @@ export function createSystemcoreHost() {
     return connection();
   }
 
+  /** A new project on the robot under exactly the chosen name, like the desktop's New project. */
+  async function createNamed(request: CreateNamedProjectRequest): Promise<OpenedProject> {
+    const name = typeof request?.name === "string" ? request.name.trim() : "";
+    if (!name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /^[. ]|[. ]$/.test(name) || name.length > 120) throw new Error("Choose a plain project name without reserved characters");
+    const project = createDemoProject();
+    project.name = name;
+    if (request.template) {
+      project.robot = structuredClone(request.template.robot);
+      project.paths[0].constraints = structuredClone(request.template.constraints ?? defaultPathConstraints(project.robot));
+      if (!validateProject(project).ok) throw new Error("Project template robot or limits are invalid");
+    }
+    // The server refuses a name already on the robot, and the commit records it as the last project.
+    const saved = await write(project, { bdx: false, name });
+    return { project: saved.canonicalProject, location: saved.location };
+  }
+
   return {
     platform: "web",
     robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
@@ -157,8 +176,11 @@ export function createSystemcoreHost() {
     }),
     newProject: async () => { await serially(async () => { current = null; }); },
     getProjectLocation: () => location(current?.name ?? null),
-    listRecentProjects: async () => (await request<Array<{ name: string }>>("/api/projects")).map((project): RecentProjectEntry => ({
-      id: project.name, name: project.name, folderHint: "On this robot", status: "available", location: { folderPath: null, projectPath: null } })),
+    getProjectCreationDefaults: async () => ({ parentDirectory: (await serverInfo()).projectsRoot }),
+    createNamedProject: (createRequest) => serially(() => createNamed(createRequest)),
+    // Real locations let the list mark the open project as current instead of listing it twice.
+    listRecentProjects: async () => Promise.all((await request<Array<{ name: string }>>("/api/projects")).map(async (project): Promise<RecentProjectEntry> => ({
+      id: project.name, name: project.name, folderHint: "On this robot", status: "available", location: await location(project.name) }))),
     openRecentProjectById: (id) => serially(() => open(id)),
     saveProject: (project, saveAs) => serially(async () => ({ saved: true as const, ...await write(project, { bdx: true, copy: saveAs === true }) })),
     autosaveProject: (project) => serially(async () => {
@@ -184,9 +206,16 @@ export function createSystemcoreHost() {
       const prepared = prepareProjectFile(project);
       const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, BINDINGS));
       if (sharedFileName(built)) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
-      const preview: RobotFilePreview = { operationId: randomUuid(), connection: await connection(),
-        files: built.map((item, index) => ({ pathId: pathIds[index], name: item.name, fileName: item.fileName, size: item.bytes.length, sha256: item.sha256 })) };
-      pending.set(preview.operationId, { preview, built, uploading: false });
+      const target = await connection();
+      const held = await request<{ operationId: string; files: Array<{ fileName: string; size: number; sha256: string }> }>("/api/push/prepare", {
+        directory: target.endpoint.directory, files: built.map((item) => ({ fileName: item.fileName, sha256: item.sha256, base64: base64(item.bytes) })) });
+      if (held.files.length !== built.length || held.files.some((file, index) => file.fileName !== built[index].fileName || file.sha256 !== built[index].sha256)) {
+        void request("/api/push/cancel", { operationId: held.operationId }).catch(() => undefined);
+        throw new Error("The robot did not hold the files as built. Try again");
+      }
+      const preview: RobotFilePreview = { operationId: held.operationId, connection: target,
+        files: built.map((item, index) => ({ pathId: pathIds[index], name: item.name, fileName: item.fileName, size: held.files[index].size, sha256: held.files[index].sha256 })) };
+      pending.set(preview.operationId, { preview, uploading: false });
       return preview;
     },
     prepareRobotRoutine: async () => { throw new Error("Routine push isn't available from the robot yet. Push routines from the desktop app."); },
@@ -195,9 +224,7 @@ export function createSystemcoreHost() {
       if (!operation) throw new Error("Review the selected files again before pushing");
       operation.uploading = true;
       try {
-        const result = await request<{ directory: string; directoryCreated: boolean }>("/api/push", {
-          directory: operation.preview.connection.endpoint.directory,
-          files: operation.built.map((item) => ({ fileName: item.fileName, sha256: item.sha256, base64: base64(item.bytes) })) });
+        const result = await request<{ directory: string; directoryCreated: boolean }>("/api/push/confirm", { operationId });
         return { state: "transferred", files: operation.preview.files, directory: result.directory, directoryCreated: result.directoryCreated };
       } finally { pending.delete(operationId); }
     },
@@ -205,6 +232,7 @@ export function createSystemcoreHost() {
       const operation = pending.get(operationId);
       if (!operation || operation.uploading) return { canceled: false };
       pending.delete(operationId);
+      await request("/api/push/cancel", { operationId }).catch(() => undefined);
       return { canceled: true };
     },
   } satisfies Partial<BordeauxHost>;
