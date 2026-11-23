@@ -1,0 +1,5 @@
+#!/bin/sh
+PACKAGE_NAME="bordeaux"
+systemctl stop $PACKAGE_NAME.service 2>/dev/null || true
+systemctl disable $PACKAGE_NAME.service 2>/dev/null || true
+exit 0

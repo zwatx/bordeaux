@@ -1,0 +1,6 @@
+#!/bin/sh
+PACKAGE_NAME="bordeaux"
+# Projects and pushed paths in /home/systemcore/bordeaux are the team's work; removing the app keeps them.
+systemctl daemon-reload
+systemctl reset-failed $PACKAGE_NAME.service 2>/dev/null || true
+exit 0
