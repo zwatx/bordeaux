@@ -12,8 +12,12 @@ const FORMAT = "bordeaux-commands/1";
 
 export const isCommandsFile = (fileName: string) => fileName === COMMANDS_FILE_NAME;
 
+/**
+ * `sha256` covers the whole serialized bindings (catalog, parameter types and definitions), so an edit to any field the
+ * BDX writer reads is caught, not only one to the hashed NI definitions.
+ */
 export function encodeCommandsFile(bindings: BinaryBindings): string {
-  return `${JSON.stringify({ format: FORMAT, bindings })}\n`;
+  return `${JSON.stringify({ format: FORMAT, sha256: sha256Hex(JSON.stringify(bindings)), bindings })}\n`;
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,8 +30,10 @@ export function decodeCommandsFile(contents: string): BinaryBindings {
   if (!isObject(catalog) || !Array.isArray(catalog.commands) || !isObject(parameterTypes) || typeof definitionJson !== "string") {
     throw new Error(`${COMMANDS_FILE_NAME} is missing its commands or types`);
   }
-  const expected = catalog.catalogId ? sha256Hex(definitionJson) : "";
-  if (catalog.catalogHash !== expected) throw new Error(`${COMMANDS_FILE_NAME} was changed after the desktop wrote it. Push from the desktop app again.`);
+  const changed = new Error(`${COMMANDS_FILE_NAME} was changed after the desktop wrote it. Push from the desktop app again.`);
+  // JSON.parse then JSON.stringify reproduces the desktop's serialization of plain JSON, so the hash is over the same text.
+  if (typeof value.sha256 !== "string" || value.sha256 !== sha256Hex(JSON.stringify(value.bindings))) throw changed;
+  if (catalog.catalogHash !== (catalog.catalogId ? sha256Hex(definitionJson) : "")) throw changed;
   // Shape and integrity are checked above; the desktop's bindingsFromCatalog produced the rest.
   return value.bindings as unknown as BinaryBindings;
 }
