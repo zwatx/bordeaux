@@ -185,7 +185,7 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       }),
       linked && item('Refresh commands', actions.refreshCode, null, { disabled: !!robotCode.operation }),
       linked && actions.rescanCode && item('Rescan command inputs', actions.rescanCode, null, { disabled: !!robotCode.operation }),
-      linked && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
+      linked && actions.buildCode && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog:modal')) setSources(robotCode.catalog); }),
       h('hr'),
       item('Projects…', actions.projects, shortcutLabel('O')),

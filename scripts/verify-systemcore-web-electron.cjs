@@ -215,6 +215,9 @@ app.whenReady().then(async () => {
       await menuItem('Refresh commands');
       await click('.project-chip');
       await codeShows('Refreshed list');
+      // The fixture's commands have conditions, which the desktop builds a catalog for; the robot can't, so it doesn't offer to.
+      const offered = await evaluate(() => [...document.querySelectorAll('.project-menu [role="menuitem"]')].map((item) => item.textContent.trim()));
+      if (offered.some((label) => label.startsWith('Build catalog'))) throw new Error('The robot offers a catalog build it cannot run: ' + offered.join(' | '));
       await shot('12-refreshed-commands');
       await click('.project-chip');
       check('Refresh commands reads the command list on the robot again');

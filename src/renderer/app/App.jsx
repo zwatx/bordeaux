@@ -2814,7 +2814,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       recovery: recoveryState, recoveredFrom, bdxPending, bdxError: saveState.status === 'error' && saveState.retryExport ? saveState.error : '', bdxDetails: saveState.exportDetails,
       robotCode: { ...robotProjectState, name: robotProjectState.catalog?.projectName, commands: robotProjectState.catalog?.commands?.length },
       actions: { projects: () => showProjects('list'), create: () => showProjects('new'), save: () => requestSaveCopy(false), saveCopy: requestSaveCopy,
-        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, rescanCode: typeof window.bordeauxAPI?.inspectLabviewCommands === 'function' ? () => refreshRobotProject(true) : undefined, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject, buildCode: buildRobotCatalog, ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
+        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, rescanCode: typeof window.bordeauxAPI?.inspectLabviewCommands === 'function' ? () => refreshRobotProject(true) : undefined, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject,
+        // Only a host that can build a catalog (the desktop) offers Build; the robot's browser host can't.
+        ...(typeof window.bordeauxAPI?.buildRobotCatalog === 'function' ? { buildCode: buildRobotCatalog } : {}), ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.reloadProjectSource === 'function' ? { reloadSource: () => { void reloadSource(); } } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.revealProjectSource === 'function' ? { showSource: () => { void showSourceFile(); },
           showFailureSeen: (seen) => setShowFailure((failure) => failure === seen ? null : failure) } : {}),
