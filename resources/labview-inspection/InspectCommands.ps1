@@ -85,7 +85,6 @@ try {
   if ($expected.HasExited) { throw 'LabVIEW exited before inspection.' }
   $app = [BordeauxNiInspection]::BindExisting()
   if ([int][BordeauxNiInspection]::Get($app, '_ProcessID') -ne $expected.Id) { throw 'LabVIEW COM attached to a different process; inspection stopped.' }
-  if ([string][BordeauxNiInspection]::Get($app, 'Version') -ne '25.3.3f3') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 25.3.3f3. Use a declared or previously cached catalog for this NI version.' }
   foreach ($project in @([BordeauxNiInspection]::Get($app, 'AllProjects'))) {
     if ($null -eq $project) { continue }
     try {
@@ -96,7 +95,12 @@ try {
     } finally { [BordeauxNiInspection]::Release($project) }
   }
   if ($null -eq $context) { throw 'The selected project is not already open in LabVIEW. Open it, then inspect again.' }
+  # Checked once this LabVIEW has the project, so another LabVIEW without it doesn't block the other bitness.
+  # Major versions whose connector reports were compared and found identical; keep in sync with labviewNiTypes.ts.
+  if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^(25|26)\.') { throw 'This Bordeaux NI connector adapter supports LabVIEW 2025 and LabVIEW 2026. Use a declared or previously cached catalog for this NI version.' }
   if ($request.schemaVersion -eq 'bordeaux-ni-wrapper/1') {
+    # CreateCommandWrapper.vi scripting was validated only in LabVIEW 2025; keep in sync with labviewNiTypes.ts.
+    if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^25\.') { throw 'Bordeaux creates command wrappers only in LabVIEW 2025. Create the wrapper in LabVIEW 2025, or add it to the project by hand.' }
     $commandFile = Assert-LocalFile ([string]$request.commandFile)
     $wrapperFile = [IO.Path]::GetFullPath([string]$request.wrapperFile)
     if ([IO.Path]::GetDirectoryName($commandFile) -ne [IO.Path]::GetDirectoryName($wrapperFile) -or [IO.Path]::GetFileName($wrapperFile) -notmatch '^\.bordeaux-wrapper-[a-f0-9-]+\.vi$') { throw 'Wrapper output must be a Bordeaux temporary VI alongside the command.' }

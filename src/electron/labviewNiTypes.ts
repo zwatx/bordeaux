@@ -94,11 +94,23 @@ export function statusCluster(xml: XElement): boolean {
     && fields[2].name === "Refnum" && fields[2].elementValueOrEmpty("RefKind") === "Notifier";
 }
 
+/**
+ * LabVIEW major versions (2025, 2026) whose connector reports were compared VI by VI and matched, so any build of them
+ * is accepted. Add a major only after the same comparison; InspectCommands.ps1 keeps the same pattern.
+ * LabVIEW 2026 is 64-bit only, LabVIEW 2025 FRC installs are usually 32-bit.
+ */
+export const VALIDATED_LABVIEW_VERSION = /^(25|26)\./;
+
+/** Wrapper scripting (CreateCommandWrapper.vi) was validated only in LabVIEW 2025; InspectCommands.ps1 keeps the same pattern. */
+export const VALIDATED_WRAPPER_LABVIEW_VERSION = /^25\./;
+export const WRAPPER_LABVIEW_VERSION_ERROR = "Bordeaux creates command wrappers only in LabVIEW 2025. Create the wrapper in LabVIEW 2025, or add it to the project by hand.";
+
 export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sources: LabviewNiSource[]): {
   commands: RobotCommandDescriptor[]; inspection: Inspection; cacheable: boolean; dependencyPaths: string[];
 } {
   const report = record(raw, "NI inspection report");
-  if (report.schemaVersion !== "bordeaux-ni-inspection/1" || report.labviewVersion !== "25.3.3f3") throw new Error("Unsupported NI connector adapter version. This adapter was validated with LabVIEW 2025 25.3.3f3.");
+  const labviewVersion = typeof report.labviewVersion === "string" ? report.labviewVersion : "";
+  if (report.schemaVersion !== "bordeaux-ni-inspection/1" || !VALIDATED_LABVIEW_VERSION.test(labviewVersion)) throw new Error("Unsupported NI connector adapter version. This adapter was validated with LabVIEW 2025 and LabVIEW 2026.");
   if (text(report.projectFile, "NI project file", 4096) !== projectFile) throw new Error("NI inspection report belongs to a different project");
   const inspectedAt = text(report.inspectedAt, "NI inspection timestamp");
   if (!Number.isFinite(Date.parse(inspectedAt))) throw new Error("NI inspection timestamp is invalid");
@@ -196,7 +208,7 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
       const description = text(row.description, "NI VI description", 16384);
       commands.push({ ...checked, description, outputs, ownerType: `LabVIEW (${target})`, member: file,
         source: { file, line: 1 }, labviewLegacy: true, runtimeReady: false,
-        labviewConnector: { labviewVersion: report.labviewVersion, applicationContext: "My Computer", target, file,
+        labviewConnector: { labviewVersion, applicationContext: "My Computer", target, file,
           terminalNumbers: numbers as number[], directions: directions as number[], requirements: requirements as number[],
           captions: captions as string[], typeXml: dataTypes as string[], extendedInfo: extended, defaults } });
     } catch (error) {

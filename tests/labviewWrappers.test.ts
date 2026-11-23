@@ -11,7 +11,7 @@ async function fixture() {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-wrappers-"))); roots.push(root);
   const project = path.join(root, "Robot.lvproj"), source = path.join(root, "Calibrate.vi"), wrapper = path.join(root, "Calibrate_wrapper.vi");
   await fs.writeFile(source, "synthetic source bytes");
-  const command = { labviewConnector: { file: "Calibrate.vi", terminalNumbers: [7, 0, 8, 11] } } as RobotCommandDescriptor;
+  const command = { labviewConnector: { labviewVersion: "25.3.3f3", file: "Calibrate.vi", terminalNumbers: [7, 0, 8, 11] } } as RobotCommandDescriptor;
   const guard = vi.fn();
   const adapter = vi.fn(async (requestFile: string, responseFile: string) => {
     const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
@@ -74,4 +74,11 @@ it("refuses an incomplete NI response and cleans up staging files", async () => 
   await expect(ensureLabviewCommandWrapper(f.project, f.command, f.cache, f.guard, adapter)).rejects.toThrow("confirm every command terminal");
   expect((await fs.readdir(f.root)).some(name => name.startsWith(".bordeaux-wrapper-"))).toBe(false);
   await expect(fs.stat(f.wrapper)).rejects.toMatchObject({ code: "ENOENT" });
+});
+it("refuses to script a wrapper for a command inspected outside LabVIEW 2025", async () => {
+  const f = await fixture();
+  const command = { labviewConnector: { ...f.command.labviewConnector!, labviewVersion: "26.3.1f1" } } as RobotCommandDescriptor;
+  await expect(ensureLabviewCommandWrapper(f.project, command, f.cache, f.guard, f.adapter)).rejects.toThrow("only in LabVIEW 2025");
+  expect(f.adapter).not.toHaveBeenCalled();
+  expect(await fs.readdir(f.root)).not.toContain("Calibrate_wrapper.vi");
 });

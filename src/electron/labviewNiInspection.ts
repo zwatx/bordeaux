@@ -281,10 +281,29 @@ export async function runLabviewNiAdapter(requestFile: string, responseFile: str
   const script = await fs.access(developmentScript).then(() => developmentScript,
     () => path.join((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? "", "labview-inspection", "InspectCommands.ps1"));
   await fs.access(script);
+  // A PowerShell reaches only the LabVIEW COM server of its own bitness: 64-bit for LabVIEW 2026, usually 32-bit for
+  // LabVIEW 2025 FRC installs. Try 64-bit first; move on only when that LabVIEW is absent or lacks the open project.
   const windows = process.env.SystemRoot ?? "C:\\Windows";
-  const powershell32 = path.join(windows, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe");
-  const powershell = await fs.access(powershell32).then(() => powershell32, () => path.join(windows, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
-  await new Promise<void>((resolve, reject) => {
+  const shells = [path.join(windows, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), path.join(windows, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe")];
+  let notHere: Error | undefined;
+  for (const powershell of shells) {
+    if (!await fs.access(powershell).then(() => true, () => false)) continue;
+    try { return await runInspectionScript(powershell, script, requestFile, responseFile); }
+    catch (error) {
+      if (!(error instanceof Error) || !PROJECT_ELSEWHERE.test(error.message)) throw error;
+      // "Open the project" says more than "this bitness has no LabVIEW", so a later absence doesn't replace it.
+      if (!notHere || NO_LABVIEW.test(notHere.message)) notHere = error;
+    }
+  }
+  throw notHere ?? new Error("Windows PowerShell is unavailable for NI command inspection.");
+}
+
+const NO_LABVIEW = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered/;
+/** InspectCommands.ps1's failures that mean "try the other LabVIEW bitness", not a failed inspection. */
+const PROJECT_ELSEWHERE = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered|Open the selected project in one LabVIEW instance|The selected project is not already open in LabVIEW/;
+
+function runInspectionScript(powershell: string, script: string, requestFile: string, responseFile: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     execFile(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-RequestFile", requestFile, "-ResponseFile", responseFile],
       { windowsHide: true, timeout: 180000, maxBuffer: 1024 * 1024, encoding: "utf8" }, (error, _stdout, stderr) => {
         if (error) reject(new Error(error.killed ? "NI command inspection timed out. LabVIEW was left open." : stderr.trim().slice(0, 2000) || error.message));
