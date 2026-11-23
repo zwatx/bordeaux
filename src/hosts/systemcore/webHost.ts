@@ -5,7 +5,7 @@
  * desktop's checkpoint and recovery calls are absent, plus robot file push as a local copy on the robot.
  * The browser builds every byte with src/core; the server only stores them in fixed folders.
  */
-import type { BordeauxHost, PathExportResult } from "../contract";
+import type { BordeauxHost, PathExportResult, RobotProjectRestore } from "../contract";
 import type { CreateNamedProjectRequest, OpenedProject, ProjectLocation, RecentProjectEntry } from "../../core/project/desktopProjects";
 import type { RobotFileConnection, RobotFilePreview, RobotFileResult } from "../../core/robotFileDelivery";
 import type { BordeauxProject } from "../../core/types";
@@ -14,7 +14,8 @@ import { createDemoProject, defaultPathConstraints } from "../../core/project/de
 import { PROJECT_NAME_RULE, isPortableProjectName } from "../../core/project/projectName";
 import { MAX_FILE_NAME_BYTES, portableFileStem } from "../../core/portableFileName";
 import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceContents, type FolderState } from "../../core/project/folderLayout";
-import { buildRobotBinary } from "../../core/export/robotBinary";
+import { buildRobotBinary, type BinaryBindings } from "../../core/export/robotBinary";
+import { decodeCommandsFile } from "../../core/export/commandsFile";
 import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
 import { sha256Hex, utf8Bytes } from "../../core/bytes";
 import { validateProject } from "../../core/validation";
@@ -24,8 +25,8 @@ interface Opened { name: string; state: FolderState; workspaceSha256: string }
 /** `expectedSha256` is the hash Bordeaux last wrote to this file (null: no file yet); the server refuses other bytes. */
 interface FileWrite { file: string; base64: string; expectedSha256: string | null }
 
-/** The robot exports paths without commands; command types come from the desktop's LabVIEW inspection. */
-const BINDINGS = bdxBindingsFromDefinitions(null, [], {});
+/** Without a command list from the desktop, the robot exports paths that use no commands. */
+const NO_COMMANDS = bdxBindingsFromDefinitions(null, [], {});
 /** Shown where the desktop shows an SSH host key; the robot writes to its own disk. */
 const LOCAL_IDENTITY = "SystemCore local folder";
 
@@ -95,6 +96,16 @@ export function createSystemcoreHost() {
   };
   // Reviews the server holds; confirm publishes the bytes it checked at review, never new ones from this page.
   const pending = new Map<string, { preview: RobotFilePreview; uploading: boolean }>();
+  // The command list a desktop Push left in this page's push folder, the same folder its pushes go to. Each project load
+  // reads it again, so the catalog and the export bindings both pick up a list pushed after the page opened.
+  let commands: Promise<{ bindings: BinaryBindings } | { error: string } | null> | null = null;
+  const robotCommands = () => commands ??= serverInfo().then((server) => fetch(`/api/commands?directory=${encodeURIComponent(server.pushDirectory)}`)).then(async (response) => {
+    if (response.status === 404) return null;
+    const value = await response.json() as { contents?: string; error?: string };
+    if (!response.ok || typeof value.contents !== "string") return { error: value.error || `The robot answered ${response.status}` };
+    try { return { bindings: decodeCommandsFile(value.contents) }; } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
+  });
+  const bindings = async () => { const list = await robotCommands(); return list && "bindings" in list ? list.bindings : NO_COMMANDS; };
 
   const serverInfo = (refresh = false) => (info && !refresh ? info : (info = request<ServerInfo>("/api/info")));
   const location = async (name: string | null): Promise<ProjectLocation> => {
@@ -133,7 +144,8 @@ export function createSystemcoreHost() {
     let generatedFiles = previous?.generatedFiles, bdxCount: number | undefined, exportError: string | undefined;
     if (options.bdx) {
       try {
-        const built = exportablePaths(canonical).map((path) => buildRobotBinary(canonical, { kind: "path", id: path.id }, BINDINGS));
+        const used = await bindings();
+        const built = exportablePaths(canonical).map((path) => buildRobotBinary(canonical, { kind: "path", id: path.id }, used));
         if (sharedFileName(built)) throw new Error(`Duplicate BDX output filename: ${sharedFileName(built)}`);
         const next = Object.fromEntries(built.map((item) => [`Paths/${item.fileName}`, item.sha256]));
         // Like the sources, each BDX names the bytes Bordeaux last wrote there, so the server keeps any other file.
@@ -178,6 +190,7 @@ export function createSystemcoreHost() {
   }
   async function useDirectory(directory: string): Promise<RobotFileConnection> {
     await request("/api/settings", { pushDirectory: directory.replace(/\/+$/, "") });
+    commands = null; // The command list lives in the push folder; exports and pushes read the new folder's list.
     await serverInfo(true);
     return connection();
   }
@@ -223,9 +236,18 @@ export function createSystemcoreHost() {
     }),
     validateProject: async (project) => validateProject(project),
     exportBdx: async (project, pathId): Promise<PathExportResult> => {
-      const built = buildRobotBinary(prepareProjectFile(project), { kind: "path", id: pathId }, BINDINGS);
+      const built = buildRobotBinary(prepareProjectFile(project), { kind: "path", id: pathId }, await bindings());
       download(built.fileName, built.bytes);
       return { exported: true, relativePath: built.fileName, sha256: built.sha256, pathCount: built.pathCount, eventCount: built.eventCount, sampleCount: built.sampleCount };
+    },
+
+    restoreProjectRobotCode: async (): Promise<RobotProjectRestore> => {
+      commands = null;
+      const list = await robotCommands();
+      if (!list) return { status: "unlinked", error: "" };
+      if ("error" in list) return { status: "error", error: list.error };
+      return { catalog: list.bindings.catalog, bookmarkId: "systemcore", recentProjects: [],
+        integration: { runtime: "labview", installed: true, generatedCatalog: false, buildFile: "bordeaux-catalog.json", wrapperAvailable: false } };
     },
 
     getRobotFileConnection: connection,
@@ -236,8 +258,8 @@ export function createSystemcoreHost() {
     trustRobotFiles: () => connection(),
     cancelRobotFileProbe: async () => undefined,
     prepareRobotFiles: async (project, pathIds) => {
-      const prepared = prepareProjectFile(project);
-      const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, BINDINGS));
+      const prepared = prepareProjectFile(project), used = await bindings();
+      const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, used));
       if (sharedFileName(built)) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
       const target = await connection();
       const held = await request<{ operationId: string; files: Array<{ fileName: string; size: number; sha256: string }> }>("/api/push/prepare", {

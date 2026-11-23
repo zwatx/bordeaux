@@ -92,7 +92,10 @@ export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items
 async function candidateSources(selection: string, catalog: RobotCommandCatalog) {
   const { root, projectFile } = await resolveLabviewProject(selection);
   if (!catalog.labviewDiscovery || catalog.labviewDiscovery.truncated) throw new Error("Complete project discovery is required before NI command inspection.");
-  const robotTargets = new Set(catalog.labviewDiscovery.targets.filter((target) => target.type === "RT myRIO" || target.type === "RT roboRIO").map((target) => target.name));
+  // roboRIO and myRIO projects keep robot code under their RT target. A SystemCore project has none: its LabVIEW runs on
+  // the robot itself, so robot code sits under My Computer.
+  const targets = catalog.labviewDiscovery.targets, rt = targets.filter((target) => target.type === "RT myRIO" || target.type === "RT roboRIO");
+  const robotTargets = new Set((rt.length ? rt : targets.filter((target) => target.type === "My Computer")).map((target) => target.name));
   const sources: Array<LabviewNiSource & { path: string }> = [];
   const seen = new Set<string>();
   for (const item of catalog.labviewDiscovery.items) {

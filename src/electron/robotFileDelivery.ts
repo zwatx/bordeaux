@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus } from "../core/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from "../core/robotFileDelivery";
+import { COMMANDS_FILE_NAME } from "../core/export/commandsFile";
 import { LEGACY_ROBOT_TARGET, ROBOT_TARGETS, allowsCustomPassword } from "../core/robotTargets";
 import { writeJsonAtomically } from "./projectFiles";
 import { sessionRobotPasswordStore, type RobotPasswordStore } from "./robotPasswordStore";
@@ -188,7 +189,9 @@ export class RobotFileDelivery {
   }
   prepare(files: PreparedRobotFile[], validate: () => Promise<void>): RobotFilePreview {
     if (!this.trusted || this.active || this.trusting) throw new Error("Connect a robot before preparing this transfer");
-    if (!files.length || files.length > 64) throw new Error("Select between 1 and 64 paths to push");
+    // A SystemCore push adds the LabVIEW command list; it does not count toward the 64 paths.
+    const paths = files.filter(file => file.fileName !== COMMANDS_FILE_NAME).length;
+    if (!paths || paths > 64) throw new Error("Select between 1 and 64 paths to push");
     if (new Set(files.map(file => file.fileName.toLowerCase())).size !== files.length) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
     if (files.some(file => !file.contents.length) || files.reduce((sum, file) => sum + file.contents.length, 0) > 24 * 1024 * 1024) throw new Error("Selected BDX files exceed the 24 MB transfer limit");
     const frozen = files.map(file => ({ ...file, contents: Buffer.from(file.contents) }));

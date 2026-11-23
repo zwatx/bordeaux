@@ -3,11 +3,16 @@ import { UI } from './ui';
 import { MAX_PUSH_PATHS } from './useRobotFilePushController';
 import { shortFact } from '../lib/projectLifecycle';
 import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
+import { isCommandsFile } from '../../core/export/commandsFile';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
 const plural = (count) => count + (count === 1 ? ' path' : ' paths');
-const scopeLabel = (files) => files.length === 1 && files[0].fileName.endsWith('.bdr') ? '1 routine' : plural(files.length);
+// A SystemCore push may also carry the LabVIEW command list; it is listed but is not a path.
+const scopeLabel = (all) => {
+  const files = all.filter((file) => !isCommandsFile(file.fileName));
+  return files.length === 1 && files[0].fileName.endsWith('.bdr') ? '1 routine' : plural(files.length);
+};
 const kilobytes = (bytes) => (bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(bytes < 10240 ? 1 : 0) + ' KB');
 // Port 22 is the robot default, so the address only carries a port when it differs.
 const address = (endpoint) => endpoint.host + (Number(endpoint.port) === 22 ? '' : ':' + endpoint.port);

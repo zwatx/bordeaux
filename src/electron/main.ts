@@ -10,7 +10,7 @@ import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
 import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
-import { prepareBdxBindings, usedCommandEvidence } from "./bdxBindings";
+import { commandListEvidence, prepareBdxBindings, prepareCommandListBindings, usedCommandEvidence } from "./bdxBindings";
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildRoutineOffThread } from "./routineRuntimeWorkerClient";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
@@ -50,9 +50,10 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
-import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection } from "./robotFileDelivery";
+import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
+import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
-import type { RobotFileEndpoint } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
 import { describeProjectWriteError, projectWriteFact, projectWriteFactFromMessage } from "../core/project/writeErrors";
 import { ProjectSourcePersistence, ProjectSourceError, sameProjectContext, canonicalProjectDigest } from "./projectSourcePersistence";
 import { projectFolderIdentity, sameProjectFolder } from "./projectFolderIdentity";
@@ -572,6 +573,9 @@ function captureLinkedProject(project: BordeauxProject) {
     // Only the commands this export uses are checked; a changed one is read again from LabVIEW when it is open.
     bindingOptions: (commandIds: Set<string>) => ({ projectFile: commandIds.size ? projectFile : null, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(),
       activeCatalog: linkedRobotCatalog, commandIds, refresh: refreshLinkedCommands }),
+    /** Every inspected command, for the list a SystemCore keeps; each is checked against its saved VI before it is sent. */
+    catalogBindingOptions: () => projectFile ? { projectFile, inspectionCacheDirectory: labviewDiscoveryCacheDirectory(), activeCatalog: linkedRobotCatalog,
+      refresh: refreshLinkedCommands } : null,
     isCurrent: () => generation === robotConnectionGeneration && projectGeneration === projectTargetGeneration
       && projectFile === linkedLabviewProjectFile && bookmark === linkedRobotProjectBookmarkId,
   };
@@ -1608,6 +1612,28 @@ handle("robotFiles:trust", (_event, fingerprint) => {
   if (typeof fingerprint !== "string") throw new Error("Review the robot SSH identity first");
   return robotFileDelivery.trust(fingerprint);
 });
+/**
+ * A SystemCore also receives the linked LabVIEW project's command list beside the pushed files, so the robot app can
+ * author and export command events. It is part of the reviewed file set; other robots and unlinked projects get none.
+ * Only commands whose saved VI still matches what Bordeaux read are listed; the review names any left out. `check`
+ * runs again before upload and refuses a list that changed after the review.
+ */
+async function withRobotCommands(files: PreparedRobotFile[], pairing: RobotFileConnection, link: ReturnType<typeof captureLinkedProject>): Promise<{ files: PreparedRobotFile[]; check: () => Promise<void> }> {
+  const options = link.catalogBindingOptions();
+  const none = { files, check: async () => {} };
+  if (pairing.endpoint.target !== "systemcore" || !options) return none;
+  const reviewed = await prepareCommandListBindings(options);
+  // A project with no inspected commands sends nothing and leaves the robot's list alone. One whose commands all changed
+  // sends an empty list, so the robot stops offering the stale ones.
+  if (!reviewed.bindings.catalog?.catalogId && !reviewed.omitted.length) return none;
+  const name = reviewed.omitted.length ? `LabVIEW commands, without ${reviewed.omitted.join(", ")} (changed in LabVIEW)` : "LabVIEW commands";
+  return { files: [...files, { pathId: COMMANDS_FILE_NAME, name, fileName: COMMANDS_FILE_NAME, contents: Buffer.from(encodeCommandsFile(reviewed.bindings)) }],
+    check: async () => {
+      if (commandListEvidence((await prepareCommandListBindings(options)).bindings) !== commandListEvidence(reviewed.bindings)) {
+        throw new Error("The LabVIEW command list changed after this review. Review the transfer again.");
+      }
+    } };
+}
 handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
   if (!Array.isArray(pathIds)) throw new Error("Select distinct paths to push");
   if (!pathIds.length || pathIds.length > MAX_BDX_BATCH) throw new Error(`Select between 1 and ${MAX_BDX_BATCH} paths to push`);
@@ -1630,12 +1656,14 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
   assertCurrent();
   const built = await buildBdxBatchOffThread({ project, selections: selected.map(candidate => ({ kind: "path", id: candidate.id })), bindings });
   assertCurrent();
-  const files = built.map((file, index) => ({ pathId: selected[index].id, name: selected[index].name, fileName: file.fileName, contents: Buffer.from(file.bytes) }));
+  const { files, check } = await withRobotCommands(built.map((file, index) => ({ pathId: selected[index].id, name: selected[index].name, fileName: file.fileName, contents: Buffer.from(file.bytes) })), pairing, link);
+  assertCurrent();
   return robotFileDelivery.prepare(files, async () => {
     assertCurrent();
     const current = await prepareBdxBindings(bindingOptions);
     assertCurrent();
     if (usedCommandEvidence(current, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW after this review. Review the transfer again.");
+    await check(); assertCurrent();
   });
 });
 handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
@@ -1652,11 +1680,14 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
   assertCurrent();
   const built = await buildRoutineOffThread({ project, routineId, bindings });
   assertCurrent();
-  return robotFileDelivery.prepare([{ pathId: routineId, name: built.name, fileName: built.fileName, contents: Buffer.from(built.bytes) }], async () => {
+  const { files, check } = await withRobotCommands([{ pathId: routineId, name: built.name, fileName: built.fileName, contents: Buffer.from(built.bytes) }], pairing, link);
+  assertCurrent();
+  return robotFileDelivery.prepare(files, async () => {
     assertCurrent();
     const current = await prepareBdxBindings(bindingOptions);
     assertCurrent();
     if (usedCommandEvidence(current, bindingOptions.commandIds) !== usedCommandEvidence(bindings, bindingOptions.commandIds)) throw new Error("A command’s inputs changed in LabVIEW after this review. Review the transfer again.");
+    await check(); assertCurrent();
   });
 });
 handle("robotFiles:confirm", (_event, operationId) => {

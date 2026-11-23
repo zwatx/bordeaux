@@ -129,7 +129,8 @@ export interface HostInvokes {
   "diagnostics:save": { method: "saveBetaDiagnostic"; call: (previewId: string) => Promise<{ saved: boolean }> };
 
   "robotProject:listRecent": { method: "listRecentRobotProjects"; call: () => Promise<RobotProjectBookmarkSummary[]> };
-  "robotProject:restore": { method: "restoreProjectRobotCode"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectRestore> };
+  /** `null` from a host without project sessions, such as the SystemCore. */
+  "robotProject:restore": { method: "restoreProjectRobotCode"; call: (context: ProjectDurabilityContext | null) => Promise<RobotProjectRestore> };
   "robotProject:useSuggested": { method: "useSuggestedRobotCode"; call: (context: ProjectDurabilityContext, id: string) => Promise<RobotProjectLink> };
   "robotProject:link": { method: "linkRobotProject"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectLink | null> };
   "robotProject:openRecent": { method: "openRecentRobotProject"; call: (id: string, context: ProjectDurabilityContext) => Promise<RobotProjectLink> };

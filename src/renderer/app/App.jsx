@@ -673,7 +673,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [persistenceQueue, applyRobotProjectConnection, robotProjectState.suggestion]);
 
+    // The robot's browser host has no project sessions and one command list, kept in its push folder: Refresh commands and
+    // a push folder change read that list again, so the editor's catalog and the BDX bindings stay the same list.
+    const hostCommandList = !lifecycle && typeof window !== 'undefined' && typeof window.bordeauxAPI?.restoreProjectRobotCode === 'function'
+      && typeof window.bordeauxAPI.refreshRobotProject !== 'function';
+    const reloadHostCommands = useCallback(() => restoreRobotCode(null, ++robotRestoreGeneration.current), [restoreRobotCode]);
     const refreshRobotProject = useCallback(async (rescan = false) => {
+      if (hostCommandList) return reloadHostCommands();
       if (!window.bordeauxAPI || typeof window.bordeauxAPI.refreshRobotProject !== 'function') return;
       const generation = robotRestoreGeneration.current;
       // Like Build, a refresh keeps the link and its catalog; only the operation marks the pending work.
@@ -687,7 +693,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         if (robotRestoreGeneration.current !== generation) return;
         setRobotProjectState((current) => ({ ...current, status: current.catalog ? 'stale' : 'error', operation: null, error: operationErrorMessage(error) }));
       }
-    }, [applyRobotProjectConnection]);
+    }, [applyRobotProjectConnection, hostCommandList, reloadHostCommands]);
 
     // Main reads changed LabVIEW commands in the background (for example after a save in LabVIEW). The new
     // definitions replace the linked catalog quietly; the link, reviews and any pending operation are untouched.
@@ -824,7 +830,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onAccessChange: (enabled) => { setMcpEnabled(enabled); markAgentProposalStale(); },
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
-    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId });
+    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+      ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
     const enqueuePersistence = useCallback((operation) => persistenceQueue.enqueue(operation), [persistenceQueue]);
@@ -2132,9 +2139,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       history.clear();
       updateDirty(Boolean(origin));
       setRobotProjectState((current) => ({ ...current, status: 'unlinked', operation: null, catalog: null, integration: null, bookmarkId: null, suggestion: null, error: '', notice: '' }));
-      if (window.bordeauxAPI?.restoreProjectRobotCode && session?.context) void restoreRobotCode(session.context, robotGeneration);
+      // The desktop restores robot code per project session; a host without sessions (the SystemCore) has one command list.
+      if (window.bordeauxAPI?.restoreProjectRobotCode && (session?.context || !lifecycle)) void restoreRobotCode(session?.context ?? null, robotGeneration);
       else if (next.editor && next.editor.robotProjectBookmarkId) void openRecentRobotProject(next.editor.robotProjectBookmarkId, robotGeneration);
-    }, [cancelEdit, history, invalidateScheduledAutosave, openRecentRobotProject, restoreRobotCode, playbackStore, refreshSessionRecord, routinePlaybackStore, updateDirty]);
+    }, [cancelEdit, history, invalidateScheduledAutosave, lifecycle, openRecentRobotProject, restoreRobotCode, playbackStore, refreshSessionRecord, routinePlaybackStore, updateDirty]);
     // Older desktop builds and browser fixtures without the startup API keep the previous restore race handling.
     useEffect(() => {
       let active = true;
@@ -2142,7 +2150,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const sourceProject = projectRef.current;
       const editRevision = editStore.getRevision();
       void enqueuePersistence(() => window.bordeauxAPI.restoreLastProject()).then(async (result) => {
-        if (!active || !result) return;
+        if (!active) return;
+        // No last project: the blank document never goes through loadProject, so restore the host's command list here.
+        if (!result) {
+          if (window.bordeauxAPI.restoreProjectRobotCode) void restoreRobotCode(null, ++robotRestoreGeneration.current);
+          return;
+        }
         if (sourceProject !== projectRef.current || editRevision !== editStore.getRevision() || dirtyRef.current) {
           invalidateScheduledAutosave();
           await window.bordeauxAPI.newProject();
@@ -2153,7 +2166,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         loadProject(result.project, result.location, { session: result.session });
       }).catch((error) => console.warn('Could not restore the last project:', error));
       return () => { active = false; };
-    }, [editStore, enqueuePersistence, invalidateScheduledAutosave, loadProject, updateDirty]);
+    }, [editStore, enqueuePersistence, invalidateScheduledAutosave, loadProject, restoreRobotCode, updateDirty]);
     const prepareProjectReplacement = useCallback(() => {
       invalidateScheduledAutosave();
       cancelEdit();
@@ -2801,7 +2814,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       recovery: recoveryState, recoveredFrom, bdxPending, bdxError: saveState.status === 'error' && saveState.retryExport ? saveState.error : '', bdxDetails: saveState.exportDetails,
       robotCode: { ...robotProjectState, name: robotProjectState.catalog?.projectName, commands: robotProjectState.catalog?.commands?.length },
       actions: { projects: () => showProjects('list'), create: () => showProjects('new'), save: () => requestSaveCopy(false), saveCopy: requestSaveCopy,
-        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, rescanCode: typeof window.bordeauxAPI?.inspectLabviewCommands === 'function' ? () => refreshRobotProject(true) : undefined, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject, buildCode: buildRobotCatalog, ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
+        retrySave, linkCode: linkRobotProject, refreshCode: refreshRobotProject, rescanCode: typeof window.bordeauxAPI?.inspectLabviewCommands === 'function' ? () => refreshRobotProject(true) : undefined, useCode: useSuggestedRobotCode, recentCode: openRecentRobotProject,
+        // Only a host that can build a catalog (the desktop) offers Build; the robot's browser host can't.
+        ...(typeof window.bordeauxAPI?.buildRobotCatalog === 'function' ? { buildCode: buildRobotCatalog } : {}), ...(typeof window.bordeauxAPI?.listProjectRecoveries === 'function' ? { manageRecoveries } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.reloadProjectSource === 'function' ? { reloadSource: () => { void reloadSource(); } } : {}),
         ...(lifecycle && typeof window.bordeauxAPI?.revealProjectSource === 'function' ? { showSource: () => { void showSourceFile(); },
           showFailureSeen: (seen) => setShowFailure((failure) => failure === seen ? null : failure) } : {}),

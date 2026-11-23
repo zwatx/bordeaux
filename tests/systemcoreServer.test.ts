@@ -197,4 +197,17 @@ describe.skipIf(!python)("SystemCore server", () => {
     expect(await fs.readFile(path.join(folder, ".bordeaux-workspace.json"), "utf8")).toBe("{}");
     expect((await fs.readdir(path.join(folder, "Paths"))).filter((name) => name.startsWith("."))).toEqual([]);
   });
+  it("reads the command list from the push folder the page names", async () => {
+    const robot = path.join(home, "robot"), other = path.join(robot, "other-paths");
+    await fs.mkdir(other, { recursive: true });
+    await fs.writeFile(path.join(robot, "paths", "bordeaux-commands.json"), "default list");
+    await fs.writeFile(path.join(other, "bordeaux-commands.json"), "other list");
+    // Another browser moves the shared push folder; this page still reads the folder it pushes to.
+    expect((await post("/api/settings", { pushDirectory: other })).status).toBe(200);
+    const named = await json(await fetch(`${base}/api/commands?directory=${encodeURIComponent(path.join(robot, "paths"))}`));
+    expect(named.body).toMatchObject({ contents: "default list", directory: path.join(robot, "paths") });
+    expect((await json(await fetch(base + "/api/commands"))).body.contents).toBe("other list");
+    expect((await fetch(`${base}/api/commands?directory=${encodeURIComponent("/etc")}`)).status).toBe(400);
+    expect((await post("/api/settings", { pushDirectory: path.join(robot, "paths") })).status).toBe(200);
+  });
 });

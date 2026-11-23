@@ -31,7 +31,7 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 WORKSPACE = ".bordeaux-workspace.json"
 # Folder-relative files a commit may write or remove. Mirrors MANAGED_*_FILE in src/core/project/folderLayout.ts.
@@ -49,6 +49,8 @@ MAX_PUSH_BYTES = 24 * 1024 * 1024
 # A reviewed push waits in memory until confirmed or canceled; old reviews expire.
 PUSH_REVIEW_SECONDS = 15 * 60
 MAX_PUSH_REVIEWS = 4
+# The LabVIEW command list a desktop Push leaves beside the paths (src/core/export/commandsFile.ts).
+COMMANDS_FILE = "bordeaux-commands.json"
 # One writer at a time; the robot serves a handful of browsers.
 LOCK = threading.Lock()
 
@@ -490,6 +492,15 @@ class Handler(SimpleHTTPRequestHandler):
                     "defaultPushDirectory": store.default_push_directory(), "lastProject": settings.get("lastProject")}
         if method == "GET" and route == "/api/projects":
             return list_projects(store)
+        if method == "GET" and route == "/api/commands":
+            # The page names the push folder it will push to, so its commands and its destination are one folder even
+            # after another browser changes the shared setting.
+            requested = parse_qs(urlparse(self.path).query).get("directory")
+            directory = store.push_directory(requested[0] if requested else store.read_settings().get("pushDirectory"))
+            data = read_regular(os.path.join(directory, COMMANDS_FILE), 32 * 1024 * 1024)
+            if data is None:
+                return HTTPStatus.NOT_FOUND, {"error": "Push from the desktop app with a linked LabVIEW project to bring its commands here"}
+            return {"contents": data.decode("utf-8"), "directory": directory}
         match = re.match(r"^/api/projects/([^/]+)/workspace$", route)
         if method == "GET" and match:
             data = read_regular(os.path.join(store.project_dir(match.group(1), reading=True), WORKSPACE))
