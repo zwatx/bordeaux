@@ -11,6 +11,8 @@ import type { RobotFileConnection, RobotFilePreview, RobotFileResult } from "../
 import type { BordeauxProject } from "../../core/types";
 import { prepareProjectFile } from "../../core/project/fileFormat";
 import { createDemoProject, defaultPathConstraints } from "../../core/project/defaults";
+import { PROJECT_NAME_RULE, isPortableProjectName } from "../../core/project/projectName";
+import { MAX_FILE_NAME_BYTES, portableFileStem } from "../../core/portableFileName";
 import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceContents, type FolderState } from "../../core/project/folderLayout";
 import { buildRobotBinary } from "../../core/export/robotBinary";
 import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
@@ -19,8 +21,8 @@ import { validateProject } from "../../core/validation";
 
 interface ServerInfo { projectsRoot: string; pushDirectory: string; defaultPushDirectory: string; lastProject: string | null }
 interface Opened { name: string; state: FolderState; workspaceSha256: string }
-/** `expectedSha256` is the hash this page last saw for a source file (null: no file yet); the server refuses other bytes. */
-interface FileWrite { file: string; base64: string; expectedSha256?: string | null }
+/** `expectedSha256` is the hash Bordeaux last wrote to this file (null: no file yet); the server refuses other bytes. */
+interface FileWrite { file: string; base64: string; expectedSha256: string | null }
 
 /** The robot exports paths without commands; command types come from the desktop's LabVIEW inspection. */
 const BINDINGS = bdxBindingsFromDefinitions(null, [], {});
@@ -45,9 +47,15 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** A folder name the server accepts, unused on the robot. */
+/** The server keeps projects in visible folders of at most 120 characters, as well as the desktop's rules. */
+// The server also refuses U+0085 at either end, which Python's strip() removes and JavaScript's trim() keeps.
+const robotProjectName = (name: string) => isPortableProjectName(name) && !name.startsWith(".") && name.length <= 120 && !/^\u0085|\u0085$/.test(name);
+
+/** A folder name the server and the desktop accept, unused on the robot. */
 function freeName(name: string, taken: readonly string[]): string {
-  const base = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "").trim().slice(0, 110) || "Robot paths";
+  const cleaned = name.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "-").replace(/[\uD800-\uDFFF]/gu, "").trim().slice(0, 110);
+  // Room for a " (n)" suffix within the byte limit; a device name gains a leading underscore.
+  const base = portableFileStem(cleaned.replace(/^[. ]+|[. ]+$/g, ""), MAX_FILE_NAME_BYTES - 8).replace(/[. ]+$/, "") || "Robot paths";
   const used = new Set(taken.map((item) => item.toLowerCase()));
   let candidate = base;
   for (let number = 2; used.has(candidate.toLowerCase()); number++) candidate = `${base} (${number})`;
@@ -126,7 +134,9 @@ export function createSystemcoreHost() {
         const built = exportablePaths(canonical).map((path) => buildRobotBinary(canonical, { kind: "path", id: path.id }, BINDINGS));
         if (sharedFileName(built)) throw new Error(`Duplicate BDX output filename: ${sharedFileName(built)}`);
         const next = Object.fromEntries(built.map((item) => [`Paths/${item.fileName}`, item.sha256]));
-        writes.push(...built.map((item) => ({ file: `Paths/${item.fileName}`, base64: base64(item.bytes) })));
+        // Like the sources, each BDX names the bytes Bordeaux last wrote there, so the server keeps any other file.
+        writes.push(...built.map((item) => ({ file: `Paths/${item.fileName}`, base64: base64(item.bytes),
+          expectedSha256: previous?.generatedFiles?.[`Paths/${item.fileName}`] ?? null })));
         removes.push(...Object.entries(previous?.generatedFiles ?? {}).filter(([file]) => !(file in next)).map(([file, sha256]) => ({ file, sha256 })));
         generatedFiles = next; bdxCount = built.length;
       } catch (error) {
@@ -153,7 +163,8 @@ export function createSystemcoreHost() {
   /** A new project on the robot under exactly the chosen name, like the desktop's New project. */
   async function createNamed(request: CreateNamedProjectRequest): Promise<OpenedProject> {
     const name = typeof request?.name === "string" ? request.name.trim() : "";
-    if (!name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /^[. ]|[. ]$/.test(name) || name.length > 120) throw new Error("Choose a plain project name without reserved characters");
+    if (!isPortableProjectName(name)) throw new Error(PROJECT_NAME_RULE);
+    if (!robotProjectName(name)) throw new Error("Choose a project name of at most 120 characters that doesn't start with a dot");
     const project = createDemoProject();
     project.name = name;
     if (request.template) {

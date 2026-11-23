@@ -36,7 +36,11 @@ from urllib.parse import unquote, urlparse
 WORKSPACE = ".bordeaux-workspace.json"
 # Folder-relative files a commit may write or remove. Mirrors MANAGED_*_FILE in src/core/project/folderLayout.ts.
 MANAGED_FILE = re.compile(r"^(Paths/[^/\\\x00]+\.(path|bdx)|Routines/[^/\\\x00]+\.routine)$", re.IGNORECASE)
-PROJECT_NAME = re.compile(r"^[^/\\\x00-\x1f<>:\"|?*.][^/\\\x00-\x1f<>:\"|?*]{0,119}$")
+PROJECT_NAME = re.compile(r"^[^/\\\x00-\x1f\x7f<>:\"|?*.][^/\\\x00-\x1f\x7f<>:\"|?*]{0,119}$")
+# The desktop's rules too (src/core/project/projectName.ts): at most 255 UTF-8 bytes, no trailing dot or space, and
+# no Windows device name, so a robot project can be copied to any team laptop.
+MAX_NAME_BYTES = 255
+WINDOWS_DEVICE_NAME = re.compile(r"^(?:con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]) *(?:\.|$)", re.IGNORECASE)
 PUSH_FILE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(bdx|bdr)$")
 MAX_BODY_BYTES = 160 * 1024 * 1024
 # Push limits match the desktop's SFTP transfer (src/electron/robotFileTransfer.ts).
@@ -49,8 +53,18 @@ MAX_PUSH_REVIEWS = 4
 LOCK = threading.Lock()
 
 
+def is_project_name(name):
+    return (isinstance(name, str) and PROJECT_NAME.match(name) is not None and name.strip() == name and not name.endswith(".")
+            and len(name.encode("utf-8", "surrogatepass")) <= MAX_NAME_BYTES and not WINDOWS_DEVICE_NAME.match(name)
+            and not any(0xD800 <= ord(character) <= 0xDFFF for character in name))
+
+
 class Store:
-    """Every path this server touches is derived here and checked to stay inside `home`."""
+    """Every path this server touches is derived here and checked to stay inside `home`.
+
+    The checks are physical, not only lexical: no folder or file between `home` and a path the server reads or writes
+    may be a link, so a link can't route Save into the robot code's folder or a push outside `home`.
+    """
 
     def __init__(self, home):
         self.home = os.path.realpath(home)
@@ -61,10 +75,32 @@ class Store:
     def default_push_directory(self):
         return os.path.join(self.home, "paths")
 
-    def project_dir(self, name):
-        if not isinstance(name, str) or not PROJECT_NAME.match(name) or name.strip() != name:
+    def contained(self, path):
+        """`path` itself, once it is inside home with no link at any level below home."""
+        normal = os.path.normpath(path)
+        if normal != self.home and not normal.startswith(self.home + "/"):
+            raise ValueError(f"{path} is outside {self.home}")
+        current = self.home
+        for part in os.path.relpath(normal, self.home).split("/"):
+            if part == ".":
+                continue
+            current = os.path.join(current, part)
+            if os.path.islink(current):
+                raise ValueError(f"{current} is a link; Bordeaux doesn't read or write through links")
+            if not os.path.lexists(current):
+                break
+        return normal
+
+    def project_dir(self, name, reading=False):
+        """A project folder to write, or with `reading`, one to open: a robot project saved before the desktop's name
+        rules applied (such as "Aux") still opens, and Save copy moves it to a name every computer accepts."""
+        if reading and isinstance(name, str) and PROJECT_NAME.match(name) and name.strip() == name:
+            return self.contained(os.path.join(self.projects, name))
+        if not is_project_name(name):
+            if isinstance(name, str) and PROJECT_NAME.match(name):
+                raise ValueError(f"{name} isn't a project name every computer accepts. Use Save copy to keep it under a new name.")
             raise ValueError("Project name is not a plain folder name")
-        return os.path.join(self.projects, name)
+        return self.contained(os.path.join(self.projects, name))
 
     def push_directory(self, directory):
         """A push destination: the default, or another plain folder inside home."""
@@ -73,8 +109,9 @@ class Store:
         if not isinstance(directory, str) or not os.path.isabs(directory):
             raise ValueError("Push folder must be an absolute path")
         normal = os.path.normpath(directory)
-        if normal != directory.rstrip("/") or not (normal + "/").startswith(self.home + "/") or os.path.islink(normal):
+        if normal != directory.rstrip("/") or not (normal + "/").startswith(self.home + "/"):
             raise ValueError(f"Push folder must be inside {self.home}")
+        self.contained(normal)
         # Save writes and removes files under projects; robot code's folder must stay reachable only through Push.
         if (normal + "/").startswith(self.projects + "/"):
             raise ValueError("Push folder must be outside the projects folder")
@@ -195,51 +232,54 @@ def write_project(store, folder, body, create):
         file = write.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
             raise ValueError(f"Refusing to write {file!r}")
-        writes.append((write, os.path.join(folder, file), base64.b64decode(write.get("base64", ""), validate=True)))
+        writes.append((write, store.contained(os.path.join(folder, file)), base64.b64decode(write.get("base64", ""), validate=True)))
     removes = body.get("removes", [])
     for remove in removes:
         file = remove.get("file")
         if not isinstance(file, str) or not MANAGED_FILE.match(file):
             raise ValueError(f"Refusing to remove {file!r}")
-    # A source file carries the hash this tab last saw (None when it expects no file). Any other bytes on disk, such as
-    # an edit made over SSH, stop the whole save before anything is written.
-    for write, target, data in writes:
-        if "expectedSha256" not in write:
-            continue
-        current = read_regular(target)
-        found = sha256(current) if current is not None else None
-        if found not in (write["expectedSha256"], sha256(data)):
-            # This page can't show the robot's version, so reloading would not help; a copy keeps both.
-            raise Conflict(f"{write['file']} changed on the robot since Bordeaux saved it, and Bordeaux left it as it is. "
-                           "Use Save copy to keep this version in a new project.")
-    # Every file is written beside its target before any target changes, so a full disk fails the save without leaving
-    # some source files newer than the workspace that records them.
-    staged = []
-    try:
-        for _write, target, data in writes:
-            staged.append((write_temporary(target, data), target))
-        for temporary, target in staged:
-            os.replace(temporary, target)
-    finally:
-        for temporary, _target in staged:
-            remove_quietly(temporary)
-    preserved = []
-    for remove in removes:
-        file = remove["file"]
-        target = os.path.join(folder, file)
-        data = read_regular(target)
-        # Only bytes Bordeaux recorded may be deleted; anything edited by hand stays.
-        if data is not None and sha256(data) == remove.get("sha256"):
-            os.unlink(target)
-        elif data is not None:
-            preserved.append(file)
+        store.contained(os.path.join(folder, file))
     workspace = body.get("workspace")
     if not isinstance(workspace, str):
         raise ValueError("Missing workspace contents")
-    data = workspace.encode("utf-8")
-    replace_file(workspace_path, data)
+    workspace_data = workspace.encode("utf-8")
+    # Each file carries the hash this tab last saw (None when it expects no file). Any other bytes on disk, such as an
+    # edit made over SSH, stop the whole save before anything is written.
+    for write, target, data in writes:
+        if "expectedSha256" not in write:
+            raise ValueError(f"{write['file']} has no expected hash; reload the page")
+        current = read_regular(target)
+        found = sha256(current) if current is not None else None
+        # A missing file is written, as on the desktop: replacing nothing loses nothing.
+        if found not in (None, write["expectedSha256"], sha256(data)):
+            # This page can't show the robot's version, so reloading would not help; a copy keeps both.
+            raise Conflict(f"{write['file']} changed on the robot since Bordeaux saved it, and Bordeaux left it as it is. "
+                           "Use Save copy to keep this version in a new project.")
+    # Every file, the workspace included, is written beside its target before any target changes, so a full disk fails
+    # the save with nothing replaced. The workspace is renamed last, after the files it records.
+    staged, workspace_temporary, preserved = [], None, []
+    try:
+        for _write, target, data in writes:
+            staged.append((write_temporary(target, data), target))
+        workspace_temporary = write_temporary(workspace_path, workspace_data)
+        for temporary, target in staged:
+            os.replace(temporary, target)
+        for remove in removes:
+            file = remove["file"]
+            target = os.path.join(folder, file)
+            data = read_regular(target)
+            # Only bytes Bordeaux recorded may be deleted; anything edited by hand stays.
+            if data is not None and sha256(data) == remove.get("sha256"):
+                os.unlink(target)
+            elif data is not None:
+                preserved.append(file)
+        os.replace(workspace_temporary, workspace_path)
+    finally:
+        for temporary in [item[0] for item in staged] + [workspace_temporary]:
+            if temporary:
+                remove_quietly(temporary)
     store.write_settings({"lastProject": os.path.basename(folder)})
-    return {"workspaceSha256": sha256(data), "preserved": preserved}
+    return {"workspaceSha256": sha256(workspace_data), "preserved": preserved}
 
 
 class PushReviews:
@@ -305,7 +345,7 @@ def confirm_push(store, reviews, body):
     try:
         os.makedirs(directory, exist_ok=True)
         for item in files:
-            name, target = item["fileName"], os.path.join(directory, item["fileName"])
+            name, target = item["fileName"], store.contained(os.path.join(directory, item["fileName"]))
             if os.path.islink(target) or (os.path.lexists(target) and not os.path.isfile(target)):
                 raise ValueError(f"{name} on the robot is not a regular file")
             temporary = write_temporary(target, item["data"])
@@ -427,7 +467,7 @@ class Handler(SimpleHTTPRequestHandler):
             return list_projects(store)
         match = re.match(r"^/api/projects/([^/]+)/workspace$", route)
         if method == "GET" and match:
-            data = read_regular(os.path.join(store.project_dir(match.group(1)), WORKSPACE))
+            data = read_regular(os.path.join(store.project_dir(match.group(1), reading=True), WORKSPACE))
             if data is None:
                 return HTTPStatus.NOT_FOUND, {"error": "No project with this name on the robot"}
             return {"contents": data.decode("utf-8"), "sha256": sha256(data)}
@@ -456,7 +496,7 @@ class Handler(SimpleHTTPRequestHandler):
             if "pushDirectory" in body:
                 changes["pushDirectory"] = store.push_directory(body["pushDirectory"])
             if "lastProject" in body:
-                store.project_dir(body["lastProject"])
+                store.project_dir(body["lastProject"], reading=True)
                 changes["lastProject"] = body["lastProject"]
             with LOCK:
                 return store.write_settings(changes)

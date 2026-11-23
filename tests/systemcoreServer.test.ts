@@ -98,4 +98,75 @@ describe.skipIf(!python)("SystemCore server", () => {
     expect((await post("/api/push/prepare", { files: [{ fileName: "A.bdx", sha256: sha256("x"), base64: b64("y") }] })).status).toBe(400);
     expect((await post("/api/push/prepare", { files: [{ fileName: "A.bdx", sha256: sha256("x"), base64: b64("x") }, { fileName: "a.bdx", sha256: sha256("x"), base64: b64("x") }] })).status).toBe(400);
   });
+  const create = (name: string, writes: Array<Record<string, unknown>> = [], workspace = "{}") =>
+    post("/api/commit", { name, create: true, expectedWorkspaceSha256: null, workspace, writes, removes: [] });
+
+  it("refuses a generated BDX that isn't the one Bordeaux wrote", async () => {
+    const first = await json(await create("Outputs", [{ file: "Paths/Auto.bdx", base64: b64("bdx1"), expectedSha256: null }]));
+    const bdx = path.join(home, "robot", "projects", "Outputs", "Paths", "Auto.bdx");
+    await fs.writeFile(bdx, "placed by hand");
+    const second = await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{}",
+      writes: [{ file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx1") }], removes: [] });
+    expect(second.status).toBe(409);
+    expect(await fs.readFile(bdx, "utf8")).toBe("placed by hand");
+    expect((await create("No hash", [{ file: "Paths/Auto.bdx", base64: b64("bdx1") }])).status).toBe(400);
+    // A tracked file deleted over SSH is written again, as on the desktop.
+    await fs.rm(bdx);
+    const third = await post("/api/commit", { name: "Outputs", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{}",
+      writes: [{ file: "Paths/Auto.bdx", base64: b64("bdx2"), expectedSha256: sha256("bdx1") }], removes: [] });
+    expect(third.status).toBe(200);
+    expect(await fs.readFile(bdx, "utf8")).toBe("bdx2");
+  });
+
+  it("never reads or writes through a linked folder", async () => {
+    const robot = path.join(home, "robot"), paths = path.join(robot, "paths");
+    const before = (await fs.readdir(paths)).sort();
+    // A project whose Paths folder leads into the robot code's folder.
+    const team = await json(await create("Linked", [{ file: "Routines/Auto.routine", base64: b64("r"), expectedSha256: null }]));
+    await fs.symlink(paths, path.join(robot, "projects", "Linked", "Paths"));
+    const through = await post("/api/commit", { name: "Linked", create: false, expectedWorkspaceSha256: team.body.workspaceSha256, workspace: "{}",
+      writes: [{ file: "Paths/Evil.bdx", base64: b64("x"), expectedSha256: null }], removes: [] });
+    expect(through.status).toBe(400);
+    expect((await fs.readdir(paths)).sort()).toEqual(before);
+    // A project folder that is itself a link, and a push folder under a linked parent.
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-outside-"));
+    await fs.mkdir(path.join(outside, "Elsewhere"));
+    await fs.writeFile(path.join(outside, "Elsewhere", ".bordeaux-workspace.json"), "{}");
+    await fs.symlink(path.join(outside, "Elsewhere"), path.join(robot, "projects", "Elsewhere"));
+    expect((await fetch(base + "/api/projects/Elsewhere/workspace")).status).toBe(400);
+    await fs.symlink(outside, path.join(robot, "mounted"));
+    expect((await post("/api/settings", { pushDirectory: path.join(robot, "mounted", "paths") })).status).toBe(400);
+    expect((await post("/api/push/prepare", { directory: path.join(robot, "mounted", "paths"), files: [{ fileName: "A.bdx", sha256: sha256("a"), base64: b64("a") }] })).status).toBe(400);
+    expect(await fs.readdir(outside)).toEqual(["Elsewhere"]);
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
+  it("accepts only project names the desktop accepts", async () => {
+    for (const name of ["CON", "nul .txt", "Trailing.", "x".repeat(121), "😀".repeat(64), ".hidden", "Tab\there"]) {
+      expect((await create(name)).status, name).toBe(400);
+    }
+    expect((await create("Week 3 autos")).status).toBe(200);
+    // A project saved under an older rule still opens, and its save points to Save copy.
+    await fs.mkdir(path.join(home, "robot", "projects", "Aux"));
+    await fs.writeFile(path.join(home, "robot", "projects", "Aux", ".bordeaux-workspace.json"), "{}");
+    expect((await fetch(base + "/api/projects/Aux/workspace")).status).toBe(200);
+    expect((await post("/api/settings", { lastProject: "Aux" })).status).toBe(200);
+    const save = await json(await post("/api/commit", { name: "Aux", create: false, expectedWorkspaceSha256: sha256("{}"), workspace: "{}", writes: [], removes: [] }));
+    expect(save).toMatchObject({ status: 400, body: { error: expect.stringContaining("Save copy") } });
+  });
+
+  it.skipIf(process.getuid?.() === 0)("fails a save that can't write its workspace with nothing replaced", async () => {
+    const first = await json(await create("Full", [{ file: "Paths/Auto.path", base64: b64("v1"), expectedSha256: null }]));
+    const folder = path.join(home, "robot", "projects", "Full");
+    // The workspace's folder refuses new files, as a full disk would; Paths/ still accepts them.
+    await fs.chmod(folder, 0o555);
+    try {
+      const failed = await post("/api/commit", { name: "Full", create: false, expectedWorkspaceSha256: first.body.workspaceSha256, workspace: "{\"next\":1}",
+        writes: [{ file: "Paths/Auto.path", base64: b64("v2"), expectedSha256: sha256("v1") }], removes: [] });
+      expect(failed.status).toBe(500);
+    } finally { await fs.chmod(folder, 0o755); }
+    expect(await fs.readFile(path.join(folder, "Paths", "Auto.path"), "utf8")).toBe("v1");
+    expect(await fs.readFile(path.join(folder, ".bordeaux-workspace.json"), "utf8")).toBe("{}");
+    expect((await fs.readdir(path.join(folder, "Paths"))).filter((name) => name.startsWith("."))).toEqual([]);
+  });
 });
