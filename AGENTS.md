@@ -7,6 +7,7 @@ Electron/React desktop editor for robot paths, autonomous routines, and LabVIEW 
 - `src/renderer/`: React UI, browser-domain helpers, assets, and styles.
 - `src/electron/`: desktop integration, project files, robot transports, and workers.
 - `src/core/`: planner, export and project logic. It builds without Node or DOM types (`tsconfig.core.json`), so it runs in Electron, the browser and Web Workers.
+- `src/hosts/contract.ts`: every call the renderer makes on its host, typed once. Electron's preload and `main.ts` handlers are checked against it.
 - `tests/` and `benchmarks/`: correctness, integration, and planner validation.
 - `docs/trajectory-optimization.md`, `docs/labview/index.md`, and `docs/packaging.md`: task-specific workflows.
 

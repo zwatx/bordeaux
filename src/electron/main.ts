@@ -1,5 +1,5 @@
 import type { ProjectCopyDefaultsRequest } from "../core/project/desktopProjects";
-import { attachWindowChrome, registerWindowChrome } from "./windowChrome";
+import { attachWindowChrome, registerWindowChrome, type Handle } from "./windowChrome";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
 import { createHash, randomUUID } from "node:crypto";
@@ -577,12 +577,12 @@ function captureLinkedProject(project: BordeauxProject) {
   };
 }
 
-function handle(channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown) {
+const handle: Handle = (channel, listener) => {
   ipcMain.handle(channel, async (event, ...args) => {
     assertTrustedSender(event);
     return listener(event, ...args);
   });
-}
+};
 
 function diagnosticCatalog(catalog: RobotCommandCatalog | null): DiagnosticBundleInput["catalog"] {
   if (!catalog?.authoritative || !catalog.catalogId || !catalog.catalogHash || !catalog.supportVersion
@@ -1237,7 +1237,7 @@ async function saveProjectCopy(request: ProjectSaveCheckpointRequest) {
   } finally { projectSources.revoke(capture); }
 }
 
-async function saveProjectWithSourceCheckpoint(project: unknown, rawSaveAs: unknown, request?: ProjectSaveCheckpointRequest) {
+async function saveProjectWithSourceCheckpoint(project: unknown, rawSaveAs: unknown, request?: ProjectSaveCheckpointRequest): Promise<ProjectCheckpointSaveResult> {
   const validation = validateProjectSource(project);
   if (!validation.ok) throw new Error(validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n"));
   const sourceGeneration = projectTargetGeneration;
