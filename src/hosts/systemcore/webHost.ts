@@ -152,6 +152,19 @@ export function createSystemcoreHost() {
     current = { name, state, workspaceSha256: committed.workspaceSha256 };
     // The server leaves a BDX alone when the robot's copy isn't the one Bordeaux wrote; the sources are saved regardless.
     const kept = committed.keptBinaries ?? [];
+    if (kept.length) {
+      // Bordeaux still owns only what it last wrote there, so record that hash again (none for a file it never wrote).
+      // Restoring that copy then lets the next save replace it, and deleting the path removes it.
+      const owned = { ...(state.generatedFiles ?? {}) };
+      for (const file of kept) {
+        const prior = previous?.generatedFiles?.[file];
+        if (prior) owned[file] = prior; else delete owned[file];
+      }
+      const corrected: FolderState = { ...state, generatedFiles: owned };
+      const recorded = await request<{ workspaceSha256: string }>("/api/commit", {
+        name, create: false, expectedWorkspaceSha256: committed.workspaceSha256, writes: [], removes: [], workspace: workspaceContents(corrected) });
+      current = { name, state: corrected, workspaceSha256: recorded.workspaceSha256 };
+    }
     if (kept.length && !exportError) {
       exportError = `${kept.join(", ")} on the robot ${kept.length === 1 ? "isn't the file" : "aren't the files"} Bordeaux saved, so Bordeaux left `
         + `${kept.length === 1 ? "it" : "them"} as ${kept.length === 1 ? "it is" : "they are"}. Rename or remove ${kept.length === 1 ? "it" : "them"} on the robot, then save again.`;

@@ -454,7 +454,7 @@ class Handler(SimpleHTTPRequestHandler):
     def read_json(self):
         """The request's JSON object, read in full and bounded. Routes read it before taking LOCK."""
         lengths = self.headers.get_all("Content-Length") or []
-        if self.headers.get("Transfer-Encoding") or len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,10}", lengths[0].strip()):
+        if self.headers.get("Transfer-Encoding") is not None or len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,10}", lengths[0].strip()):
             raise ValueError("Send the request with one Content-Length")
         length = int(lengths[0])
         if length > MAX_BODY_BYTES:

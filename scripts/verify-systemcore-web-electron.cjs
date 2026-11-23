@@ -151,6 +151,25 @@ app.whenReady().then(async () => {
       const replay = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
       if (!/Review the selected files again/.test(replay)) throw new Error('A failed review could be confirmed again: ' + replay);
       check('a two-file push whose second destination fails replaces neither file, and the review cannot be replayed', { failure });
+
+      // A BDX someone placed in the project over SSH is kept; the sources save and the chip reports the BDX.
+      const owned = (await workspaceOf(name)).generatedFiles || {};
+      const [bdxFile, bdxHash] = Object.entries(owned)[0] || [];
+      if (!bdxFile) throw new Error('No generated BDX to test: ' + JSON.stringify(owned));
+      const onDisk = path.join(home, 'projects', name, bdxFile), original = await fs.readFile(onDisk);
+      await fs.writeFile(onDisk, 'placed over ssh');
+      await save();
+      if ((await fs.readFile(onDisk, 'utf8')) !== 'placed over ssh') throw new Error('Save replaced a hand-placed BDX');
+      if ((await workspaceOf(name)).generatedFiles?.[bdxFile] !== bdxHash) throw new Error('The workspace no longer records the BDX Bordeaux wrote');
+      await click('.project-chip');
+      await wait(() => /BDX files failed/.test(document.querySelector('.project-menu')?.textContent || ''), 'BDX failure in the project menu');
+      await shot('06b-kept-bdx');
+      await click('.project-chip');
+      // Restoring Bordeaux's copy lets the next save replace it again.
+      await fs.writeFile(onDisk, original);
+      await save();
+      if ((await workspaceOf(name)).generatedFiles?.[bdxFile] !== bdxHash) throw new Error('Saving over the restored BDX changed its record');
+      check('a hand-placed BDX in the project is kept while the sources save, and the chip reports it', { file: bdxFile });
     }
 
     // New project: the robot keeps every project in one folder, so the form shows it and offers no picker.
