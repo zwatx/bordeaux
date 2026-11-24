@@ -72,11 +72,12 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .push-control .push-menu-trigger:focus-visible{z-index:1;outline:2px solid var(--focus);outline-offset:2px}
 .push-control .push-split>.push-button:focus-visible{z-index:1}
 .push-chevron{display:flex}
-/* Idle has no dot; its slot is kept so a state change never moves Push. Not set up is a hollow ring, not a color. */
+/* Idle has no dot; its slot is kept so a state change never moves Push. */
 .push-menu-trigger>.push-dot{flex:none;width:6px;height:6px;border-radius:50%;background:transparent}
 .push-menu-trigger:not([data-tone])>.push-dot{display:none}
-/* Not set up is a dim filled dot: a 6px hollow ring read as the letter o, and a bright fill read as connected. */
-.push-menu-trigger[data-tone="unset"]>.push-dot{background:var(--line-3)}
+/* Not set up (or disconnected) is a filled dot in the dim text grey: a 6px hollow ring read as the letter o, a bright
+   fill read as connected, and a line-grey fill vanished into the button. --txt-3 stays at least 4:1 on its surfaces. */
+.push-menu-trigger[data-tone="unset"]>.push-dot{background:var(--txt-3)}
 .push-menu-trigger[data-tone="busy"]>.push-dot{background:var(--txt-2);animation:push-dot-pulse 1s ease-in-out infinite alternate}
 .push-menu-trigger[data-tone="good"]>.push-dot{background:var(--good)}
 .push-menu-trigger[data-tone="bad"]>.push-dot{background:var(--bad)}

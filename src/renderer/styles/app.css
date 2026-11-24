@@ -121,8 +121,9 @@
    keyboard focus, or the single primary commit (an inverted surface). Color is kept for meaning on the field and
    timeline (alliance, zones, commands, problems, speed) and for save and push outcomes.
    Type uses one scale: 11px metadata, units and axes; 12px labels and buttons; 13px names, values and inputs; 14px panel
-   titles; 16px page and dialog titles (10px only for keyboard badges). Weights are 400 body, 500 labels and controls, 600
-   titles. Pick from these rather than adding half steps. */
+   titles; 16px page and dialog titles (10px only for keyboard badges and the labels inside timeline markers: waypoint
+   numbers and hold durations). Weights are 400 body, 500 labels and controls, 600 titles. Pick from these rather than
+   adding half steps. */
 :root{
   --bg:oklch(.145 .003 286);--bg-1:oklch(.172 .003 286);--bg-2:oklch(.2 .003 286);--bg-3:oklch(.235 .003 286);--bg-4:oklch(.268 .003 286);--bg-5:oklch(.305 .003 286);
   --line:oklch(.215 .003 286);--line-2:oklch(.255 .003 286);--line-3:oklch(.33 .003 286);
