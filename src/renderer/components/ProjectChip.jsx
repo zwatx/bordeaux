@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { UI } from './ui';
-import { shortcutLabel } from '../lib/shortcuts';
+import { keyLabel, useKeyRules } from '../lib/keyBindings';
 import { changedSourceFact, firstFact, receiptTime, saveFixes, shortFact } from '../lib/projectLifecycle';
 import '../styles/project.css';
 
@@ -39,6 +39,7 @@ async function copyText(text) {
 // The project is a quiet name with an asterisk for changes. Its menu holds the save fixes, this project's file commands,
 // its linked robot code (a separate thing from the robot destination; Push stays in the toolbar) and, last, other projects.
 export function ProjectChip({ name, folderPath, status, writing, saveError, attempt, sourceChange, reloadError, showFailure, reloadKept, notice, recovery, recoveredFrom, bdxPending, bdxError, bdxDetails, robotCode, actions }) {
+  useKeyRules();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState('');
   const [sources, setSources] = useState(null), [showRecentCode, setShowRecentCode] = useState(false);
@@ -160,8 +161,8 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       // The menu reads from this project outward: its file, then its robot code, then other projects. Everything directly
       // under the name acts on it, so Save is the first item and switching projects is never mistaken for an action on this one.
       // A recovered draft's one save action is its fix row's Save copy….
-      status !== 'recovered' && item(folderPath ? 'Save' : 'Save…', actions.save, shortcutLabel('S'), { 'data-action': 'save' }),
-      status !== 'recovered' && item('Save copy…', actions.saveCopy, shortcutLabel('S', { shift: true })),
+      status !== 'recovered' && item(folderPath ? 'Save' : 'Save…', actions.save, keyLabel('project.save'), { 'data-action': 'save' }),
+      status !== 'recovered' && item('Save copy…', actions.saveCopy, keyLabel('project.saveCopy')),
       status !== 'recovered' && h('hr'),
       // The robot code's state is the Link/Change item's second line, so it reads as status rather than a dimmed row.
       h('button', { type: 'button', role: 'menuitem', tabIndex: -1, className: 'project-menu-code', disabled: codeLoading, onClick: () => { close(true); actions.linkCode(); } },
@@ -188,7 +189,7 @@ export function ProjectChip({ name, folderPath, status, writing, saveError, atte
       linked && actions.buildCode && robotCode.catalog?.conditions?.length > 0 && !robotCode.catalog.authoritative && item('Build catalog for conditions', actions.buildCode, null, { disabled: !!robotCode.operation }),
       linked && robotCode.catalog?.labviewDiscovery && item('View sources…', () => { if (!document.querySelector('dialog:modal')) setSources(robotCode.catalog); }),
       h('hr'),
-      item('Projects…', actions.projects, shortcutLabel('O')),
-      item('New project…', actions.create, shortcutLabel('N'))));
+      item('Projects…', actions.projects, keyLabel('project.list')),
+      item('New project…', actions.create, keyLabel('project.new'))));
 
 }

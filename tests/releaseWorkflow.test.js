@@ -84,8 +84,10 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
   const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
-  expect(desktopScripts).toHaveLength(22);
-  expect(new Set(desktopScripts).size).toBe(22);
+  expect(desktopScripts).toHaveLength(23);
+  expect(new Set(desktopScripts).size).toBe(23);
+  expect(desktopScripts).toContain("scripts/verify-key-bindings.mjs");
+  expect(ci.jobs.desktop.env.BORDEAUX_KEY_BINDINGS_OUTPUT).toBe(".ui-artifacts/key-bindings");
   expect(desktopScripts).toContain("scripts/verify-rotation-focus-ui.mjs");
   expect(desktopScripts).toContain("scripts/verify-routine-scrubber-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_ROTATION_FOCUS_UI_OUTPUT).toBe(".ui-artifacts/rotation-focus");

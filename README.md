@@ -60,6 +60,8 @@ Rotation targets and waypoint arrival headings offer **Shortest**, **Clockwise**
 
 **Focus** hides the path list. The **Paths** strip at the left edge restores it and returns keyboard focus to the current path.
 
+The **?** button lists keyboard shortcuts. Press its pencil to change them: click a key, then press the new one. A key taken from another command moves to the one you are editing, with **Undo**. **Settings › General › Keyboard shortcuts** opens the same editor. File menu commands need a Ctrl (⌘) key, and keys such as Esc, Tab, arrows and F2 stay fixed. The desktop app saves your keys in `keybindings.json` in its user data folder; the SystemCore app keeps them in each browser.
+
 In Routines, **Change path** opens a searchable path list with folder, duration, and usage context. The preview scrubber shows seconds and the current step. Click or drag to seek and pause; use the arrow keys for 0.1-second steps, Shift for 1-second steps, Page Up/Down for step boundaries, and Home/End for the start/end. Space plays or pauses. Untimed commands do not add preview time, and preview never executes commands or conditions.
 
 Field feedback uses one compact status; expanded **Details** holds diagnostics. Normal trajectory rebuilding remains automatic. Playback and field editing need a current trajectory: when planning rejects the path, the status explains why and offers **Edit limits**; when final planning runs out of time, it offers **Try again**. A saved optimization that cannot be validated offers **Optimize**.

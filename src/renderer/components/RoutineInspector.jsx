@@ -14,6 +14,7 @@ import { commandChoiceItems, commandChoiceRows, commandIndex, commandUsage, open
 import { labelWidth, layoutCommandLane, niceStep } from "./pathTimelineModel";
 import { ChipGlyph, LOOP_GLYPH } from "./PathTimeline";
 import { PointerDrag } from "../hooks/usePointerDrag";
+import { keyLabel, useKeyRules } from "../lib/keyBindings";
 
 // Routine step inspector (right rail) and the bottom preview transport.
 // One inspector system, shared with the Plan page (.ctxinsp shell + form primitives).
@@ -420,7 +421,9 @@ function routineLane(run, width) {
 }
 
 export function RoutineTransport(props) {
+  useKeyRules();
   const { run, time, playing, controls, running } = props;
+  const playKey = keyLabel('playback.toggle');
   const occurrences = run.steps.filter((step) => step.kind !== 'repeat');
   const stepIndex = (t) => run.steps.length ? A.stepAt(run, t) : -1;
   const activeIdx = running || time > 0 ? stepIndex(time) : -1;
@@ -508,7 +511,7 @@ export function RoutineTransport(props) {
     h('div', { className: 'rt-timeline-toolbar' },
       h('div', { className: 'rt-tp-ctl' },
         h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
-        h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview  (Space)' : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
+        h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' + (playKey ? '  (' + playKey + ')' : '') : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
       h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
       h('span', { className: 'rt-timeline-summary', title: summary || undefined }, summary),
       pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
