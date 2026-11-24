@@ -110,7 +110,14 @@ export function createSystemcoreHost() {
     if (!response.ok || typeof value.contents !== "string") return { error: value.error || `The robot answered ${response.status}` };
     try { return { bindings: decodeCommandsFile(value.contents) }; } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
   });
-  const bindings = async () => { const list = await robotCommands(); return list && "bindings" in list ? list.bindings : NO_COMMANDS; };
+  // Without a usable list, exports that need a command say why: nothing pushed yet, or the pushed list can't be read.
+  const bindings = async (): Promise<BinaryBindings> => {
+    const list = await robotCommands();
+    if (list && "bindings" in list) return list.bindings;
+    return { ...NO_COMMANDS, unavailable: list
+      ? `The robot's command list can't be read: ${list.error}`
+      : "Link the robot's LabVIEW project in the desktop app, then push from it to send the commands to this robot." };
+  };
 
   const serverInfo = (refresh = false) => (info && !refresh ? info : (info = request<ServerInfo>("/api/info")));
   const location = async (name: string | null): Promise<ProjectLocation> => {
