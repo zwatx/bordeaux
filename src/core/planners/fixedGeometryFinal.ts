@@ -5,6 +5,7 @@ import { DEFAULT_SAMPLES_PER_SEGMENT } from "./limits";
 import { insertOptimizationBoundaries } from "./optimizationConstraints";
 import { buildDenseValidationSamples } from "./optimizedTrajectory";
 import { profiledSplineOptimizationSeed } from "./profiledSpline";
+import { rememberByKey } from "./rememberByInput";
 import { applyRotationPriority } from "./rotationPriority";
 import { validateOptimizedTrajectory } from "./trajectoryValidation";
 
@@ -153,6 +154,14 @@ interface FinalValidation {
   activeConstraints: string[];
 }
 
+/**
+ * Dense-validation verdicts by content. Route search validates a candidate here
+ * when it solves it and again when it qualifies it, with the same samples and
+ * input. The key holds every value the validation reads, so a trajectory changed
+ * in place is validated again.
+ */
+const rememberDenseValidation = rememberByKey<FinalValidation>(4);
+
 export function validateFinal(input: PlannerInput, result: PlannerResult): FinalValidation {
   const errors = result.diagnostics.filter((issue) => issue.severity === "error");
   const invalidSamples = result.samples.length < 2
@@ -172,6 +181,17 @@ export function validateFinal(input: PlannerInput, result: PlannerResult): Final
       activeConstraints: result.optimization?.activeConstraints ?? [],
     };
   }
+  if (input.path.optimization) return denselyValidated(input, result);
+  const verdict = rememberDenseValidation(
+    JSON.stringify([input, result.optimization?.refinementPasses ?? 0, result.stationaryActions ?? null, result.samples]),
+    () => denselyValidated(input, result),
+  );
+  // The remembered verdict is shared, so hand out a copy.
+  return { ...verdict, activeConstraints: [...verdict.activeConstraints] };
+}
+
+/** Rebuilds the trajectory on the dense validation grid and checks every physical limit there. */
+function denselyValidated(input: PlannerInput, result: PlannerResult): FinalValidation {
   try {
     const movingResult = result.stationaryActions?.length
       ? {

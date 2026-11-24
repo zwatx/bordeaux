@@ -4,16 +4,16 @@
 .app-update-dialog[open]{display:flex;flex-direction:column}
 .app-update-header{flex:none;padding:16px 18px 0}
 .app-update-header h2{display:flex;align-items:center;gap:9px;margin:0;line-height:1.4;font-variant-numeric:tabular-nums}
-.app-update-description{max-height:42px;margin:4px 0 0;overflow:auto;color:var(--txt-3);font-size:12.5px;line-height:1.5;font-variant-numeric:tabular-nums}
+.app-update-description{max-height:42px;margin:4px 0 0;overflow:auto;color:var(--txt-3);font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums}
 .app-update-installing{display:block;width:100%;height:3px;margin-top:12px;border:0;border-radius:2px;accent-color:var(--accent)}
 /* An interrupted update carries the error tone, and its retry is the primary action. */
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-header h2::before{content:'';flex:none;width:8px;height:8px;border-radius:50%;background:var(--bad)}
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-description{color:var(--txt-2)}
 .app-update-dialog:has(.app-update-description[role="alert"]) .app-update-action{border-color:var(--accent-surface);background:var(--accent-surface);color:var(--on-accent)}
 .app-update-notes{flex:0 1 auto;min-height:0;max-height:340px;margin-top:14px;overflow:auto;overscroll-behavior:contain;padding:0 18px 4px;line-height:1.6;overflow-wrap:anywhere;scrollbar-width:thin}
-.app-update-notes h3{margin:0 0 8px;font-size:12.5px;font-weight:600}
+.app-update-notes h3{margin:0 0 8px;font-size:13px;font-weight:600}
 .app-update-notes:focus-visible{outline:2px solid var(--focus);outline-offset:-3px}
-.app-update-notes h4{margin:16px 0 6px;font-size:12.5px;font-weight:600;line-height:1.4}
+.app-update-notes h4{margin:16px 0 6px;font-size:13px;font-weight:600;line-height:1.4}
 .app-update-notes>h4:first-child{margin-top:0}
 .app-update-notes p{margin:8px 0;color:var(--txt-2)}
 .app-update-dialog .app-update-notes ul{margin:0;padding-left:18px;color:var(--txt-2);list-style:disc}
@@ -22,7 +22,7 @@
 .app-update-notes strong{color:var(--txt);font-weight:600}
 .app-update-notes code{padding:1px 4px;border-radius:var(--r-s);background:var(--bg-2);color:var(--txt);font:12px var(--mono)}
 .app-update-notes pre{padding:10px 12px;border-radius:var(--r);background:var(--bg-2);color:var(--txt-2);font:12px/1.6 var(--mono);white-space:pre-wrap}
-.app-update-empty{font-size:12.5px}
+.app-update-empty{font-size:13px}
 .app-update-footer{box-sizing:border-box;display:flex;flex:none;align-items:flex-end;justify-content:space-between;gap:12px;padding:12px 18px 16px}
 .app-update-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
 .app-update-versions{margin:0;color:var(--txt-3);font:12px/1.5 var(--ui);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -39,7 +39,7 @@
 .app-update-dialog button[aria-disabled="true"]{opacity:.45}
 .app-update-dialog:is(.app-update-confirm,.app-update-install){inset:0;margin:auto;width:min(480px,calc(100vw - 32px));height:fit-content;max-height:calc(100vh - 48px)}
 .app-update-dialog:is(.app-update-confirm,.app-update-install)::backdrop{background:rgb(0 0 0/.55);backdrop-filter:blur(4px)}
-.app-update-confirm-body{padding:22px 24px}.app-update-confirm-body h2{margin:0 0 8px;font-size:18px;font-weight:600;line-height:1.35}
+.app-update-confirm-body{padding:22px 24px}.app-update-confirm-body h2{margin:0 0 8px;font-size:16px;font-weight:600;line-height:1.35}
 .app-update-confirm-body p{margin:0 0 16px;line-height:1.5}.app-update-confirm-body p:last-child{margin-bottom:0}
 .app-update-confirm-version{color:var(--txt-3);overflow-wrap:anywhere}.app-update-confirm-warning{color:var(--txt-2)}
 .app-update-confirm-footer{display:flex;justify-content:flex-end;gap:8px;padding:14px 24px;border-top:1px solid var(--line);background:var(--bg-2)}

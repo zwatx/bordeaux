@@ -65,7 +65,8 @@ async function editorReady() { await wait(() => Boolean(document.querySelector('
 
 app.whenReady().then(async () => {
   try {
-    win = new BrowserWindow({ width: 1440, height: 900, show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    // Shown and unthrottled, like the other UI harnesses: a hidden window can hand capturePage an earlier frame.
+    win = new BrowserWindow({ width: 1440, height: 900, show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     // The desktop shares the inline-font CSP notice; it is not specific to the robot build.
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:font/woff2")) report.errors.push(details.message); });
     await win.loadURL(url);
@@ -77,6 +78,36 @@ app.whenReady().then(async () => {
     const before = await api('/api/info');
     await shot('01-opened');
     check('the robot serves the editor and installs its host', { lastProject: before.lastProject });
+
+    // The page ships in the package, so the version it reports is the installed one. Updates come as a new ipk.
+    await click('.place', 'Settings');
+    await wait(() => [...document.querySelectorAll('.settings-row')].some((row) => row.querySelector('strong')?.textContent === 'Software updates'), 'software updates row');
+    const shown = await evaluate(() => [...document.querySelectorAll('.settings-row')].find((row) => row.querySelector('strong')?.textContent === 'Software updates').querySelector('.settings-status').textContent);
+    // A local server runs this checkout's build; an installed robot runs whatever version is installed.
+    const expected = home ? 'Bordeaux ' + require('../package.json').version : null;
+    if (expected ? shown !== expected : !/^Bordeaux \d+\.\d+\.\d+/.test(shown)) throw new Error(`Settings shows ${JSON.stringify(shown)}, expected ${expected ?? 'a version'}`);
+    // Focus first, as a pointer click does, so the panel anchors under the button.
+    await evaluate(() => { const button = [...document.querySelectorAll('.settings-row button')].find((el) => el.textContent.trim() === 'Check for updates'); button.focus(); button.click(); });
+    await wait(() => document.querySelector('.app-update-dialog')?.open, 'update panel');
+    const panel = await evaluate(() => ({ title: document.querySelector('#app-update-title').textContent, description: document.querySelector('.app-update-description')?.textContent,
+      versions: document.querySelector('.app-update-versions').textContent, action: document.querySelector('.app-update-action')?.textContent ?? null }));
+    if (panel.title !== 'Software updates' || !panel.description?.includes('Add Package') || panel.action !== null || panel.versions !== 'Installed v' + shown.slice('Bordeaux '.length)) {
+      throw new Error('Unexpected update panel: ' + JSON.stringify(panel));
+    }
+    await shot('01b-software-updates');
+    // All releases opens the releases list in a new tab; the page's window.open is recorded instead of followed.
+    const opened = await evaluate(() => {
+      const urls = [], original = window.open;
+      window.open = (url) => { urls.push(String(url)); return null; };
+      try { document.querySelector('.app-update-link').click(); } finally { window.open = original; }
+      return urls;
+    });
+    if (opened.length !== 1 || opened[0] !== 'https://github.com/zwatx/bordeaux/releases') throw new Error('All releases opened ' + JSON.stringify(opened));
+    await evaluate(() => document.querySelector('.app-update-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await wait(() => !document.querySelector('.app-update-dialog')?.open, 'update panel closed');
+    check('Settings shows the installed version and points updates at the release ipk', { shown, panel, opened });
+    await click('.place', 'Paths');
+    await editorReady();
 
     const workspaceOf = async (name) => JSON.parse((await api(`/api/projects/${encodeURIComponent(name)}/workspace`)).contents);
     await save();

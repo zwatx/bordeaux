@@ -32,15 +32,26 @@ describe('Mac editor linked waypoint identity', () => {
   });
 });
 describe('metric heatmap display', () => {
-  it('shares a continuous, increasingly bright palette between all field metrics and their legends', () => {
+  it('shares a continuous, high-contrast teal palette between all field metrics and their legends', () => {
     const metrics = ['velocity', 'accel', 'angvel', 'curvature'];
     const reference = Array.from({ length: 101 }, (_, i) => metricColor('velocity', i / 100));
-    const lightness = reference.map(color => Number(color.match(/oklch\(([\d.]+)/)[1]));
-    for (let i = 1; i < lightness.length; i++) {
-      expect(lightness[i]).toBeGreaterThan(lightness[i - 1]);
-      expect(lightness[i] - lightness[i - 1]).toBeLessThan(0.004);
+    const channels = reference.map(color => color.match(/oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/).slice(1).map(Number));
+    for (let i = 1; i < channels.length; i++) {
+      // Lightness rises and hue turns from cyan toward mint, with no jumps.
+      expect(channels[i][0]).toBeGreaterThan(channels[i - 1][0]);
+      expect(channels[i][0] - channels[i - 1][0]).toBeLessThan(0.01);
+      expect(channels[i][2]).toBeLessThan(channels[i - 1][2]);
     }
-    expect(new Set(reference.map(color => color.match(/ ([\d.]+)\)$/)[1])).size).toBe(1);
+    // Slow and fast stretches must read clearly apart on a thin line, not as two close shades (the earlier
+    // single-teal ramp spanned 0.36).
+    expect(channels[100][0] - channels[0][0]).toBeGreaterThanOrEqual(0.44);
+    // The slow end (every path's start and stop) stays visible, at least 3:1, on the dark surfaces and path casing.
+    expect(channels[0][0]).toBeGreaterThanOrEqual(0.5);
+    // Hues stay near teal, clear of alliance blue and zone amber.
+    for (const [, , hue] of channels) {
+      expect(hue).toBeGreaterThanOrEqual(150);
+      expect(hue).toBeLessThanOrEqual(235);
+    }
     for (const metric of metrics) {
       expect(Array.from({ length: 101 }, (_, i) => metricColor(metric, i / 100))).toEqual(reference);
       expect(metricGradient(metric)).toBe(metricGradient('velocity'));

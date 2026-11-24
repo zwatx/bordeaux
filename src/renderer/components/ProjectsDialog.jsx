@@ -540,7 +540,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
     } catch (error) { if (!owns()) return; setForm((d) => ({ ...d, error: shortFact(error), errorField: 'location' })); }
     nameInput.current?.focus();
   };
-  // First use: Skip leaves the blank Untitled ready to draw; it never opens or creates anything. A carried copy returns
+  // First use: Not now leaves the blank Untitled ready to draw; it never opens or creates anything. A carried copy returns
   // to the list with its block exactly as it was.
   const back = () => {
     if (pending || copyHeld()) return;
@@ -729,11 +729,16 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
   // The attempt this form shows progress for: New's, the copy's own, or the blocked switch a copy continues.
   const own = copy ? (copy.carried ? copy.carried.rowId || 'sheet' : 'copy') : 'new', busy = pending?.owner === own, frozen = Boolean(copy && pending);
   const note = (name) => 'Keeps “' + name + '” as last saved' + (copy?.carried ? '' : ' and opens the copy');
+  // First use is the one place this sheet opens unasked, so it alone names itself and says what Not now does.
   const newView = h('div', { className: 'pj-new' },
-    h('label', { className: 'pj-label', htmlFor: 'pj-new-name' }, 'Project name'),
-    h('input', { id: 'pj-new-name', ref: nameInput, className: 'pj-name-input', value: form.name, readOnly: frozen, spellCheck: false, autoComplete: 'off', maxLength: 120,
-      'aria-invalid': nameErrorShown ? true : undefined, 'aria-describedby': nameErrorShown ? 'pj-new-error' : undefined,
-      onChange: (event) => { if (copyHeld()) return; if (entry.current) entry.current.touched.name = true; setForm((d) => ({ ...d, name: event.target.value, error: d.errorField === 'location' ? d.error : '' })); } }),
+    firstUse && h('div', { className: 'pj-new-head' },
+      h('h2', { className: 'pj-new-title' }, 'New project'),
+      h('p', { className: 'pj-new-sub' }, 'A project folder holds your paths, routines and robot settings. Choose Not now to draw in an untitled project.')),
+    h('div', { className: 'pj-new-row' },
+      h('label', { className: 'pj-label', htmlFor: 'pj-new-name' }, 'Name'),
+      h('input', { id: 'pj-new-name', ref: nameInput, className: 'pj-name-input', value: form.name, readOnly: frozen, spellCheck: false, autoComplete: 'off', maxLength: 120,
+        'aria-invalid': nameErrorShown ? true : undefined, 'aria-describedby': nameErrorShown ? 'pj-new-error' : undefined,
+        onChange: (event) => { if (copyHeld()) return; if (entry.current) entry.current.touched.name = true; setForm((d) => ({ ...d, name: event.target.value, error: d.errorField === 'location' ? d.error : '' })); } })),
     nameErrorShown && h('span', { id: 'pj-new-error', className: 'pj-new-error', role: 'alert' }, form.error),
     h('div', { className: 'pj-new-row' },
       h('span', { id: 'pj-location-label', className: 'pj-label' }, 'Location'),
@@ -756,7 +761,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
     h('div', { className: 'pj-foot' },
       h('span'),
       h('span', { className: 'pj-foot-actions' },
-        h('button', { type: 'button', className: 'qbtn quiet', 'data-action': firstUse ? 'skip' : 'cancel', onClick: back }, firstUse ? 'Skip' : 'Cancel'),
+        h('button', { type: 'button', className: 'qbtn quiet', 'data-action': firstUse ? 'skip' : 'cancel', onClick: back }, firstUse ? 'Not now' : 'Cancel'),
         h('button', { type: 'button', className: 'qbtn primary', disabled: busy || !form.name.trim() || !form.parent, onClick: create },
           busy ? pending.label || (pending.phase === 'saving' ? 'Saving…' : copy ? 'Opening…' : 'Creating…') : copy ? (current.untitled ? 'Save' : 'Save copy') : 'Create'))));
 

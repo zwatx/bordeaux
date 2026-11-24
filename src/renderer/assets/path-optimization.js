@@ -55,6 +55,12 @@ function create({ getProject, planner = FinalPlanning.create() }) {
   return {
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     getSnapshot() { return snapshot; },
+    /** Readies the optimizer for a path the user has opened the panel on. */
+    warm(id) {
+      const project = getProject();
+      const path = project.paths.find((item) => item.id === id);
+      if (path && !disposed && !snapshot.running) planner.warmOptimizer?.({ path, robot: project.robot, field: project.field });
+    },
     async start(id, deadline = 'common') {
       if (snapshot.running || disposed) return;
       const owner = {};

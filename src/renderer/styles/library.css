@@ -8,7 +8,7 @@
 .editor-library{display:flex;flex-direction:column;height:100%;min-height:0;font-size:12px}
 .library-find{display:flex;flex:none;align-items:center;gap:2px;padding:10px 8px 8px 10px}
 /* The search text starts on the same edge as the row names below it. */
-.library-search{flex:1;min-width:0;height:30px;min-height:30px;margin:0 4px 0 0;padding:0 8px 0 21px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none}
+.library-search{flex:1;min-width:0;height:30px;min-height:30px;margin:0 4px 0 0;padding:0 8px 0 21px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:13px;outline:none}
 .library-search::placeholder{color:var(--txt-3)}
 .library-search:focus-visible{border-color:var(--line-3);box-shadow:0 0 0 1px var(--focus)}
 .library-icon-button{display:grid;flex:none;place-items:center;width:30px;height:30px;border-radius:var(--r);color:var(--txt-3)}
@@ -22,7 +22,7 @@
 .library-pick{flex:1;min-width:0;min-height:34px;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;gap:6px;padding:5px 0;text-align:left}
 .library-pick:focus-visible{outline:2px solid var(--focus);outline-offset:1px;border-radius:var(--r)}
 .library-mark{display:grid;place-items:center;width:14px;height:14px;color:var(--txt)}
-.library-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:0;overflow:hidden;color:var(--txt-2);font-size:12.5px;font-weight:450;line-height:16px;white-space:normal;overflow-wrap:anywhere}
+.library-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:0;overflow:hidden;color:var(--txt-2);font-size:13px;font-weight:400;line-height:16px;white-space:normal;overflow-wrap:anywhere}
 .library-row:is(.selected,:has([aria-current="true"])) .library-name{color:var(--txt)}
 .library-meta{flex:0 0 auto;color:var(--txt-3);font:11px/16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Center the visible glyphs, whose ink sits above the line-box midpoint. */
@@ -45,18 +45,18 @@
 .library-blocked p{margin:0}
 .library-blocked button{margin:0}
 .library-rename{display:grid;grid-template-columns:minmax(0,1fr) 26px 26px;gap:2px;padding:3px 8px}
-.library-rename input{width:100%;min-width:0;height:30px;padding:0 8px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:12.5px;outline:none;box-shadow:0 0 0 1px var(--focus)}
+.library-rename input{width:100%;min-width:0;height:30px;padding:0 8px;border:1px solid var(--line-3);border-radius:var(--r);background:var(--ctl);color:var(--txt);font-size:13px;outline:none;box-shadow:0 0 0 1px var(--focus)}
 .library-rename button{display:grid;place-items:center;padding:0;border-radius:var(--r-s);color:var(--txt-2)}
-.library-error{grid-column:1/-1;color:var(--bad-txt);font-size:11.5px}
+.library-error{grid-column:1/-1;color:var(--bad-txt);font-size:11px}
 
 /* Item menu */
-.library-menu{position:fixed;inset:auto;width:224px;max-height:calc(100vh - 16px);margin:0;padding:5px;overflow:auto;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt);box-shadow:var(--elevation),var(--shadow);font-size:12.5px}
-.library-menu button{display:block;width:100%;min-height:32px;padding:7px 10px;border-radius:var(--r);font-size:12.5px;line-height:1.35;text-align:left}
+.library-menu{position:fixed;inset:auto;width:224px;max-height:calc(100vh - 16px);margin:0;padding:5px;overflow:auto;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt);box-shadow:var(--elevation),var(--shadow);font-size:13px}
+.library-menu button{display:block;width:100%;min-height:32px;padding:7px 10px;border-radius:var(--r);font-size:13px;line-height:1.35;text-align:left}
 .library-menu button:disabled{opacity:.45}
 .library-menu button.danger{color:var(--bad-txt)}
 .library-menu hr{margin:4px 2px;border:0;border-top:1px solid var(--line)}
 /* Move to lists the folders inline; the current one is checked and unavailable. */
-.library-menu-label{padding:5px 10px 3px;color:var(--txt-3);font-size:11.5px;font-weight:500}
+.library-menu-label{padding:5px 10px 3px;color:var(--txt-3);font-size:11px;font-weight:500}
 .library-menu .library-menu-choice{display:grid;grid-template-columns:14px minmax(0,1fr);align-items:center;gap:8px}
 .library-menu .library-menu-choice:disabled{opacity:1;color:var(--txt-3)}
 .library-menu-check{display:grid;place-items:center;width:14px;height:14px}
@@ -66,7 +66,7 @@
 /* Multiple selection: one line with the count, how many are out of view, and Clear. Only while Push would send
    more than the open path; it sits below the list so rows never move under the pointer. */
 .library-selection{display:flex;flex:none;align-items:center;justify-content:space-between;gap:8px;min-height:36px;padding:0 8px 0 14px;border-top:1px solid var(--line);color:var(--txt-2);font-size:12px;font-variant-numeric:tabular-nums}
-.library-clear{height:26px;padding:0 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:550}
+.library-clear{height:26px;padding:0 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:500}
 .library-clear:focus-visible,.library-icon-button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 
 /* Dragging paths and folders: the moved rows dim, a line marks the insertion point, a folder that would take the
@@ -91,7 +91,7 @@ body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-sel
 .library-divider::after{content:'';position:absolute;left:calc(50% - 16px);top:0;width:32px;height:3px;border-radius:2px;background:var(--line-3);transition:background-color .14s}
 .library-divider:hover::after,.library-divider:focus-visible::after{background:var(--accent)}
 .library-structure{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden}
-.library-section-title{display:flex;align-items:center;gap:7px;flex:0 0 32px;height:32px;padding:0 14px;border-bottom:1px solid var(--line);color:var(--txt-3);font-size:12px;font-weight:550;text-align:left}
+.library-section-title{display:flex;align-items:center;gap:7px;flex:0 0 32px;height:32px;padding:0 14px;border-bottom:1px solid var(--line);color:var(--txt-3);font-size:12px;font-weight:500;text-align:left}
 .library-structure-body{flex:1;min-height:0;overflow:hidden}
 .fieldsvg [data-heading-control]:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 @media (hover:hover){
@@ -108,7 +108,7 @@ body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-sel
 .deletion-footer{flex:0 0 32px;height:32px;min-height:32px;padding:0 8px 0 14px;border-top:1px solid var(--line)}
 .deletion-notice{height:100%;display:flex;align-items:center;gap:6px;color:var(--txt-2);font:500 12px/1.25 var(--ui)}
 .deletion-copy{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.deletion-notice button{flex:0 0 42px;width:42px;height:28px;color:var(--txt);font:550 12px/1.25 var(--ui);border-radius:var(--r)}
+.deletion-notice button{flex:0 0 42px;width:42px;height:28px;color:var(--txt);font:500 12px/1.25 var(--ui);border-radius:var(--r)}
 .deletion-notice button[aria-disabled]{color:var(--txt-3)}
 .deletion-notice button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(hover:hover){.deletion-notice button:not([aria-disabled]):hover{background:var(--bg-3)}}

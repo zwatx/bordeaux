@@ -26,7 +26,7 @@
 .windows-title-error{position:absolute;top:44px;right:0;width:max-content;max-width:300px;padding:8px 12px;background:var(--bg-1);font-size:12px}
 .windows-title-bar[data-focused="false"]{color:var(--txt-3)}
 .windows-app-menu{position:fixed;inset:auto;margin:0;width:286px;max-height:calc(100vh - 64px);overflow:auto;padding:4px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt);box-shadow:var(--elevation),var(--shadow);-webkit-app-region:no-drag}
-.windows-app-menu button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:32px;padding:7px 9px;border:0;border-radius:var(--r);text-align:left;font-size:12.5px;line-height:18px;background:transparent;color:inherit}
+.windows-app-menu button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:32px;padding:7px 9px;border:0;border-radius:var(--r);text-align:left;font-size:13px;line-height:18px;background:transparent;color:inherit}
 .windows-app-menu button>span:first-child{min-width:0;overflow-wrap:anywhere}
 .windows-app-menu button:is(:hover,:focus-visible):not(:disabled){background:var(--bg-3)}
 .windows-app-menu button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
