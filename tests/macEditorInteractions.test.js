@@ -32,9 +32,9 @@ describe('Mac editor linked waypoint identity', () => {
   });
 });
 describe('metric heatmap display', () => {
-  it('shares a continuous, high-contrast teal palette between all field metrics and their legends', () => {
-    const metrics = ['velocity', 'accel', 'angvel', 'curvature'];
-    const reference = Array.from({ length: 101 }, (_, i) => metricColor('velocity', i / 100));
+  it('keeps the non-velocity field metrics and their legends on the same high-contrast teal palette', () => {
+    const metrics = ['accel', 'angvel', 'curvature'];
+    const reference = Array.from({ length: 101 }, (_, i) => metricColor('accel', i / 100));
     const channels = reference.map(color => color.match(/oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/).slice(1).map(Number));
     for (let i = 1; i < channels.length; i++) {
       // Lightness rises and hue turns from cyan toward mint, with no jumps.
@@ -54,10 +54,24 @@ describe('metric heatmap display', () => {
     }
     for (const metric of metrics) {
       expect(Array.from({ length: 101 }, (_, i) => metricColor(metric, i / 100))).toEqual(reference);
-      expect(metricGradient(metric)).toBe(metricGradient('velocity'));
+      expect(metricGradient(metric)).toBe(metricGradient('accel'));
       for (const t of [0, 0.5, 1]) expect(metricGradient(metric)).toContain(`${metricColor(metric, t)} ${t * 100}%`);
       expect(metricColor(metric, -1)).toBe(reference[0]);
       expect(metricColor(metric, 2)).toBe(reference[100]);
     }
+  });
+
+  it('uses the crimson-to-coral palette for velocity and its legend', () => {
+    const stops = [
+      'oklch(0.5500 0.1620 13.0000)',
+      'oklch(0.7200 0.1520 23.0000)',
+      'oklch(0.8800 0.0830 35.0000)',
+    ];
+    for (const [index, position] of [0, 0.5, 1].entries()) {
+      expect(metricColor('velocity', position)).toBe(stops[index]);
+      expect(metricGradient('velocity')).toContain(`${stops[index]} ${position * 100}%`);
+    }
+    expect(metricColor('velocity', -1)).toBe(stops[0]);
+    expect(metricColor('velocity', 2)).toBe(stops[2]);
   });
 });
