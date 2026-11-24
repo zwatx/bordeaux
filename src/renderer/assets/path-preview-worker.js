@@ -2,7 +2,8 @@ import { planPath } from "../../core/planners/planPath";
 import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
-import { optimizeRouteFinal } from "../../core/planners/routeFinal";
+import { optimizeRouteFinal, optimizeRouteFinalParallel } from "../../core/planners/routeFinal";
+import { evaluateRouteCandidate, qualifyRouteSeed, warmRouteEvaluation } from "../../core/planners/routeCandidateEvaluation";
 import { getPlanner } from "../../core/planners";
 import { authoredPath, getAcceptedTrajectory } from "../../core/planners/acceptedTrajectory";
 import { flipProjectPaths } from "../../core/project/flipField";
@@ -288,6 +289,142 @@ export function processEditingPlanningJob(job) {
   return { ...plan, derived, acceptedTrajectory: Boolean(accepted), comparison };
 }
 
+/**
+ * The route-search input and options of one optimize job, and the worker reply
+ * for its outcome. Shared by the sequential search and the parallel one.
+ */
+function optimizeJob(job, path, derive, emitProgress, startedAt) {
+  const toPreview = (trajectory) => previewForTrajectory(path, job.robot, trajectory, derive, job.perSegment);
+  return {
+    input: { path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment },
+    options: {
+      budgetTier: job.deadline,
+      budgetMs: job.deadlineMs,
+      onProgress: (trajectory) => emitProgress({
+        id: job.id,
+        type: 'progress',
+        quality: job.quality,
+        value: { ...toPreview(trajectory), routeSearch: { status: 'feasible',
+          seedStatus: trajectory.optimization?.seedStatus || 'unknown', seedIssue: trajectory.optimization?.seedIssue } },
+        durationMs: performance.now() - startedAt,
+      }),
+      // Counters only: the incumbent and its projected preview are unchanged.
+      onStatistics: (statistics) => emitProgress({
+        id: job.id,
+        type: 'statistics',
+        quality: job.quality,
+        statistics,
+        durationMs: performance.now() - startedAt,
+      }),
+    },
+    result(search) {
+      // The injected legacy planner remains useful to historical worker tests;
+      // production uses the explicit route-search envelope, including no result.
+      const finalTrajectory = search.candidate || (search.optimization ? search : null);
+      const routeSearch = search.status ? {
+        status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
+        seedStatus: search.seedStatus || 'unknown', seedIssue: search.seedIssue,
+      } : undefined;
+      if (!finalTrajectory) return {
+        id: job.id, quality: job.quality,
+        value: { routeSearch }, durationMs: performance.now() - startedAt,
+      };
+      if (finalTrajectory.optimization?.fallback) {
+        return {
+          id: job.id,
+          quality: job.quality,
+          finalFallbackReason: finalTrajectory.optimization.fallbackReason || 'Final optimization did not produce a valid trajectory.',
+          durationMs: performance.now() - startedAt,
+        };
+      }
+      return {
+        id: job.id,
+        quality: job.quality,
+        value: { ...toPreview(finalTrajectory), routeSearch },
+        durationMs: performance.now() - startedAt,
+      };
+    },
+  };
+}
+
+/**
+ * One optimize job with its candidates evaluated on `evaluator`'s threads.
+ * Returns the same reply as processPathPreviewJob does for the sequential search.
+ */
+export async function processParallelOptimizeJob(job, evaluator, isCancelled, emitProgress = () => {}, derive = PM.derivePath) {
+  const startedAt = performance.now();
+  try {
+    const search = optimizeJob(job, authoredPath(job.path), derive, emitProgress, startedAt);
+    return search.result(await optimizeRouteFinalParallel(search.input, { ...search.options, isCancelled }, evaluator));
+  } catch (error) {
+    return {
+      id: job.id,
+      quality: job.quality,
+      error: {
+        name: error && error.name ? error.name : 'Error',
+        message: error && error.message ? error.message : String(error),
+      },
+      durationMs: performance.now() - startedAt,
+    };
+  }
+}
+
+/**
+ * Sub-workers that evaluate route candidates for the optimizer worker. Each is
+ * another instance of this same script, so the pool needs no second bundle, and
+ * it lives as long as the optimizer worker, so its threads stay compiled between
+ * searches. A sub-worker that fails rejects its candidate and leaves the pool.
+ */
+function createCandidatePool(size) {
+  const idle = [];
+  const queue = [];
+  const pending = new Map();
+  let live = size;
+  let nextId = 0;
+  const failed = (message) => message.mode === 'routeSeed'
+    ? { status: 'rejected', reason: 'Route evaluation worker failed.', concrete: false }
+    : { status: 'rejected', reason: 'Route evaluation worker failed.' };
+  const dispatch = () => {
+    while (queue.length > 0 && (idle.length > 0 || live === 0)) {
+      const task = queue.shift();
+      if (live === 0) { task.resolve(failed(task.message)); continue; }
+      const worker = idle.pop();
+      pending.set(worker, task);
+      worker.postMessage(task.message);
+    }
+  };
+  const workers = Array.from({ length: size }, () => {
+    const worker = new Worker(self.location.href, { type: 'module' });
+    worker.onmessage = (event) => {
+      const task = pending.get(worker);
+      pending.delete(worker);
+      idle.push(worker);
+      task?.resolve(event.data.outcome);
+      dispatch();
+    };
+    worker.onerror = () => {
+      const task = pending.get(worker);
+      pending.delete(worker);
+      live -= 1;
+      task?.resolve(failed(task.message));
+      dispatch();
+    };
+    idle.push(worker);
+    return worker;
+  });
+  const run = (message) => new Promise((resolve) => {
+    queue.push({ message: { ...message, id: nextId += 1 }, resolve });
+    dispatch();
+  });
+  return {
+    parallelism: size,
+    evaluate: (source, geometry, limits) => run({ mode: 'routeCandidate', source, geometry, limits }),
+    qualifySeed: (source) => run({ mode: 'routeSeed', source }),
+    // One warm task per sub-worker compiles the planner on every thread.
+    warm: (source) => { workers.forEach(() => { run({ mode: 'routeWarm', source }); }); },
+  };
+}
+
 export function processPathPreviewJob(
   job,
   derive = PM.derivePath,
@@ -329,55 +466,8 @@ export function processPathPreviewJob(
       };
     }
     if (job.optimize === true) {
-      const toPreview = (trajectory) => previewForTrajectory(path, job.robot, trajectory, derive, job.perSegment);
-      const search = optimize(
-        { path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment },
-        {
-          budgetTier: job.deadline,
-          budgetMs: job.deadlineMs,
-          onProgress: (trajectory) => emitProgress({
-            id: job.id,
-            type: 'progress',
-            quality: job.quality,
-            value: { ...toPreview(trajectory), routeSearch: { status: 'feasible',
-              seedStatus: trajectory.optimization?.seedStatus || 'unknown', seedIssue: trajectory.optimization?.seedIssue } },
-            durationMs: performance.now() - startedAt,
-          }),
-          // Counters only: the incumbent and its projected preview are unchanged.
-          onStatistics: (statistics) => emitProgress({
-            id: job.id,
-            type: 'statistics',
-            quality: job.quality,
-            statistics,
-            durationMs: performance.now() - startedAt,
-          }),
-        },
-      );
-      // The injected legacy planner remains useful to historical worker tests;
-      // production uses the explicit route-search envelope, including no result.
-      const finalTrajectory = search.candidate || (search.optimization ? search : null);
-      const routeSearch = search.status ? {
-        status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
-        seedStatus: search.seedStatus || 'unknown', seedIssue: search.seedIssue,
-      } : undefined;
-      if (!finalTrajectory) return {
-        id: job.id, quality: job.quality,
-        value: { routeSearch }, durationMs: performance.now() - startedAt,
-      };
-      if (finalTrajectory.optimization?.fallback) {
-        return {
-          id: job.id,
-          quality: job.quality,
-          finalFallbackReason: finalTrajectory.optimization.fallbackReason || 'Final optimization did not produce a valid trajectory.',
-          durationMs: performance.now() - startedAt,
-        };
-      }
-      return {
-        id: job.id,
-        quality: job.quality,
-        value: { ...toPreview(finalTrajectory), routeSearch },
-        durationMs: performance.now() - startedAt,
-      };
+      const search = optimizeJob(job, path, derive, emitProgress, startedAt);
+      return search.result(optimize(search.input, search.options));
     }
     const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
     const trajectory = accepted || profile({ path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
@@ -404,7 +494,38 @@ export function processPathPreviewJob(
 }
 
 if (typeof self !== 'undefined') {
-  self.onmessage = (event) => self.postMessage(
-    processPathPreviewJob(event.data, PM.derivePath, optimizeRouteFinal, interactiveTrajectory, (progress) => self.postMessage(progress)),
-  );
+  const cancelledJobs = new Set();
+  let candidatePool = null;
+  // Two threads stay free for the interface and this worker. With none to spare,
+  // or if sub-workers cannot start, the search runs here in sequence instead.
+  // Each sub-worker holds about 150 MB while this worker lives. Four measured
+  // 0.85 GB in the renderer against 1.45 GB for eight, for a 5% slower search.
+  const candidatePoolSize = Math.min(4, (self.navigator?.hardwareConcurrency || 1) - 2);
+  const pool = () => {
+    if (candidatePool === null && candidatePoolSize >= 2) {
+      try { candidatePool = createCandidatePool(candidatePoolSize); }
+      catch { candidatePool = undefined; }
+    }
+    return candidatePool || null;
+  };
+  const post = (message) => self.postMessage(message);
+  self.onmessage = (event) => {
+    const job = event.data;
+    // This worker as a sub-worker of a candidate pool.
+    if (job?.mode === 'routeCandidate') return post({ id: job.id, outcome: evaluateRouteCandidate(job.source, job.geometry, job.limits) });
+    if (job?.mode === 'routeSeed') return post({ id: job.id, outcome: qualifyRouteSeed(job.source) });
+    if (job?.mode === 'routeWarm') return post({ id: job.id, outcome: warmRouteEvaluation(job.source) });
+    // This worker as the persistent optimizer: it keeps its pool between jobs.
+    if (job?.type === 'cancel') return void cancelledJobs.add(job.id);
+    if (job?.type === 'warm') {
+      return void pool()?.warm({ path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
+    }
+    if (job?.optimize === true && job.parallel === true && job.quality === 'final' && job.mode === undefined && pool()) {
+      return void processParallelOptimizeJob(job, pool(), () => cancelledJobs.has(job.id), post).then((result) => {
+        cancelledJobs.delete(job.id);
+        post(result);
+      });
+    }
+    return post(processPathPreviewJob(job, PM.derivePath, optimizeRouteFinal, interactiveTrajectory, post));
+  };
 }

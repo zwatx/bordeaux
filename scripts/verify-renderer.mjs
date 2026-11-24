@@ -57,7 +57,9 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
 // Dense trajectory validation preserves waypoint correspondence across sample grids (235,619 B).
 // Shared solves, a faster reachability boundary search and leaner sample validation measure 238,219 B;
 // 234 KiB keeps ~1.4 KiB headroom.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 234 * 1024;
+// The parallel route search (candidate pool, warm-up and a persistent optimizer worker) measures 243,763 B;
+// 239 KiB keeps ~1 KiB headroom.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 239 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
