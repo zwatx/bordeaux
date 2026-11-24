@@ -34,7 +34,10 @@ for (const file of notices) {
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.copyFile(file, target);
 }
-await fs.writeFile(path.join(control, 'control'), (await fs.readFile(path.join(source, 'package/control'), 'utf8')).replace('@VERSION@', version));
+// opkg orders versions as dpkg does, where 0.2.0-beta.1 is newer than 0.2.0. A `~` sorts before the end of the
+// version, so 0.2.0~beta.1 comes before 0.2.0 and the stable package installs over the last beta. The file name keeps `-`.
+const packageVersion = version.replace('-', '~');
+await fs.writeFile(path.join(control, 'control'), (await fs.readFile(path.join(source, 'package/control'), 'utf8')).replace('@VERSION@', packageVersion));
 // opkg runs these directly, so they are the package's only executable files.
 const scripts = ['postinst', 'prerm', 'postrm'];
 for (const script of scripts) await fs.copyFile(path.join(source, 'package', script), path.join(control, script));
