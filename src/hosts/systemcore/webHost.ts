@@ -20,6 +20,7 @@ import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceCon
 import { buildRobotBinary, type BinaryBindings } from "../../core/export/robotBinary";
 import { decodeCommandsFile } from "../../core/export/commandsFile";
 import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
+import { sanitizeUserKeyRules } from "../../core/keyBindings";
 import { sha256Hex, utf8Bytes } from "../../core/bytes";
 import { validateProject } from "../../core/validation";
 
@@ -326,6 +327,15 @@ export function createSystemcoreHost() {
       pending.delete(operationId);
       await request("/api/push/cancel", { operationId }).catch(() => undefined);
       return { canceled: true };
+    },
+    // Key rules belong to this browser, in its localStorage. Nothing about keys goes to the robot.
+    getKeyRules: async () => {
+      try { return sanitizeUserKeyRules(JSON.parse(localStorage.getItem("bordeaux.keyRules") ?? "[]")); } catch { return []; }
+    },
+    setKeyRules: async (rules) => {
+      const kept = sanitizeUserKeyRules(rules);
+      localStorage.setItem("bordeaux.keyRules", JSON.stringify(kept));
+      return kept;
     },
   } satisfies Partial<BordeauxHost>;
 }

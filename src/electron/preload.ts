@@ -92,6 +92,9 @@ const invokeChannels = {
   "robotProject:buildCatalog": "buildRobotCatalog",
   "agent:getActiveProposal": "getActiveAgentProposal",
   "agent:getMcpStatus": "getMcpStatus",
+  "keys:get": "getKeyRules",
+  "keys:set": "setKeyRules",
+  "keys:recording": "setKeyRecording",
 } as const satisfies { [C in HostChannel]: HostInvokes[C]["method"] };
 
 const eventChannels = {

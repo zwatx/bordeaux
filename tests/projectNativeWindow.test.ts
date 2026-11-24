@@ -31,7 +31,7 @@ async function fixture(platform = "darwin") {
     attachWindowChrome,
     randomUUID, BrowserWindow: Window, path, __dirname: path.resolve("src/electron"), process: { platform, env: {} }, appUpdates: null,
     projectContext: () => ({ windowEpoch: sandbox.projectWindowEpoch, documentSessionId: sandbox.projectDocumentSession, targetGeneration: sandbox.projectTargetGeneration }),
-    activateProjectTarget: () => { sandbox.projectTargetGeneration++; }, replaceProjectSession: () => { sandbox.projectDocumentSession = randomUUID(); calls.push("replace"); },
+    setKeyRecording: vi.fn(), activateProjectTarget: () => { sandbox.projectTargetGeneration++; }, replaceProjectSession: () => { sandbox.projectDocumentSession = randomUUID(); calls.push("replace"); },
     nativeDeparture: { documentEntered: vi.fn(), windowClose: vi.fn(() => false), preventUnload: vi.fn(() => false), isExpectedWindowClose: vi.fn(() => false), windowClosed: vi.fn(), windowVanished: vi.fn(() => calls.push("vanished")), rendererGone: vi.fn(() => calls.push("gone")), coordinator: { notifyUnresponsive: vi.fn() } },
     projectPersistence: { getTransitionId: () => null, setLifecycleReady: () => calls.push("not-ready"), contextChanged: () => calls.push("fence") },
     captureProjectResumeDescriptor: () => { calls.push("capture"); return { source: "retained" }; }, retiredProjectResume: null,

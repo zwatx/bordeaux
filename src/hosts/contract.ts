@@ -17,6 +17,7 @@ import type {
   ProjectSession, ProjectStartupDetachResult, ProjectStartupRequest, ProjectStartupResult, ProjectTransitionToken, RestoredProjectRecovery,
 } from "../core/project/projectPersistence";
 import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathInventory } from "../core/robotFileDelivery";
+import type { KeyRule } from "../core/keyBindings";
 import type { BordeauxProject, RobotCommandCatalog, RobotDeliveryCapabilities, RobotIntegrationStatus, RobotProjectBookmarkSummary, ValidationResult } from "../core/types";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowMenuEntry, WindowState } from "../core/windowChrome";
 
@@ -144,6 +145,13 @@ export interface HostInvokes {
   "robotProject:inspectLabview": { method: "inspectLabviewCommands"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectConnection> };
   "robotProject:ensureWrappers": { method: "ensureCommandWrappers"; call: (context: ProjectDurabilityContext, commandIds: string[]) => Promise<{ created: number }> };
   "robotProject:buildCatalog": { method: "buildRobotCatalog"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectConnection> };
+
+  /** The user's own key rules, already checked with sanitizeUserKeyRules. Defaults are not included. */
+  "keys:get": { method: "getKeyRules"; call: () => Promise<KeyRule[]> };
+  /** Stores the user's rules after sanitizeUserKeyRules and returns what was kept. The desktop also updates its menu. */
+  "keys:set": { method: "setKeyRules"; call: (rules: KeyRule[]) => Promise<KeyRule[]> };
+  /** While a key is being recorded, the desktop's File menu stops catching its keys, so the page receives them. */
+  "keys:recording": { method: "setKeyRecording"; call: (recording: boolean) => Promise<void> };
 
   "agent:getActiveProposal": { method: "getActiveAgentProposal"; call: () => Promise<AgentProposal | null> };
   "agent:getMcpStatus": { method: "getMcpStatus"; call: () => Promise<McpStatus> };

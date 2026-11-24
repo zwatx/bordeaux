@@ -58,6 +58,12 @@ try {
   smokeDirectory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-electron-smoke-")));
   await seedSmokeProject(smokeDirectory);
   await fs.copyFile(new URL("./electron-smoke-renderer.js", import.meta.url), path.join(smokeDirectory, "renderer.js"));
+  // The smoke's userData is this folder. Two valid key rules reach the menu and renderer; the other three are dropped:
+  // a plain key on a File menu command, an unknown command and a reserved key. The smoke presses only M and Escape.
+  await fs.writeFile(path.join(smokeDirectory, "keybindings.json"), JSON.stringify([
+    { key: "q", command: "tool.waypoint", when: "pathsPage" }, { key: "k", command: "project.save" },
+    { key: "mod+alt+x", command: "no.such.command" }, { key: "escape", command: "view.fit" }, { key: "mod+shift+e", command: "export.bdx" },
+  ]));
   const robotRoot = path.join(smokeDirectory, "robot-project");
   await fs.mkdir(robotRoot, { recursive: true });
   await fs.writeFile(path.join(robotRoot, "SmokeRobot.lvproj"), "<Project/>");
@@ -131,6 +137,16 @@ try {
     "largeEnumPicker", "accessible",
   ]) assert.equal(result.robotUi[check], true, `robotUi.${check}`);
   assert.equal(result.robotUi.commandOptions, declaration.commands.length + 1, "Declared LabVIEW commands plus No command option");
+  assert.deepEqual(result.keyRules, [{ key: "q", command: "tool.waypoint", when: "pathsPage" }, { key: "mod+shift+e", command: "export.bdx" }],
+    "Main keeps only the valid key rules from keybindings.json");
+  assert.deepEqual(result.keyRulesMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu follows keybindings.json");
+  assert.equal(result.keyRulesDialog, "Q", "The shortcuts dialog shows the user's key");
+  assert.deepEqual(result.keyRecordingMenu, { save: null, export: null }, "Recording a key pauses the File menu's keys");
+  assert.deepEqual(result.keyRecordedMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu's keys return after recording");
+  const savedRules = [{ key: "mod+shift+e", command: "export.bdx" }, { key: "mod+shift+l", command: "project.saveCopy" }];
+  assert.deepEqual(result.keyRulesSaved, savedRules, "Saving drops a second File menu command on one key");
+  assert.deepEqual(result.keyRulesFile, savedRules, "keybindings.json holds the saved rules");
+  assert.deepEqual(result.keyRulesSavedMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu follows saved rules");
   const generatedPaths = await fs.readdir(path.join(smokeDirectory, "Paths"));
   assert.ok(generatedPaths.some(name => name.endsWith(".bdx")), "Save writes BDX into Paths");
   // Keep payload/feature assertions distinguishable from a platform shutdown failure. Both remain required.

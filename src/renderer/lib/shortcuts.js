@@ -1,14 +1,6 @@
-// Shortcut labels follow the platform: ⇧⌘S on macOS, Ctrl+Shift+S elsewhere.
-export function isMacPlatform() {
-  if (typeof window === 'undefined') return false;
-  const platform = window.bordeauxAPI?.platform;
-  if (platform) return platform === 'darwin';
-  return typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
-}
+import { isMacPlatform, keyCommand } from './keyBindings';
 
-export function shortcutLabel(key, { shift = false } = {}, mac = isMacPlatform()) {
-  return mac ? (shift ? '⇧' : '') + '⌘' + key : 'Ctrl+' + (shift ? 'Shift+' : '') + key;
-}
+// Key labels come from keyBindings (keyLabel, keyLabels, ariaKeys); this module keeps prose and focus helpers.
 
 /** The modifier word used in prose, such as "⌘-click" or "Ctrl-click". */
 export function modifierName(mac = isMacPlatform()) {
@@ -16,9 +8,9 @@ export function modifierName(mac = isMacPlatform()) {
 }
 
 /**
- * Space belongs to playback in the workspace. Text entry always keeps it. Other controls (switches, segmented choices,
- * menu buttons, summaries) keep it only when reached from the keyboard; after a mouse click they keep focus but Space
- * still plays and pauses, so a click elsewhere never steals the shortcut.
+ * The play/pause key (Space by default) belongs to playback in the workspace. Text entry always keeps it. Other
+ * controls (switches, segmented choices, menu buttons, summaries) keep it only when reached from the keyboard; after a
+ * mouse click they keep focus but Space still plays and pauses, so a click elsewhere never steals the shortcut.
  */
 const TEXT_ENTRY = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="file"]),textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
 const KEYBOARD_CONTROLS = '[data-native-chrome],[data-role="issue"],[data-problems-control],details>summary,.choice-change[aria-expanded][aria-controls],input,[role="combobox"],[role="listbox"],[role="menu"],[aria-haspopup],[popovertarget],.seg,.toggle,[role="radio"],[role="checkbox"],[role="switch"]';
@@ -45,8 +37,8 @@ export function trackFocusModality(doc = document, now = () => performance.now()
 }
 function keyboardFocused(target) { return !tracking || target !== pointerFocused; }
 export function isPlaybackSpace(event, page, doc = document) {
-  if (!['plan', 'auto'].includes(page) || event.key !== ' ' || event.defaultPrevented || event.isComposing || event.keyCode === 229
-    || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+  if (!['plan', 'auto'].includes(page) || event.defaultPrevented || event.isComposing || event.keyCode === 229
+    || keyCommand(event, { pathsPage: page === 'plan', routinesPage: page === 'auto' }) !== 'playback.toggle') return false;
   const target = event.target;
   if (target?.isContentEditable || target?.closest?.(TEXT_ENTRY)) return false;
   if (target?.closest?.(KEYBOARD_CONTROLS) && keyboardFocused(target)) return false;
