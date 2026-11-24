@@ -1,4 +1,5 @@
-export const OFFICIAL_RELEASES_URL = "https://github.com/zwatx/bordeaux/releases";
+import { OFFICIAL_RELEASES_URL } from "../core/appUpdates";
+export { OFFICIAL_RELEASES_URL };
 
 // Release tags are `v<version>`. Only a plain semantic version from main's own update state becomes a tag link; anything
 // else falls back to the release list.
