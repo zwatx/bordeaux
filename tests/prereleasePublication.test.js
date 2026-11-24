@@ -17,7 +17,7 @@ async function fixture() {
   const names = [
     ...["arm64", "x64"].flatMap((arch) => ["dmg", "zip"].map((ext) => `Bordeaux-${version}-mac-${arch}.${ext}`)),
     ...["arm64", "x86_64"].map((arch) => `Bordeaux-${version}-linux-${arch}.AppImage`),
-    ...["setup", "portable"].map((kind) => `Bordeaux-${version}-windows-x64-${kind}.exe`),
+    ...["setup", "portable"].map((kind) => `Bordeaux-${version}-windows-x64-${kind}.exe`), `bordeaux_${version}_all.ipk`,
     "beta.yml", "beta-mac.yml", "beta-linux.yml", "beta-linux-arm64.yml", "signature-evidence-mac.json", "signature-evidence-windows.json",
   ];
   await Promise.all(names.map((name) => writeFile(path.join(directory, name), `contents:${name}`)));
@@ -133,6 +133,13 @@ describe("prerelease publication", () => {
     await expect(localReleaseAssets(f.directory, version, true)).resolves.toHaveLength(f.names.length - 1);
     await rm(path.join(f.directory, "beta-linux-arm64.yml"));
     await expect(localReleaseAssets(f.directory, version, true)).rejects.toThrow(/beta-linux-arm64/);
+  });
+
+  it("requires the SystemCore package", async () => {
+    const f = await fixture();
+    await rm(path.join(f.directory, `bordeaux_${version}_all.ipk`));
+    await expect(publishPrerelease(f.options)).rejects.toThrow(`Missing release asset: bordeaux_${version}_all.ipk`);
+    expect(f.calls).toHaveLength(0);
   });
 
   it("rechecks the complete set before making it public", async () => {
