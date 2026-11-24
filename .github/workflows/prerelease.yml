@@ -158,6 +158,9 @@ jobs:
       - name: Build Linux AppImages
         if: matrix.platform == 'linux'
         run: npm run package:linux -- --config.publish.channel=beta --config.publish.releaseType=prerelease
+      - name: Build SystemCore package
+        if: matrix.platform == 'linux'
+        run: npm run package:systemcore
       - run: npm run verify:package -- release
       - name: Verify public beta update manifest
         if: matrix.platform != 'linux'
@@ -188,6 +191,7 @@ jobs:
             release/*.zip
             release/*.exe
             release/*.AppImage
+            release/*.ipk
             release/*.blockmap
             release/beta*.yml
             release/signature-evidence-*.json

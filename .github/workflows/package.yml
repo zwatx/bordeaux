@@ -79,6 +79,9 @@ jobs:
       - name: Build Linux AppImages
         if: matrix.platform == 'linux'
         run: npm run package:linux -- --config.publish.channel=latest --config.publish.releaseType=release
+      - name: Build SystemCore package
+        if: matrix.platform == 'linux'
+        run: npm run package:systemcore
       # Package scripts already compiled the exact checked-out sources.
       - run: node scripts/certify-field.mjs
         if: matrix.platform == 'linux'
@@ -111,6 +114,7 @@ jobs:
             release/*.zip
             release/*.exe
             release/*.AppImage
+            release/*.ipk
             release/*.blockmap
             release/latest*.yml
             release/signature-evidence-*.json

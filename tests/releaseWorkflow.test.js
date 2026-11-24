@@ -36,6 +36,8 @@ it("keeps all platform artifacts and verification before uploads in both release
     for (const command of ["verify:package", "verify-update-manifest.mjs linux-arm64", "verify-release-signatures.mjs mac", "verify-release-signatures.mjs windows", "notarize-release-dmgs.mjs", "block return out quick proto udp from any to any port 443"]) {
       expect(beforeUpload).toContain(command);
     }
+    expect(job.steps.slice(0, upload).some(({ run, if: when }) => run === "npm run package:systemcore" && when === "matrix.platform == 'linux'")).toBe(true);
+    expect(job.steps[upload].with.path).toContain("release/*.ipk");
     expect(job.steps[upload].with["if-no-files-found"]).toBe("error");
     expect(release.jobs.publish.needs).toContain(name === "package" ? "package" : "build");
   }
