@@ -42,8 +42,11 @@ describe('metric heatmap display', () => {
       expect(channels[i][0] - channels[i - 1][0]).toBeLessThan(0.01);
       expect(channels[i][2]).toBeLessThan(channels[i - 1][2]);
     }
-    // Slow and fast stretches must read clearly apart on a thin line, not as two close shades.
-    expect(channels[100][0] - channels[0][0]).toBeGreaterThanOrEqual(0.6);
+    // Slow and fast stretches must read clearly apart on a thin line, not as two close shades (the earlier
+    // single-teal ramp spanned 0.36).
+    expect(channels[100][0] - channels[0][0]).toBeGreaterThanOrEqual(0.44);
+    // The slow end (every path's start and stop) stays visible, at least 3:1, on the dark surfaces and path casing.
+    expect(channels[0][0]).toBeGreaterThanOrEqual(0.5);
     // Hues stay near teal, clear of alliance blue and zone amber.
     for (const [, , hue] of channels) {
       expect(hue).toBeGreaterThanOrEqual(150);
