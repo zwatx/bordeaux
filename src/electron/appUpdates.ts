@@ -1,6 +1,6 @@
 import { CancellationToken } from "builder-util-runtime";
-import type { AppUpdateChannel, AppUpdateProgress, AppUpdateState } from "../core/appUpdates";
-export type { AppUpdateChannel } from "../core/appUpdates";
+import { appUpdateChannel, type AppUpdateChannel, type AppUpdateProgress, type AppUpdateState } from "../core/appUpdates";
+export { appUpdateChannel, type AppUpdateChannel } from "../core/appUpdates";
 
 export interface UpdateVersionInfo {
   version: string;
@@ -54,10 +54,6 @@ export function usesGitHubAppUpdates(
   if (platform === "win32") return !windowsStore && !windowsPortable;
   if (platform === "linux") return linuxAppImage;
   return true;
-}
-
-export function appUpdateChannel(version: string): AppUpdateChannel {
-  return /^\d+\.\d+\.\d+$/.test(version) ? "latest" : "beta";
 }
 
 /**

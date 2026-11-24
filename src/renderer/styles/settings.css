@@ -2,19 +2,19 @@
 .robotpage{position:relative;flex:1;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg)}
 .settings-layout{display:grid;grid-template-columns:140px minmax(0,640px);justify-content:center;gap:40px;padding:28px 32px 64px}
 .settings-side{position:sticky;top:28px;align-self:start}
-.rp-title{margin:0 0 10px 8px;font-size:17px;font-weight:600;letter-spacing:-.2px}
+.rp-title{margin:0 0 10px 8px;font-size:16px;font-weight:600;letter-spacing:-.2px}
 .settings-nav{display:flex;flex-direction:column;gap:1px}
-.settings-nav button{position:relative;min-height:28px;padding:0 8px;border-radius:var(--r);color:var(--txt-3);font-size:12.5px;font-weight:500;text-align:left;transition:color .14s}
+.settings-nav button{position:relative;min-height:28px;padding:0 8px;border-radius:var(--r);color:var(--txt-2);font-size:12px;font-weight:500;text-align:left;transition:color .14s}
 .settings-nav button[aria-current]{background:var(--bg-2);color:var(--txt)}
 .settings-nav button[aria-current]::before{content:'';position:absolute;top:7px;bottom:7px;left:0;width:2px;border-radius:1px;background:var(--txt)}
-@media(hover:hover){.settings-nav button:not([aria-current]):hover{color:var(--txt-2)}}
+@media(hover:hover){.settings-nav button:not([aria-current]):hover{color:var(--txt)}}
 .settings-section{scroll-margin-top:28px}
 .settings-section+.settings-section{margin-top:28px}
 .settings-head{display:flex;align-items:center;gap:6px;margin:0 0 8px 2px}
-.settings-section h2{margin:0;color:var(--txt-2);font-size:12px;font-weight:600;letter-spacing:.02em}
+.settings-section h2{margin:0;color:var(--txt);font-size:14px;font-weight:600}
 .rp-note{margin:0 0 12px;color:var(--txt-3);font-size:12px;line-height:1.5;text-wrap:pretty}
 .rp-note.invalid{margin:10px 0 0;color:var(--bad-txt)}
-.rp-subh{margin:16px 0 8px 2px;color:var(--txt-3);font-size:11.5px;font-weight:600}
+.rp-subh{margin:16px 0 8px 2px;color:var(--txt-3);font-size:11px;font-weight:600}
 .settings-card{border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
 .settings-card+.settings-card{margin-top:8px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;padding:5px 6px 5px 14px;font-size:13px}
@@ -22,7 +22,7 @@
 :is(.settings-row,.settings-foot):first-child{border-top:0}
 .settings-sub{min-height:40px;padding-left:28px;background:var(--bg)}
 .settings-label{display:flex;align-items:center;gap:6px;min-width:0}
-.settings-label strong{font-weight:500}
+.settings-label strong{font-weight:400}
 .settings-hint{display:inline-flex;flex-shrink:0;color:var(--txt-3);opacity:.55;transition:opacity .14s,color .14s}
 @media(hover:hover){:is(.settings-row,.settings-head):hover .settings-hint{opacity:1}.settings-hint:hover{color:var(--txt)}}
 .settings-status{color:var(--txt-3);font-size:12px;white-space:nowrap}
@@ -43,7 +43,7 @@
 .rp-big{display:flex;align-items:center;gap:8px;min-width:0;height:32px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);transition:border-color .12s,box-shadow .12s}
 .rp-big:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
 .rp-big input{flex:1;min-width:0;padding:0;border:0;outline:none;background:none;color:var(--txt);font:13px var(--mono);font-variant-numeric:tabular-nums}
-.rp-big .u{flex-shrink:0;color:var(--txt-3);font:11.5px var(--mono)}
+.rp-big .u{flex-shrink:0;color:var(--txt-3);font:11px var(--mono)}
 /* A field's error sits under it, and the row grows to keep it readable at any field width. */
 .rp-big{position:relative}
 .settings-row:has(.rp-big .cmd-param-error){padding-bottom:24px}
@@ -57,7 +57,7 @@
 
 /* The footprint preview sits beside the dimensions that draw it. */
 .rp-robot{display:grid;grid-template-columns:minmax(0,1fr) auto}
-.rp-preview{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-left:1px solid var(--line);color:var(--txt-3);font-size:11.5px}
+.rp-preview{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-left:1px solid var(--line);color:var(--txt-3);font-size:11px}
 .rp-preview svg{overflow:visible;border-radius:var(--r);background:linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 10%,linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/10% 100%,var(--bg)}
 .rp-preview svg.editable{touch-action:none}
 .rp-vertex-hit{fill:transparent;stroke:transparent;cursor:grab}

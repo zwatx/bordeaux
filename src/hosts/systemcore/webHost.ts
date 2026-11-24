@@ -7,6 +7,8 @@
  * The browser builds every byte with src/core; the server only stores them in fixed folders.
  */
 import type { BordeauxHost, PathExportResult, RobotProjectRestore } from "../contract";
+import { version } from "../../../package.json";
+import { OFFICIAL_RELEASES_URL, appUpdateChannel, type AppUpdateState } from "../../core/appUpdates";
 import type { CreateNamedProjectRequest, OpenedProject, ProjectLocation, RecentProjectEntry } from "../../core/project/desktopProjects";
 import type { RobotFileConnection, RobotFilePreview, RobotFileReading, RobotFileResult } from "../../core/robotFileDelivery";
 import type { BordeauxProject } from "../../core/types";
@@ -108,7 +110,14 @@ export function createSystemcoreHost() {
     if (!response.ok || typeof value.contents !== "string") return { error: value.error || `The robot answered ${response.status}` };
     try { return { bindings: decodeCommandsFile(value.contents) }; } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
   });
-  const bindings = async () => { const list = await robotCommands(); return list && "bindings" in list ? list.bindings : NO_COMMANDS; };
+  // Without a usable list, exports that need a command say why: nothing pushed yet, or the pushed list can't be read.
+  const bindings = async (): Promise<BinaryBindings> => {
+    const list = await robotCommands();
+    if (list && "bindings" in list) return list.bindings;
+    return { ...NO_COMMANDS, unavailable: list
+      ? `The robot's command list can't be read: ${list.error}`
+      : "Link the robot's LabVIEW project in the desktop app, then push from it to send the commands to this robot." };
+  };
 
   const serverInfo = (refresh = false) => (info && !refresh ? info : (info = request<ServerInfo>("/api/info")));
   const location = async (name: string | null): Promise<ProjectLocation> => {
@@ -215,8 +224,25 @@ export function createSystemcoreHost() {
     return { project: saved.canonicalProject, location: saved.location };
   }
 
+  // The robot has no updater. A new version arrives as a new ipk added in the SystemCore dashboard, so the update panel
+  // shows the installed version (this page ships in the same package) and links to the releases, like a desktop build
+  // that can't update itself.
+  let updates: AppUpdateState = { phase: "unsupported", currentVersion: version, version: null, releaseNotes: "", progress: null,
+    error: null, errorDetails: null, errorStage: null, projectDirty: false, channel: appUpdateChannel(version), visible: false };
+  const updateListeners = new Set<(state: AppUpdateState) => void>();
+  const showUpdates = async (visible: boolean) => {
+    updates = { ...updates, visible };
+    for (const listener of updateListeners) listener(updates);
+  };
+
   return {
     platform: "web",
+
+    getAppUpdateState: async () => updates,
+    onAppUpdateState: (handler) => { updateListeners.add(handler); return () => { updateListeners.delete(handler); }; },
+    checkAppUpdates: () => showUpdates(true),
+    setAppUpdatesVisible: showUpdates,
+    openAppUpdateReleases: async () => { window.open(OFFICIAL_RELEASES_URL, "_blank", "noopener"); },
     robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
 
     restoreLastProject: () => serially(async () => {

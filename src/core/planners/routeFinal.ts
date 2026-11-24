@@ -1,12 +1,17 @@
 import { clone } from "../project/defaults";
-import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult } from "../types";
+import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult, RouteGeometry } from "../types";
 import { authoredPath, stable } from "./acceptedTrajectoryIdentity";
 import type { CorridorSearchStatistics } from "./corridorFinal";
-import { optimizeFixedGeometryFinal } from "./fixedGeometryFinal";
-import { getPlanner } from "./index";
+import {
+  evaluateRouteCandidate,
+  NOT_FASTER,
+  qualifyRouteSeed,
+  type RouteCandidateLimits,
+  type RouteCandidateOutcome,
+  type RouteSeedOutcome,
+} from "./routeCandidateEvaluation";
 import { routeCandidates } from "./routeCandidates";
-import { geometryFromPath, routePlanningPath, routeResultToSource, routeUnsupportedReason } from "./routeGeometry";
-import { routeCandidateFailure, routeCandidateIssue } from "./routeValidation";
+import { routeUnsupportedReason } from "./routeGeometry";
 
 export interface RouteFinalOptions {
   budgetTier?: "common" | "stress" | "hard";
@@ -28,8 +33,23 @@ export interface RouteSearchResult {
   statistics: CorridorSearchStatistics;
 }
 
-/** Task-based route selection. Legacy strict/corridor search is unchanged. */
-export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptions = {}): RouteSearchResult {
+/** The drawn curve and its three shortened-handle repairs, which routeCandidates yields right after the canonical rescue. */
+const HEAD_START_CANDIDATES = 4;
+
+/** Runs candidate evaluations for a parallel search, typically on worker threads. */
+export interface RouteCandidateEvaluator {
+  /** How many evaluations may run at once. */
+  parallelism: number;
+  evaluate(source: PlannerInput, geometry: RouteGeometry, limits: RouteCandidateLimits): Promise<RouteCandidateOutcome>;
+  qualifySeed(source: PlannerInput): Promise<RouteSeedOutcome>;
+}
+
+/**
+ * Bookkeeping shared by the sequential and parallel searches: budgets, counters,
+ * the incumbent, and publishing. The drivers differ only in where and when
+ * candidates are evaluated; every outcome is recorded here in candidate order.
+ */
+function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
   const start = performance.now();
   const tier = options.budgetTier ?? "common";
   const budget = Math.max(1, Math.min(30_000, Number.isFinite(options.budgetMs) ? options.budgetMs! : ({ common: 5000, stress: 15000, hard: 30000 })[tier]));
@@ -54,8 +74,6 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     if (performance.now() - start >= budget - Math.max(100, longestCandidateMs * 1.25)) { termination = "time-budget"; return true; }
     return false;
   };
-  const unsupported = routeUnsupportedReason(input);
-  if (unsupported) return { seedStatus, status: "unsupported", reason: unsupported, termination: "unsupported", statistics: statistics() };
   const source = { ...input, path: clone(authoredPath(input.path)) };
   const reject = (reason: string) => {
     rejectedCandidates++;
@@ -72,7 +90,8 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus, ...(seedIssue ? { seedIssue } : {}),
     ...(baseline ? { baselineTimeS: baseline.totalTimeS, gainS: baseline.totalTimeS - result.totalTimeS } : {}),
   } });
-  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < Math.max(0.02, baseline.totalTimeS * 0.005) ? baseline : best;
+  const materialGain = (normal: PlannerResult) => Math.max(0.02, normal.totalTimeS * 0.005);
+  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < materialGain(baseline) ? baseline : best;
   let lastPublished: PlannerResult | undefined;
   let lastPublishedSeedStatus: RouteSearchResult["seedStatus"] | undefined;
   const publish = () => {
@@ -83,76 +102,173 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
       options.onProgress?.(decorate(current));
     } else options.onStatistics?.(statistics());
   };
-
   const seen = new Set<string>();
-  const evaluate = (geometry: ReturnType<typeof geometryFromPath>) => {
-    const key = stable(geometry);
-    if (seen.has(key)) return;
-    seen.add(key);
-    evaluations++;
-    const began = performance.now();
-    try {
-      const path = routePlanningPath(source.path, geometry);
-      const candidate = decorate(routeResultToSource(optimizeFixedGeometryFinal({ ...source, path }), geometry, path));
-      const failure = routeCandidateFailure(source, candidate);
-      if (failure) reject(failure);
-      else {
+  return {
+    source,
+    stop,
+    candidates: routeCandidates(source, stop, () => reject("Visibility graph work budget exhausted; route alternatives remain untested.")),
+    limits: (): RouteCandidateLimits => {
+      const timeToBeat = best ? best.totalTimeS - 1e-6 : Number.POSITIVE_INFINITY;
+      return { timeToBeat, timeToMatter: Math.min(timeToBeat, baseline ? baseline.totalTimeS - materialGain(baseline) : Number.POSITIVE_INFINITY) };
+    },
+    /** False for a curve that was already taken; otherwise counts it as an evaluation. */
+    take(geometry: RouteGeometry): boolean {
+      // Every handle is part of the key. Handle lengths along a straight segment
+      // leave its shape alone but change its parameterization, and with it the
+      // timing; merging such candidates lost a 0.07 s faster route on a corpus path.
+      const key = stable(geometry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      evaluations++;
+      return true;
+    },
+    recordCandidate(outcome: RouteCandidateOutcome, elapsedMs: number): void {
+      // A parallel search may have evaluated this against limits that have since tightened.
+      if (outcome.status === "valid" && (!best || outcome.candidate.totalTimeS < best.totalTimeS - 1e-6)) {
         validatedCandidates++;
-        if (!best || candidate.totalTimeS < best.totalTimeS - 1e-6) best = candidate;
+        best = decorate(outcome.candidate);
+      } else reject(outcome.status === "valid" ? NOT_FASTER : outcome.reason);
+      longestCandidateMs = Math.max(longestCandidateMs, elapsedMs);
+      publish();
+    },
+    /** Counts the Normal qualification as an evaluation and records its outcome. */
+    recordSeed(outcome: RouteSeedOutcome): void {
+      evaluations++;
+      if (outcome.status === "valid") {
+        seedStatus = "valid";
+        baseline = decorate(outcome.normal);
+        if (!best || baseline.totalTimeS < best.totalTimeS) best = baseline;
+        validatedCandidates++;
+      } else {
+        if (outcome.concrete) {
+          seedStatus = "invalid";
+          seedIssue = outcome.reason;
+        }
+        reject(outcome.reason);
       }
-    } catch (error) {
-      reject(error instanceof Error ? error.message : "Route evaluation failed.");
-    }
-    longestCandidateMs = Math.max(longestCandidateMs, performance.now() - began);
-    publish();
+      publish();
+    },
+    finish(): RouteSearchResult {
+      termination ??= "completed";
+      const current = retained();
+      return {
+        candidate: current && decorate(current), baseline: baseline && decorate(baseline), seedStatus, ...(seedIssue ? { seedIssue } : {}),
+        status: termination === "cancelled" ? "cancelled" : current ? "feasible" : "no-candidate",
+        termination, statistics: statistics(),
+        reason: current ? undefined : termination === "cancelled" ? "Route search was cancelled before finding a validated candidate."
+          : "No validated route was found within this bounded search. This does not prove the task infeasible.",
+      };
+    },
+    unsupported: (reason: string): RouteSearchResult => (
+      { seedStatus, status: "unsupported", reason, termination: "unsupported", statistics: statistics() }
+    ),
   };
-  const candidates = routeCandidates(source, stop, () => reject("Visibility graph work budget exhausted; route alternatives remain untested."));
+}
+
+/** Task-based route selection. Legacy strict/corridor search is unchanged. */
+export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptions = {}): RouteSearchResult {
+  const search = routeSearchState(input, options);
+  const unsupported = routeUnsupportedReason(input);
+  if (unsupported) return search.unsupported(unsupported);
+  const evaluate = (geometry: RouteGeometry) => {
+    if (!search.take(geometry)) return;
+    const began = performance.now();
+    search.recordCandidate(evaluateRouteCandidate(search.source, geometry, search.limits()), performance.now() - began);
+  };
   // Reserve the first evaluation for canonical rescue. Even pathological seed
   // timing cannot consume the budget before a seed-independent route is tried.
   // Its checkpoint honestly says unknown until actual Normal is qualified.
-  if (!stop()) {
-    const canonical = candidates.next();
+  if (!search.stop()) {
+    const canonical = search.candidates.next();
     if (!canonical.done) evaluate(canonical.value);
   }
 
   // One early actual Normal qualification, before strict seed retiming.
   // Inconclusive certificates/errors never authorize a slower feasible offer.
-  const seed = geometryFromPath(source.path);
-  if (!stop()) {
-    evaluations++;
-    try {
-      const path = routePlanningPath(source.path, seed);
-      const normal = decorate(routeResultToSource(getPlanner("profiledSpline").generate(source), seed, path));
-      const failure = routeCandidateIssue(source, normal);
-      if (!failure) {
-        seedStatus = "valid";
-        baseline = normal;
-        if (!best || normal.totalTimeS < best.totalTimeS) best = normal;
-        validatedCandidates++;
-      } else {
-        if (failure.concrete) {
-          seedStatus = "invalid";
-          seedIssue = failure.message;
-        }
-        reject(failure.message);
-      }
-    } catch (error) {
-      reject(error instanceof Error ? error.message : "Normal qualification failed.");
-    }
-    publish();
-  }
+  if (!search.stop()) search.recordSeed(qualifyRouteSeed(search.source));
 
-  for (const geometry of candidates) {
-    if (stop()) break;
+  for (const geometry of search.candidates) {
+    if (search.stop()) break;
     evaluate(geometry);
   }
-  termination ??= "completed";
-  const current = retained();
-  return {
-    candidate: current && decorate(current), baseline: baseline && decorate(baseline), seedStatus, ...(seedIssue ? { seedIssue } : {}),
-    status: termination === "cancelled" ? "cancelled" : current ? "feasible" : "no-candidate",
-    termination, statistics: statistics(),
-    reason: current ? undefined : termination === "cancelled" ? "Route search was cancelled before finding a validated candidate."
-      : "No validated route was found within this bounded search. This does not prove the task infeasible.",
+  return search.finish();
+}
+
+/**
+ * The same search with candidates evaluated on `evaluator.parallelism` threads.
+ * The canonical rescue, the Normal qualification, and the next few candidates
+ * run together. The rest are started ahead of need, up to twice the thread
+ * count, so no thread waits while an early candidate is slow. Each is evaluated against the incumbent as it
+ * stood when it started and recorded in candidate order, so the search returns
+ * what the sequential search returns whenever both complete. Which rejection
+ * reason a losing candidate reports can vary with timing. A started evaluation
+ * cannot be interrupted, so budgets and cancellation stop new starts only.
+ */
+export async function optimizeRouteFinalParallel(
+  input: PlannerInput,
+  options: RouteFinalOptions,
+  evaluator: RouteCandidateEvaluator,
+): Promise<RouteSearchResult> {
+  const search = routeSearchState(input, options);
+  const unsupported = routeUnsupportedReason(input);
+  if (unsupported) return search.unsupported(unsupported);
+  const evaluate = async (geometry: RouteGeometry) => {
+    const began = performance.now();
+    const outcome = await evaluator.evaluate(search.source, geometry, search.limits());
+    return { outcome, elapsedMs: performance.now() - began };
   };
+
+  const started: ReturnType<typeof evaluate>[] = [];
+  let exhausted = false;
+  // Candidates pulled from the generator but not started yet, in generator order.
+  const upcoming: RouteGeometry[] = [];
+  const nextCandidate = (): RouteGeometry | undefined => {
+    if (upcoming.length > 0) return upcoming.shift();
+    if (exhausted) return undefined;
+    const next = search.candidates.next();
+    if (next.done) exhausted = true;
+    return next.done ? undefined : next.value;
+  };
+  if (!search.stop()) {
+    const canonical = nextCandidate();
+    const rescue = canonical && search.take(canonical) ? evaluate(canonical) : undefined;
+    const seed = evaluator.qualifySeed(search.source);
+    // The other threads start on the next candidates now instead of idling behind
+    // these two. There is no incumbent to prune against yet, so the head start
+    // goes only to the candidates the generator yields first: the drawn curve and
+    // its shortened-handle repairs. Those are usually near ties that need a full
+    // plan anyway, where later candidates are usually dropped after a first pass.
+    for (let pulled = 0; pulled < HEAD_START_CANDIDATES && started.length < evaluator.parallelism - 2 && !search.stop(); pulled += 1) {
+      const geometry = nextCandidate();
+      if (!geometry) break;
+      // A detour can cost many plans of the drawn curve, so it waits for a limit.
+      if (geometry.knots.length > search.source.path.waypoints.length) {
+        upcoming.unshift(geometry);
+        break;
+      }
+      if (search.take(geometry)) started.push(evaluate(geometry));
+    }
+    // Generating the remaining candidates includes the visibility-graph routes.
+    // Do it now, while this thread would otherwise only wait for the results above.
+    while (!exhausted) {
+      const next = search.candidates.next();
+      if (next.done) exhausted = true;
+      else upcoming.push(next.value);
+    }
+    const rescued = await rescue;
+    if (rescued) search.recordCandidate(rescued.outcome, rescued.elapsedMs);
+    search.recordSeed(await seed);
+  }
+
+  for (;;) {
+    while ((upcoming.length > 0 || !exhausted) && started.length < evaluator.parallelism * 2 && !search.stop()) {
+      const geometry = nextCandidate();
+      if (geometry && search.take(geometry)) started.push(evaluate(geometry));
+    }
+    const oldest = started.shift();
+    if (!oldest) break;
+    const result = await oldest;
+    search.recordCandidate(result.outcome, result.elapsedMs);
+  }
+  return search.finish();
 }

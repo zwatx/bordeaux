@@ -219,6 +219,10 @@ describe("direct VI binary path", () => {
   it("rejects missing, duplicate and colliding inspected command identities", () => {
     const missing = binaryWriterFixture(); missing.bindings.catalog.commands = [];
     expect(() => build(missing)).toThrow(/fixture.command.*missing.*linked LabVIEW/);
+    const unlinked = binaryWriterFixture(); unlinked.bindings.catalog.commands = []; unlinked.bindings.catalog.projectName = "";
+    expect(() => build(unlinked)).toThrow(/fixture.command can't be built because no LabVIEW commands are available\. Link the robot's LabVIEW project in the desktop app\.$/);
+    unlinked.bindings.unavailable = "Push from the desktop app again.";
+    expect(() => build(unlinked)).toThrow(/no LabVIEW commands are available\. Push from the desktop app again\.$/);
     const duplicate = binaryWriterFixture(); duplicate.bindings.catalog.commands.push(structuredClone(duplicate.bindings.catalog.commands[0]));
     expect(() => build(duplicate)).toThrow(/fixture.command.*ambiguous/);
     const collision = binaryWriterFixture(), other = structuredClone(collision.bindings.catalog.commands[0]);

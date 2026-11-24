@@ -1,4 +1,9 @@
 export type AppUpdateChannel = "beta" | "latest";
+export const OFFICIAL_RELEASES_URL = "https://github.com/zwatx/bordeaux/releases";
+/** Plain x.y.z versions are production releases; anything with a prerelease part is a beta. */
+export function appUpdateChannel(version: string): AppUpdateChannel {
+  return /^\d+\.\d+\.\d+$/.test(version) ? "latest" : "beta";
+}
 export interface AppUpdateProgress {
   percent: number;
   transferred: number;

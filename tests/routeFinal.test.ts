@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
@@ -302,5 +303,19 @@ describe("drawn curve grazing the field wall", () => {
     const interior = candidate.samples.filter((sample) => sample.f > 0.05 && sample.f < 0.95);
     expect(Math.min(...interior.map((s) => Math.abs(s.velocityMps)))).toBeGreaterThan(1);
     expect(routeCandidateFailure({ path: grazingPath, robot: grazingRobot }, candidate)).toBeUndefined();
+  }, 60_000);
+});
+
+describe("route candidate identity", () => {
+  it("times straight handles of different lengths separately on a corpus path", () => {
+    // Collinear handles leave a straight segment's shape alone but not its timing:
+    // treating them as one route lost the fastest candidate here (3.7492 s).
+    const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v2/corpus.bordeaux.json", "utf8")).project;
+    const path = project.paths.find((item) => item.name === "Neutral Stop and Reorient")!;
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const result = (() => { try { return optimizeRouteFinal({ path, robot: project.robot }); } finally { clock.mockRestore(); } })();
+    expect(result.termination).toBe("completed");
+    expect(result.statistics.evaluations).toBe(21);
+    expect(result.candidate!.totalTimeS).toBeCloseTo(3.681558, 6);
   }, 60_000);
 });

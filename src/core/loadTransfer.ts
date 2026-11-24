@@ -153,6 +153,45 @@ export function solveLinear3(matrix: readonly number[][], rhs: readonly number[]
   return solution;
 }
 
+let rememberedLoadModels: {
+  positions: number[];
+  massKg: number;
+  cgHeightM: number;
+  byActive: Map<number, ContactLoadModel>;
+} | null = null;
+
+/**
+ * contactLoadModel for the robot most recently asked about. Validation asks for
+ * the same robot's loads at every trajectory sample, and the model depends only
+ * on the contact positions, mass, CG height, and which wheels are down. The
+ * result is shared, so callers must only read it.
+ */
+function rememberedContactLoadModel(
+  contacts: readonly Pick<DriveContact, "x" | "y">[],
+  massKg: number,
+  cgHeightM: number,
+  active: readonly boolean[],
+): ContactLoadModel {
+  const same = rememberedLoadModels !== null
+    && rememberedLoadModels.massKg === massKg
+    && rememberedLoadModels.cgHeightM === cgHeightM
+    && rememberedLoadModels.positions.length === contacts.length * 2
+    && contacts.every((contact, index) => (
+      rememberedLoadModels!.positions[index * 2] === contact.x && rememberedLoadModels!.positions[index * 2 + 1] === contact.y
+    ));
+  if (!same) {
+    rememberedLoadModels = { positions: contacts.flatMap((contact) => [contact.x, contact.y]), massKg, cgHeightM, byActive: new Map() };
+  }
+  // One bit per contact; planners have at most four.
+  const mask = active.reduce((bits, down, index) => bits + (down ? 2 ** index : 0), 0);
+  let model = rememberedLoadModels!.byActive.get(mask);
+  if (!model) {
+    model = contactLoadModel(contacts, massKg, cgHeightM, active);
+    rememberedLoadModels!.byActive.set(mask, model);
+  }
+  return model;
+}
+
 export interface ContactLoads {
   /** Normal force per contact, newtons, never negative. */
   normalN: number[];
@@ -181,7 +220,7 @@ export function contactLoads(
   const evaluate = (model: ContactLoadModel) => contacts.map((_contact, index) => (
     active[index] ? model.static[index] + model.perAccelX[index] * accelerationXMps2 + model.perAccelY[index] * accelerationYMps2 : 0
   ));
-  let loads = evaluate(contactLoadModel(contacts, massKg, cgHeightM, active));
+  let loads = evaluate(rememberedContactLoadModel(contacts, massKg, cgHeightM, active));
   const tolerance = massKg * GRAVITY_MPS2 * 1e-12;
   for (let pass = 0; pass < contacts.length; pass += 1) {
     let lightest = -1;
@@ -190,7 +229,7 @@ export function contactLoads(
     });
     if (lightest < 0) break;
     active[lightest] = false;
-    loads = evaluate(contactLoadModel(contacts, massKg, cgHeightM, active));
+    loads = evaluate(rememberedContactLoadModel(contacts, massKg, cgHeightM, active));
   }
   const normalN = loads.map((load, index) => active[index] ? Math.max(0, load) : 0);
   const lifted = active.map((value) => !value);

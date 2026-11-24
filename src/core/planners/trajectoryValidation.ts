@@ -7,7 +7,8 @@ import {
   isStationaryHeadingTransition,
 } from "./pathState";
 import {
-  buildDrivetrainProjection,
+  chassisTractionConstraint,
+  drivetrainPointVelocityLimits,
   evaluateDrivetrainForces,
   evaluateDrivetrainKinematics,
   evaluateDrivetrainPower,
@@ -15,7 +16,8 @@ import {
 } from "./drivetrainProjection";
 import { accelerationBoundsForSpeedSquared } from "./reachability";
 import { minimumBusVoltage } from "../electricalPower";
-import { peakMechanismCurrent, electricalConfigurationError } from "../robotLimits";
+import { driveContacts } from "../loadTransfer";
+import { peakMechanismCurrent, electricalConfigurationError, robotHardLimits } from "../robotLimits";
 
 const EPSILON = 1e-9;
 const DEG = Math.PI / 180;
@@ -152,15 +154,13 @@ export function validateOptimizedTrajectory(
     initialHeadingBreaks,
   );
   const linear = buildLinearConstraintProfile(input, samples);
-  const lateralLimits = linear.intervals.map((limits) => (
-    input.path.constraints.maxCentripetalAccel ?? limits.acceleration
-  ));
-  const drivetrain = buildDrivetrainProjection(
-    state,
-    input.robot,
-    lateralLimits,
-    skipAngularIntervals,
-  );
+  // Sample kinematics checks every module's own speed and force below, so it needs
+  // neither the module-speed cap on path speed nor the wheel-force constraints.
+  const pointVelocityLimits = usesSampleAngularKinematics
+    ? null
+    : drivetrainPointVelocityLimits(state, input.robot, skipAngularIntervals);
+  const hardLimits = robotHardLimits(input.robot);
+  const hasModules = driveContacts(input.robot).length > 0;
   const ranges = effectiveRanges(input.path, samples, state.totalDistanceM);
   const stationaryTurnBoundary = (index: number) => (
     isStationaryHeadingTransition(input.path, state.points[index], state.points[index + 1]?.headingRad)
@@ -187,6 +187,7 @@ export function validateOptimizedTrajectory(
       acceleration,
       angularVelocity,
       angularAcceleration,
+      hardLimits,
     )) {
       if (module.speedMps > input.robot.maxSpeed + tolerance(input.robot.maxSpeed, 1e-3, 0.005)) {
         pushViolation(violations, "drivetrain-velocity", sampleIndex, module.speedMps, input.robot.maxSpeed, true, module.label);
@@ -210,9 +211,11 @@ export function validateOptimizedTrajectory(
       acceleration,
       angularVelocity,
       angularAcceleration,
+      hardLimits,
     );
     const power = evaluateDrivetrainPower(point, input.robot, speed, acceleration, angularVelocity, angularAcceleration,
-      input.robot.driveModel ? peakMechanismCurrent(input.robot.driveModel) : 0, forces);
+      input.robot.driveModel ? peakMechanismCurrent(input.robot.driveModel) : 0, forces,
+      evaluateDrivetrainKinematics(point, input.robot, speed, acceleration, angularVelocity, angularAcceleration, hardLimits));
     if (power) {
       // All ratios grow above 1 when infeasible, matching the existing local timing repair.
       const utilization = Math.max(power.voltageUtilization, power.currentUtilization,
@@ -275,17 +278,17 @@ export function validateOptimizedTrajectory(
       linear.intervals[index]?.velocity ?? Number.POSITIVE_INFINITY,
     );
     const linearVelocityLimit = Math.min(linear.points[index].velocity, adjacentVelocity);
-    const drivetrainVelocityLimit = drivetrain.pointVelocityLimits[index];
+    const drivetrainVelocityLimit = pointVelocityLimits?.[index];
     const speed = Math.abs(sample.velocityMps);
     if (speed > linearVelocityLimit + tolerance(linearVelocityLimit, 1e-4, 1e-4)) {
       pushViolation(violations, "linear-velocity", index, speed, linearVelocityLimit, false, "Linear velocity");
     }
-    if (!usesSampleAngularKinematics && speed > drivetrainVelocityLimit + tolerance(drivetrainVelocityLimit)) {
+    if (drivetrainVelocityLimit !== undefined && speed > drivetrainVelocityLimit + tolerance(drivetrainVelocityLimit)) {
       pushViolation(violations, "drivetrain-velocity", index, speed, drivetrainVelocityLimit, true, "Drivetrain velocity");
       refinableIntervals.add(Math.max(0, Math.min(samples.length - 2, index)));
     }
     if (linearVelocityLimit > EPSILON && speed >= linearVelocityLimit * 0.995) activeConstraints.add("linear-velocity");
-    if (!usesSampleAngularKinematics
+    if (drivetrainVelocityLimit !== undefined
       && drivetrainVelocityLimit > EPSILON
       && speed >= drivetrainVelocityLimit * 0.995) activeConstraints.add("drivetrain-velocity");
 
@@ -409,7 +412,10 @@ export function validateOptimizedTrajectory(
           headingSecondDerivativeRadPerM2: 0,
         }
       : midpoint;
-    const midpointProjection = projectDrivetrainAtPoint(projectedMidpoint, input.robot, lateralLimit);
+    // Sample kinematics uses only the chassis traction limit from the projection.
+    const midpointProjection = usesSampleAngularKinematics
+      ? null
+      : projectDrivetrainAtPoint(projectedMidpoint, input.robot, lateralLimit, 1, hardLimits);
     const intervalDt = Math.max(EPSILON, after.t - before.t);
     // A stationary heading transition owns the skipped interval immediately
     // before this moving interval. Do not finite-difference across that
@@ -442,13 +448,13 @@ export function validateOptimizedTrajectory(
           ) * 0.5,
         }
       : midpoint;
-    const projectedAccelerationConstraints = usesSampleAngularKinematics
-      ? midpointProjection.accelerationConstraints.filter((constraint) => constraint.label === "chassis-traction")
-      : midpointProjection.accelerationConstraints;
+    const projectedAccelerationConstraints = midpointProjection
+      ? midpointProjection.accelerationConstraints
+      : hasModules ? [chassisTractionConstraint(projectedMidpoint, lateralLimit)] : [];
     const bounds = accelerationBoundsForSpeedSquared(
       projectedAccelerationConstraints,
       speedSquared,
-      usesSampleAngularKinematics ? [] : midpointProjection.scalarAccelerationConstraints,
+      midpointProjection ? midpointProjection.scalarAccelerationConstraints : [],
       Math.max(beforeSquared, afterSquared),
     );
     if (!bounds || acceleration < bounds.minimum - tolerance(Math.abs(bounds?.minimum ?? 0))
@@ -476,7 +482,7 @@ export function validateOptimizedTrajectory(
           && (constraint.allocation === undefined || measured <= limit * 1.001)) activeConstraints.add(constraint.label);
       }
     }
-    if (usesSampleAngularKinematics) {
+    if (!midpointProjection) {
       const angularVelocity = skipsAngularForInterval(index) ? 0 : timestampedAngularVelocities[index];
       const angularAcceleration = skipsAngularForInterval(index) ? 0 : sampleAngularAcceleration;
       validateModuleVelocity(actualMidpoint, index + 1, speed, acceleration, angularVelocity, angularAcceleration);
