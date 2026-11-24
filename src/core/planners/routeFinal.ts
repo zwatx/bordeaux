@@ -3,7 +3,7 @@ import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult } from
 import { authoredPath, stable } from "./acceptedTrajectoryIdentity";
 import type { CorridorSearchStatistics } from "./corridorFinal";
 import { optimizeFixedGeometryFinal } from "./fixedGeometryFinal";
-import { getPlanner } from "./index";
+import { fixedGeometryFirstPassTime, getPlanner } from "./index";
 import { routeCandidates } from "./routeCandidates";
 import { geometryFromPath, routePlanningPath, routeResultToSource, routeUnsupportedReason } from "./routeGeometry";
 import { routeCandidateFailure, routeCandidateIssue } from "./routeValidation";
@@ -27,6 +27,15 @@ export interface RouteSearchResult {
   termination: NonNullable<PlannerOptimizationDiagnostics["termination"]>;
   statistics: CorridorSearchStatistics;
 }
+
+/**
+ * A candidate is dropped after its first timing solve when that is this far above
+ * the time it must beat. The final time of a curve has measured at most 2.3%
+ * below its first pass (1.0% among valid curves) over the 784 candidates of the
+ * optimizer eval scenarios on two robots, so 5% leaves a factor of two.
+ */
+const FIRST_PASS_GUARD = 0.05;
+const NOT_FASTER = "Not faster than the current result.";
 
 /** Task-based route selection. Legacy strict/corridor search is unchanged. */
 export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptions = {}): RouteSearchResult {
@@ -72,7 +81,12 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus, ...(seedIssue ? { seedIssue } : {}),
     ...(baseline ? { baselineTimeS: baseline.totalTimeS, gainS: baseline.totalTimeS - result.totalTimeS } : {}),
   } });
-  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < Math.max(0.02, baseline.totalTimeS * 0.005) ? baseline : best;
+  const materialGain = (normal: PlannerResult) => Math.max(0.02, normal.totalTimeS * 0.005);
+  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < materialGain(baseline) ? baseline : best;
+  /** The total time a candidate must beat to replace the incumbent. */
+  const timeToBeat = () => best ? best.totalTimeS - 1e-6 : Number.POSITIVE_INFINITY;
+  /** The total time a candidate must beat for the search to return it instead of Normal. */
+  const timeToMatter = () => Math.min(timeToBeat(), baseline ? baseline.totalTimeS - materialGain(baseline) : Number.POSITIVE_INFINITY);
   let lastPublished: PlannerResult | undefined;
   let lastPublishedSeedStatus: RouteSearchResult["seedStatus"] | undefined;
   const publish = () => {
@@ -86,6 +100,9 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
 
   const seen = new Set<string>();
   const evaluate = (geometry: ReturnType<typeof geometryFromPath>) => {
+    // Every handle is part of the key. Handle lengths along a straight segment
+    // leave its shape alone but change its parameterization, and with it the
+    // timing; merging such candidates lost a 0.07 s faster route on a corpus path.
     const key = stable(geometry);
     if (seen.has(key)) return;
     seen.add(key);
@@ -93,12 +110,20 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     const began = performance.now();
     try {
       const path = routePlanningPath(source.path, geometry);
-      const candidate = decorate(routeResultToSource(optimizeFixedGeometryFinal({ ...source, path }), geometry, path));
-      const failure = routeCandidateFailure(source, candidate);
-      if (failure) reject(failure);
+      const planning = { ...source, path };
+      const limit = timeToMatter();
+      // The full plan below reuses this first solve, so the probe costs a surviving candidate nothing.
+      const firstPassTimeS = Number.isFinite(limit) ? fixedGeometryFirstPassTime(planning) : null;
+      if (firstPassTimeS !== null && firstPassTimeS > limit * (1 + FIRST_PASS_GUARD)) reject(NOT_FASTER);
       else {
-        validatedCandidates++;
-        if (!best || candidate.totalTimeS < best.totalTimeS - 1e-6) best = candidate;
+        const candidate = decorate(routeResultToSource(optimizeFixedGeometryFinal(planning), geometry, path));
+        // A candidate that cannot replace the incumbent changes nothing, valid or not.
+        const failure = candidate.totalTimeS < timeToBeat() ? routeCandidateFailure(source, candidate) : NOT_FASTER;
+        if (failure) reject(failure);
+        else {
+          validatedCandidates++;
+          best = candidate;
+        }
       }
     } catch (error) {
       reject(error instanceof Error ? error.message : "Route evaluation failed.");
