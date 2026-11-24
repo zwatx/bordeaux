@@ -12,7 +12,11 @@ import { MAX_LOOP_SECONDS, MIN_LOOP_SECONDS, markerInvocations, markerUsesEventE
 export interface BinarySelection { kind: BinaryKind; id: string }
 export interface BdxParameterType { niType: string; choices?: string[] }
 /** Host-resolved saved NI types, without any execution/readiness assertion. */
-export interface BinaryBindings { catalog: RobotCommandCatalog; parameterTypes: Record<string, Record<string, BdxParameterType>>; definitionJson: string }
+export interface BinaryBindings {
+  catalog: RobotCommandCatalog; parameterTypes: Record<string, Record<string, BdxParameterType>>; definitionJson: string;
+  /** How to get commands when the catalog is empty and unnamed. Hosts without a linked project explain their own fix. */
+  unavailable?: string;
+}
 export interface BuiltRobotBinary {
   bytes: Uint8Array; sha256: string; document: RobotTrajectoryDocument; travelHeadings: number[];
   moduleForcesN: ModuleForcesN[];
@@ -42,13 +46,13 @@ const commandBasename = (command: RobotCommandDescriptor) => command.labviewConn
 
 /**
  * The one catalog command an event invokes. An empty, unnamed catalog means no LabVIEW commands are available: the
- * desktop has no linked project or can't read the saved one, or a Systemcore has no pushed command list. The fix is
- * linking the project, not choosing another command.
+ * desktop has no linked project or can't read the saved one, or a Systemcore has no usable pushed command list. The fix
+ * is getting the commands (`unavailable` says how), not choosing another command.
  */
-function resolveCommand(catalog: RobotCommandCatalog, commandId: string, eventName: string) {
+function resolveCommand(catalog: RobotCommandCatalog, commandId: string, eventName: string, unavailable = "Link the robot's LabVIEW project in the desktop app.") {
   const matches = catalog.commands.filter((command) => command.id === commandId);
   const context = `Event ${eventName}: command ${commandId}`;
-  if (!catalog.commands.length && !catalog.projectName) throw new Error(`${context} can't be built because no LabVIEW commands are available. Link the robot's LabVIEW project in the desktop app.`);
+  if (!catalog.commands.length && !catalog.projectName) throw new Error(`${context} can't be built because no LabVIEW commands are available. ${unavailable}`);
   if (matches.length !== 1) throw new Error(`${context} is ${matches.length ? "ambiguous" : "missing"} in the linked LabVIEW project. ${matches.length ? "Refresh commands before exporting BDX." : "Choose another command for this event."}`);
   const command = matches[0], name = commandBasename(command);
   if (!/^.+\.vi$/i.test(name)) throw new Error(`${context} has no inspected original VI filename. Inspect the linked LabVIEW project before exporting BDX.`);
@@ -111,7 +115,7 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     for (const invocation of invocations) {
       if (invocation.cancelOnPathEnd) throw new Error(`Event ${marker.name}: CancelOnPathEnd must be false; automatic command cancellation is not supported by ${DYNAMIC_WRAPPER_PROTOCOL}`);
       if (invocation.loop && !LOOP_KINDS[invocation.loop.until.kind]) throw new Error(`Event ${marker.name}: loop conditions are routine-only; loop a path command until a time, a distance, or the path end`);
-      if (!commands.has(invocation.commandId)) commands.set(invocation.commandId, resolveCommand(bindings.catalog, invocation.commandId, marker.name));
+      if (!commands.has(invocation.commandId)) commands.set(invocation.commandId, resolveCommand(bindings.catalog, invocation.commandId, marker.name, bindings.unavailable));
       if (!bindings.parameterTypes[invocation.commandId]) throw new Error(`Command ${invocation.commandId} has no saved NI parameter type evidence. Inspect the linked LabVIEW project before exporting BDX.`);
     }
   }
