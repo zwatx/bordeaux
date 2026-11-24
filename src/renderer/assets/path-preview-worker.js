@@ -373,55 +373,72 @@ export async function processParallelOptimizeJob(job, evaluator, isCancelled, em
  * Sub-workers that evaluate route candidates for the optimizer worker. Each is
  * another instance of this same script, so the pool needs no second bundle, and
  * it lives as long as the optimizer worker, so its threads stay compiled between
- * searches. A sub-worker that fails rejects its candidate and leaves the pool.
+ * searches. A sub-worker that fails is terminated and leaves the pool, and its
+ * candidate is rejected. With no sub-worker left, every task is rejected.
+ *
+ * A task has no deadline of its own. One that never answers holds its search
+ * until the request deadline, when the renderer abandons the search.
  */
-function createCandidatePool(size) {
+export function createCandidatePool(size) {
   const idle = [];
   const queue = [];
   const pending = new Map();
-  let live = size;
+  const live = new Set();
   let nextId = 0;
   const failed = (message) => message.mode === 'routeSeed'
     ? { status: 'rejected', reason: 'Route evaluation worker failed.', concrete: false }
     : { status: 'rejected', reason: 'Route evaluation worker failed.' };
   const dispatch = () => {
-    while (queue.length > 0 && (idle.length > 0 || live === 0)) {
+    while (queue.length > 0 && (idle.length > 0 || live.size === 0)) {
       const task = queue.shift();
-      if (live === 0) { task.resolve(failed(task.message)); continue; }
+      if (live.size === 0) { task.resolve(failed(task.message)); continue; }
       const worker = idle.pop();
       pending.set(worker, task);
       worker.postMessage(task.message);
     }
   };
-  const workers = Array.from({ length: size }, () => {
-    const worker = new Worker(self.location.href, { type: 'module' });
-    worker.onmessage = (event) => {
-      const task = pending.get(worker);
-      pending.delete(worker);
+  const retire = (worker) => {
+    if (!live.delete(worker)) return;
+    worker.terminate();
+    const index = idle.indexOf(worker);
+    if (index >= 0) idle.splice(index, 1);
+    const task = pending.get(worker);
+    pending.delete(worker);
+    task?.resolve(failed(task.message));
+    dispatch();
+  };
+  try {
+    for (let index = 0; index < size; index += 1) {
+      const worker = new Worker(self.location.href, { type: 'module' });
+      live.add(worker);
+      worker.onmessage = (event) => {
+        if (!live.has(worker)) return;
+        const task = pending.get(worker);
+        pending.delete(worker);
+        idle.push(worker);
+        task?.resolve(event.data.outcome);
+        dispatch();
+      };
+      worker.onerror = () => retire(worker);
+      worker.onmessageerror = () => retire(worker);
       idle.push(worker);
-      task?.resolve(event.data.outcome);
-      dispatch();
-    };
-    worker.onerror = () => {
-      const task = pending.get(worker);
-      pending.delete(worker);
-      live -= 1;
-      task?.resolve(failed(task.message));
-      dispatch();
-    };
-    idle.push(worker);
-    return worker;
-  });
+    }
+  } catch (error) {
+    live.forEach((worker) => worker.terminate());
+    throw error;
+  }
   const run = (message) => new Promise((resolve) => {
     queue.push({ message: { ...message, id: nextId += 1 }, resolve });
     dispatch();
   });
   return {
     parallelism: size,
+    /** False once every sub-worker has failed. */
+    get alive() { return live.size > 0; },
     evaluate: (source, geometry, limits) => run({ mode: 'routeCandidate', source, geometry, limits }),
     qualifySeed: (source) => run({ mode: 'routeSeed', source }),
     // One warm task per sub-worker compiles the planner on every thread.
-    warm: (source) => { workers.forEach(() => { run({ mode: 'routeWarm', source }); }); },
+    warm: (source) => { live.forEach(() => { run({ mode: 'routeWarm', source }); }); },
   };
 }
 
@@ -497,7 +514,8 @@ if (typeof self !== 'undefined') {
   const cancelledJobs = new Set();
   let candidatePool = null;
   // Two threads stay free for the interface and this worker. With none to spare,
-  // or if sub-workers cannot start, the search runs here in sequence instead.
+  // or if sub-workers cannot start or have all failed, the search runs here in
+  // sequence instead.
   // Each sub-worker holds about 150 MB while this worker lives. Four measured
   // 0.85 GB in the renderer against 1.45 GB for eight, for a 5% slower search.
   const candidatePoolSize = Math.min(4, (self.navigator?.hardwareConcurrency || 1) - 2);
@@ -506,6 +524,7 @@ if (typeof self !== 'undefined') {
       try { candidatePool = createCandidatePool(candidatePoolSize); }
       catch { candidatePool = undefined; }
     }
+    if (candidatePool && !candidatePool.alive) candidatePool = undefined;
     return candidatePool || null;
   };
   const post = (message) => self.postMessage(message);
