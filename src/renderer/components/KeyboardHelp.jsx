@@ -1,15 +1,19 @@
 import * as React from 'react';
-import { modifierName, shortcutLabel } from '../lib/shortcuts';
+import { COMMAND_IDS, COMMAND_LABELS } from '../../core/keyBindings';
+import { keyLabels } from '../lib/keyBindings';
+import { modifierName } from '../lib/shortcuts';
 const h = React.createElement;
-export const TOOL_SHORTCUTS = { '1': 'select', v: 'select', '2': 'waypoint', w: 'waypoint', '3': 'rotation', r: 'rotation', '4': 'marker', m: 'marker', '5': 'range', c: 'range' };
+// Keys that can't be rebound: selection editing, library rename and mouse modifiers.
+const FIXED_KEYS = [
+  ['Delete an item', 'Shift-click'], ['Delete selection', 'Delete / Backspace'], ['Cancel / select tool', 'Esc'], ['Move selection', 'Arrow keys'],
+  ['Larger move', 'Shift + arrows'], ['Fine waypoint move', 'Alt + arrows'], ['Rename library item', 'F2'],
+];
 export function KeyboardHelp() {
   const dialog = React.useRef(null), trigger = React.useRef(null);
   const close = () => { dialog.current?.close(); trigger.current?.focus(); };
   const shortcuts = [
-    ['Select / move', '1 or V'], ['Place waypoint', '2 or W'], ['Place rotation', '3 or R'], ['Place command', '4 or M'], ['Create zone', '5 or C'],
-    ['Delete an item', 'Shift-click'], ['Delete selection', 'Delete / Backspace'], ['Play / pause', 'Space'], ['Fit field', 'F'], ['Focus field', '\\'], ['Toggle grid', 'G'], ['Cancel / select tool', 'Esc'],
-    ['Move selection', 'Arrow keys'], ['Larger move', 'Shift + arrows'], ['Fine waypoint move', 'Alt + arrows'], ['Undo', shortcutLabel('Z')], ['Redo', shortcutLabel('Z', { shift: true })],
-    ['Projects', shortcutLabel('O')], ['New project', shortcutLabel('N')], ['Open project file', shortcutLabel('O', { shift: true })], ['Save project and BDX files', shortcutLabel('S')], ['Save copy', shortcutLabel('S', { shift: true })], ['Rename library item', 'F2'],
+    ...COMMAND_IDS.map((id) => [COMMAND_LABELS[id], keyLabels(id).join(' or ')]).filter(([, keys]) => keys),
+    ...FIXED_KEYS,
   ];
   return h(React.Fragment, null,
     h('button', { ref: trigger, type: 'button', className: 'qbtn keyboard-help-trigger', 'aria-label': 'Keyboard shortcuts', title: 'Keyboard shortcuts', onClick: () => dialog.current.showModal() }, '?'),

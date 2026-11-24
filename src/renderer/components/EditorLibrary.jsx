@@ -4,6 +4,7 @@ import { UI } from './ui';
 import { AUTO } from '../lib/routineModel';
 import { selectedPathIds } from '../hooks/usePushSelection';
 import { moveFolder, movePaths } from '../lib/libraryOrder';
+import { keyLabel } from '../lib/keyBindings';
 
 const h = React.createElement;
 const { useState, useRef, useEffect } = React;
@@ -39,9 +40,9 @@ const MIN_RATIO = 25, MAX_RATIO = 75;
 // While Focus hides the library, a slim strip stays where it was so the way back is where the list went.
 // Restoring moves keyboard focus to the current path, since the strip itself disappears.
 function LibraryRestore({ mode, onRestore, rail }) {
-  const label = mode === 'paths' ? 'Show path list' : 'Show routine list';
+  const label = mode === 'paths' ? 'Show path list' : 'Show routine list', key = keyLabel('view.focusField');
   return h('div', { className: 'library-restore' },
-    h('button', { type: 'button', className: 'library-restore-btn', 'aria-label': label, title: label + '  (\\)',
+    h('button', { type: 'button', className: 'library-restore-btn', 'aria-label': label, title: key ? label + '  (' + key + ')' : label,
       onClick: () => {
         onRestore();
         requestAnimationFrame(() => (rail.current?.querySelector('.library-pick[aria-current="true"]') || rail.current?.querySelector('button:not(:disabled)'))?.focus());

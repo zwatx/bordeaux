@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { isMacPlatform, shortcutLabel } from '../lib/shortcuts';
+import { ariaKeys, keyCommand, keyLabel } from '../lib/keyBindings';
 import { UI } from './ui';
 import { shortFact } from '../lib/projectLifecycle';
 
@@ -124,7 +124,7 @@ export function PushControl({ place, paths, selection, activeRoutine, controller
   shortcut.current = pathsPlace && !disabled ? send : null;
   useEffect(() => {
     const onKey = (event) => {
-      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== 'p') return;
+      if (keyCommand(event) !== 'robot.push') return;
       if (event.isComposing || event.defaultPrevented || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
       event.preventDefault();
       shortcut.current?.();
@@ -141,10 +141,10 @@ export function PushControl({ place, paths, selection, activeRoutine, controller
     : pathsPlace ? (count > 1 ? count + ' paths' : byId(selected[0])?.name) : activeRoutine?.name;
   const withMenu = pathsPlace && controller.fileTransfer;
   const status = withMenu ? robotStatus(controller, receipt.current.at) : null;
-  const push = h('button', { type: 'button', className: 'push-button', disabled, title: pathsPlace ? [title, shortcutLabel('P', { shift: true })].filter(Boolean).join(' · ') : title, onClick: send,
+  const push = h('button', { type: 'button', className: 'push-button', disabled, title: pathsPlace ? [title, keyLabel('robot.push')].filter(Boolean).join(' · ') : title, onClick: send,
     // The shortcut glyphs are drawn from data-shortcut, which CSS generated content would add to the accessible name;
     // aria-label keeps the name exactly the scope, and aria-keyshortcuts announces the shortcut once.
-    'aria-label': label, 'aria-keyshortcuts': pathsPlace ? (isMacPlatform() ? 'Meta+Shift+P' : 'Control+Shift+P') : undefined, 'data-shortcut': pathsPlace ? shortcutLabel('P', { shift: true }) : undefined },
+    'aria-label': label, 'aria-keyshortcuts': pathsPlace ? ariaKeys('robot.push') : undefined, 'data-shortcut': pathsPlace ? keyLabel('robot.push') || undefined : undefined },
     label);
   if (!withMenu) return h('div', { className: 'push-control' }, push);
   return h('div', { className: 'push-control' },

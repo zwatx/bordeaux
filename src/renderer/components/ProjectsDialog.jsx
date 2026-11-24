@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { UI } from './ui';
-import { shortcutLabel } from '../lib/shortcuts';
+import { keyLabel } from '../lib/keyBindings';
 import { firstFact, homeRelative, parentLocation, shortFact } from './ProjectChip';
 import { RECOVERY_FULL, changedSourceFact, creationFailure, departureCopy, originLocation, receiptTime, recoveryStatusWord, recoveryToken } from '../lib/projectLifecycle';
 
@@ -718,7 +718,7 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
       !manage && recents.status === 'ready' && !query && recents.entries.length === 0 && empty('no-recents', 'No recent projects')),
     h('div', { className: 'pj-foot' },
       // The list's commit is its row, so nothing here is primary.
-      manage ? h('span') : h('button', { type: 'button', className: 'qbtn', 'data-action': 'new', onClick: () => { if (pending) return; enteredNew.current = false; switchMode('new'); } }, 'New project', h('kbd', null, shortcutLabel('N'))),
+      manage ? h('span') : h('button', { type: 'button', className: 'qbtn', 'data-action': 'new', onClick: () => { if (pending) return; enteredNew.current = false; switchMode('new'); } }, 'New project', keyLabel('project.new') && h('kbd', null, keyLabel('project.new'))),
       h('span', { className: 'pj-foot-actions' }, manage ? h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'manage-back', onClick: leaveManage }, 'Back') : h(React.Fragment, null,
         actions.openFolder && h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-folder', onClick: () => void attempt(actions.openFolder, null) }, 'Open folder…'),
         actions.openFile && h('button', { type: 'button', className: 'qbtn quiet', 'data-action': 'open-file', onClick: () => void attempt(actions.openFile, null) }, 'Open file…')))));

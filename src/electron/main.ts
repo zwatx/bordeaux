@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
+import { DEFAULT_RESOLVED_KEY_RULES, menuAccelerator } from "../core/keyBindings";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
 import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
@@ -803,6 +804,9 @@ function updateMenuItem(): Electron.MenuItemConstructorOptions {
     : { label: "Check for updates…", click: () => { void appUpdates?.check(true); } };
 }
 
+// File menu keys come from the same rules the renderer reads (src/core/keyBindings.ts).
+const keyRules = DEFAULT_RESOLVED_KEY_RULES;
+
 function buildMenu() {
   const recentSubmenu = recentFiles.length > 0
     ? recentFiles.map((filePath, index) => ({ label: path.basename(filePath), sublabel: filePath, click: () => sendCommand("open-recent", index) }))
@@ -820,16 +824,16 @@ function buildMenu() {
       id: "chrome-file",
       submenu: [
         // New names a project in its own folder; Projects lists recents. Neither shows the folder picker first.
-        { label: "New project…", accelerator: "CmdOrCtrl+N", click: () => sendCommand("new-project") },
-        { label: "Projects…", accelerator: "CmdOrCtrl+O", click: () => sendCommand("show-projects") },
+        { label: "New project…", accelerator: menuAccelerator(keyRules, "project.new"), click: () => sendCommand("new-project") },
+        { label: "Projects…", accelerator: menuAccelerator(keyRules, "project.list"), click: () => sendCommand("show-projects") },
         { label: "Open project folder…", click: () => sendCommand("open-project") },
         { label: "Open recent", submenu: recentSubmenu },
         { type: "separator" },
-        { label: "Save", accelerator: "CmdOrCtrl+S", click: () => sendCommand("save-project") },
-        { label: "Open project file…", accelerator: "CmdOrCtrl+Shift+O", click: () => sendCommand("open-project-file") },
-        { label: "Save copy…", accelerator: "CmdOrCtrl+Shift+S", click: () => sendCommand("save-project-as") },
+        { label: "Save", accelerator: menuAccelerator(keyRules, "project.save"), click: () => sendCommand("save-project") },
+        { label: "Open project file…", accelerator: menuAccelerator(keyRules, "project.openFile"), click: () => sendCommand("open-project-file") },
+        { label: "Save copy…", accelerator: menuAccelerator(keyRules, "project.saveCopy"), click: () => sendCommand("save-project-as") },
         { type: "separator" },
-        { label: "Export selected path as BDX…", accelerator: "CmdOrCtrl+E", click: () => sendCommand("export-bdx") },
+        { label: "Export selected path as BDX…", accelerator: menuAccelerator(keyRules, "export.bdx"), click: () => sendCommand("export-bdx") },
         { label: "Export active routine…", click: () => sendCommand("export-routine") },
         { type: "separator" },
         process.platform === "darwin" ? { role: "close" } : { role: "quit" },

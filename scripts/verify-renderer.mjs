@@ -45,7 +45,9 @@ import path from "node:path";
 // Robot files inventory, comparison, and local copy add one 9 KiB allowance. Decoding and diff stay in main.
 // Field-first comparison measures about 878.5 KB across all application chunks.
 // Aligned, expandable event differences add about 1.8 KiB of application JavaScript.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
+// The key binding registry (rules, parsers, matching and labels) measures 886,016 B against 880,668 B at HEAD
+// (2026-11-23); 866 KiB keeps under 1 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 866 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

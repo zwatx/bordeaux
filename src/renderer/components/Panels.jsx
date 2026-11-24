@@ -2,7 +2,7 @@ import { KeyboardHelp } from './KeyboardHelp';
 import * as React from "react";
 import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
-import { shortcutLabel } from "../lib/shortcuts";
+import { keyLabel, keyLabels } from "../lib/keyBindings";
 import { UI } from "./ui";
 import { deletionInput } from "./DeletionNotice";
 
@@ -26,8 +26,8 @@ import { deletionInput } from "./DeletionNotice";
       h('div', { className: 'tb-spacer' }),
       h('div', { className: 'tb-actions' },
         plan && h('button', { type: 'button', className: 'tb-text optimizer-toggle', 'aria-expanded': optimizationOpen, onClick: toggleOptimization }, optimizationApplied ? 'Optimized' : 'Optimize'),
-        (plan || page === 'auto') && h(IconBtn, { icon: 'undo', onClick: onUndo, disabled: !props.canUndo, label: 'Undo', title: 'Undo (' + shortcutLabel('Z') + ')' }),
-        (plan || page === 'auto') && h(IconBtn, { icon: 'redo', onClick: onRedo, disabled: !props.canRedo, label: 'Redo', title: 'Redo (' + shortcutLabel('Z', { shift: true }) + ')' })),
+        (plan || page === 'auto') && h(IconBtn, { icon: 'undo', onClick: onUndo, disabled: !props.canUndo, label: 'Undo', title: withKey('Undo', 'edit.undo') }),
+        (plan || page === 'auto') && h(IconBtn, { icon: 'redo', onClick: onRedo, disabled: !props.canRedo, label: 'Redo', title: withKey('Redo', 'edit.redo', true) })),
       props.push && h('div', { className: 'tb-push' }, props.push),
       h(UpdateButton, { state: props.updateState, onOpen: props.onOpenUpdates, onInstall: props.onInstallUpdate, onCheck: props.onCheckUpdates }),
       h(KeyboardHelp));
@@ -69,17 +69,23 @@ import { deletionInput } from "./DeletionNotice";
       onClick: busy ? undefined : stalled ? onOpen : kind === 'ready' ? onInstall : kind === 'idle' ? onCheck : onOpen }, glyph);
   }
 
+  /** A tooltip with the command's keys, such as "Fit field  (F)", or just the text when the command has no key. */
+  function withKey(text, command, firstOnly = false) {
+    const keys = firstOnly ? keyLabel(command) : keyLabels(command).join(' or ');
+    return keys ? text + '  (' + keys + ')' : text;
+  }
+
   const TOOLS = [
-    { id: 'select', icon: 'select', label: 'Select / move', key: '1', alternateKey: 'V' },
-    { id: 'waypoint', icon: 'waypoint', label: 'Place waypoint', key: '2', alternateKey: 'W' },
-    { id: 'rotation', icon: 'rotation', label: 'Rotation target', key: '3', alternateKey: 'R' },
-    { id: 'marker', icon: 'flag2', label: 'Place command', key: '4', alternateKey: 'M' },
-    { id: 'range', icon: 'gauge', label: 'Zone', key: '5', alternateKey: 'C' },
+    { id: 'select', icon: 'select', label: 'Select / move', command: 'tool.select' },
+    { id: 'waypoint', icon: 'waypoint', label: 'Place waypoint', command: 'tool.waypoint' },
+    { id: 'rotation', icon: 'rotation', label: 'Rotation target', command: 'tool.rotation' },
+    { id: 'marker', icon: 'flag2', label: 'Place command', command: 'tool.command' },
+    { id: 'range', icon: 'gauge', label: 'Zone', command: 'tool.zone' },
   ];
   function ToolRail({ tool, setTool }) {
     return h('div', { className: 'toolrail' }, TOOLS.map((t) =>
-      h('button', { key: t.id, className: 'toolrail-b' + (tool === t.id ? ' on' : ''), type: 'button', 'aria-label': t.label, 'aria-pressed': tool === t.id, title: t.label + '  (' + t.key + ' or ' + t.alternateKey + ')', onClick: () => setTool(t.id) },
-        h(Icon, { name: t.icon, size: 18 }), h('span', { className: 'toolrail-k' }, t.key))));
+      h('button', { key: t.id, className: 'toolrail-b' + (tool === t.id ? ' on' : ''), type: 'button', 'aria-label': t.label, 'aria-pressed': tool === t.id, title: withKey(t.label, t.command), onClick: () => setTool(t.id) },
+        h(Icon, { name: t.icon, size: 18 }), h('span', { className: 'toolrail-k' }, keyLabel(t.command)))));
   }
 
   function MetricControl({ metric, setMetric, derived }) {
@@ -105,18 +111,18 @@ import { deletionInput } from "./DeletionNotice";
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
       // One name for both states; the pressed state, icon and title say whether the path list is hidden.
       toggleFieldFocus && h('button', { className: 'vc-text field-focus', type: 'button', 'aria-pressed': fieldFocus, 'aria-label': 'Focus field',
-        onClick: toggleFieldFocus, title: (fieldFocus ? 'Show' : 'Hide') + ' the path list  (\\)' },
+        onClick: toggleFieldFocus, title: withKey((fieldFocus ? 'Show' : 'Hide') + ' the path list', 'view.focusField') },
         h(Icon, { name: fieldFocus ? 'panelopen' : 'panelclose', size: 15 }), h('span', null, 'Focus')),
       toggleFieldFocus && h('div', { className: 'vc-div' }),
       onFlip && h('button', { className: 'vc-text field-flip', type: 'button', ...deletionInput(onFlip),
         title: 'Move all paths to the opposite alliance (180°). Undo restores them.', 'aria-label': 'Flip all paths 180 degrees' }, 'Flip'),
       onFlip && h('div', { className: 'vc-div' }),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom out', 'aria-label': 'Zoom out', onClick: () => zoomBy(1.18) }, h(Icon, { name: 'zoomout', size: 16 })),
-      h('button', { className: 'vc-pct', type: 'button', title: 'Fit field  (F)', onClick: onFit }, zoomPct + '%'),
+      h('button', { className: 'vc-pct', type: 'button', title: withKey('Fit field', 'view.fit'), onClick: onFit }, zoomPct + '%'),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onClick: () => zoomBy(1 / 1.18) }, h(Icon, { name: 'zoomin', size: 16 })),
       h('div', { className: 'vc-div' }),
-      h('button', { className: 'vc-btn' + (showGrid ? ' active' : ''), type: 'button', title: 'Toggle field grid  (G)', 'aria-label': 'Toggle field grid', 'aria-pressed': showGrid, onClick: () => setShowGrid(!showGrid) }, h(Icon, { name: 'grid', size: 16 })),
-      h('button', { className: 'vc-btn', type: 'button', title: 'Fit field  (F)', 'aria-label': 'Fit field to view', onClick: onFit }, h(Icon, { name: 'fit', size: 16 })));
+      h('button', { className: 'vc-btn' + (showGrid ? ' active' : ''), type: 'button', title: withKey('Toggle field grid', 'view.grid'), 'aria-label': 'Toggle field grid', 'aria-pressed': showGrid, onClick: () => setShowGrid(!showGrid) }, h(Icon, { name: 'grid', size: 16 })),
+      h('button', { className: 'vc-btn', type: 'button', title: withKey('Fit field', 'view.fit'), 'aria-label': 'Fit field to view', onClick: onFit }, h(Icon, { name: 'fit', size: 16 })));
   }
 
 export const Panels = { Toolbar, ToolRail, MetricControl, ViewControls };
