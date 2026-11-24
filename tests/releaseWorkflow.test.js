@@ -43,6 +43,40 @@ it("keeps all platform artifacts and verification before uploads in both release
   }
 });
 
+it("builds, tests and tags the beta's version commit, never the dispatched commit", () => {
+  const beta = workflow("prerelease"), ci = workflow("ci");
+  const releaseSha = "${{ needs.validate.outputs.sha }}", releaseVersion = "${{ needs.validate.outputs.version }}";
+  expect(beta.on.workflow_dispatch.inputs.version.required).toBe(false);
+  expect(beta.jobs.validate.permissions.contents).toBe("write");
+
+  const validate = beta.jobs.validate.steps;
+  const step = (id) => validate.findIndex((candidate) => candidate.id === id);
+  expect(validate[step("version")].run).toBe("node scripts/resolve-prerelease-version.mjs");
+  expect(validate[step("commit")].run).toContain("git push origin HEAD:refs/heads/main");
+  expect(validate[step("ci")].env.RELEASE_SHA).toBe("${{ steps.commit.outputs.sha }}");
+  expect(step("version")).toBeLessThan(step("commit"));
+  expect(step("commit")).toBeLessThan(step("ci"));
+
+  for (const name of ["build", "verified-ci", "publish"]) {
+    const checkouts = beta.jobs[name].steps.filter(({ uses }) => uses?.startsWith("actions/checkout@"));
+    expect(checkouts, name).toHaveLength(1);
+    expect(checkouts[0].with?.ref, name).toBe(releaseSha);
+  }
+  expect(beta.jobs.ci.with.ref).toBe(releaseSha);
+  expect(ci.on.workflow_call.inputs.ref.default).toBe("");
+  for (const job of Object.values(ci.jobs)) {
+    for (const checkout of job.steps.filter(({ uses }) => uses?.startsWith("actions/checkout@"))) expect(checkout.with.ref).toBe("${{ inputs.ref }}");
+  }
+
+  expect(beta.jobs.build.steps.find(({ run }) => run === "node scripts/verify-prerelease-version.mjs").env.RELEASE_VERSION).toBe(releaseVersion);
+  expect(beta.jobs["verified-ci"].steps.find(({ run }) => run === "node scripts/release-ci.mjs require").env.RELEASE_SHA).toBe(releaseSha);
+  const publish = beta.jobs.publish.steps.find(({ name }) => name === "Publish GitHub prerelease");
+  expect(publish.env).toMatchObject({ RELEASE_SHA: releaseSha, RELEASE_VERSION: releaseVersion });
+  // Only the resolver reads the raw input; everything after it uses the resolved version.
+  expect(validate[step("version")].env.RELEASE_VERSION).toBe("${{ inputs.version }}");
+  expect(readFileSync(new URL("../.github/workflows/prerelease.yml", import.meta.url), "utf8").match(/inputs\.version/g)).toHaveLength(1);
+});
+
 it("keeps required CI job identities, all shards, and all desktop scripts", () => {
   const ci = workflow("ci");
   expect(Object.keys(ci.jobs)).toEqual(["checks", "unit", "desktop"]);

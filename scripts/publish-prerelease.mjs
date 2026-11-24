@@ -66,7 +66,7 @@ export async function publishPrerelease({
   api = github, wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 }) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? "")) throw new Error("A GitHub owner/repository is required");
-  if (!/^[a-f0-9]{40}$/i.test(sha ?? "")) throw new Error("The exact dispatched commit SHA is required");
+  if (!/^[a-f0-9]{40}$/i.test(sha ?? "")) throw new Error("The exact release commit SHA is required");
   if (!/^\d+\.\d+\.\d+-beta\.\d+$/.test(version ?? "")) throw new Error("A beta version is required");
   const assets = await localReleaseAssets(directory, version, unsignedWindows);
   const tag = `v${version}`;
@@ -117,7 +117,7 @@ export async function publishPrerelease({
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const release = await publishPrerelease({
-    repository: process.env.GITHUB_REPOSITORY, sha: process.env.GITHUB_SHA,
+    repository: process.env.GITHUB_REPOSITORY, sha: process.env.RELEASE_SHA,
     version: process.env.RELEASE_VERSION, notes: process.env.RELEASE_NOTES,
     unsignedWindows: process.env.UNSIGNED_WINDOWS === "true", directory: process.argv[2] ?? "release-assets",
   });

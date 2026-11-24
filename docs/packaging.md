@@ -59,18 +59,19 @@ Automatic updates are available from macOS installs, Windows NSIS setup installs
 
 ## Beta prereleases
 
-To publish a beta, first update and commit the exact prerelease version in `package.json` and `package-lock.json`, then push it to `main`:
+To publish the next beta, run the workflow from `main`:
 
 ```sh
-npm version 0.2.0-beta.2 --no-git-tag-version
-npm run verify:prerelease
-git push origin main
-gh workflow run prerelease.yml -f version=0.2.0-beta.2 -f notes="Beta notes"
+gh workflow run prerelease.yml -f notes="Beta notes"
 ```
 
-The workflow runs only from `main` and fixes every checkout and the final tag to the dispatched commit. It reuses the newest `CI` push run on `main` for that exact SHA, waiting up to about 20 minutes for an active run. PR runs, other workflows, forks and different commits cannot satisfy this gate. A failed, canceled or timed-out main CI run blocks publication; rerun that CI successfully before retrying the beta. If no eligible main push run exists, the full reusable CI workflow runs instead.
+The workflow picks the version and commits it. With `version` left blank, it releases the checked-in `package.json` version if that version has no tag yet, so a hand bump or a retry after a failed run keeps its number. Otherwise it takes the next beta number, such as `0.2.0-beta.37` after `0.2.0-beta.36`. To start a new series, pass it: `-f version=0.3.0-beta.1`. A version whose tag exists, or a stable checked-in version with no `version` input, stops the run.
 
-Packaging runs alongside CI after branch, version and unused-tag validation. Publication requires successful static checks, all four unit shards, all three desktop UI groups and every platform package verification, and the release must include the SystemCore ipk. It validates the public beta manifests and atomically creates the matching tag at the dispatched commit. Publication starts with a private draft and uploads assets one at a time. Every remote asset must match the local size and SHA-256 digest, including after an ambiguous upload failure; retries never overwrite an asset. The draft becomes a public prerelease only after the complete asset set passes verification. A failed publication leaves its draft available for diagnosis. Each version can be published once; increment the beta number for every attempt that creates its Git tag.
+When the picked version differs from `package.json`, the validate job runs `npm version` and pushes `chore: release <version>` to `main` as `github-actions[bot]`. The push must fast-forward. If another commit landed after dispatch, the run stops before packaging; dispatch it again. Every later checkout, the CI gate and the final tag use that version commit (or the dispatched commit when no bump was needed).
+
+The CI gate reuses the newest `CI` push run on `main` for the release commit, waiting up to about 20 minutes for an active run. PR runs, other workflows, forks and different commits cannot satisfy this gate. A failed, canceled or timed-out main CI run blocks publication; rerun that CI successfully before retrying the beta. If no eligible main push run exists, the full reusable CI workflow runs on the release commit instead. That is always the case after a version commit, because pushes made with `GITHUB_TOKEN` start no workflows. CI runs alongside packaging, so this adds little time.
+
+Packaging runs alongside CI after branch, version and unused-tag validation. Publication requires successful static checks, all four unit shards, all three desktop UI groups and every platform package verification, and the release must include the SystemCore ipk. It validates the public beta manifests and atomically creates the matching tag at the release commit. Publication starts with a private draft and uploads assets one at a time. Every remote asset must match the local size and SHA-256 digest, including after an ambiguous upload failure; retries never overwrite an asset. The draft becomes a public prerelease only after the complete asset set passes verification. A failed publication leaves its draft available for diagnosis. Each version can be published once. A failed publication that already created its Git tag uses up that number, and the next run takes the one after it.
 
 Dependency installation is shared through `.github/actions/install`: every job still runs `npm ci` from the lockfile. npm tarballs use setup-node's npm cache. Electron download archives use an exact OS/runner-architecture/locked-Electron-version key, with separate desktop and multi-architecture package caches; bumping only the Bordeaux beta version keeps these archives warm. Cold or evicted caches download normally; warm caches avoid repeat downloads but still install dependencies and check upstream Electron checksums. No `node_modules`, compiled application, signing credentials, notarization result or signed installer is reused across release runs. Already compressed installers upload without redundant Actions ZIP compression. Field certification uses the build already made in the same job; local build/package commands are unchanged.
 
@@ -86,7 +87,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The `Publish production release` workflow tests and packages every platform and the SystemCore ipk, emits and validates `latest` manifests, then creates the normal GitHub Release only after all platform jobs succeed. A production tag must exactly match the checked-in package version. The same immutable-version rule applies: do not replace artifacts under a published tag.
+Production versions are not picked automatically. The `Publish production release` workflow tests and packages every platform and the SystemCore ipk, emits and validates `latest` manifests, then creates the normal GitHub Release only after all platform jobs succeed. A production tag must exactly match the checked-in package version. The same immutable-version rule applies: do not replace artifacts under a published tag.
 
 Configure these GitHub Actions repository secrets before the first run:
 

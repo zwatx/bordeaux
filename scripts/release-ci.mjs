@@ -35,7 +35,8 @@ export async function requireReleaseCi({ request, repository, sha, runId,
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha, GH_TOKEN: token } = process.env;
+  // RELEASE_SHA is the commit the release tags: the dispatched commit, or the version commit on top of it.
+  const { GITHUB_REPOSITORY: repository, RELEASE_SHA: sha, GH_TOKEN: token } = process.env;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? "") || !/^[a-f\d]{40}$/.test(sha ?? "") || !token) {
     throw new Error("Release CI requires repository, full commit SHA and Actions read token");
   }
