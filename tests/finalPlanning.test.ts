@@ -398,3 +398,100 @@ describe("final planning execution", () => {
     await expect(request.promise).resolves.toMatchObject({ status: 'success', value: { source: 'current' } });
   });
 });
+
+/** The production worker as the long-lived optimizer sees it: listeners, not handler slots. */
+class FakeOptimizerWorker extends EventTarget {
+  static created: FakeOptimizerWorker[] = [];
+  readonly jobs: Array<Record<string, unknown>> = [];
+  terminated = false;
+  constructor(readonly url: string) { super(); FakeOptimizerWorker.created.push(this); }
+  postMessage(job: Record<string, unknown>) { this.jobs.push(job); }
+  reply(data: unknown) { if (!this.terminated) this.dispatchEvent(Object.assign(new Event("message"), { data })); }
+  terminate() { this.terminated = true; }
+}
+
+/** Loads final planning with its own worker construction, so optimize requests take the persistent-optimizer path. */
+function optimizerPlanning() {
+  FakeOptimizerWorker.created = [];
+  return loadRendererExport<{
+    create(options?: object): {
+      warmOptimizer(input: object): void;
+      request(input: object, options?: object): { promise: Promise<Record<string, unknown>>; cancel(): void };
+    };
+  }>(new URL("../src/renderer/assets/final-planning.js", import.meta.url), "FinalPlanning", {
+    context: { performance, setTimeout, clearTimeout, Worker: FakeOptimizerWorker },
+    replacements: [[
+      "new Worker(new URL('./path-preview-worker.js', import.meta.url), { type: 'module' })",
+      "new Worker('path-preview-worker.js', { type: 'module' })",
+    ]],
+  }).create();
+}
+const optimize = { path: { id: "path" }, robot: {}, plannerId: "profiledSpline", optimize: true };
+
+describe("persistent optimizer worker", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps the warmed worker and its pool for the next search", async () => {
+    const planning = optimizerPlanning();
+    planning.warmOptimizer({ path: { id: "path" }, robot: {} });
+    const request = planning.request(optimize);
+    const [worker] = FakeOptimizerWorker.created;
+    expect(worker.jobs.map((job) => job.type ?? "search")).toEqual(["warm", "search"]);
+    expect(worker.jobs[1]).toMatchObject({ parallel: true, optimize: true });
+    worker.reply({ id: worker.jobs[1].id, value: { source: "final" } });
+    await expect(request.promise).resolves.toMatchObject({ status: "success" });
+    const next = planning.request(optimize);
+    expect(FakeOptimizerWorker.created).toHaveLength(1);
+    expect(worker.terminated).toBe(false);
+    worker.reply({ id: worker.jobs[2].id, value: { source: "again" } });
+    await expect(next.promise).resolves.toMatchObject({ status: "success", value: { source: "again" } });
+  });
+
+  it("cancels a search the worker cannot interrupt by terminating it, and starts the next on a new worker", async () => {
+    vi.useFakeTimers();
+    const planning = optimizerPlanning();
+    const interactiveResult = { source: "interactive" };
+    // The worker never answers, as when it runs the search in sequence.
+    const request = planning.request(optimize, { interactiveResult });
+    const [busy] = FakeOptimizerWorker.created;
+    request.cancel();
+    expect(busy.terminated).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(request.promise).resolves.toEqual({
+      status: "canceled",
+      fallback: interactiveResult,
+      fallbackProvisional: true,
+      fallbackReason: "Final planning was canceled; the selected trajectory was not changed.",
+    });
+
+    const next = planning.request(optimize, { interactiveResult });
+    expect(FakeOptimizerWorker.created).toHaveLength(2);
+    const fresh = FakeOptimizerWorker.created[1];
+    await vi.advanceTimersByTimeAsync(3_000);
+    fresh.reply({ id: fresh.jobs[0].id, value: { source: "final" } });
+    await expect(next.promise).resolves.toMatchObject({ status: "success", value: { source: "final" } });
+  });
+
+  it("terminates a worker that misses the deadline", async () => {
+    vi.useFakeTimers();
+    const planning = optimizerPlanning();
+    const request = planning.request(optimize);
+    const [worker] = FakeOptimizerWorker.created;
+    await vi.advanceTimersByTimeAsync(6_000);
+    await expect(request.promise).resolves.toMatchObject({ status: "timeout" });
+    expect(worker.terminated).toBe(true);
+  });
+
+  it("releases an idle optimizer after two minutes", async () => {
+    vi.useFakeTimers();
+    const planning = optimizerPlanning();
+    const request = planning.request(optimize);
+    const [worker] = FakeOptimizerWorker.created;
+    worker.reply({ id: worker.jobs[0].id, value: {} });
+    await request.promise;
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(worker.terminated).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(worker.terminated).toBe(true);
+  });
+});
