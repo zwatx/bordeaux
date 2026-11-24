@@ -72,7 +72,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 239 * 1024;
 // The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
 // The field comparison and changed-values layout measure about 176.5 KB.
 // Event groups reuse the comparison table and add less than 1 KiB of styles.
-// The editable shortcuts dialog measures 179,282 B against 177,817 B before it; 176 KiB keeps under 1 KiB of headroom.
+// The editable shortcuts dialog measures 179,282 B against 177,817 B before it. Closed-right disclosure chevrons
+// (popup triggers stay down) add little; 176 KiB still fits the combined styles (2026-11-24).
 const CSS_BUDGET_BYTES = 176 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");

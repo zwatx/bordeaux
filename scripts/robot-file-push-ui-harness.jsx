@@ -336,6 +336,8 @@ await test('A disconnected robot clears the live green indicator while preservin
   assert(button('Connect'), 'Disconnected state offers reconnect');
   await native({ capture: 'disconnected' });
 });
+// A disclosure chevron points right while closed and down while open; a menu trigger's stays down. The glyph points down.
+const turn = (element, pseudo) => { const m = new DOMMatrix(getComputedStyle(element, pseudo).transform); return Math.round(Math.atan2(m.b, m.a) * 180 / Math.PI); };
 // Robot files keeps one dialog size per view; captures resize the window, so compare sizes between captures.
 const dialogSize = () => { const box = document.querySelector('.rfp').getBoundingClientRect(); return box.width + '×' + box.height; };
 async function enterRobotFiles(keyboard = false) {
@@ -343,7 +345,9 @@ async function enterRobotFiles(keyboard = false) {
   const trigger = document.querySelector('.push-menu-trigger');
   if (keyboard) {
     trigger.focus();
+    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The closed Push menu chevron points down to its menu');
     await act(async () => native({ key: 'Enter' }));
+    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The open Push menu chevron still points down');
     await act(async () => native({ key: 'Down' }));
     assert(document.activeElement.textContent === 'Robot files…', 'Arrow Down reaches Robot files');
     await act(async () => native({ key: 'Enter' }));
@@ -450,9 +454,11 @@ await test('Robot files opens without a selection, compares a matched row and re
   const all = document.querySelector('.rfp-all-values');
   assert(!all.open && all.textContent.includes('20.70 ft'), 'Unchanged distance stays available in All values');
   const summary = all.querySelector('summary'), closedSize = dialogSize();
+  assert(turn(summary, '::after') === -45, 'The closed All values chevron points right');
   summary.focus();
   await act(async () => native({ key: 'Enter' }));
   assert(all.open, 'All values is keyboard operable');
+  assert(turn(summary, '::after') === 45, 'The open All values chevron points down');
   assert(dialogSize() === closedSize && document.querySelector('.rfp-view-compare').scrollHeight > document.querySelector('.rfp-view-compare').clientHeight,
     'Expanding All values scrolls the review instead of resizing the dialog');
   await native({ capture: 'robot-files-all-values-open' });
