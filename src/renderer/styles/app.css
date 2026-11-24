@@ -856,18 +856,18 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .kh-tools{display:flex;align-items:center;gap:8px}
 .kh-tools .textinput{width:240px;height:32px}
 .kh-tools .qbtn{margin-left:auto}
-.kh-group{margin:14px 0 2px;color:var(--txt-3);font-size:11.5px;font-weight:600}
-.kh-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:16px;min-height:38px;border-bottom:1px solid var(--line);font-size:12.5px}
+.kh-group{margin:14px 0 2px;color:var(--txt-3);font-size:11px;font-weight:600}
+.kh-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:16px;min-height:38px;border-bottom:1px solid var(--line);font-size:13px}
 .kh-keys{display:flex;align-items:center;gap:6px}
 .keyboard-help kbd,.kh-chip{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 7px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--bg-2);color:var(--txt-2);font:11px var(--mono);white-space:nowrap}
 .kh-chip{border-bottom-width:2px;color:var(--txt)}
 .kh-chip[data-recording]{min-width:92px;border-color:var(--txt);border-bottom-width:1px;background:var(--bg-3);color:var(--txt-2)}
 .kh-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
 .kh-space{visibility:hidden}
-.kh-dim{color:var(--txt-3);font-size:11.5px}
+.kh-dim{color:var(--txt-3);font-size:11px}
 .kh-note{grid-column:1/-1;margin:0 0 8px;color:var(--txt-3);font-size:12px;line-height:1.45}
 .kh-note.warn{color:var(--warn-txt)}.kh-note.bad{color:var(--bad-txt)}
-.kh-note button{margin-left:6px;color:var(--accent);font-size:12px;font-weight:550}
+.kh-note button{margin-left:6px;color:var(--accent);font-size:12px;font-weight:500}
 .kh-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;color:var(--txt-3);font-size:12px}
 .keyboard-help p{margin:16px 0 0;color:var(--txt-3);font-size:12px;line-height:1.5}
 :is(.kh-chip,.kh-icon,.kh-note button):focus-visible{outline:2px solid var(--focus);outline-offset:1px}
