@@ -1,4 +1,3 @@
-import { TOOL_SHORTCUTS } from '../components/KeyboardHelp';
 import { createLibraryDurations } from "../lib/libraryDurations";
 import { DeletionNotice } from "../components/DeletionNotice";
 import { FieldStatus } from "../components/FieldStatus";
@@ -6,6 +5,7 @@ import * as React from "react";
 import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
 import { isPlaybackSpace, trackFocusModality } from "../lib/shortcuts";
+import { keyCommand } from "../lib/keyBindings";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
 import { liveEditingPreview } from "../assets/editing-planning";
@@ -147,6 +147,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     rev: false,
   };
 
+  // Editor tools by the key command that selects them (see src/core/keyBindings.ts).
+  const TOOL_FOR_COMMAND = { 'tool.select': 'select', 'tool.waypoint': 'waypoint', 'tool.rotation': 'rotation', 'tool.command': 'marker', 'tool.zone': 'range' };
   const FIT = { x: FIELD_IMAGE.left - 90, y: FIELD_IMAGE.top - 90, w: FIELD_IMAGE.right - FIELD_IMAGE.left + 180, h: FIELD_IMAGE.bottom - FIELD_IMAGE.top + 180 };
 
   const usePlayback = (store) => useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -2070,6 +2072,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
       setInspectorOpen(false);
       setOptimizationOpen(true);
+      optimizer.warm(doc.id);
     };
     const startOptimization = (deadline) => {
       setComparison(null);
@@ -2785,8 +2788,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // Capture, because the library and form fields stop their own key events from bubbling.
     useEffect(() => {
       const onKey = (event) => {
+        const command = keyCommand(event, { pathsPage: page === 'plan', routinesPage: page === 'auto' });
         // Capture only this view shortcut so library row key ownership cannot swallow it.
-        if (page === 'plan' && event.key === '\\' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+        if (command === 'view.focusField'
           && !event.repeat && !event.isComposing && !event.defaultPrevented && !event.target.isContentEditable
           && !event.target.closest?.('textarea,select,input:not([type="range"]),[role="textbox"]')
           && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"],[role="menu"],[popover]:popover-open')) {
@@ -2794,11 +2798,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           toggleFieldFocus();
           return;
         }
-        if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.isComposing || event.defaultPrevented) return;
-        const key = event.key.toLowerCase();
-        if ((key !== 'o' && key !== 'n') || document.querySelector('dialog:modal')) return;
+        if (event.isComposing || event.defaultPrevented) return;
+        if ((command !== 'project.list' && command !== 'project.new') || document.querySelector('dialog:modal')) return;
         event.preventDefault();
-        showProjects(key === 'n' ? 'new' : 'list');
+        showProjects(command === 'project.new' ? 'new' : 'list');
       };
       window.addEventListener('keydown', onKey, true);
       return () => window.removeEventListener('keydown', onKey, true);
@@ -2910,20 +2913,19 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           && (e.key.indexOf('Arrow') === 0 || e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape');
         const textEditing = e.target.isContentEditable || (matches && matches('select,textarea,input:not([type="range"])'));
         if (textEditing) return;
-        const k = e.key.toLowerCase();
-        const toolShortcut = !e.metaKey && !e.ctrlKey && !e.altKey && !textEditing && TOOL_SHORTCUTS[k];
-        if (page === 'plan' && toolShortcut) {
+        const command = keyCommand(e, { pathsPage: page === 'plan', routinesPage: page === 'auto', editableFocus: textEditing });
+        const tool = TOOL_FOR_COMMAND[command];
+        if (tool) {
           e.preventDefault();
           if (typeof e.target.blur === 'function') e.target.blur();
-          setTool(toolShortcut);
+          setTool(tool);
           return;
         }
-        if (page === 'plan' && !e.metaKey && !e.ctrlKey && !e.altKey && (k === 'g' || k === 'f')) {
-          e.preventDefault(); k === 'g' ? setShowGrid(s => !s) : setView(FIT); return;
+        if (command === 'view.grid' || command === 'view.fit') {
+          e.preventDefault(); command === 'view.grid' ? setShowGrid(s => !s) : setView(FIT); return;
         }
         if (e.target.closest?.('.editor-library,.library-divider')) return;
-        if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-        if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); redo(); return; }
+        if (command === 'edit.undo' || command === 'edit.redo') { e.preventDefault(); command === 'edit.redo' ? redo() : undo(); return; }
         // Native controls own navigation and deletion keys during keyboard use.
         if (nativeKeyboardControl && !selectionControl && e.key !== 'Escape') return;
         if (page !== 'plan') return;
@@ -2953,20 +2955,21 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // A control clicked with the mouse keeps focus without taking Space from playback.
     useEffect(() => trackFocusModality(), []);
     useEffect(() => {
-      let held = false;
+      // The physical key that started playback, so its release is claimed even if a modifier changed meanwhile.
+      let held = null;
       const onDown = (event) => {
         if (!isPlaybackSpace(event, page)) return;
         event.preventDefault(); event.stopPropagation();
         if (held || event.repeat) return;
-        held = true;
+        held = event.code || event.key;
         if (page === 'plan' && derivationCurrent) playbackStore.toggle();
         else if (page === 'auto' && !run.blocked && run.total > 0) routinePlaybackStore.toggle();
       };
       const onUp = (event) => {
-        if (event.key !== ' ' || !held) return;
-        held = false; event.preventDefault(); event.stopPropagation();
+        if (!held || (event.code || event.key) !== held) return;
+        held = null; event.preventDefault(); event.stopPropagation();
       };
-      const release = () => { held = false; };
+      const release = () => { held = null; };
       window.addEventListener('keydown', onDown, true); window.addEventListener('keyup', onUp, true); window.addEventListener('blur', release);
       return () => { window.removeEventListener('keydown', onDown, true); window.removeEventListener('keyup', onUp, true); window.removeEventListener('blur', release); };
     }, [page, derivationCurrent, playbackStore, routinePlaybackStore, run.blocked, run.total]);

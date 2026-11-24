@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PM as RendererPM } from "../src/renderer/lib/pathMath";
 import { PM as SharedPM } from "../src/core/math/pm";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { commandForEvent, DEFAULT_RESOLVED_KEY_RULES } from "../src/core/keyBindings";
 import { loadRendererExport } from "./helpers/loadRendererExport";
 
 interface Point { x: number; y: number; heading: number; curv: number }
@@ -249,11 +250,13 @@ describe("renderer application", () => {
   it("offers clustered tool aliases and preserves the established shortcuts", () => {
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
     const panels = fs.readFileSync(new URL("../src/renderer/components/Panels.jsx", import.meta.url), "utf8");
-    expect(app).toContain("TOOL_SHORTCUTS[k]");
-    const shortcuts = fs.readFileSync(new URL("../src/renderer/components/KeyboardHelp.jsx", import.meta.url), "utf8");
-    for (const [key, tool] of Object.entries({ v: 'select', w: 'waypoint', r: 'rotation', m: 'marker', c: 'range' })) expect(shortcuts).toContain(key + ": '" + tool + "'");
-    expect(panels).toContain("alternateKey: 'V'");
-    expect(panels).toContain("alternateKey: 'C'");
+    expect(app).toContain("TOOL_FOR_COMMAND[command]");
+    const tools = { "tool.select": ["1", "v"], "tool.waypoint": ["2", "w"], "tool.rotation": ["3", "r"], "tool.command": ["4", "m"], "tool.zone": ["5", "c"] };
+    for (const [command, keys] of Object.entries(tools)) for (const key of keys) {
+      const code = /\d/.test(key) ? "Digit" + key : "Key" + key.toUpperCase();
+      expect(commandForEvent(DEFAULT_RESOLVED_KEY_RULES, { key, code }, { pathsPage: true }, false)).toBe(command);
+    }
+    expect(panels).toContain("keyLabel(t.command)");
   });
 
   it("keeps the blue-origin image fixed while Flip commits authored coordinates", () => {

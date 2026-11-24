@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
+import { DEFAULT_RESOLVED_KEY_RULES, menuAccelerator, resolveKeyRules, sanitizeUserKeyRules, type CommandId, type KeyRule } from "../core/keyBindings";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
 import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
@@ -28,7 +29,7 @@ import {
   summarizeRobotProjectBookmarks,
   writeRobotProjectBookmarks,
 } from "./robotProjectBookmarks";
-import { autosaveProjectFolder, writeBufferAtomically, openProjectFolder, projectWorkspacePath, writeProjectFolderBdx, type ProjectSourceOwner } from "./projectFiles";
+import { autosaveProjectFolder, writeBufferAtomically, writeJsonAtomically, openProjectFolder, projectWorkspacePath, writeProjectFolderBdx, type ProjectSourceOwner } from "./projectFiles";
 import { loadProjectFolderSelection, loadProjectSelection, type ProjectSelection } from "./projectOpening";
 import { createNamedProjectSelection, createProjectCopyFolder, parseNamedProjectRequest, suggestProjectCopy, StaleCopyDefaults, type ProjectCopyMark } from "./projectCreation";
 import { ensureProjectsHomeForRequest, projectsHomePath } from "./projectsHome";
@@ -664,8 +665,11 @@ function createWindow() {
     if (mainWindow === window && nativeDeparture.preventUnload(windowEpoch)) event.preventDefault();
   });
   window.on("unresponsive", () => { if (mainWindow === window) nativeDeparture.coordinator.notifyUnresponsive(windowEpoch); });
+  // A reload or crash ends any recording, so the File menu gets its keys back.
+  window.webContents.on("did-start-loading", () => { if (mainWindow === window) setKeyRecording(false); });
   window.webContents.on("render-process-gone", () => {
     if (mainWindow !== window) return;
+    setKeyRecording(false);
     retiredProjectResume = captureProjectResumeDescriptor();
     nativeDeparture.rendererGone(windowEpoch); // Keep the old context until its native fallback decision wins.
     const transitionId = projectPersistence.getTransitionId();
@@ -715,6 +719,25 @@ function createWindow() {
         window.focus();
         const smokeScript = await fs.promises.readFile(path.join(smokeDirectory, "renderer.js"), "utf8");
         const result: Record<string, unknown> = await window.webContents.executeJavaScript(smokeScript);
+        // The smoke seeds keybindings.json in its userData; report what reached the host, the File menu and the dialog.
+        const fileKeys = () => {
+          const items = Menu.getApplicationMenu()?.items.find((item) => item.id === "chrome-file")?.submenu?.items ?? [];
+          return { save: items.find((item) => item.label === "Save")?.accelerator, export: items.find((item) => item.label === "Export selected path as BDX…")?.accelerator };
+        };
+        result.keyRules = await window.webContents.executeJavaScript("window.bordeauxAPI.getKeyRules()");
+        result.keyRulesMenu = fileKeys();
+        result.keyRulesDialog = await window.webContents.executeJavaScript(
+          "[...document.querySelectorAll('.keyboard-help .kh-row')].find((row) => row.firstElementChild.textContent === 'Place waypoint')?.querySelector('kbd')?.textContent ?? null");
+        // Recording a key drops the File menu's accelerators until it ends.
+        await window.webContents.executeJavaScript("window.bordeauxAPI.setKeyRecording(true)");
+        result.keyRecordingMenu = fileKeys();
+        await window.webContents.executeJavaScript("window.bordeauxAPI.setKeyRecording(false)");
+        result.keyRecordedMenu = fileKeys();
+        // Saving keeps valid rules only: Save can't share mod+Shift+E with Export. The file and the menu follow.
+        result.keyRulesSaved = await window.webContents.executeJavaScript(
+          "window.bordeauxAPI.setKeyRules([{ key: 'mod+shift+e', command: 'export.bdx' }, { key: 'mod+shift+e', command: 'project.save' }, { key: 'mod+shift+l', command: 'project.saveCopy' }])");
+        result.keyRulesFile = JSON.parse(await fs.promises.readFile(userDataPath("keybindings.json"), "utf8"));
+        result.keyRulesSavedMenu = fileKeys();
         if (process.env.BORDEAUX_SMOKE_CAPTURE_PATH) {
           await new Promise((resolve) => setTimeout(resolve, 100));
           const capture = await window.webContents.capturePage();
@@ -803,7 +826,46 @@ function updateMenuItem(): Electron.MenuItemConstructorOptions {
     : { label: "Check for updates…", click: () => { void appUpdates?.check(true); } };
 }
 
+// The user's key rules live in userData/keybindings.json, a JSON array of { key, command, when? } rules
+// (src/core/keyBindings.ts). They are read once at startup, before the first menu, so File menu keys match from
+// launch; hand edits apply at the next launch. The renderer reads the same rules through getKeyRules and changes
+// them through setKeyRules.
+let userKeyRules: KeyRule[] = [];
+let keyRules = DEFAULT_RESOLVED_KEY_RULES;
+// True while the shortcuts dialog records a key: the File menu drops its accelerators so the page sees that key.
+let keyRecording = false;
+let keyRulesWrite: Promise<void> = Promise.resolve();
+async function loadUserKeyRules(): Promise<void> {
+  try {
+    userKeyRules = sanitizeUserKeyRules(JSON.parse(await fs.promises.readFile(userDataPath("keybindings.json"), "utf8")));
+  } catch (error) {
+    // No file means defaults. A malformed file also means defaults, and the file is left for the user to fix.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Ignoring keybindings.json:", error);
+    userKeyRules = [];
+  }
+  keyRules = resolveKeyRules(userKeyRules);
+}
+
+/** Checks and stores the renderer's rules, one write at a time, then rebuilds the menu. Returns what was kept. */
+async function saveUserKeyRules(value: unknown): Promise<KeyRule[]> {
+  const rules = sanitizeUserKeyRules(value);
+  const write = keyRulesWrite.catch(() => undefined).then(() => writeJsonAtomically(userDataPath("keybindings.json"), rules));
+  keyRulesWrite = write;
+  await write;
+  userKeyRules = rules;
+  keyRules = resolveKeyRules(rules);
+  buildMenu();
+  return rules;
+}
+
+function setKeyRecording(recording: boolean): void {
+  if (keyRecording === recording) return;
+  keyRecording = recording;
+  buildMenu();
+}
+
 function buildMenu() {
+  const accelerator = (command: CommandId) => keyRecording ? undefined : menuAccelerator(keyRules, command);
   const recentSubmenu = recentFiles.length > 0
     ? recentFiles.map((filePath, index) => ({ label: path.basename(filePath), sublabel: filePath, click: () => sendCommand("open-recent", index) }))
     : [{ label: "No recent projects", enabled: false }];
@@ -820,16 +882,16 @@ function buildMenu() {
       id: "chrome-file",
       submenu: [
         // New names a project in its own folder; Projects lists recents. Neither shows the folder picker first.
-        { label: "New project…", accelerator: "CmdOrCtrl+N", click: () => sendCommand("new-project") },
-        { label: "Projects…", accelerator: "CmdOrCtrl+O", click: () => sendCommand("show-projects") },
+        { label: "New project…", accelerator: accelerator("project.new"), click: () => sendCommand("new-project") },
+        { label: "Projects…", accelerator: accelerator("project.list"), click: () => sendCommand("show-projects") },
         { label: "Open project folder…", click: () => sendCommand("open-project") },
         { label: "Open recent", submenu: recentSubmenu },
         { type: "separator" },
-        { label: "Save", accelerator: "CmdOrCtrl+S", click: () => sendCommand("save-project") },
-        { label: "Open project file…", accelerator: "CmdOrCtrl+Shift+O", click: () => sendCommand("open-project-file") },
-        { label: "Save copy…", accelerator: "CmdOrCtrl+Shift+S", click: () => sendCommand("save-project-as") },
+        { label: "Save", accelerator: accelerator("project.save"), click: () => sendCommand("save-project") },
+        { label: "Open project file…", accelerator: accelerator("project.openFile"), click: () => sendCommand("open-project-file") },
+        { label: "Save copy…", accelerator: accelerator("project.saveCopy"), click: () => sendCommand("save-project-as") },
         { type: "separator" },
-        { label: "Export selected path as BDX…", accelerator: "CmdOrCtrl+E", click: () => sendCommand("export-bdx") },
+        { label: "Export selected path as BDX…", accelerator: accelerator("export.bdx"), click: () => sendCommand("export-bdx") },
         { label: "Export active routine…", click: () => sendCommand("export-routine") },
         { type: "separator" },
         process.platform === "darwin" ? { role: "close" } : { role: "quit" },
@@ -1776,6 +1838,9 @@ handle("project:copyDetails", (_event, text) => {
 });
 handle("agent:getActiveProposal", () => agentSessions.getActiveProposal());
 handle("agent:getMcpStatus", () => agentSessions.accessStatus());
+handle("keys:get", () => userKeyRules);
+handle("keys:set", (_event, rules) => saveUserKeyRules(rules));
+handle("keys:recording", (_event, recording) => setKeyRecording(recording === true));
 ipcMain.on("project:setDirty", (event, value) => { assertTrustedSender(event); dirty = value === true; appUpdates?.refresh(); });
 ipcMain.on("agent:publishSession", (event, value) => {
   assertTrustedSender(event);
@@ -1821,6 +1886,7 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
     robotProjectBookmarks = [];
     console.warn("Could not load Robot project bookmarks:", error);
   }
+  await loadUserKeyRules();
   try {
     recentFiles = await readRecentProjectFiles(recentProjectsFile());
   } catch (error) {

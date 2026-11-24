@@ -1,5 +1,6 @@
 import type { PlannerInput, PlannerResult, TrajectoryPlanner, TrajectoryPlannerId } from "../types";
 import {
+  firstPassDuration,
   optimizedTrajectoryPlanner,
   retimeTrajectoryWithVelocityLimits,
   scaleTrajectoryTiming,
@@ -12,8 +13,12 @@ import { applyRotationPriority, headingTransitionIntervalMask } from "./rotation
 import { physicalPlannerInput, electricalConfigurationError } from "../robotLimits";
 import { validateOptimizedTrajectory } from "./trajectoryValidation";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "./limits";
+import { rememberByInput } from "./rememberByInput";
 
 const EPSILON = 1e-9;
+
+/** The physics-aware fixed-geometry timing that both planner families start from. */
+const sharedFixedGeometryTiming = rememberByInput(4, (input) => optimizedTrajectoryPlanner.generate(input));
 
 function withoutLegacyTimingPriority(path: PlannerInput["path"]): PlannerInput["path"] {
   const hasLegacyPriority = path.waypoints.some((waypoint) => waypoint.headingTransition !== undefined)
@@ -132,7 +137,36 @@ export function canonicalPlanningInput(input: PlannerInput): {
   return { physicalInput, planningInput };
 }
 
+/**
+ * How long the path takes after the planner's first timing solve: the base sample
+ * grid under every constraint, before dense validation, repair, or refinement.
+ * It costs a fraction of a full plan and lands within a few percent of the final
+ * duration, so a search can use it to drop curves that are clearly too slow.
+ * Returns null when that solve fails; the full planner then reports why.
+ */
+export function fixedGeometryFirstPassTime(input: PlannerInput): number | null {
+  if (electricalConfigurationError(input.robot)) return null;
+  try {
+    return firstPassDuration(canonicalPlanningInput(input).planningInput);
+  } catch {
+    return null;
+  }
+}
+
+const rememberedPlans: Record<TrajectoryPlannerId, (input: PlannerInput) => PlannerResult> = {
+  profiledSpline: rememberByInput(4, (input) => validatedPlanner("profiledSpline").generate(input)),
+  optimizedTrajectory: rememberByInput(4, (input) => validatedPlanner("optimizedTrajectory").generate(input)),
+};
+
+/**
+ * A planner family with coupled-drivetrain validation. Repeated plans of one
+ * input share a solve, and every caller gets its own copy of the result to change.
+ */
 export function getPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
+  return { id: planners[id].id, generate: (input) => structuredClone(rememberedPlans[id](input)) };
+}
+
+function validatedPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
   const planner = planners[id];
   return {
     id: planner.id,
@@ -150,10 +184,10 @@ export function getPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
       // the reachability seed inside optimizedTrajectoryPlanner.
       const generated = planner.id === "profiledSpline"
         ? {
-            ...optimizedTrajectoryPlanner.generate(planningInput),
+            ...sharedFixedGeometryTiming(planningInput),
             planner: "profiledSpline" as const,
           }
-        : planner.generate(planningInput);
+        : sharedFixedGeometryTiming(planningInput);
       let rotated = applyRotationPriority(path, generated, robot);
       let timingBase = generated;
       const validatesRotatedTrajectory = planner.id === "profiledSpline"

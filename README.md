@@ -42,7 +42,7 @@ Robot push is a separate explicit action. Saving and local deletion do not conne
 
 ## SystemCore app
 
-`npm run package:systemcore` builds `release/bordeaux_<version>_all.ipk` with Node alone (no GNU tar or ar), and the same commit always gives the same bytes. The package carries `LICENSE`, `NOTICE`, `RIGHTS.md` and the font license in `/usr/share/doc/bordeaux`. Upload it under **Add Package** in the SystemCore dashboard, or copy it over and run `opkg install` on the robot. Bordeaux then appears in the dashboard and serves the editor at `http://<robot>:2468/` to any browser on the robot's network.
+Download `bordeaux_<version>_all.ipk` from the [releases page](https://github.com/zwatx/bordeaux/releases) and upload it under **Add Package** in the SystemCore dashboard, or copy it over and run `opkg install` on the robot. To build it from source, run `npm run package:systemcore`; it writes `release/bordeaux_<version>_all.ipk` with Node alone (no GNU tar or ar), and the same commit always gives the same bytes. The package carries `LICENSE`, `NOTICE`, `RIGHTS.md` and the font license in `/usr/share/doc/bordeaux`. Bordeaux then appears in the dashboard and serves the editor at `http://<robot>:2468/` to any browser on the robot's network. To update, add the newer ipk the same way. The dashboard removes the installed version first and keeps the team's projects and pushed paths. **Settings → Software updates** in the robot's editor shows the installed version.
 
 The browser plans paths and builds BDX files; the robot only stores them. **Save** and autosave write project folders to `/home/systemcore/bordeaux/projects`. **Push** is a separate, reviewed step that copies the selected paths' `.bdx` files into `/home/systemcore/bordeaux/paths`, reads them back and checks their SHA-256; LabVIEW robot code reads that folder. Removing the package keeps both folders.
 
@@ -59,6 +59,8 @@ For swerve paths, drag the start heading arrow or edit **Initial robot facing** 
 Rotation targets and waypoint arrival headings offer **Shortest**, **Clockwise**, and **Counterclockwise** turns into that heading. Shortest is the default. To continue a full turn through an intermediate target, choose the same direction on that target and the end heading. Matching headings with an explicit direction request one complete revolution. A moving turn needs distance; use a stopped turn for an in-place rotation.
 
 **Focus** hides the path list. The **Paths** strip at the left edge restores it and returns keyboard focus to the current path.
+
+The **?** button lists keyboard shortcuts. Press its pencil to change them: click a key, then press the new one. A key taken from another command moves to the one you are editing, with **Undo**. **Settings › General › Keyboard shortcuts** opens the same editor. File menu commands need a Ctrl (⌘) key, and keys such as Esc, Tab, arrows and F2 stay fixed. The desktop app saves your keys in `keybindings.json` in its user data folder; the SystemCore app keeps them in each browser.
 
 In Routines, **Change path** opens a searchable path list with folder, duration, and usage context. The preview scrubber shows seconds and the current step. Click or drag to seek and pause; use the arrow keys for 0.1-second steps, Shift for 1-second steps, Page Up/Down for step boundaries, and Home/End for the start/end. Space plays or pauses. Untimed commands do not add preview time, and preview never executes commands or conditions.
 

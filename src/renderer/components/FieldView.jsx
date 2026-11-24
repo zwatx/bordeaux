@@ -7,6 +7,7 @@ import { FIELD_IMAGE, FIELD_IMAGE_SCALE, worldToFieldImage, fieldImageToWorld } 
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
 import { tangentHandleUse } from "../lib/pathEditing";
+import { keyCommand } from "../lib/keyBindings";
 import { wheelZoomFactor } from "../lib/zoom";
 import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
@@ -146,7 +147,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     const pointerDrag = PointerDrag.useController();
     const contextRef = useRef(null);
     const selectionKey = sel.kind + ':' + sel.idx;
-    contextRef.current = { pathId: doc.id, selectionKey, tool, routine: Boolean(routine) };
+    const routineView = Boolean(routine);
+    contextRef.current = { pathId: doc.id, selectionKey, tool, routine: routineView };
     const lastInspectPress = useRef({ key: null, at: 0 });
     const isTank = drive === 'tank';
 
@@ -328,8 +330,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         const target = event.target;
         if (target && (target.closest?.('input, textarea, select, button, summary, [data-role="issue"], a[href], [role="menu"], [role="listbox"], .editor-library') || target.isContentEditable)) return;
         if (event.key === 'Escape' && visitFocusRef.current) { updateVisitFocus(null); return; }
-        const direction = event.key === ']' || event.code === 'BracketRight' ? 1
-          : (event.key === '[' || event.code === 'BracketLeft' ? -1 : 0);
+        const command = keyCommand(event, { pathsPage: !routineView, routinesPage: routineView });
+        const direction = command === 'visit.next' ? 1 : command === 'visit.previous' ? -1 : 0;
         if (!direction) return;
         const current = visitFocusRef.current;
         if (!current || current.candidates.length < 2) return;
@@ -342,7 +344,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       };
       window.addEventListener('keydown', onVisitKey, true);
       return () => window.removeEventListener('keydown', onVisitKey, true);
-    }, [updateVisitFocus]);
+    }, [updateVisitFocus, routineView]);
 
     const startRangeDrag = (e, world, initialVisit) => {
       const visit = initialVisit || resolveVisit(world);

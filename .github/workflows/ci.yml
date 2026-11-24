@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      ref:
+        description: Commit to test; the beta release passes its version commit
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -20,6 +26,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/install
       - run: npm run verify:license
       - run: npm run typecheck
@@ -36,6 +44,8 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/install
       # Each runner keeps vitest's single test-file slot; parallelism comes from sharding.
       - run: npx vitest run --shard=${{ matrix.shard }}/4
@@ -67,6 +77,7 @@ jobs:
               scripts/verify-interface-ui.mjs
               scripts/verify-interface-workflows.mjs
               scripts/verify-robot-electrical-ui.mjs
+              scripts/verify-key-bindings.mjs
           - group: workflows
             checks: |
               scripts/verify-editor-interactions.mjs
@@ -97,10 +108,13 @@ jobs:
       BORDEAUX_ROTATION_FOCUS_UI_OUTPUT: .ui-artifacts/rotation-focus
       BORDEAUX_ROUTINE_SCRUBBER_UI_OUTPUT: .ui-artifacts/routine-scrubber
       BORDEAUX_NOTIFICATION_UI_OUTPUT: .ui-artifacts/notifications
+      BORDEAUX_KEY_BINDINGS_OUTPUT: .ui-artifacts/key-bindings
       BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT: .ui-artifacts/timeline-commands
       BORDEAUX_SYSTEMCORE_OUTPUT: .ui-artifacts/systemcore
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/install
       - run: npm run build
         id: build

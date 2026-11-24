@@ -72,6 +72,13 @@ const inventoryStatus = {
   otherPath: 'Another path', localFailed: 'Local build failed', readFailed: 'Read failed', missing: 'Missing on robot',
 };
 const timeOfDay = (at) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// A robot file's modified time, against the listing it came from: a time of day when it changed that day, otherwise
+// its date, so a file pushed days ago never reads as today's. The cell's title keeps the full timestamp.
+const fileTime = (at, listedAt) => {
+  const date = new Date(at), listed = new Date(listedAt);
+  if (date.toDateString() === listed.toDateString()) return timeOfDay(at);
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', ...(date.getFullYear() !== listed.getFullYear() && { year: 'numeric' }) });
+};
 
 function Inventory({ c, filter, setFilter, pane, scroll }) {
   const { rows, missing, truncated } = c.inventory;
@@ -97,7 +104,7 @@ function Inventory({ c, filter, setFilter, pane, scroll }) {
           const label = row.robot ? (kind === 'paired' ? 'Compare' : 'Inspect') : row.detail ? '' : 'Push…';
           return h('tr', { key: row.fileName },
             h('th', { scope: 'row' }, h('strong', null, row.name), row.name !== row.fileName && h('small', null, row.fileName)),
-            h('td', null, row.robot ? [kilobytes(row.robot.size), row.robot.mtime > 0 && h('small', { key: 'time', title: new Date(row.robot.mtime).toLocaleString() }, timeOfDay(row.robot.mtime))] : '—'),
+            h('td', null, row.robot ? [kilobytes(row.robot.size), row.robot.mtime > 0 && h('small', { key: 'time', title: new Date(row.robot.mtime).toLocaleString() }, fileTime(row.robot.mtime, c.inventory.listedAt))] : '—'),
             h('td', { 'data-verdict': status }, inventoryStatus[status] || inventoryStatus[kind], row.detail && h('small', null, row.detail)),
             h('td', null, label && button(label, () => c.openRobotRow(row),
               { 'aria-label': label.replace('…', '') + ' ' + row.name, 'data-robot-file': row.fileName })));
@@ -165,6 +172,10 @@ function CompareFacts({ rows, label, robotOnly = false, changesOnly = false, eve
     eventChanges && h(EventRows, { changes: eventChanges, counts: eventCounts, robotOnly }));
 }
 
+// A comparison with a local path and readable routes draws both on the field and needs the wide dialog. The desktop
+// matches a robot file to a local path by the path ID saved inside it, so an Inspect of a robot-only row can return one.
+const showsField = (comparison) => !!comparison?.routes && !comparison.robotOnly && comparison.verdict !== 'robotUnreadable';
+
 function Comparison({ controller: c, verdictRef }) {
   const { verdict, name, robotName, fileName, localError, robotError, local, robot, facts, notes, eventChanges, expectedFileName, robotOnly, routes, widestGap } = c.comparison;
   const verdicts = {
@@ -191,8 +202,7 @@ function Comparison({ controller: c, verdictRef }) {
     robotOnly && name !== fileName && h('p', { className: 'rfp-note' }, fileName),
     expectedFileName && h('p', { className: 'rfp-note' }, 'The robot has this path as ' + fileName + '. Push uses its current filename, ' + expectedFileName + '.'),
     localError && h('p', { className: 'rfp-note' }, 'Local BDX unavailable · ' + localError),
-    typeof gap === 'number' && h('p', { className: 'rfp-note rfp-compare-gap' }, 'Widest gap between the routes · about ' + UnitPrefs.format(gap, 'm', 3)),
-    robotOnly || !routes || verdict === 'robotUnreadable' ? h(React.Fragment, null, table, comparisonNotes) :
+    !showsField(c.comparison) ? h(React.Fragment, null, table, comparisonNotes) :
       h('div', { className: 'rfp-field-review' },
         h(RobotPathField, { routes, verdict, widestGap, gap }),
         h('div', { className: 'rfp-field-changes' },
@@ -315,8 +325,7 @@ export function RobotFilePushDialog({ controller: c }) {
       const download = c.comparison.robot && button(c.busy ? 'Downloading…' : 'Download .bdx…', c.saveCopy,
         { key: 'download', className: c.comparison.robotOnly ? 'qbtn primary' : 'qbtn', ...hold });
       if (download) downloadNote = c.error ? h('p', { className: 'rfp-alert', role: 'alert' }, c.error)
-        : c.copy ? h('p', { className: 'rfp-note', role: 'status' }, 'Saved ' + c.copy.name + ' to ' + c.copy.folder + ' · ' + c.copy.size.toLocaleString() + ' bytes verified')
-        : h('p', { className: 'rfp-note' }, 'Editable waypoints require the Bordeaux project source.');
+        : c.copy && h('p', { className: 'rfp-note', role: 'status' }, 'Saved ' + c.copy.name + ' to ' + c.copy.folder + ' · ' + c.copy.size.toLocaleString() + ' bytes verified');
       actions = [allFiles, download, button('Done', c.close,
         { key: 'done', className: c.comparison.robotOnly && download ? 'qbtn' : 'qbtn primary', disabled: c.busy })];
     } else {
@@ -362,8 +371,13 @@ export function RobotFilePushDialog({ controller: c }) {
     ];
   }
 
-  return h('dialog', { ref: dialog, className: 'robot-push-dialog robot-manager rfp' + (listed ? ' rfp-inventory' : compareView ? ' rfp-compare' : '')
-      + (c.comparison?.routes && !c.comparison.robotOnly && c.comparison.verdict !== 'robotUnreadable' ? ' rfp-field-dialog' : ''), 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy,
+  // Robot files keeps one size per view, so expanding values, filtering or downloading never resizes the window. The list
+  // and Inspect share a size; Compare uses the field size. A read opens at its request's size, and an Inspect grows once
+  // when its file matched a local path and the result draws both routes.
+  const filesView = listing || listed || listFailed || compareView;
+  const fieldSize = compareView && (!c.inspecting || showsField(c.comparison));
+  return h('dialog', { ref: dialog, className: 'robot-push-dialog robot-manager rfp' + (filesView ? ' rfp-robot-files' : '')
+      + (fieldSize ? ' rfp-field-dialog' : ''), 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy,
     onCancel: (event) => { event.preventDefault(); if (c.phase === 'comparing' && c.inventory) c.backToRobotFiles(); else c.close(); } },
     h('header', null, h('h2', { id: 'robot-file-title' }, title), h('button', { type: 'button', className: 'robot-push-close', 'aria-label': 'Close robot files', disabled: c.phase === 'saving-copy', onClick: c.close }, '×')),
     h('div', { key: view, className: 'rfp-body rfp-view-' + view, role: view === 'working' || view === 'done' ? 'status' : undefined }, body),

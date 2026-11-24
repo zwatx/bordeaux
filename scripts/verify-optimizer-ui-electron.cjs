@@ -381,6 +381,8 @@ app.whenReady().then(async () => {
     assert.ok(await evaluate(() => document.activeElement === document.querySelector('.pp-more')), 'Closing the inspector restores focus to More');
     await click('.optimizer-toggle');
     check('double-clicking a waypoint opens its inspector over Optimize and closing returns focus');
+    // Keep this search running until it has been observed in the background and cancelled.
+    await evaluate(() => window.__optimizerWorkers.holdOptimizeReplies());
     await click('.optimizer-main', 'Optimize');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-main')?.textContent === 'Cancel'), 'the current-path search');
     await switchPath(fixture.paths[1].name);
@@ -406,6 +408,7 @@ app.whenReady().then(async () => {
     window.setContentSize(1440, 900);
     await click('.optimizer-background button');
     await waitFor(() => evaluate(() => !document.querySelector('.optimizer-background') && !document.querySelector('.optimizer-main')?.disabled), 'background cancellation to release the search slot');
+    await evaluate(() => window.__optimizerWorkers.releaseOptimizeReplies());
     assert.equal(await evaluate(() => !!document.querySelector('button[aria-label="Preview optimized trajectory"]')), false, 'The background job must not create a candidate on the selected path');
     await switchPath(fixture.paths[0].name);
     await stable(normal, 200, 'Canceling the original search');

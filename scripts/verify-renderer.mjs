@@ -45,7 +45,11 @@ import path from "node:path";
 // Robot files inventory, comparison, and local copy add one 9 KiB allowance. Decoding and diff stay in main.
 // Field-first comparison measures about 878.5 KB across all application chunks.
 // Aligned, expandable event differences add about 1.8 KiB of application JavaScript.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
+// The key binding registry (rules, parsers, matching and labels) measures 886,016 B against 880,668 B at HEAD
+// (2026-11-23); 866 KiB keeps under 1 KiB of headroom.
+// Editing keys in the shortcuts dialog (recording, moving a key with Undo, Settings entry, and the keys a focused
+// control declares for itself) measures 895,502 B against 886,374 B before it; 876 KiB keeps under 2 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 876 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -55,7 +59,11 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
 // Load-dependent traction and force allocation bring the worker to 226,971 bytes.
 // Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
 // Dense trajectory validation preserves waypoint correspondence across sample grids (235,619 B).
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
+// Shared solves, a faster reachability boundary search and leaner sample validation measure 238,219 B;
+// 234 KiB keeps ~1.4 KiB headroom.
+// The parallel route search (candidate pool, warm-up and a persistent optimizer worker) measures 243,763 B;
+// 239 KiB keeps ~1 KiB headroom.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 239 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
@@ -64,9 +72,9 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
 // The field comparison and changed-values layout measure about 176.5 KB.
 // Event groups reuse the comparison table and add less than 1 KiB of styles.
-// Closed-right disclosure chevrons (popup triggers stay down) measure 177,704 B; fixed-size Robot files views add
-// about 220 B (2026-11-24).
-const CSS_BUDGET_BYTES = 175 * 1024;
+// The editable shortcuts dialog measures 179,282 B against 177,817 B before it. Closed-right disclosure chevrons
+// (popup triggers stay down) add little; 176 KiB still fits the combined styles (2026-11-24).
+const CSS_BUDGET_BYTES = 176 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

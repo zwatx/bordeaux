@@ -36,9 +36,45 @@ it("keeps all platform artifacts and verification before uploads in both release
     for (const command of ["verify:package", "verify-update-manifest.mjs linux-arm64", "verify-release-signatures.mjs mac", "verify-release-signatures.mjs windows", "notarize-release-dmgs.mjs", "block return out quick proto udp from any to any port 443"]) {
       expect(beforeUpload).toContain(command);
     }
+    expect(job.steps.slice(0, upload).some(({ run, if: when }) => run === "npm run package:systemcore" && when === "matrix.platform == 'linux'")).toBe(true);
+    expect(job.steps[upload].with.path).toContain("release/*.ipk");
     expect(job.steps[upload].with["if-no-files-found"]).toBe("error");
     expect(release.jobs.publish.needs).toContain(name === "package" ? "package" : "build");
   }
+});
+
+it("builds, tests and tags the beta's version commit, never the dispatched commit", () => {
+  const beta = workflow("prerelease"), ci = workflow("ci");
+  const releaseSha = "${{ needs.validate.outputs.sha }}", releaseVersion = "${{ needs.validate.outputs.version }}";
+  expect(beta.on.workflow_dispatch.inputs.version.required).toBe(false);
+  expect(beta.jobs.validate.permissions.contents).toBe("write");
+
+  const validate = beta.jobs.validate.steps;
+  const step = (id) => validate.findIndex((candidate) => candidate.id === id);
+  expect(validate[step("version")].run).toBe("node scripts/resolve-prerelease-version.mjs");
+  expect(validate[step("commit")].run).toContain("git push origin HEAD:refs/heads/main");
+  expect(validate[step("ci")].env.RELEASE_SHA).toBe("${{ steps.commit.outputs.sha }}");
+  expect(step("version")).toBeLessThan(step("commit"));
+  expect(step("commit")).toBeLessThan(step("ci"));
+
+  for (const name of ["build", "verified-ci", "publish"]) {
+    const checkouts = beta.jobs[name].steps.filter(({ uses }) => uses?.startsWith("actions/checkout@"));
+    expect(checkouts, name).toHaveLength(1);
+    expect(checkouts[0].with?.ref, name).toBe(releaseSha);
+  }
+  expect(beta.jobs.ci.with.ref).toBe(releaseSha);
+  expect(ci.on.workflow_call.inputs.ref.default).toBe("");
+  for (const job of Object.values(ci.jobs)) {
+    for (const checkout of job.steps.filter(({ uses }) => uses?.startsWith("actions/checkout@"))) expect(checkout.with.ref).toBe("${{ inputs.ref }}");
+  }
+
+  expect(beta.jobs.build.steps.find(({ run }) => run === "node scripts/verify-prerelease-version.mjs").env.RELEASE_VERSION).toBe(releaseVersion);
+  expect(beta.jobs["verified-ci"].steps.find(({ run }) => run === "node scripts/release-ci.mjs require").env.RELEASE_SHA).toBe(releaseSha);
+  const publish = beta.jobs.publish.steps.find(({ name }) => name === "Publish GitHub prerelease");
+  expect(publish.env).toMatchObject({ RELEASE_SHA: releaseSha, RELEASE_VERSION: releaseVersion });
+  // Only the resolver reads the raw input; everything after it uses the resolved version.
+  expect(validate[step("version")].env.RELEASE_VERSION).toBe("${{ inputs.version }}");
+  expect(readFileSync(new URL("../.github/workflows/prerelease.yml", import.meta.url), "utf8").match(/inputs\.version/g)).toHaveLength(1);
 });
 
 it("keeps required CI job identities, all shards, and all desktop scripts", () => {
@@ -48,8 +84,10 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
   const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
-  expect(desktopScripts).toHaveLength(22);
-  expect(new Set(desktopScripts).size).toBe(22);
+  expect(desktopScripts).toHaveLength(23);
+  expect(new Set(desktopScripts).size).toBe(23);
+  expect(desktopScripts).toContain("scripts/verify-key-bindings.mjs");
+  expect(ci.jobs.desktop.env.BORDEAUX_KEY_BINDINGS_OUTPUT).toBe(".ui-artifacts/key-bindings");
   expect(desktopScripts).toContain("scripts/verify-rotation-focus-ui.mjs");
   expect(desktopScripts).toContain("scripts/verify-routine-scrubber-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_ROTATION_FOCUS_UI_OUTPUT).toBe(".ui-artifacts/rotation-focus");

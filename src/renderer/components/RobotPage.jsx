@@ -8,6 +8,8 @@ import { DRIVE_MOTOR_PRESETS } from "../../core/motorPresets";
 import { resolveElectricalDriveInputs } from "../../core/robotLimits";
 import { resolveCgHeightM } from "../../core/loadTransfer";
 import { PowerSettings } from './PowerSettings';
+import { openKeyboardShortcuts } from './KeyboardHelp';
+import { canEditKeys, currentUserKeyRules, useKeyRules } from "../lib/keyBindings";
 import "../styles/settings.css";
 
 // Bordeaux Robot config page (project-global).
@@ -103,8 +105,10 @@ import "../styles/settings.css";
   }
 
   function RobotPage({ robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState, onOpenUpdates, agentProposal, onApplyProposal, onRejectProposal }) {
+    useKeyRules();
     const isSwerve = robot.drive === 'swerve';
     const [customEditing, setCustomEditing] = useState(false);
+    const changedKeys = new Set(currentUserKeyRules().map((rule) => rule.command)).size;
     const [current, setCurrent] = useState('general');
     const pageRef = useRef(null), jumped = useRef(false);
     const [selectedVertex, setSelectedVertex] = useState(0);
@@ -357,6 +361,9 @@ import "../styles/settings.css";
                   pushController.busy ? 'Show progress' : pushController.pairing ? 'Edit' : 'Set up')),
               h(Row, { label: 'Display units' },
                 h(Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
+              // Opens the shortcuts dialog ready to edit; hidden where the host can't store keys.
+              canEditKeys() && h(Row, { label: 'Keyboard shortcuts', status: changedKeys ? changedKeys + ' changed' : 'Defaults' },
+                h('button', { className: 'qbtn', type: 'button', onClick: () => openKeyboardShortcuts(true) }, 'Customize')),
               updateState && h(Row, { label: 'Software updates', status: 'Bordeaux ' + updateState.currentVersion + (updateState.phase === 'downloaded' ? ' · Ready to install' : updateState.phase === 'downloading' ? ' · Downloading update' : updateState.phase === 'available' ? ' · Update available' : '') },
                 h('button', { className: 'qbtn', type: 'button', onClick: onOpenUpdates }, ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(updateState.phase) ? 'View update' : 'Check for updates')))),
 
