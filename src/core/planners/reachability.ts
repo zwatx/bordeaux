@@ -332,7 +332,16 @@ function accelerationBoundsForInterval(
   );
 }
 
-const dynamicConstraintCache = new WeakMap<readonly AffineScalarAccelerationConstraint[], readonly AffineScalarAccelerationConstraint[]>();
+/** The motor-envelope constraints of one allocation view, with the tolerance their scale implies. */
+interface DynamicConstraints {
+  constraints: readonly AffineScalarAccelerationConstraint[];
+  tolerance: number;
+}
+
+const dynamicConstraintCache = new WeakMap<readonly AffineScalarAccelerationConstraint[], DynamicConstraints>();
+
+// Critical accelerations of one tightening call. A constraint adds at most seven.
+let criticalScratch = new Float64Array(64);
 
 function tightenForModuleMotorEnvelope(
   constraints: readonly AffineScalarAccelerationConstraint[],
@@ -342,77 +351,114 @@ function tightenForModuleMotorEnvelope(
   allocation?: number,
 ): ControllableInterval | null {
   const view = constraintsFor(constraints, allocation);
-  let dynamic = dynamicConstraintCache.get(view);
-  if (!dynamic) {
-    dynamic = view.filter((constraint) => (
+  let cached = dynamicConstraintCache.get(view);
+  if (!cached) {
+    const dynamicConstraints = view.filter((constraint) => (
       (constraint.velocityCoefficient ?? 0) > 0
       && (constraint.freeSpeed ?? 0) > 0
       && (constraint.motorAcceleration ?? 0) > 0
     ));
-    dynamicConstraintCache.set(view, dynamic);
+    cached = {
+      constraints: dynamicConstraints,
+      tolerance: 1e-9 * Math.max(1, ...dynamicConstraints.map((constraint) => constraint.motorAcceleration!)),
+    };
+    dynamicConstraintCache.set(view, cached);
   }
+  const dynamic = cached.constraints;
   if (dynamic.length === 0) return bounds;
+  const tolerance = cached.tolerance;
 
   const gap = (acceleration: number) => {
     const midpointSpeedSquared = Math.max(0, startSpeedSquared + acceleration * distance);
     const endSpeedSquared = Math.max(0, startSpeedSquared + 2 * acceleration * distance);
     const envelopeSpeed = Math.sqrt(Math.max(startSpeedSquared, endSpeedSquared));
-    return dynamic.reduce((maximum, constraint) => {
+    let maximum = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < dynamic.length; index += 1) {
+      const constraint = dynamic[index];
       const moduleSpeed = constraint.velocityCoefficient! * envelopeSpeed;
       const limit = constraint.motorAcceleration!
         * Math.max(0, 1 - moduleSpeed / constraint.freeSpeed!);
       const force = constraint.u * acceleration + constraint.x * midpointSpeedSquared;
       const measured = constraint.motoringOnly ? force : Math.abs(force);
-      return Math.max(maximum, measured - limit);
-    }, Number.NEGATIVE_INFINITY);
+      maximum = Math.max(maximum, measured - limit);
+    }
+    return maximum;
   };
-  const tolerance = 1e-9 * Math.max(1, ...dynamic.map((constraint) => constraint.motorAcceleration!));
-  const roots = (a: number, b: number, c: number): number[] => {
-    if (Math.abs(a) <= EPSILON) return Math.abs(b) <= EPSILON ? [] : [-c / b];
+
+  // Collect the critical accelerations that fall inside the bounds, clamped to them.
+  if (criticalScratch.length < 3 + dynamic.length * 7) criticalScratch = new Float64Array(3 + dynamic.length * 7);
+  const values = criticalScratch;
+  let count = 0;
+  const lowest = bounds.minimum - EPSILON;
+  const highest = bounds.maximum + EPSILON;
+  const add = (value: number): void => {
+    if (Number.isFinite(value) && value >= lowest && value <= highest) {
+      values[count] = Math.max(bounds.minimum, Math.min(bounds.maximum, value));
+      count += 1;
+    }
+  };
+  // A quadratic's real roots that are valid speeds, as accelerations over the interval.
+  const addSpeedRoots = (a: number, b: number, c: number): void => {
+    if (Math.abs(a) <= EPSILON) {
+      if (Math.abs(b) <= EPSILON) return;
+      const velocity = -c / b;
+      if (velocity >= 0) add((velocity ** 2 - startSpeedSquared) / (2 * distance));
+      return;
+    }
     const discriminant = b ** 2 - 4 * a * c;
-    if (discriminant < 0) return [];
+    if (discriminant < 0) return;
     const root = Math.sqrt(Math.max(0, discriminant));
-    return [(-b - root) / (2 * a), (-b + root) / (2 * a)];
+    const first = (-b - root) / (2 * a);
+    if (first >= 0) add((first ** 2 - startSpeedSquared) / (2 * distance));
+    const second = (-b + root) / (2 * a);
+    if (second >= 0) add((second ** 2 - startSpeedSquared) / (2 * distance));
   };
-  const critical = [bounds.minimum, bounds.maximum, Math.max(bounds.minimum, Math.min(bounds.maximum, 0))];
-  for (const constraint of dynamic) {
+  add(bounds.minimum);
+  add(bounds.maximum);
+  add(Math.max(bounds.minimum, Math.min(bounds.maximum, 0)));
+  for (let index = 0; index < dynamic.length; index += 1) {
+    const constraint = dynamic[index];
     const coefficient = constraint.u + constraint.x * distance;
     const offset = constraint.x * startSpeedSquared;
     const stallAtStart = constraint.motorAcceleration!
       * Math.max(0, 1 - constraint.velocityCoefficient! * Math.sqrt(startSpeedSquared) / constraint.freeSpeed!);
     if (Math.abs(coefficient) > EPSILON) {
-      critical.push((-stallAtStart - offset) / coefficient, (stallAtStart - offset) / coefficient);
+      add((-stallAtStart - offset) / coefficient);
+      add((stallAtStart - offset) / coefficient);
     }
     const quadratic = coefficient / (2 * distance);
     const constant = offset - quadratic * startSpeedSquared;
     const linear = constraint.motorAcceleration! * constraint.velocityCoefficient! / constraint.freeSpeed!;
-    const freeSpeedAcceleration = (
-      (constraint.freeSpeed! / constraint.velocityCoefficient!) ** 2 - startSpeedSquared
-    ) / (2 * distance);
-    critical.push(freeSpeedAcceleration);
-    for (const velocity of [
-      ...roots(quadratic, linear, constant - constraint.motorAcceleration!),
-      ...roots(-quadratic, linear, -constant - constraint.motorAcceleration!),
-    ]) {
-      if (velocity >= 0) critical.push((velocity ** 2 - startSpeedSquared) / (2 * distance));
-    }
+    add(((constraint.freeSpeed! / constraint.velocityCoefficient!) ** 2 - startSpeedSquared) / (2 * distance));
+    addSpeedRoots(quadratic, linear, constant - constraint.motorAcceleration!);
+    addSpeedRoots(-quadratic, linear, -constant - constraint.motorAcceleration!);
   }
-  const values = critical
-    .filter((value) => Number.isFinite(value) && value >= bounds.minimum - EPSILON && value <= bounds.maximum + EPSILON)
-    .map((value) => Math.max(bounds.minimum, Math.min(bounds.maximum, value)))
-    .sort((left, right) => left - right)
-    .filter((value, index, all) => index === 0 || Math.abs(value - all[index - 1]) > 1e-10);
+  // Ascending, stable insertion sort: the list is short.
+  for (let index = 1; index < count; index += 1) {
+    const value = values[index];
+    let slot = index - 1;
+    while (slot >= 0 && values[slot] > value) {
+      values[slot + 1] = values[slot];
+      slot -= 1;
+    }
+    values[slot + 1] = value;
+  }
+  // Feasible runs between neighbouring critical values, skipping values within 1e-10 of their predecessor.
   const segments: ControllableInterval[] = [];
   const addSegment = (minimum: number, maximum: number) => {
     const previous = segments.at(-1);
     if (previous && minimum <= previous.maximum + 1e-8) previous.maximum = Math.max(previous.maximum, maximum);
     else segments.push({ minimum, maximum });
   };
-  values.forEach((value, index) => {
+  let index = 0;
+  while (index < count) {
+    const value = values[index];
+    let next = index + 1;
+    while (next < count && !(Math.abs(values[next] - values[next - 1]) > 1e-10)) next += 1;
     if (gap(value) <= tolerance) addSegment(value, value);
-    const next = values[index + 1];
-    if (next !== undefined && gap((value + next) * 0.5) <= tolerance) addSegment(value, next);
-  });
+    if (next < count && gap((value + values[next]) * 0.5) <= tolerance) addSegment(value, values[next]);
+    index = next;
+  }
   if (segments.length === 0) return null;
   const selected = segments.find((segment) => segment.minimum <= 0 && segment.maximum >= 0)
     ?? segments.reduce((best, segment) => (
@@ -505,16 +551,17 @@ function linearControllablePredecessor(
   return minimum <= maximum + EPSILON ? { minimum, maximum } : null;
 }
 
+/** `groups` lets a solve resolve an interval's allocation ids once instead of on every probe. */
 function controlBoundsForInterval(
   input: ReachabilityInput,
   index: number,
   speedSquared: number,
   distance: number,
-): ControllableInterval | null {
-  const groups = allocationGroups(
+  groups = allocationGroups(
     input.accelerationConstraints?.[index] ?? [],
     input.scalarAccelerationConstraints?.[index] ?? [],
-  );
+  ),
+): ControllableInterval | null {
   const tighten = (bounds: ControllableInterval, allocation?: number) => tightenForModuleMotorEnvelope(
     input.scalarAccelerationConstraints?.[index] ?? [],
     speedSquared,
@@ -590,11 +637,67 @@ function untightenedControlBounds(
   return { minimum, maximum };
 }
 
+/**
+ * The largest value in [feasible, infeasible) whose gap is at most zero: the
+ * float just below the crossing. `feasible` must have gap <= 0 and `infeasible`
+ * gap > 0. The gap is close to linear near a boundary, so each round probes just
+ * either side of the chord's crossing. The first round narrows the bracket about
+ * 500 times; inside that the chord is exact to float precision, so later rounds
+ * probe a few floats either side of it. A round that fails to halve the bracket
+ * is followed by a halving probe, and plain bisection finishes the last few
+ * floats, so this lands on the same float as bisection wherever the gap is
+ * monotonic and never needs more than a small multiple of its probes.
+ */
+function lastControllableValue(
+  gap: (value: number) => number,
+  feasible: number,
+  feasibleGap: number,
+  infeasible: number,
+  infeasibleGap: number,
+): number {
+  let low = feasible;
+  let lowGap = feasibleGap;
+  let high = infeasible;
+  let highGap = infeasibleGap;
+  const probe = (value: number): void => {
+    const valueGap = gap(value);
+    if (valueGap <= 0) {
+      low = value;
+      lowGap = valueGap;
+    } else {
+      high = value;
+      highGap = valueGap;
+    }
+  };
+  for (let round = 0; round < 12; round += 1) {
+    const width = high - low;
+    const float = Number.EPSILON * Math.max(Math.abs(low), Math.abs(high), Number.MIN_VALUE);
+    // Below a few floats the bisection below is as fast and exact.
+    if (!(width > 16 * float)) break;
+    const crossing = Number.isFinite(highGap) && highGap > lowGap
+      ? low + width * (-lowGap / (highGap - lowGap))
+      : low + width * 0.5;
+    const offset = round === 0 ? width * 0.001 : Math.max(4 * float, width * 1e-6);
+    const below = crossing - offset;
+    if (below > low && below < high) probe(below);
+    const above = crossing + offset;
+    if (above > low && above < high) probe(above);
+    if (high - low > width * 0.5) probe(low + (high - low) * 0.5);
+  }
+  for (let iteration = 0; iteration < 64; iteration += 1) {
+    const middle = (low + high) * 0.5;
+    if (!(middle > low && middle < high)) break;
+    probe(middle);
+  }
+  return low;
+}
+
 function controllablePredecessor(
   input: ReachabilityInput,
   index: number,
   pointLimit: number,
   next: ControllableInterval,
+  groups: readonly number[],
 ): ControllableInterval | null {
   const distance = input.positions[index + 1] - input.positions[index];
   if (distance <= EPSILON) {
@@ -629,12 +732,22 @@ function controllablePredecessor(
     next.maximum / transitionScale,
   );
   const gap = (speedSquared: number): number => {
-    const control = controlBoundsForInterval(input, index, speedSquared, distance);
+    const control = controlBoundsForInterval(input, index, speedSquared, distance, groups);
     if (!control) return Number.POSITIVE_INFINITY;
     const minimum = Math.max(control.minimum, (next.minimum - speedSquared) / transitionScale);
     const maximum = Math.min(control.maximum, (next.maximum - speedSquared) / transitionScale);
     return minimum - maximum;
   };
+
+  // A stop is nearly always controllable. Then the search below would find a
+  // center with a gap at most this one, use a zero boundary tolerance, and keep
+  // zero as the minimum, so only the maximum is left to locate.
+  const gapAtRest = gap(0);
+  if (gapAtRest <= 0) {
+    const gapAtLimit = gap(pointLimit);
+    if (gapAtLimit <= 0) return { minimum: 0, maximum: pointLimit };
+    return { minimum: 0, maximum: Math.min(pointLimit, lastControllableValue(gap, 0, gapAtRest, pointLimit, gapAtLimit)) };
+  }
 
   let left = 0;
   let right = pointLimit;
@@ -940,6 +1053,10 @@ export function solveReachabilityProfile(
     goalSquared = velocitySquaredLimits[count - 1];
   }
 
+  const intervalGroups = Array.from({ length: count - 1 }, (_unused, index) => allocationGroups(
+    input.accelerationConstraints?.[index] ?? [],
+    input.scalarAccelerationConstraints?.[index] ?? [],
+  ));
   const controllable = new Array<ControllableInterval>(count);
   controllable[count - 1] = { minimum: goalSquared, maximum: goalSquared };
   for (let index = count - 2; index >= 0; index -= 1) {
@@ -948,6 +1065,7 @@ export function solveReachabilityProfile(
       index,
       velocitySquaredLimits[index],
       controllable[index + 1],
+      intervalGroups[index],
     );
     if (!predecessor) {
       if (!soft) {
@@ -994,7 +1112,7 @@ export function solveReachabilityProfile(
       speedSquared[index + 1] = speedSquared[index];
       continue;
     }
-    const control = controlBoundsForInterval(input, index, speedSquared[index], distance);
+    const control = controlBoundsForInterval(input, index, speedSquared[index], distance, intervalGroups[index]);
     if (!control) {
       if (!soft) {
         return { status: "infeasible", velocities: [], iterations: count - 1 + index, reason: `Drivetrain acceleration bounds are empty at interval ${index}.` };
