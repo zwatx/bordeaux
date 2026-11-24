@@ -7,12 +7,26 @@ import { fileURLToPath } from "node:url";
 
 const beta = /^(\d+\.\d+\.\d+-beta\.)(\d+)$/;
 
+// Orders x.y.z and x.y.z-beta.N versions; a beta sorts before its stable release. This runs before
+// npm ci, so it cannot use the semver package.
+function compareVersions(a, b) {
+  const parse = (version) => {
+    const [core, pre] = version.split("-beta.");
+    return [...core.split(".").map(Number), pre === undefined ? Infinity : Number(pre)];
+  };
+  const left = parse(a), right = parse(b);
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return left[i] < right[i] ? -1 : 1;
+  return 0;
+}
+
 // A blank request reuses an untagged checked-in beta (a hand bump, or a retry after a failed run),
 // otherwise takes the next beta number. `released` reports whether v<version> is already tagged.
 export function resolvePrereleaseVersion({ requested = "", current, released }) {
   let version = requested.trim();
   if (version) {
     if (!beta.test(version)) throw new Error(`Prerelease version ${version} must look like 0.2.0-beta.1`);
+    // An explicit version lands on main, so a typo must not move the checked-in version backwards.
+    if (compareVersions(version, current) < 0) throw new Error(`Prerelease version ${version} is older than the checked-in ${current}`);
   } else {
     const match = beta.exec(current);
     if (!match) throw new Error(`Checked-in version ${current} is not a beta; dispatch with an explicit version such as 0.3.0-beta.1`);

@@ -34,4 +34,18 @@ describe("prerelease version resolution", () => {
   it("uses a valid requested version as given, trimmed", () => {
     expect(resolvePrereleaseVersion({ requested: " 0.3.0-beta.1 ", current: "0.2.0-beta.36", released: tagged("0.2.0-beta.36") })).toBe("0.3.0-beta.1");
   });
+
+  it.each([
+    ["0.1.0-beta.1", "0.2.0-beta.36"],
+    ["0.2.0-beta.35", "0.2.0-beta.36"],
+    ["0.2.0-beta.99", "0.2.0"],
+  ])("rejects requested version %j older than the checked-in %j", (requested, current) => {
+    expect(() => resolvePrereleaseVersion({ requested, current, released: tagged(current) })).toThrow(/older than the checked-in/);
+  });
+
+  it("accepts an explicit version that equals or follows the checked-in one", () => {
+    expect(resolvePrereleaseVersion({ requested: "0.2.0-beta.37", current: "0.2.0-beta.37", released: tagged() })).toBe("0.2.0-beta.37");
+    expect(resolvePrereleaseVersion({ requested: "0.2.0-beta.10", current: "0.2.0-beta.9", released: tagged("0.2.0-beta.9") })).toBe("0.2.0-beta.10");
+    expect(resolvePrereleaseVersion({ requested: "0.2.1-beta.1", current: "0.2.0", released: tagged("0.2.0") })).toBe("0.2.1-beta.1");
+  });
 });

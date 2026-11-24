@@ -65,7 +65,7 @@ To publish the next beta, run the workflow from `main`:
 gh workflow run prerelease.yml -f notes="Beta notes"
 ```
 
-The workflow picks the version and commits it. With `version` left blank, it releases the checked-in `package.json` version if that version has no tag yet, so a hand bump or a retry after a failed run keeps its number. Otherwise it takes the next beta number, such as `0.2.0-beta.37` after `0.2.0-beta.36`. To start a new series, pass it: `-f version=0.3.0-beta.1`. A version whose tag exists, or a stable checked-in version with no `version` input, stops the run.
+The workflow picks the version and commits it. With `version` left blank, it releases the checked-in `package.json` version if that version has no tag yet, so a hand bump or a retry after a failed run keeps its number. Otherwise it takes the next beta number, such as `0.2.0-beta.37` after `0.2.0-beta.36`. To start a new series, pass it: `-f version=0.3.0-beta.1`. A version whose tag exists, a `version` older than the checked-in one, or a stable checked-in version with no `version` input, stops the run.
 
 When the picked version differs from `package.json`, the validate job runs `npm version` and pushes `chore: release <version>` to `main` as `github-actions[bot]`. The push must fast-forward. If another commit landed after dispatch, the run stops before packaging; dispatch it again. Every later checkout, the CI gate and the final tag use that version commit (or the dispatched commit when no bump was needed).
 
