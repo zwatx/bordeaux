@@ -15,7 +15,9 @@ describe("optimizer initial spline work", () => {
     const result = optimizedTrajectoryPlanner.generate({ path, robot: project.robot, samplesPerSegment: 24 });
 
     expect(result.samples.length).toBeGreaterThan(1);
-    const initial = derive.mock.calls.filter(([source, , density, options]) => source === path && density === 24 && options?.skipStationaryActions);
+    // The optimizer plans from its own copy of the input, so match the path by content.
+    const initial = derive.mock.calls.filter(([source, , density, options]) => JSON.stringify(source) === JSON.stringify(path)
+      && density === 24 && options?.skipStationaryActions);
     expect(initial).toHaveLength(1);
   });
 
