@@ -1,6 +1,6 @@
 import { CancellationToken } from "builder-util-runtime";
-import type { AppUpdateChannel, AppUpdateProgress, AppUpdateState } from "../core/appUpdates";
-export type { AppUpdateChannel } from "../core/appUpdates";
+import { appUpdateChannel, type AppUpdateChannel, type AppUpdateProgress, type AppUpdateState } from "../core/appUpdates";
+export { appUpdateChannel, type AppUpdateChannel } from "../core/appUpdates";
 
 export interface UpdateVersionInfo {
   version: string;
@@ -56,9 +56,6 @@ export function usesGitHubAppUpdates(
   return true;
 }
 
-export function appUpdateChannel(version: string): AppUpdateChannel {
-  return /^\d+\.\d+\.\d+$/.test(version) ? "latest" : "beta";
-}
 
 /**
  * Decides what a quit means while an update installs. The native installer waits for this

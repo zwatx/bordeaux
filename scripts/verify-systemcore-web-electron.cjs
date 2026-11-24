@@ -78,6 +78,30 @@ app.whenReady().then(async () => {
     await shot('01-opened');
     check('the robot serves the editor and installs its host', { lastProject: before.lastProject });
 
+    // The page ships in the package, so the version it reports is the installed one. Updates come as a new ipk.
+    await click('.place', 'Settings');
+    await wait(() => [...document.querySelectorAll('.settings-row')].some((row) => row.querySelector('strong')?.textContent === 'Software updates'), 'software updates row');
+    const shown = await evaluate(() => [...document.querySelectorAll('.settings-row')].find((row) => row.querySelector('strong')?.textContent === 'Software updates').querySelector('.settings-status').textContent);
+    // A local server runs this checkout's build; an installed robot runs whatever version is installed.
+    const expected = home ? 'Bordeaux ' + require('../package.json').version : null;
+    if (expected ? shown !== expected : !/^Bordeaux \d+\.\d+\.\d+/.test(shown)) throw new Error(`Settings shows ${JSON.stringify(shown)}, expected ${expected ?? 'a version'}`);
+    // Focus first, as a pointer click does, so the panel anchors under the button.
+    await evaluate(() => { const button = [...document.querySelectorAll('.settings-row button')].find((el) => el.textContent.trim() === 'Check for updates'); button.focus(); button.click(); });
+    await wait(() => document.querySelector('.app-update-dialog')?.open, 'update panel');
+    const panel = await evaluate(() => ({ title: document.querySelector('#app-update-title').textContent, description: document.querySelector('.app-update-description')?.textContent,
+      versions: document.querySelector('.app-update-versions').textContent, action: document.querySelector('.app-update-action')?.textContent ?? null }));
+    if (panel.title !== 'Manual update available' || !panel.description?.includes('Add Package') || panel.action !== null || panel.versions !== 'Installed v' + shown.slice('Bordeaux '.length)) {
+      throw new Error('Unexpected update panel: ' + JSON.stringify(panel));
+    }
+    // The hidden window paints the new panel late; give it time so the screenshot shows it.
+    await delay(1500);
+    await shot('01b-software-updates');
+    await evaluate(() => document.querySelector('.app-update-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await wait(() => !document.querySelector('.app-update-dialog')?.open, 'update panel closed');
+    check('Settings shows the installed version and points updates at the release ipk', { shown, panel });
+    await click('.place', 'Paths');
+    await editorReady();
+
     const workspaceOf = async (name) => JSON.parse((await api(`/api/projects/${encodeURIComponent(name)}/workspace`)).contents);
     await save();
     const name = (await api('/api/info')).lastProject;
