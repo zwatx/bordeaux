@@ -65,7 +65,8 @@ async function editorReady() { await wait(() => Boolean(document.querySelector('
 
 app.whenReady().then(async () => {
   try {
-    win = new BrowserWindow({ width: 1440, height: 900, show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    // Shown and unthrottled, like the other UI harnesses: a hidden window can hand capturePage an earlier frame.
+    win = new BrowserWindow({ width: 1440, height: 900, show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     // The desktop shares the inline-font CSP notice; it is not specific to the robot build.
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:font/woff2")) report.errors.push(details.message); });
     await win.loadURL(url);
@@ -90,15 +91,21 @@ app.whenReady().then(async () => {
     await wait(() => document.querySelector('.app-update-dialog')?.open, 'update panel');
     const panel = await evaluate(() => ({ title: document.querySelector('#app-update-title').textContent, description: document.querySelector('.app-update-description')?.textContent,
       versions: document.querySelector('.app-update-versions').textContent, action: document.querySelector('.app-update-action')?.textContent ?? null }));
-    if (panel.title !== 'Manual update available' || !panel.description?.includes('Add Package') || panel.action !== null || panel.versions !== 'Installed v' + shown.slice('Bordeaux '.length)) {
+    if (panel.title !== 'Software updates' || !panel.description?.includes('Add Package') || panel.action !== null || panel.versions !== 'Installed v' + shown.slice('Bordeaux '.length)) {
       throw new Error('Unexpected update panel: ' + JSON.stringify(panel));
     }
-    // The hidden window paints the new panel late; give it time so the screenshot shows it.
-    await delay(1500);
     await shot('01b-software-updates');
+    // All releases opens the releases list in a new tab; the page's window.open is recorded instead of followed.
+    const opened = await evaluate(() => {
+      const urls = [], original = window.open;
+      window.open = (url) => { urls.push(String(url)); return null; };
+      try { document.querySelector('.app-update-link').click(); } finally { window.open = original; }
+      return urls;
+    });
+    if (opened.length !== 1 || opened[0] !== 'https://github.com/zwatx/bordeaux/releases') throw new Error('All releases opened ' + JSON.stringify(opened));
     await evaluate(() => document.querySelector('.app-update-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     await wait(() => !document.querySelector('.app-update-dialog')?.open, 'update panel closed');
-    check('Settings shows the installed version and points updates at the release ipk', { shown, panel });
+    check('Settings shows the installed version and points updates at the release ipk', { shown, panel, opened });
     await click('.place', 'Paths');
     await editorReady();
 

@@ -126,9 +126,11 @@ export function AppUpdateDialog({ state, ownsDeparture, installConfirmation, onC
   const busy = !stalled && ['checking', 'downloading', 'installing'].includes(phase);
   const notes = releaseNoteBlocks(state.releaseNotes);
   const percent = Number.isFinite(progress?.percent) ? Math.min(100, Math.max(0, Math.floor(progress.percent))) : null;
-  const title = stalled ? 'Restart delayed' : ({ available: 'Update available', downloading: 'Downloading update' + (percent == null ? '' : ` (${percent}%)`), downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates…' })[phase] || 'Software updates';
+  // The robot can't tell whether a newer release exists, so its panel names no update.
+  const robotHosted = window.bordeauxAPI?.platform === 'web';
+  const title = stalled ? 'Restart delayed' : phase === 'unsupported' && robotHosted ? 'Software updates' : ({ available: 'Update available', downloading: 'Downloading update' + (percent == null ? '' : ` (${percent}%)`), downloaded: 'Ready to install', upToDate: 'You’re up to date', error: 'Update interrupted', unsupported: 'Manual update available', installing: 'Restarting Bordeaux', checking: 'Checking for updates…' })[phase] || 'Software updates';
   const subtitle = resume?.fact ? 'Couldn’t return to editing · ' + resume.fact : waiting ? 'Returning to editing…'
-    : stalled ? 'Keep working, or download the installer from the release page.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? (window.bordeauxAPI?.platform === 'web' ? 'Download the .ipk from the release page, then add it under Add Package in the SystemCore dashboard.' : 'Download the installer from the release page.')
+    : stalled ? 'Keep working, or download the installer from the release page.' : phase === 'error' ? firstFact(error) : phase === 'unsupported' ? (robotHosted ? 'Download the .ipk from the release page, then add it under Add Package in the SystemCore dashboard.' : 'Download the installer from the release page.')
     : phase === 'downloading' ? [`${updateBytes(progress?.transferred)} of ${updateBytes(progress?.total)}`, progress?.bytesPerSecond > 0 ? `${updateBytes(progress.bytesPerSecond)}/s` : ''].filter(Boolean).join(' · ') : '';
   // The offered version, its change count and its release page close the panel, like a release card.
   const offered = Boolean(version && version !== currentVersion);

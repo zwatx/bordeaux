@@ -56,7 +56,6 @@ export function usesGitHubAppUpdates(
   return true;
 }
 
-
 /**
  * Decides what a quit means while an update installs. The native installer waits for this
  * process to exit, but on Windows a failed installer launch is reported asynchronously, either
