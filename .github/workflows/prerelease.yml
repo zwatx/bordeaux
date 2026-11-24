@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Checked-in beta version, such as 0.2.0-beta.1
-        required: true
+        description: Leave blank for the next beta number, or set one such as 0.3.0-beta.1 to start a new series
+        required: false
         type: string
       unsigned_windows:
         description: Temporarily publish unsigned Windows beta installers
@@ -28,8 +28,13 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes the version commit to main
+      actions: read
     outputs:
       ci-run-id: ${{ steps.ci.outputs.run-id }}
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -40,34 +45,42 @@ jobs:
         run: |
           echo "Beta releases must be dispatched from main; selected ref is $GITHUB_REF."
           exit 1
-      - name: Validate checked-in prerelease version
+      - name: Pick an untagged beta version
+        id: version
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: node scripts/verify-prerelease-version.mjs
-      - name: Require a new Git tag
+        run: node scripts/resolve-prerelease-version.mjs
+      # Every later job builds, tests and tags this commit, not the dispatched one.
+      - name: Commit the version to main
+        id: commit
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          set +e
-          git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo "Tag v$RELEASE_VERSION already exists. Increment the checked-in beta version."
-            exit 1
+          if [ "$(node -p "require('./package.json').version")" != "$RELEASE_VERSION" ]; then
+            npm version "$RELEASE_VERSION" --no-git-tag-version --ignore-scripts
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json
+            git commit -m "chore: release $RELEASE_VERSION"
+            # Not a fast-forward when main moved after dispatch; the run stops before packaging.
+            git push origin HEAD:refs/heads/main
           fi
-          if [ "$status" -ne 2 ]; then exit "$status"; fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Find main CI for the dispatched commit
+      # A pushed version commit has no main CI run (GITHUB_TOKEN pushes start no workflows), so full CI runs here.
+      - name: Find main CI for the release commit
         id: ci
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
         run: node scripts/release-ci.mjs find
 
   ci:
     needs: validate
     if: needs.validate.outputs.ci-run-id == ''
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.validate.outputs.sha }}
 
   verified-ci:
     needs: validate
@@ -76,13 +89,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Require successful main CI for the exact dispatched commit
+      - name: Require successful main CI for the exact release commit
         env:
           GH_TOKEN: ${{ github.token }}
           CI_RUN_ID: ${{ needs.validate.outputs.ci-run-id }}
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
         run: node scripts/release-ci.mjs require
 
   build:
@@ -104,12 +120,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: ./.github/actions/install
         with:
           cache-scope: package
       - name: Validate checked-in prerelease version
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
         run: node scripts/verify-prerelease-version.mjs
       - name: Require macOS signing and notarization credentials
         if: matrix.platform == 'mac'
@@ -207,6 +225,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -220,7 +240,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           UNSIGNED_WINDOWS: ${{ inputs.unsigned_windows }}
           RELEASE_NOTES: ${{ inputs.notes }}
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
         run: |
           if [ "$UNSIGNED_WINDOWS" = "true" ]; then
             RELEASE_NOTES="${RELEASE_NOTES}"$'\n\n'"Windows setup and portable executables in this beta are unsigned. macOS packages are signed and notarized."
