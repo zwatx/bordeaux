@@ -153,9 +153,12 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
   .robot-push-endpoint{grid-template-columns:1fr}
 }
 
-.rfp-compare[open]{display:flex;flex-direction:column;overflow:hidden}
+/* Robot files views keep a fixed size; their bodies scroll instead of growing the window. */
+.rfp-robot-files{width:min(680px,calc(100vw - 32px))}
+.rfp-robot-files[open]{display:flex;flex-direction:column;height:min(680px,calc(100vh - 40px));overflow:hidden}
+.rfp-robot-files>.rfp-body{flex:1 1 0;min-height:0;align-content:start}
+.rfp-robot-files>:is(header,.rfp-footer){flex:none}
 .rfp-view-compare{overflow:auto;overflow-wrap:anywhere}
-.rfp-compare .rfp-footer{flex:none}
 .rfp-compare-table{width:100%;table-layout:fixed;border-collapse:collapse;font-variant-numeric:tabular-nums}
 .rfp-compare-table :is(th,td){padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
 .rfp-compare-table th{font-weight:500;color:var(--txt)}
@@ -163,17 +166,17 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-compare-table [data-changed] td{font-weight:550;color:var(--txt)}
 .rfp-compare-table thead td{width:36%}
 .rfp-compare-notes{margin:0;padding-left:16px;color:var(--txt-2)}
-.rfp-compare-gap{margin-top:-8px}
 .rfp-download-note{min-width:0;overflow-wrap:anywhere;font-size:12px}
 .rfp-download-note+.rfp-actions{flex-shrink:0;max-width:100%}
 @media (max-width:400px){
   .rfp-footer:has(.rfp-download-note){flex-wrap:wrap}
   .rfp-download-note{flex-basis:100%}
 }
-.rfp-inventory{width:min(680px,calc(100vw - 32px))}
 .rfp-inventory-filters{display:flex;flex-wrap:wrap;gap:6px}
 .rfp-inventory-filters [aria-pressed=true]{background:var(--bg-3);border-color:var(--line-3)}
-.rfp-inventory-scroll{overflow:auto;max-height:min(420px,52vh)}
+.rfp-view-inventory{display:flex;flex-direction:column;overflow:hidden}
+.rfp-view-inventory>*{flex:none}
+.rfp-view-inventory>.rfp-inventory-scroll{flex:1 1 0;min-height:0;overflow:auto}
 .rfp-inventory-table{overflow-wrap:anywhere}
 .rfp-inventory-table thead th{position:sticky;top:0;background:var(--bg)}
 .rfp-inventory-table thead th:nth-child(1){width:43%}
@@ -213,7 +216,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-gap-line{stroke:var(--warn-txt);stroke-width:1.5;stroke-dasharray:4 3;stroke-linecap:round}
 .rfp-field-map .rfp-field-gap circle{fill:var(--trace);stroke:#05060a;stroke-width:1}
 .rfp-field-caution{display:block;color:var(--warn-txt);font-size:12px}
-.rfp-compare .rfp-compare-table thead th:first-child{width:38%}
+.rfp-view-compare .rfp-compare-table thead th:first-child{width:38%}
 .rfp-changed-values thead th{color:var(--txt-3);font-size:11.5px}
 /* Column swatches repeat the route legend so each value reads against its line on the field. */
 .rfp-changed-values thead th+th::before{content:"";display:inline-block;width:12px;margin-right:6px;border-top:2px solid var(--accent);vertical-align:middle}

@@ -16,7 +16,9 @@ export function linkedOutside(project, pathIds) {
 }
 const disconnected = { monitoring: false, reachability: 'unknown' };
 const emptyReview = { preview: null, result: null };
-const robotFiles = { inventory: null, row: null, verdicts: {}, comparison: null, copy: null };
+// `inspecting` marks a read of a robot-only file (no local path); the dialog sizes that view from the request,
+// before the comparison arrives, so loading and the result share one size.
+const robotFiles = { inventory: null, row: null, inspecting: false, verdicts: {}, comparison: null, copy: null };
 const readScope = (scope) => scope?.kind === 'inventory' || scope?.kind === 'compare';
 const readPhase = (phase) => ['listing', 'listed', 'list-failed', 'comparing', 'compared', 'compare-failed', 'saving-copy'].includes(phase);
 const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading', 'listing', 'comparing', 'saving-copy'].includes(phase);
@@ -197,7 +199,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = generation.current;
     const wasLoading = state.current.phase === 'loading';
     const detail = scope.kind === 'compare' && scope.fileName;
-    update({ ...(reading ? { preview: null } : emptyReview), ...(detail ? { row: scope.fileName, comparison: null, copy: null } : robotFiles),
+    update({ ...(reading ? { preview: null } : emptyReview), ...(detail ? { row: scope.fileName, inspecting: !pathIds.length, comparison: null, copy: null } : robotFiles),
       error: '', phase: wasLoading ? 'loading' : 'preparing' });
     try { await discard(previous); }
     catch (error) { if (request === generation.current && intent.current === captured) update({ phase: reading ? 'list-failed' : 'failed', error: message(error) }); return; }

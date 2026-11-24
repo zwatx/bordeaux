@@ -336,6 +336,8 @@ await test('A disconnected robot clears the live green indicator while preservin
   assert(button('Connect'), 'Disconnected state offers reconnect');
   await native({ capture: 'disconnected' });
 });
+// Robot files keeps one dialog size per view; captures resize the window, so compare sizes between captures.
+const dialogSize = () => { const box = document.querySelector('.rfp').getBoundingClientRect(); return box.width + '×' + box.height; };
 async function enterRobotFiles(keyboard = false) {
   props = { ...props, noSelection: true }; await act(async () => root.render(<Harness />));
   const trigger = document.querySelector('.push-menu-trigger');
@@ -352,11 +354,13 @@ async function enterRobotFiles(keyboard = false) {
   return trigger;
 }
 const listedAt = new Date('2026-11-23T16:32:00Z').getTime();
-const robotFile = (fileName, size) => ({ fileName, size, mtime: listedAt });
+const robotFile = (fileName, size, mtime = listedAt) => ({ fileName, size, mtime });
+// Robot folders usually hold files pushed on earlier days, like this one from two days before the listing.
+const oldPushAt = listedAt - 2 * 24 * 60 * 60 * 1000;
 const inventoryFixture = {
   endpoint, listedAt, missing: false, truncated: false,
   rows: [
-    { fileName: 'Old center path.BDX', name: 'Old center path.BDX', kind: 'robotOnly', robot: robotFile('Old center path.BDX', 11832) },
+    { fileName: 'Old center path.BDX', name: 'Old center path.BDX', kind: 'robotOnly', robot: robotFile('Old center path.BDX', 11832, oldPushAt) },
     { fileName: 'Left-side-scoring.bdx', name: files[0].name, kind: 'paired', pathId: 'A', robot: robotFile('Left-side-scoring.bdx', 18112) },
     { fileName: 'Return-to-pickup.bdx', name: files[1].name, kind: 'localOnly', pathId: 'B' },
   ],
@@ -387,18 +391,32 @@ await test('Robot files opens without a selection, compares a matched row and re
   assert(mock.lists.length === 1 && !mock.comparisons.length && !mock.prepares.length && !mock.confirms.length, 'Inventory reads the folder only');
   assert(document.activeElement.textContent === 'Cancel', 'Listing initially focuses Cancel');
   await native({ capture: 'robot-files-listing' });
+  const listSize = dialogSize();
   await resolve(mock.lists[0], inventoryFixture);
   assert(document.activeElement.textContent === 'All 3', 'Inventory focuses its filters');
+  assert(dialogSize() === listSize, 'Listing and the list share one dialog size');
+  const modified = (fileName) => document.querySelector(`[data-robot-file="${fileName}"]`).closest('tr').cells[1].querySelector('small');
+  const oldDate = new Date(oldPushAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  assert(modified('Old center path.BDX').textContent === oldDate && modified('Old center path.BDX').title === new Date(oldPushAt).toLocaleString(),
+    'A file pushed on an earlier day shows its date, with the full time in its title');
+  assert(modified('Left-side-scoring.bdx').textContent === new Date(listedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    'A file changed the day of the listing shows its time of day');
   await native({ capture: 'robot-files-inventory' });
+  const filterSize = dialogSize();
   await pointer('On both 1');
   assert(!button('Inspect') && button('Compare'), 'On both filter shows just the matched path');
+  assert(dialogSize() === filterSize, 'Filtering keeps the dialog size');
   button('Compare').focus();
   await act(async () => native({ key: 'Enter' }));
+  const compareSize = dialogSize();
   const request = mock.comparisons[0];
   assert(request?.args[2] === 'A' && request.args[3] === 'Left-side-scoring.bdx', 'Comparison reads just the matched row');
   assert(document.activeElement.textContent === 'Cancel', 'Reading initially focuses Cancel');
   await resolve(request, comparisonFixture(request));
   assert(document.activeElement.classList.contains('rfp-compare-verdict'), 'Review focuses the verdict');
+  assert(dialogSize() === compareSize, 'Reading and the comparison share one dialog size');
+  const reviewText = document.querySelector('.rfp').textContent;
+  assert(!reviewText.includes('Widest gap') && !reviewText.includes('Editable waypoints'), 'The review leaves out the gap and source notes');
   const table = document.querySelector('.rfp-changed-values'), map = document.querySelector('.rfp-field-map');
   assert(!document.querySelector('.rfp-field figcaption'), 'The field has no explanatory caption when both routes can be shown');
   assert(map.querySelectorAll('.rfp-route-stroke').length === 2 && map.querySelectorAll('.rfp-route-arrow').length === 6, 'Both compiled traces show travel direction');
@@ -431,9 +449,13 @@ await test('Robot files opens without a selection, compares a matched row and re
   await pointer('Robot');
   const all = document.querySelector('.rfp-all-values');
   assert(!all.open && all.textContent.includes('20.70 ft'), 'Unchanged distance stays available in All values');
-  all.querySelector('summary').focus();
+  const summary = all.querySelector('summary'), closedSize = dialogSize();
+  summary.focus();
   await act(async () => native({ key: 'Enter' }));
   assert(all.open, 'All values is keyboard operable');
+  assert(dialogSize() === closedSize && document.querySelector('.rfp-view-compare').scrollHeight > document.querySelector('.rfp-view-compare').clientHeight,
+    'Expanding All values scrolls the review instead of resizing the dialog');
+  await native({ capture: 'robot-files-all-values-open' });
   await act(async () => native({ key: 'Enter' }));
   await act(async () => native({ key: 'Tab' }));
   assert(document.activeElement === button('All files'), 'Tab reaches the review footer from All values');
@@ -523,8 +545,10 @@ await test('Robot files pairs a new robot and downloads an absent local path aft
   await pointer('Trust host key'); await resolve(mock.trusts[0], connection);
   assert(mock.lists.length === 1 && !mock.prepares.length, 'Trust continues to the inventory');
   await resolve(mock.lists[0], inventoryFixture);
+  const listSize = dialogSize();
   await pointer('Robot only 1');
   await pointer('Inspect');
+  assert(dialogSize() === listSize, 'Inspect opens at the list size');
   const request = mock.comparisons[0];
   assert(!request.args[2] && request.args[3] === 'Old center path.BDX', 'Robot-only inspection needs no local path ID');
   await resolve(request, comparisonFixture(request, { verdict: 'robotOnly', robotOnly: true, name: 'Center pickup', routes: { robot: robotRoute },
@@ -533,10 +557,12 @@ await test('Robot files pairs a new robot and downloads an absent local path aft
       ['Events', '—', 2], ['Field frame', '—', '2026 Rebuilt · wpilib-blue-origin'], ['Planner', '—', 'bezier'], ['Format', '—', 'BDX 1.1']],
     eventChanges: { omitted: 0, rows: [['Intake on', 1.2], ['Intake off', 3.9]].map(([name, time]) =>
       ({ id: name, robot: { name, time }, values: [], notes: [] })) } }));
+  assert(dialogSize() === listSize, 'Reading and the inspected file share the list size');
   assert(!button('Read again') && button('Download .bdx…')?.closest('footer') && !document.querySelector('.rfp-compare-table').textContent.includes('This computer'), 'Robot-only details show only deployed values');
   assert(document.querySelector('.rfp-events').textContent.includes('Intake off3.90 s')
     && !document.querySelector('.rfp-events').textContent.includes('Not present'), 'Robot-only review lists events in one value column');
   await native({ capture: 'robot-files-orphan' });
+  const inspectSize = dialogSize();
   await pointer('Download .bdx…');
   await reject(mock.copies[0], 'Paths/ is rebuilt from your project on every Save. Choose another folder.');
   assert(button('Download .bdx…') && document.querySelector('footer .rfp-alert'), 'Save failure appears next to the download action');
@@ -544,6 +570,7 @@ await test('Robot files pairs a new robot and downloads an absent local path aft
   await pointer('Download .bdx…');
   await resolve(mock.copies[1], { name: 'Old center path.BDX', folder: 'Downloads', size: 11832 });
   assert(document.querySelector('dialog').textContent.includes('11,832 bytes verified'), 'Copy confirms the original filename and exact byte count');
+  assert(dialogSize() === inspectSize, 'A download failure or result keeps the dialog size');
   await native({ capture: 'robot-files-copy-saved' });
   const dialogBox = document.querySelector('.rfp').getBoundingClientRect(), doneBox = button('Done').getBoundingClientRect();
   assert(doneBox.bottom <= dialogBox.bottom && doneBox.bottom <= innerHeight, 'Copy result keeps the footer inside the window');
