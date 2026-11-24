@@ -16,8 +16,8 @@ export function linkedOutside(project, pathIds) {
 }
 const disconnected = { monitoring: false, reachability: 'unknown' };
 const emptyReview = { preview: null, result: null };
-// `inspecting` marks a read of a robot-only file (no local path); the dialog sizes that view from the request,
-// before the comparison arrives, so loading and the result share one size.
+// `inspecting` marks a read of a robot-only row (no local path); the dialog opens that read at the list size. The
+// result can still be a two-route comparison when the file's saved path ID matches a local path.
 const robotFiles = { inventory: null, row: null, inspecting: false, verdicts: {}, comparison: null, copy: null };
 const readScope = (scope) => scope?.kind === 'inventory' || scope?.kind === 'compare';
 const readPhase = (phase) => ['listing', 'listed', 'list-failed', 'comparing', 'compared', 'compare-failed', 'saving-copy'].includes(phase);

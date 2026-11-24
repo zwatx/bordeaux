@@ -103,7 +103,8 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .push-menu [role="menuitem"][aria-disabled]{cursor:default}
 .push-menu [role="menuitem"][aria-disabled]>.push-menu-label{color:var(--txt-3)}
 .push-menu hr{height:1px;margin:5px 0;border:0;background:var(--line)}
-.rfp{width:min(480px,calc(100vw - 32px))}
+/* The robot route color lives on every view: an Inspect can come back as a two-route comparison. */
+.rfp{width:min(480px,calc(100vw - 32px));--robot-route:oklch(.77 .13 295)}
 .rfp h2{font-size:15px}
 .rfp-body{display:grid;gap:12px;padding:12px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.5}
 .rfp-body strong{color:var(--txt);font-weight:600}
@@ -185,7 +186,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-inventory-table small{display:block;color:var(--txt-3);font-size:11px}
 .rfp-inventory-table [data-verdict=conflict],.rfp-inventory-table [data-verdict=robotUnreadable]{color:var(--warn)}
 
-.rfp-field-dialog{width:min(760px,calc(100vw - 32px));--robot-route:oklch(.77 .13 295)}
+.rfp-field-dialog{width:min(760px,calc(100vw - 32px))}
 .rfp-field-review,.rfp-field-changes{display:grid;align-content:start;gap:12px;min-width:0}
 .rfp-field-changes{gap:8px}
 .rfp-field-dialog .rfp-footer{padding-block:12px}

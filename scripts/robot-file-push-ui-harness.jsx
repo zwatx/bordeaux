@@ -578,6 +578,45 @@ await test('Robot files pairs a new robot and downloads an absent local path aft
   props = { ...props, projectKey: 'other' }; await act(async () => root.render(<Harness />));
   assert(!controller.comparison && !controller.inventory && !button('Download .bdx…') && document.querySelector('.rfp-alert').textContent.includes('The project changed'), 'Project switch invalidates the file and inventory');
 }, null);
+await test('Inspecting a robot file that matches a local path draws both routes at the field size', async () => {
+  // Inventory pairs rows by filename; the desktop then matches by the path ID saved in the file. A file pushed before
+  // its path was renamed, or one of two local paths sharing a filename, comes back from Inspect as a full comparison.
+  const conflictRow = { fileName: 'Center-pickup.bdx', name: 'Center pickup · Center pickup copy', kind: 'conflict',
+    robot: robotFile('Center-pickup.bdx', 15020), detail: '2 local paths use this filename' };
+  await enterRobotFiles();
+  await resolve(mock.lists[0], { ...inventoryFixture, rows: [...inventoryFixture.rows, conflictRow] });
+  const listSize = dialogSize();
+  await pointer('Compare');
+  const compared = mock.comparisons[0];
+  await resolve(compared, comparisonFixture(compared));
+  const fieldSize = dialogSize();
+  assert(document.querySelector('.rfp').classList.contains('rfp-field-dialog') && fieldSize !== listSize, 'Compare uses the field size');
+  const robotRouteDrawn = (message) => {
+    const stroke = (route) => getComputedStyle(document.querySelector(`.rfp-field-map [data-route=${route}] .rfp-route-stroke`)).stroke;
+    assert(stroke('robot') !== 'none' && stroke('robot') !== stroke('local'), message + ': the robot route is drawn in its own color');
+    for (const swatch of [document.querySelector('.rfp-field-tools [data-route=robot]'), document.querySelector('.rfp-changed-values thead th:last-child')]) {
+      const line = getComputedStyle(swatch, '::before');
+      assert(line.borderTopStyle === 'dashed' && line.borderTopWidth === '2px' && line.borderTopColor === stroke('robot'), message + ': the robot legend swatch matches the route');
+    }
+  };
+  robotRouteDrawn('Compare');
+  await pointer('All files');
+  await pointer('Inspect Old center path.BDX');
+  const renamed = mock.comparisons[1];
+  assert(!renamed.args[2] && dialogSize() === listSize, 'Inspect reads at the list size');
+  await resolve(renamed, comparisonFixture(renamed, { fileName: 'Old center path.BDX', expectedFileName: 'Left-side-scoring.bdx' }));
+  assert(document.querySelector('.rfp').textContent.includes('Push uses its current filename, Left-side-scoring.bdx.'), 'The review names the renamed file');
+  robotRouteDrawn('Renamed path');
+  assert(document.querySelector('.rfp-field-dialog') && dialogSize() === fieldSize, 'A renamed path’s comparison grows to the field size');
+  await native({ capture: 'robot-files-renamed-inspect' });
+  await pointer('All files');
+  await pointer('Inspect ' + conflictRow.name);
+  const conflict = mock.comparisons[2];
+  await resolve(conflict, comparisonFixture(conflict, { fileName: conflictRow.fileName, name: 'Center pickup' }));
+  assert(document.querySelector('.rfp-field-dialog') && document.querySelectorAll('.rfp-route-stroke').length === 2, 'A filename conflict that matches by ID shows the field');
+  robotRouteDrawn('Filename conflict');
+  await native({ capture: 'robot-files-conflict-inspect' });
+});
 await test('A missing robot folder leaves local paths available and reports no robot files', async () => {
   await enterRobotFiles();
   await resolve(mock.lists[0], { ...inventoryFixture, missing: true, rows: [inventoryFixture.rows[2]] });

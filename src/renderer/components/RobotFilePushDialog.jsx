@@ -172,6 +172,10 @@ function CompareFacts({ rows, label, robotOnly = false, changesOnly = false, eve
     eventChanges && h(EventRows, { changes: eventChanges, counts: eventCounts, robotOnly }));
 }
 
+// A comparison with a local path and readable routes draws both on the field and needs the wide dialog. The desktop
+// matches a robot file to a local path by the path ID saved inside it, so an Inspect of a robot-only row can return one.
+const showsField = (comparison) => !!comparison?.routes && !comparison.robotOnly && comparison.verdict !== 'robotUnreadable';
+
 function Comparison({ controller: c, verdictRef }) {
   const { verdict, name, robotName, fileName, localError, robotError, local, robot, facts, notes, eventChanges, expectedFileName, robotOnly, routes, widestGap } = c.comparison;
   const verdicts = {
@@ -198,7 +202,7 @@ function Comparison({ controller: c, verdictRef }) {
     robotOnly && name !== fileName && h('p', { className: 'rfp-note' }, fileName),
     expectedFileName && h('p', { className: 'rfp-note' }, 'The robot has this path as ' + fileName + '. Push uses its current filename, ' + expectedFileName + '.'),
     localError && h('p', { className: 'rfp-note' }, 'Local BDX unavailable · ' + localError),
-    robotOnly || !routes || verdict === 'robotUnreadable' ? h(React.Fragment, null, table, comparisonNotes) :
+    !showsField(c.comparison) ? h(React.Fragment, null, table, comparisonNotes) :
       h('div', { className: 'rfp-field-review' },
         h(RobotPathField, { routes, verdict, widestGap, gap }),
         h('div', { className: 'rfp-field-changes' },
@@ -367,11 +371,13 @@ export function RobotFilePushDialog({ controller: c }) {
     ];
   }
 
-  // Robot files keeps one size per view, chosen from the request rather than its result, so loading, expanding values,
-  // filtering or downloading never resizes the window. The list and Inspect share a size; Compare uses the field size.
+  // Robot files keeps one size per view, so expanding values, filtering or downloading never resizes the window. The list
+  // and Inspect share a size; Compare uses the field size. A read opens at its request's size, and an Inspect grows once
+  // when its file matched a local path and the result draws both routes.
   const filesView = listing || listed || listFailed || compareView;
+  const fieldSize = compareView && (!c.inspecting || showsField(c.comparison));
   return h('dialog', { ref: dialog, className: 'robot-push-dialog robot-manager rfp' + (filesView ? ' rfp-robot-files' : '')
-      + (compareView && !c.inspecting ? ' rfp-field-dialog' : ''), 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy,
+      + (fieldSize ? ' rfp-field-dialog' : ''), 'aria-labelledby': 'robot-file-title', 'aria-busy': c.busy,
     onCancel: (event) => { event.preventDefault(); if (c.phase === 'comparing' && c.inventory) c.backToRobotFiles(); else c.close(); } },
     h('header', null, h('h2', { id: 'robot-file-title' }, title), h('button', { type: 'button', className: 'robot-push-close', 'aria-label': 'Close robot files', disabled: c.phase === 'saving-copy', onClick: c.close }, '×')),
     h('div', { key: view, className: 'rfp-body rfp-view-' + view, role: view === 'working' || view === 'done' ? 'status' : undefined }, body),
