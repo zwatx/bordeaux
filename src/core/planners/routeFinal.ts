@@ -1,9 +1,9 @@
 import { clone } from "../project/defaults";
-import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult } from "../types";
+import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult, RouteGeometry } from "../types";
 import { authoredPath, stable } from "./acceptedTrajectoryIdentity";
 import type { CorridorSearchStatistics } from "./corridorFinal";
 import { optimizeFixedGeometryFinal } from "./fixedGeometryFinal";
-import { getPlanner } from "./index";
+import { fixedGeometryFirstPassTime, getPlanner } from "./index";
 import { routeCandidates } from "./routeCandidates";
 import { geometryFromPath, routePlanningPath, routeResultToSource, routeUnsupportedReason } from "./routeGeometry";
 import { routeCandidateFailure, routeCandidateIssue } from "./routeValidation";
@@ -26,6 +26,47 @@ export interface RouteSearchResult {
   reason?: string;
   termination: NonNullable<PlannerOptimizationDiagnostics["termination"]>;
   statistics: CorridorSearchStatistics;
+}
+
+/**
+ * A candidate is dropped after its first timing solve when that is this far above
+ * the time it must beat. The final time of a curve has measured at most 2.3%
+ * below its first pass (1.0% among valid curves) over the 784 candidates of the
+ * optimizer eval scenarios on two robots, so 5% leaves a factor of two.
+ */
+const FIRST_PASS_GUARD = 0.05;
+const NOT_FASTER = "Not faster than the current result.";
+
+/**
+ * Identifies the curve a geometry traces rather than its handles, where that is
+ * cheap to know. A segment whose handles lie on its chord, in order, is that
+ * chord whatever their lengths, so candidates that differ only there are one
+ * route. Timing them separately only moves the sample points: the results have
+ * measured within 0.01 s of each other, under the 0.02 s the search requires
+ * before it prefers a route. Curved segments keep their exact handles.
+ */
+function curveKey(geometry: RouteGeometry): string {
+  const segments = geometry.knots.slice(0, -1).map((knot, index) => {
+    const end = geometry.knots[index + 1];
+    const chordX = end.x - knot.x;
+    const chordY = end.y - knot.y;
+    const lengthSquared = chordX ** 2 + chordY ** 2;
+    if (lengthSquared > 1e-18) {
+      const length = Math.sqrt(lengthSquared);
+      // Signed distance from the chord's line, and position along the chord from 0 to 1.
+      const offLine = (point: { x: number; y: number }) => Math.abs((point.x - knot.x) * chordY - (point.y - knot.y) * chordX) / length;
+      const along = (point: { x: number; y: number }) => ((point.x - knot.x) * chordX + (point.y - knot.y) * chordY) / lengthSquared;
+      const first = along(knot.nextC);
+      const second = along(end.prevC);
+      if (offLine(knot.nextC) <= 1e-9 && offLine(end.prevC) <= 1e-9 && first >= 0 && first <= second && second <= 1) return "chord";
+    }
+    return [knot.nextC, end.prevC];
+  });
+  return stable({
+    knots: geometry.knots.map(({ x, y, smooth }) => ({ x, y, smooth })),
+    requiredPointIndices: geometry.requiredPointIndices,
+    segments,
+  });
 }
 
 /** Task-based route selection. Legacy strict/corridor search is unchanged. */
@@ -72,7 +113,12 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
     optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus, ...(seedIssue ? { seedIssue } : {}),
     ...(baseline ? { baselineTimeS: baseline.totalTimeS, gainS: baseline.totalTimeS - result.totalTimeS } : {}),
   } });
-  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < Math.max(0.02, baseline.totalTimeS * 0.005) ? baseline : best;
+  const materialGain = (normal: PlannerResult) => Math.max(0.02, normal.totalTimeS * 0.005);
+  const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < materialGain(baseline) ? baseline : best;
+  /** The total time a candidate must beat to replace the incumbent. */
+  const timeToBeat = () => best ? best.totalTimeS - 1e-6 : Number.POSITIVE_INFINITY;
+  /** The total time a candidate must beat for the search to return it instead of Normal. */
+  const timeToMatter = () => Math.min(timeToBeat(), baseline ? baseline.totalTimeS - materialGain(baseline) : Number.POSITIVE_INFINITY);
   let lastPublished: PlannerResult | undefined;
   let lastPublishedSeedStatus: RouteSearchResult["seedStatus"] | undefined;
   const publish = () => {
@@ -86,19 +132,27 @@ export function optimizeRouteFinal(input: PlannerInput, options: RouteFinalOptio
 
   const seen = new Set<string>();
   const evaluate = (geometry: ReturnType<typeof geometryFromPath>) => {
-    const key = stable(geometry);
+    const key = curveKey(geometry);
     if (seen.has(key)) return;
     seen.add(key);
     evaluations++;
     const began = performance.now();
     try {
       const path = routePlanningPath(source.path, geometry);
-      const candidate = decorate(routeResultToSource(optimizeFixedGeometryFinal({ ...source, path }), geometry, path));
-      const failure = routeCandidateFailure(source, candidate);
-      if (failure) reject(failure);
+      const planning = { ...source, path };
+      const limit = timeToMatter();
+      // The full plan below reuses this first solve, so the probe costs a surviving candidate nothing.
+      const firstPassTimeS = Number.isFinite(limit) ? fixedGeometryFirstPassTime(planning) : null;
+      if (firstPassTimeS !== null && firstPassTimeS > limit * (1 + FIRST_PASS_GUARD)) reject(NOT_FASTER);
       else {
-        validatedCandidates++;
-        if (!best || candidate.totalTimeS < best.totalTimeS - 1e-6) best = candidate;
+        const candidate = decorate(routeResultToSource(optimizeFixedGeometryFinal(planning), geometry, path));
+        // A candidate that cannot replace the incumbent changes nothing, valid or not.
+        const failure = candidate.totalTimeS < timeToBeat() ? routeCandidateFailure(source, candidate) : NOT_FASTER;
+        if (failure) reject(failure);
+        else {
+          validatedCandidates++;
+          best = candidate;
+        }
       }
     } catch (error) {
       reject(error instanceof Error ? error.message : "Route evaluation failed.");

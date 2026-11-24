@@ -14,6 +14,7 @@ import { validateOptimizedTrajectory, type TrajectoryValidationResult } from "./
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
 import { orderedWaypointSampleIndices } from "./waypointSamples";
 import { resolveCgHeightM } from "../loadTransfer";
+import { rememberByInput } from "./rememberByInput";
 
 const R = (value: number, places = 4) => Number(value.toFixed(places));
 const MAX_REFINEMENT_PASSES = 2;
@@ -391,11 +392,36 @@ function diagnostics(
   };
 }
 
+/** The spline seed and the first timing solve on it, shared between a first-pass probe and the full plan. */
+const derivedSeed = rememberByInput(2, (input) => profiledSplineOptimizationInputs(input));
+const firstPass = rememberByInput(2, (input) => {
+  const optimizationSamples = insertOptimizationBoundaries(input, derivedSeed(input).seed.samples);
+  const reachabilityInput = buildReachabilityInput(input, optimizationSamples);
+  return { optimizationSamples, reachabilityInput, reachability: solveReachabilityProfile(reachabilityInput) };
+});
+
+/**
+ * Duration of the first timing solve the planner runs for a physical planning
+ * input, or null when it is not optimal. Uses the same time integration as
+ * remapTiming, unrounded.
+ */
+export function firstPassDuration(input: PlannerInput): number | null {
+  if (derivedSeed(input).base.samples.length < 2 || (input.path.constraints.maxJerk ?? 0) > 0) return null;
+  const { optimizationSamples, reachability } = firstPass(input);
+  if (reachability.status !== "optimal") return null;
+  let duration = 0;
+  for (let index = 1; index < optimizationSamples.length; index += 1) {
+    const distance = Math.max(0, optimizationSamples[index].s - optimizationSamples[index - 1].s);
+    duration += distance / Math.max(1e-6, (reachability.velocities[index] + reachability.velocities[index - 1]) * 0.5);
+  }
+  return duration;
+}
+
 export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
   id: "optimizedTrajectory",
   generate(input): PlannerResult {
     const started = performance.now();
-    const { base, seed: optimizationSeed } = profiledSplineOptimizationInputs(input);
+    const { base, seed: optimizationSeed } = derivedSeed(input);
     const solveTimeMs = performance.now() - started;
 
     if (base.samples.length < 2) {
@@ -435,10 +461,17 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
       let samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT;
       let totalIterations = 0;
       for (let refinementPasses = 0; refinementPasses <= MAX_REFINEMENT_PASSES; refinementPasses += 1) {
-        const optimizationSamples = insertOptimizationBoundaries(input, candidateBase.samples);
+        // The first pass may already be solved by a probe of this same input.
+        const optimizationSamples = refinementPasses === 0
+          ? firstPass(input).optimizationSamples
+          : insertOptimizationBoundaries(input, candidateBase.samples);
         const waypointSampleIndices = remapWaypointIndices(candidateBase, optimizationSamples);
-        const reachabilityInput = buildReachabilityInput(input, optimizationSamples);
-        const reachability = solveReachabilityProfile(reachabilityInput);
+        const reachabilityInput = refinementPasses === 0
+          ? firstPass(input).reachabilityInput
+          : buildReachabilityInput(input, optimizationSamples);
+        const reachability = refinementPasses === 0
+          ? firstPass(input).reachability
+          : solveReachabilityProfile(reachabilityInput);
         totalIterations += reachability.iterations;
         if (reachability.status !== "optimal") {
           const reason = reachability.reason ?? "The fixed-path optimizer could not produce a trajectory.";

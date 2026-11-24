@@ -1,5 +1,6 @@
 import type { PlannerInput, PlannerResult, TrajectoryPlanner, TrajectoryPlannerId } from "../types";
 import {
+  firstPassDuration,
   optimizedTrajectoryPlanner,
   retimeTrajectoryWithVelocityLimits,
   scaleTrajectoryTiming,
@@ -134,6 +135,22 @@ export function canonicalPlanningInput(input: PlannerInput): {
       }
     : physicalInput;
   return { physicalInput, planningInput };
+}
+
+/**
+ * How long the path takes after the planner's first timing solve: the base sample
+ * grid under every constraint, before dense validation, repair, or refinement.
+ * It costs a fraction of a full plan and lands within a few percent of the final
+ * duration, so a search can use it to drop curves that are clearly too slow.
+ * Returns null when that solve fails; the full planner then reports why.
+ */
+export function fixedGeometryFirstPassTime(input: PlannerInput): number | null {
+  if (electricalConfigurationError(input.robot)) return null;
+  try {
+    return firstPassDuration(canonicalPlanningInput(input).planningInput);
+  } catch {
+    return null;
+  }
 }
 
 const rememberedPlans: Record<TrajectoryPlannerId, (input: PlannerInput) => PlannerResult> = {
