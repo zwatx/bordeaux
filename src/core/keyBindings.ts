@@ -49,7 +49,10 @@ export interface KeyContext {
   readonly routinesPage?: boolean;
 }
 
-/** One rule. `key` is modifiers and one key joined by "+", such as "mod+shift+s"; "mod" is ⌘ on macOS and Ctrl elsewhere. */
+/**
+ * One rule. `key` is modifiers and one key joined by "+", such as "mod+shift+s"; "mod" is ⌘ on macOS and Ctrl
+ * elsewhere. A user rule with an empty key unbinds its command: it replaces the defaults and matches nothing.
+ */
 export interface KeyRule {
   readonly key: string;
   readonly command: CommandId;
@@ -221,22 +224,27 @@ function eventKeys(event: KeyEventLike): Set<string> {
  * Whether an event presses `shortcut`. Two cases stay looser than exact matching, as Bordeaux's handlers always were:
  * "mod" accepts ⌘ or Ctrl on every platform, and a plain letter also fires with Shift held.
  */
-export function matchesShortcut(event: KeyEventLike, shortcut: Shortcut, mac: boolean): boolean {
+export function matchesShortcut(event: KeyEventLike, shortcut: Shortcut, mac: boolean, looseShift = true): boolean {
   // AltGr types characters such as "\" on German layouts; those presses are text, never shortcuts.
   if (!mac && event.getModifierState?.('AltGraph') && !/^[a-z0-9]$/i.test(event.key)) return false;
   const ctrl = !!event.ctrlKey, meta = !!event.metaKey;
   if (shortcut.mod ? !(ctrl || meta) || (shortcut.ctrl && !ctrl) || (shortcut.meta && !meta) : ctrl !== shortcut.ctrl || meta !== shortcut.meta) return false;
   if (!!event.altKey !== shortcut.alt) return false;
-  const plainLetter = /^[a-z]$/.test(shortcut.key) && !shortcut.mod && !shortcut.ctrl && !shortcut.meta && !shortcut.alt;
+  const plainLetter = looseShift && /^[a-z]$/.test(shortcut.key) && !shortcut.mod && !shortcut.ctrl && !shortcut.meta && !shortcut.alt && !shortcut.shift;
   if (!plainLetter && !!event.shiftKey !== shortcut.shift) return false;
   return eventKeys(event).has(shortcut.key);
 }
 
-/** The command a key press runs: the last rule whose key and condition both match, or null. */
+/**
+ * The command a key press runs: the last rule whose key and condition both match, or null. An exact match wins over
+ * a plain letter accepting Shift, so Shift+V for one command and V for another both work.
+ */
 export function commandForEvent(rules: readonly ResolvedKeyRule[], event: KeyEventLike, context: KeyContext, mac: boolean): CommandId | null {
-  for (let index = rules.length - 1; index >= 0; index -= 1) {
-    const rule = rules[index]!;
-    if (evaluateWhen(rule.when, context) && matchesShortcut(event, rule.shortcut, mac)) return rule.command;
+  for (const looseShift of [false, true]) {
+    for (let index = rules.length - 1; index >= 0; index -= 1) {
+      const rule = rules[index]!;
+      if (evaluateWhen(rule.when, context) && matchesShortcut(event, rule.shortcut, mac, looseShift)) return rule.command;
+    }
   }
   return null;
 }
@@ -285,7 +293,7 @@ export function ariaShortcut(shortcut: Shortcut, mac: boolean): string {
 export function menuAccelerator(rules: readonly ResolvedKeyRule[], command: CommandId): string | undefined {
   const shortcut = shortcutsFor(rules, command)[0];
   if (!shortcut) return undefined;
-  return [shortcut.mod && 'CmdOrCtrl', shortcut.ctrl && 'Ctrl', shortcut.meta && 'Cmd', shortcut.alt && 'Alt', shortcut.shift && 'Shift',
+  return [shortcut.mod && 'CmdOrCtrl', shortcut.ctrl && 'Ctrl', shortcut.meta && 'Super', shortcut.alt && 'Alt', shortcut.shift && 'Shift',
     keyName(shortcut.key)].filter(Boolean).join('+');
 }
 
@@ -295,30 +303,45 @@ export function menuAccelerator(rules: readonly ResolvedKeyRule[], command: Comm
 
 /** Commands the native File menu owns. Electron's menu catches their keys everywhere, even while someone types. */
 export const MENU_COMMANDS: ReadonlySet<CommandId> = new Set(['project.new', 'project.list', 'project.openFile', 'project.save', 'project.saveCopy', 'export.bdx']);
+/** Commands that work while someone types: the File menu's, and Push, whose key also works from a text field. */
+export const TYPING_COMMANDS: ReadonlySet<CommandId> = new Set([...MENU_COMMANDS, 'robot.push']);
+// Text fields undo and redo with these; a command that works while typing can't take them.
+const TEXT_EDIT_SHORTCUTS = ['mod+z', 'mod+shift+z', 'mod+y'].map((key) => parseShortcut(key)!);
 const MAX_USER_RULES = 256;
-// Keys the app depends on: selection editing, focus and dialog keys at any modifier, plus clipboard, library rename
-// and the Windows menu keys.
+// Keys the app depends on: selection editing, focus and dialog keys at any modifier, plus clipboard, library rename,
+// the Windows menu keys, and the Electron menu roles (zoom, developer tools, full screen, close and quit).
 const RESERVED_KEYS = new Set(['escape', 'tab', 'enter', 'backspace', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
-const RESERVED_SHORTCUTS = ['f2', 'f10', 'shift+f10', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'alt+f', 'alt+r', 'alt+a', 'alt+v', 'alt+h']
+const RESERVED_SHORTCUTS = ['f2', 'f10', 'shift+f10', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'alt+f', 'alt+r', 'alt+a', 'alt+v', 'alt+h',
+  'mod+=', 'mod+-', 'mod+0', 'mod+shift+i', 'mod+alt+i', 'f11', 'mod+w', 'mod+q']
   .map((key) => parseShortcut(key)!);
 
 /** Why a rule can't be used, or null. */
 export type RuleProblem =
   | { readonly kind: 'reserved' }
-  | { readonly kind: 'menu-needs-mod' }
+  | { readonly kind: 'needs-mod' }
   | { readonly kind: 'menu-taken'; readonly by: CommandId };
 
-function isReserved(shortcut: Shortcut): boolean {
-  if (RESERVED_KEYS.has(shortcut.key)) return true;
-  const command = shortcut.mod || shortcut.ctrl || shortcut.meta;
-  return RESERVED_SHORTCUTS.some((reserved) => reserved.key === shortcut.key && reserved.mod === command && reserved.shift === shortcut.shift && reserved.alt === shortcut.alt);
+function hasCommandKey(shortcut: Shortcut): boolean {
+  return shortcut.mod || shortcut.ctrl || shortcut.meta;
 }
 
-/** Checks one rule against the others: reserved keys, a File menu key without ⌘/Ctrl, and two File menu commands on one key. */
+function inList(list: readonly Shortcut[], shortcut: Shortcut): boolean {
+  return list.some((entry) => entry.key === shortcut.key && entry.mod === hasCommandKey(shortcut) && entry.shift === shortcut.shift && entry.alt === shortcut.alt);
+}
+
+/**
+ * Checks one rule against the others. Refused: reserved keys; Space for anything but playback, since Space also
+ * presses the focused button; for commands that work while typing, a key without ⌘/Ctrl or a text undo key; two File
+ * menu commands on one key.
+ */
 export function ruleProblem(rules: readonly ResolvedKeyRule[], rule: ResolvedKeyRule): RuleProblem | null {
-  if (isReserved(rule.shortcut)) return { kind: 'reserved' };
+  const { shortcut } = rule;
+  if (RESERVED_KEYS.has(shortcut.key) || inList(RESERVED_SHORTCUTS, shortcut)) return { kind: 'reserved' };
+  if (shortcut.key === ' ' && !hasCommandKey(shortcut) && !shortcut.alt && rule.command !== 'playback.toggle') return { kind: 'reserved' };
+  if (!TYPING_COMMANDS.has(rule.command)) return null;
+  if (!hasCommandKey(shortcut)) return { kind: 'needs-mod' };
+  if (inList(TEXT_EDIT_SHORTCUTS, shortcut)) return { kind: 'reserved' };
   if (!MENU_COMMANDS.has(rule.command)) return null;
-  if (!rule.shortcut.mod && !rule.shortcut.ctrl && !rule.shortcut.meta) return { kind: 'menu-needs-mod' };
   const id = shortcutId(rule.shortcut);
   const other = rules.find((candidate) => candidate.command !== rule.command && MENU_COMMANDS.has(candidate.command) && shortcutId(candidate.shortcut) === id);
   return other ? { kind: 'menu-taken', by: other.command } : null;
@@ -338,16 +361,22 @@ export function sanitizeUserKeyRules(value: unknown): KeyRule[] {
   const parsed = value.slice(0, MAX_USER_RULES).flatMap((item): KeyRule[] => {
     if (typeof item !== 'object' || item === null) return [];
     const { key, command, when } = item as Record<string, unknown>;
-    if (typeof key !== 'string' || !key.trim() || key.length > 64 || !isCommandId(command)) return [];
+    if (typeof key !== 'string' || key.length > 64 || !isCommandId(command)) return [];
+    if (!key.trim()) return [{ key: '', command }];
     if (when !== undefined && (typeof when !== 'string' || !when.trim() || when.length > 256)) return [];
     const rule: KeyRule = when === undefined ? { key: key.trim(), command } : { key: key.trim(), command, when: when.trim() };
     return compileKeyRules([rule]).length ? [rule] : [];
   });
   const overridden = new Set(parsed.map((rule) => rule.command));
   const accepted = DEFAULT_RESOLVED_KEY_RULES.filter((rule) => !overridden.has(rule.command));
+  const menuKeyed = new Set<CommandId>();
   return parsed.filter((rule) => {
-    const resolved = compileKeyRules([rule])[0]!;
+    const resolved = compileKeyRules([rule])[0];
+    if (!resolved) return true;
+    // The File menu shows one key per item, so a second key there would be listed but never work.
+    if (MENU_COMMANDS.has(rule.command) && menuKeyed.has(rule.command)) return false;
     if (ruleProblem(accepted, resolved)) return false;
+    if (MENU_COMMANDS.has(rule.command)) menuKeyed.add(rule.command);
     accepted.push(resolved);
     return true;
   });
@@ -357,4 +386,77 @@ export function sanitizeUserKeyRules(value: unknown): KeyRule[] {
 export function resolveKeyRules(userRules: readonly KeyRule[]): ResolvedKeyRule[] {
   const overridden = new Set(userRules.map((rule) => rule.command));
   return [...DEFAULT_RESOLVED_KEY_RULES.filter((rule) => !overridden.has(rule.command)), ...compileKeyRules(userRules)];
+}
+
+// ---- Editing ----
+
+/**
+ * The rule key a key press would record, such as "mod+shift+k" or "space", or null for a lone modifier or a key typed
+ * with AltGr. "mod" is ⌘ on macOS and Ctrl elsewhere; the other of the two is recorded as itself.
+ */
+export function keyFromEvent(event: KeyEventLike, mac: boolean): string | null {
+  const typed = event.key.toLowerCase();
+  if (['control', 'shift', 'alt', 'meta', 'altgraph', 'os', 'dead', 'unidentified', 'process'].includes(typed)) return null;
+  if (!mac && event.getModifierState?.('AltGraph') && !/^[a-z0-9]$/.test(typed)) return null;
+  const letter = event.code?.match(/^Key([A-Z])$/)?.[1]?.toLowerCase();
+  const key = /^[a-z]$/.test(typed) ? typed : letter ?? (event.code ? PHYSICAL_KEYS[event.code] : undefined) ?? (typed === 'esc' ? 'escape' : typed);
+  if (!key || key === '+') return null;
+  const mod = mac ? event.metaKey : event.ctrlKey, other = mac ? event.ctrlKey : event.metaKey;
+  return (mod ? 'mod+' : '') + (other ? (mac ? 'ctrl+' : 'meta+') : '') + (event.altKey ? 'alt+' : '') + (event.shiftKey ? 'shift+' : '') + (key === ' ' ? 'space' : key);
+}
+
+/** The keys a command has now, as rule keys: the user's if they changed it, otherwise its defaults. */
+export function commandKeys(userRules: readonly KeyRule[], command: CommandId): string[] {
+  const mine = userRules.filter((rule) => rule.command === command);
+  return (mine.length ? mine : DEFAULT_KEY_RULES.filter((rule) => rule.command === command)).map((rule) => rule.key).filter(Boolean);
+}
+
+function sameKey(a: string, b: string): boolean {
+  const left = parseShortcut(a), right = parseShortcut(b);
+  return !!left && !!right && shortcutId(left) === shortcutId(right);
+}
+
+function rulesFor(command: CommandId, keys: readonly string[]): KeyRule[] {
+  const when = DEFAULT_KEY_RULES.find((rule) => rule.command === command)?.when;
+  if (!keys.length) return [{ key: '', command }];
+  return keys.map((key) => (when ? { key, command, when } : { key, command }));
+}
+
+/** The result of giving a command new keys: the user's next rules, and each key taken from another command. */
+export interface KeyEdit {
+  readonly rules: KeyRule[];
+  readonly taken: readonly { readonly command: CommandId; readonly key: string }[];
+  readonly problem: RuleProblem | null;
+}
+
+/**
+ * Gives `command` exactly `keys` (use DEFAULT keys with `null`). Another command that has one of those keys loses it,
+ * so a key always runs one command; the caller shows what was taken. Commands back at their defaults leave the user's
+ * rules, so the stored file lists only real changes. `problem` reports a key that can't be used; `rules` then stays
+ * unchanged.
+ */
+export function editCommandKeys(userRules: readonly KeyRule[], command: CommandId, keys: readonly string[] | null): KeyEdit {
+  const wanted = keys ?? DEFAULT_KEY_RULES.filter((rule) => rule.command === command).map((rule) => rule.key);
+  const next = MENU_COMMANDS.has(command) ? wanted.slice(-1) : wanted;
+  for (const key of next) {
+    const resolved = compileKeyRules(rulesFor(command, [key]))[0];
+    const problem = resolved && ruleProblem([], resolved);
+    if (problem) return { rules: [...userRules], taken: [], problem };
+  }
+  const taken: { command: CommandId; key: string }[] = [];
+  const changed = new Map<CommandId, string[]>([[command, [...next]]]);
+  for (const other of COMMAND_IDS) {
+    if (other === command) continue;
+    const current = commandKeys(userRules, other);
+    const kept = current.filter((key) => !next.some((wanted) => sameKey(wanted, key)));
+    if (kept.length === current.length) continue;
+    current.filter((key) => !kept.includes(key)).forEach((key) => taken.push({ command: other, key }));
+    changed.set(other, kept);
+  }
+  const rules = userRules.filter((rule) => !changed.has(rule.command));
+  for (const [id, ids] of changed) {
+    const defaults = DEFAULT_KEY_RULES.filter((rule) => rule.command === id).map((rule) => rule.key);
+    if (ids.length !== defaults.length || ids.some((key, index) => !sameKey(key, defaults[index]!))) rules.push(...rulesFor(id, ids));
+  }
+  return { rules, taken, problem: null };
 }

@@ -141,6 +141,12 @@ try {
     "Main keeps only the valid key rules from keybindings.json");
   assert.deepEqual(result.keyRulesMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu follows keybindings.json");
   assert.equal(result.keyRulesDialog, "Q", "The shortcuts dialog shows the user's key");
+  assert.deepEqual(result.keyRecordingMenu, { save: null, export: null }, "Recording a key pauses the File menu's keys");
+  assert.deepEqual(result.keyRecordedMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu's keys return after recording");
+  const savedRules = [{ key: "mod+shift+e", command: "export.bdx" }, { key: "mod+shift+l", command: "project.saveCopy" }];
+  assert.deepEqual(result.keyRulesSaved, savedRules, "Saving drops a second File menu command on one key");
+  assert.deepEqual(result.keyRulesFile, savedRules, "keybindings.json holds the saved rules");
+  assert.deepEqual(result.keyRulesSavedMenu, { save: "CmdOrCtrl+S", export: "CmdOrCtrl+Shift+E" }, "The File menu follows saved rules");
   const generatedPaths = await fs.readdir(path.join(smokeDirectory, "Paths"));
   assert.ok(generatedPaths.some(name => name.endsWith(".bdx")), "Save writes BDX into Paths");
   // Keep payload/feature assertions distinguishable from a platform shutdown failure. Both remain required.

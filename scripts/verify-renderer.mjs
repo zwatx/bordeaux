@@ -47,7 +47,9 @@ import path from "node:path";
 // Aligned, expandable event differences add about 1.8 KiB of application JavaScript.
 // The key binding registry (rules, parsers, matching and labels) measures 886,016 B against 880,668 B at HEAD
 // (2026-11-23); 866 KiB keeps under 1 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 866 * 1024;
+// Editing keys in the shortcuts dialog (recording, moving a key with Undo, Settings entry, and the keys a focused
+// control declares for itself) measures 895,502 B against 886,374 B before it; 876 KiB keeps under 2 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 876 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -66,7 +68,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
 // The field comparison and changed-values layout measure about 176.5 KB.
 // Event groups reuse the comparison table and add less than 1 KiB of styles.
-const CSS_BUDGET_BYTES = 174 * 1024;
+// The editable shortcuts dialog measures 179,282 B against 177,817 B before it; 176 KiB keeps under 1 KiB of headroom.
+const CSS_BUDGET_BYTES = 176 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

@@ -2,7 +2,7 @@ import { KeyboardHelp } from './KeyboardHelp';
 import * as React from "react";
 import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
-import { keyLabel, keyLabels } from "../lib/keyBindings";
+import { keyLabel, keyLabels, useKeyRules } from "../lib/keyBindings";
 import { UI } from "./ui";
 import { deletionInput } from "./DeletionNotice";
 
@@ -16,6 +16,7 @@ import { deletionInput } from "./DeletionNotice";
 
   // One bar, read left to right: the project, its places, the current place's actions, then the robot (Push).
   function Toolbar(props) {
+    useKeyRules();
     const { page, onPlace, onUndo, onRedo, optimizationOpen, toggleOptimization, optimizationApplied } = props;
     const plan = page === 'plan', current = placeOf(page);
     return h('header', { className: 'toolbar' },
@@ -83,6 +84,7 @@ import { deletionInput } from "./DeletionNotice";
     { id: 'range', icon: 'gauge', label: 'Zone', command: 'tool.zone' },
   ];
   function ToolRail({ tool, setTool }) {
+    useKeyRules();
     return h('div', { className: 'toolrail' }, TOOLS.map((t) =>
       h('button', { key: t.id, className: 'toolrail-b' + (tool === t.id ? ' on' : ''), type: 'button', 'aria-label': t.label, 'aria-pressed': tool === t.id, title: withKey(t.label, t.command), onClick: () => setTool(t.id) },
         h(Icon, { name: t.icon, size: 18 }), h('span', { className: 'toolrail-k' }, keyLabel(t.command)))));
@@ -108,6 +110,7 @@ import { deletionInput } from "./DeletionNotice";
   }
 
   function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, onFlip, fieldFocus, toggleFieldFocus }) {
+    useKeyRules();
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
       // One name for both states; the pressed state, icon and title say whether the path list is hidden.
       toggleFieldFocus && h('button', { className: 'vc-text field-focus', type: 'button', 'aria-pressed': fieldFocus, 'aria-label': 'Focus field',

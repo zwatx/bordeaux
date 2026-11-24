@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { UI } from './ui';
-import { keyLabel } from '../lib/keyBindings';
+import { keyCommand, keyLabel, useKeyRules } from '../lib/keyBindings';
 import { firstFact, homeRelative, parentLocation, shortFact } from './ProjectChip';
 import { RECOVERY_FULL, changedSourceFact, creationFailure, departureCopy, originLocation, receiptTime, recoveryStatusWord, recoveryToken } from '../lib/projectLifecycle';
 
@@ -107,6 +107,7 @@ export function recoveryUsage(capacity) {
 // of a control nested in a disabled option. Every switch goes through App's guard; a blocked switch shows the current
 // project's fix here instead.
 export function ProjectsDialog({ request, current, actions, pending, queuedDeparture, onClose }) {
+  useKeyRules();
   const dialog = useRef(null), search = useRef(null), nameInput = useRef(null), locationButton = useRef(null), retryButton = useRef(null);
   const composing = useRef(false), alive = useRef(true), startupFocused = useRef(false), acknowledged = useRef(new Set());
   const firstUse = Boolean(request.firstUse);
@@ -567,8 +568,9 @@ export function ProjectsDialog({ request, current, actions, pending, queuedDepar
       items[event.shiftKey ? (index <= 0 ? items.length - 1 : index - 1) : (index + 1) % items.length]?.focus();
       return;
     }
-    if (mod && !event.shiftKey && event.key.toLowerCase() === 'o') { event.preventDefault(); if (pending) return; enteredNew.current = false; enteredManage.current = false; if (mode !== 'list') switchMode('list'); search.current?.focus(); return; }
-    if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') { event.preventDefault(); if (!pending) switchMode('new'); return; }
+    const command = keyCommand(event);
+    if (command === 'project.list') { event.preventDefault(); if (pending) return; enteredNew.current = false; enteredManage.current = false; if (mode !== 'list') switchMode('list'); search.current?.focus(); return; }
+    if (command === 'project.new') { event.preventDefault(); if (!pending) switchMode('new'); return; }
     if (target === nameInput.current && event.key === 'Enter') { event.preventDefault(); create(); return; }
     if (target === search.current) {
       if (event.key === 'ArrowDown') { event.preventDefault(); focusRow(0); }

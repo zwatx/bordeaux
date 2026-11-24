@@ -7,6 +7,7 @@ import { UnitPrefs } from '../lib/unitPreferences';
 import { commandExtent, fAtT, featureFraction, featurePositionPatch, labelWidth as textWidth, layoutCommandLane, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
+import { keyLabel, useKeyRules } from '../lib/keyBindings';
 
 // The active path along time: speed with the path limit and zones, problems, waypoints and stops, and the
 // command lane. Dragging edits through the shared edit store, so one gesture is one undo step and the
@@ -78,9 +79,10 @@ function usePlayback(store) {
 
 // Playback-driven parts render alone, so the rest of the band does not re-render every frame.
 function Clock({ store, total, stale }) {
-  const playback = usePlayback(store);
+  useKeyRules();
+  const playback = usePlayback(store), playKey = keyLabel('playback.toggle');
   return h(React.Fragment, null,
-    h('button', { type: 'button', className: 'pt-play', 'aria-label': playback.playing ? 'Pause trajectory playback' : 'Play trajectory', title: 'Play / Pause  (Space)', onClick: store.toggle },
+    h('button', { type: 'button', className: 'pt-play', 'aria-label': playback.playing ? 'Pause trajectory playback' : 'Play trajectory', title: 'Play / Pause' + (playKey ? '  (' + playKey + ')' : ''), onClick: store.toggle },
       h(UI.Icon, { name: playback.playing ? 'pause' : 'play', size: 14, fill: !playback.playing })),
     h('span', { className: 'pt-clock', 'data-stale': stale ? '' : undefined },
       h('span', { className: 'pt-clock-now' }, fmt(Math.min(playback.time, total))),

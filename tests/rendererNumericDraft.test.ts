@@ -165,6 +165,8 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
         PointerDrag: { useController: () => ({ start: () => undefined }) },
         UnitPrefs: { current: () => "metric", fromCanonical: (value: number) => value, toCanonical: (value: number) => value, label: () => "", format: () => "" },
         UI: {},
+        // Key editing is unavailable in this host, so Settings shows no Keyboard shortcuts row.
+        useKeyRules: () => 0, canEditKeys: () => false, currentUserKeyRules: () => [], openKeyboardShortcuts: () => undefined,
       },
       replacements: [["export { RobotPage };", "window.RobotPageControls = { RobotPage };"]],
     },

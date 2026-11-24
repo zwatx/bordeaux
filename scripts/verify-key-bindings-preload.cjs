@@ -10,8 +10,10 @@ contextBridge.exposeInMainWorld('bordeauxAPI', {
   saveProject: (project) => ipcRenderer.invoke('keys:save', project),
   robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
   getRobotFileConnection: async () => null,
-  // The user's key rules, as a host returns them after sanitizeUserKeyRules. Empty means defaults.
-  getKeyRules: async () => JSON.parse(process.env.BORDEAUX_KEYS_RULES || '[]'),
+  // Key rules go through the harness's main process, which checks them with the built sanitizeUserKeyRules.
+  getKeyRules: () => ipcRenderer.invoke('keys:get-rules'),
+  setKeyRules: (rules) => ipcRenderer.invoke('keys:set-rules', rules),
+  setKeyRecording: (recording) => ipcRenderer.invoke('keys:recording', recording),
   ...Object.fromEntries(['prepareRobotFiles', 'probeRobotFiles', 'saveRobotFileSettings', 'trustRobotFiles', 'confirmRobotFiles', 'cancelRobotFiles',
     'prepareRobotPush', 'confirmRobotPush', 'cancelRobotPush', 'pinRobotRevision', 'rollbackRobotRevision', 'connectRobot', 'disconnectRobot', 'exportRobot'].map(name => [name, forbidden(name)])),
   autosaveProject: async () => ({ saved: false }), setDirty: () => undefined,

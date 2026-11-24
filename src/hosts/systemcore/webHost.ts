@@ -306,5 +306,10 @@ export function createSystemcoreHost() {
     getKeyRules: async () => {
       try { return sanitizeUserKeyRules(JSON.parse(localStorage.getItem("bordeaux.keyRules") ?? "[]")); } catch { return []; }
     },
+    setKeyRules: async (rules) => {
+      const kept = sanitizeUserKeyRules(rules);
+      localStorage.setItem("bordeaux.keyRules", JSON.stringify(kept));
+      return kept;
+    },
   } satisfies Partial<BordeauxHost>;
 }

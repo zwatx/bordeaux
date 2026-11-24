@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { UI } from './ui';
-import { keyLabel } from '../lib/keyBindings';
+import { keyLabel, useKeyRules } from '../lib/keyBindings';
 import { changedSourceFact, firstFact, receiptTime, saveFixes, shortFact } from '../lib/projectLifecycle';
 import '../styles/project.css';
 
@@ -39,6 +39,7 @@ async function copyText(text) {
 // The project is a quiet name with an asterisk for changes. Its menu holds the save fixes, this project's file commands,
 // its linked robot code (a separate thing from the robot destination; Push stays in the toolbar) and, last, other projects.
 export function ProjectChip({ name, folderPath, status, writing, saveError, attempt, sourceChange, reloadError, showFailure, reloadKept, notice, recovery, recoveredFrom, bdxPending, bdxError, bdxDetails, robotCode, actions }) {
+  useKeyRules();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState('');
   const [sources, setSources] = useState(null), [showRecentCode, setShowRecentCode] = useState(false);

@@ -9,6 +9,7 @@ const platform = process.env.BORDEAUX_KEYS_PLATFORM || 'win32';
 const mac = platform === 'darwin';
 const MOD = mac ? 'meta' : 'control';
 const customRules = Boolean(process.env.BORDEAUX_KEYS_RULES);
+const editingRun = process.env.BORDEAUX_KEYS_MODE === 'editing';
 app.setPath('userData', path.join(output, 'user-data'));
 app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let win, saved, saves = 0;
@@ -49,11 +50,21 @@ const modal = () => evaluate(() => {
   if (!dialog) return null;
   return dialog.getAttribute('aria-label') || document.getElementById(dialog.getAttribute('aria-labelledby'))?.textContent.trim() || 'unnamed';
 });
+// The shortcuts dialog's rows as [label, keys], keys joined with " or ".
+const dialogRows = () => evaluate(() => [...document.querySelectorAll('.keyboard-help .kh-row')]
+  .map(row => [row.firstElementChild.textContent, [...row.querySelectorAll('kbd,.kh-chip')].map(key => key.textContent).join(' or ')]));
 // The label format each platform shows: "⇧⌘S" on macOS, "Ctrl+Shift+S" elsewhere.
 const M = (k, shift = false) => mac ? (shift ? '⇧' : '') + '⌘' + k : 'Ctrl+' + (shift ? 'Shift+' : '') + k;
 
 ipcMain.handle('keys:restore', () => ({ project: saved }));
 ipcMain.handle('keys:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
+// The host's key storage: starts from BORDEAUX_KEYS_RULES and keeps what sanitizeUserKeyRules accepts, as main does.
+const { sanitizeUserKeyRules } = require('../dist-electron/core/keyBindings.js');
+let userRules = sanitizeUserKeyRules(JSON.parse(process.env.BORDEAUX_KEYS_RULES || '[]'));
+const recordingCalls = [];
+ipcMain.handle('keys:get-rules', () => userRules);
+ipcMain.handle('keys:set-rules', (_event, rules) => (userRules = sanitizeUserKeyRules(rules)));
+ipcMain.handle('keys:recording', (_event, recording) => { recordingCalls.push(recording); });
 ipcMain.handle('keys:robot-call', (_event, name) => { robotCalls.push(name); throw Error('Robot access during key test: ' + name); });
 async function save() {
   const before = saves;
@@ -153,14 +164,138 @@ async function defaultChecks(first) {
     win.setContentSize(width, height); await delay(200);
     await click('.keyboard-help-trigger');
     await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open), 'shortcuts dialog');
-    const rows = await evaluate(() => [...document.querySelectorAll('.keyboard-help tr')].map(row => [...row.cells].map(cell => cell.textContent)));
-    assert.deepEqual(rows, expected);
+    assert.deepEqual(await dialogRows(), expected);
+    assert.equal(await evaluate(() => document.querySelectorAll('.keyboard-help .kh-chip').length), 0, 'The dialog opens read-only');
     await snapshot(`shortcuts-dialog-${width}`);
     await key('Escape');
   }
   console.log('PASS shortcuts dialog lists the registry and fixed keys');
 }
 
+
+// Editing in the shortcuts dialog: read-only at first, the pencil turns the same rows into keys that record the next
+// key pressed. Each change goes to the host at once; the File menu is paused only while a key is recorded.
+async function editingChecks() {
+  const chip = (command, index) => `.keyboard-help [data-command="${command}"][data-index="${index}"]`;
+  const box = (selector) => evaluate((selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)]; }, selector);
+  const note = () => evaluate(() => document.querySelector('.keyboard-help .kh-note')?.textContent || null);
+  const rulesAre = (expected, label) => wait(() => JSON.stringify(userRules) === JSON.stringify(expected), label);
+  const fitRule = { key: 'k', command: 'view.fit', when: 'pathsPage' };
+
+  await click('.keyboard-help-trigger');
+  await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open), 'shortcuts dialog');
+  assert.equal(await attr('.kh-edit', 'aria-pressed'), 'false');
+  const gridKey = await evaluate(() => {
+    const row = [...document.querySelectorAll('.keyboard-help .kh-row')].find(r => r.firstElementChild.textContent === 'Toggle grid');
+    const r = row.querySelector('kbd').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)];
+  });
+  await snapshot('editing-1-read-only');
+  await click('.kh-edit');
+  assert.equal(await attr('.kh-edit', 'aria-pressed'), 'true');
+  assert.deepEqual(await box(chip('view.grid', 0)), gridKey, 'Keys stay in place when editing starts');
+  console.log('PASS pencil turns read-only keys into editable keys without moving them');
+
+  // Record K for Fit field; the File menu is paused only while recording.
+  await click(chip('view.fit', 0));
+  assert.equal(await evaluate((s) => document.querySelector(s).textContent, chip('view.fit', 0)), 'Press a key');
+  await wait(() => recordingCalls.at(-1) === true, 'recording pauses the File menu');
+  await key('k');
+  await rulesAre([fitRule], 'K saved for Fit field');
+  await wait(() => recordingCalls.at(-1) === false, 'recording ends');
+  assert.equal(await evaluate((s) => document.querySelector(s).textContent, chip('view.fit', 0)), 'K');
+  assert.equal(await attr('.vc-pct', 'title'), 'Fit field  (K)', 'Labels update at once');
+  await snapshot('editing-2-recorded');
+  // Esc cancels a recording and keeps the dialog open.
+  await click(chip('view.fit', 0)); await key('Escape');
+  assert.equal(await evaluate(() => document.querySelector('.keyboard-help').open), true, 'Esc during recording keeps the dialog');
+  assert.equal(await evaluate(() => document.querySelectorAll('[data-recording]').length), 0);
+  const focused = () => evaluate(() => [document.activeElement?.dataset.command, document.activeElement?.dataset.index]);
+  assert.deepEqual(await focused(), ['view.fit', '0'], 'Esc leaves focus on the key');
+  console.log('PASS recording K for Fit field saves it, pauses the menu only while recording, and Esc cancels');
+
+  // Taking W from Place waypoint moves it, with a notice and Undo.
+  await click(chip('view.grid', 0)); await key('w');
+  await wait(() => userRules.some(r => r.command === 'view.grid' && r.key === 'w'), 'W saved for Toggle grid');
+  assert.equal(await note(), "W was Place waypoint's key. Place waypoint still has 2.Undo");
+  assert.ok(userRules.some(r => r.command === 'tool.waypoint' && r.key === '2') && !userRules.some(r => r.key === 'w' && r.command !== 'view.grid'));
+  await snapshot('editing-3-moved');
+  await click('.keyboard-help .kh-note button');
+  await rulesAre([fitRule], 'Undo restores the keys');
+  console.log('PASS taking W moves it from Place waypoint with a notice, and Undo restores it');
+
+  // Problems leave the keys unchanged.
+  await click(chip('project.save', 0)); await key('j');
+  assert.equal(await note(), 'Save project and BDX files works while you type, so its key needs Ctrl.');
+  await click(chip('robot.push', 0)); await key('p');
+  assert.equal(await note(), 'Push selected paths works while you type, so its key needs Ctrl.');
+  await click(chip('view.fit', 0)); await key('Space');
+  assert.equal(await note(), 'Space is reserved for Bordeaux. Pick another key.');
+  assert.equal(await evaluate(() => document.querySelector('[data-add="project.save"]')), null, 'File menu commands take one key');
+  await click(chip('project.list', 0)); await key('F2');
+  assert.equal(await note(), 'F2 is reserved for Bordeaux. Pick another key.');
+  await snapshot('editing-4-blocked');
+  assert.deepEqual(userRules, [fitRule]);
+  console.log('PASS refused: a plain key for File menu commands and Push, Space for Fit field, and a reserved key');
+
+  // Add a key, remove it with Backspace, reset one command, then reset all.
+  await click('.keyboard-help [data-add="tool.rotation"]'); await key('e');
+  await rulesAre([fitRule, ...['3', 'r', 'e'].map(k => ({ key: k, command: 'tool.rotation', when: 'pathsPage' }))], 'E added to Place rotation');
+  await wait(async () => JSON.stringify(await focused()) === JSON.stringify(['tool.rotation', '2']), 'focus moves to the added key');
+  await click(chip('tool.rotation', 2)); await key('Backspace');
+  await rulesAre([fitRule], 'Backspace removes E, back to defaults');
+  await click('.keyboard-help [aria-label="Use the default keys for Fit field"]');
+  await rulesAre([], 'Fit field reset');
+  await click(chip('view.fit', 0)); await key('k');
+  await rulesAre([fitRule], 'K again');
+  await click('.keyboard-help .kh-tools .qbtn');
+  await rulesAre([], 'Use default keys');
+  console.log('PASS add, Backspace removal, per-command reset and Use default keys');
+
+  // Search, then Done returns to read-only with focus on the pencil.
+  await click('.keyboard-help input[type="search"]'); await win.webContents.insertText('grid');
+  assert.deepEqual((await dialogRows()).map(row => row[0]), ['Toggle grid']);
+  await evaluate(() => { const input = document.querySelector('.keyboard-help input[type="search"]'); input.select(); });
+  await key('Backspace');
+  await click('.kh-foot .qbtn.primary');
+  assert.equal(await attr('.kh-edit', 'aria-pressed'), 'false');
+  assert.equal(await evaluate(() => document.activeElement?.classList.contains('kh-edit')), true, 'Done returns focus to the pencil');
+  await key('Escape');
+  assert.equal(await evaluate(() => document.activeElement?.classList.contains('keyboard-help-trigger')), true, 'Closing returns focus to ?');
+  console.log('PASS search, Done and focus return');
+
+  // Settings › General opens the dialog ready to edit; the row counts changed commands.
+  await click('.places .place', 'Settings');
+  const keyboardRow = () => evaluate(() => [...document.querySelectorAll('.settings-row')].find(row => row.textContent.startsWith('Keyboard shortcuts'))?.textContent);
+  assert.equal(await keyboardRow(), 'Keyboard shortcutsDefaultsCustomize');
+  await click('.settings-row .qbtn', 'Customize');
+  await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open), 'dialog from Settings');
+  assert.equal(await attr('.kh-edit', 'aria-pressed'), 'true', 'Customize opens editing');
+  await click(chip('view.fit', 0)); await key('k');
+  await rulesAre([fitRule], 'K from Settings');
+  for (const [width, height] of [[1440, 900], [1100, 720]]) { win.setContentSize(width, height); await delay(250); await snapshot(`editing-settings-${width}`); }
+  await key('Escape');
+  assert.equal(await keyboardRow(), 'Keyboard shortcuts1 changedCustomize');
+  assert.equal(await evaluate(() => document.activeElement?.textContent), 'Customize', 'Closing returns focus to Customize');
+  console.log('PASS Settings row opens editing and counts changes');
+
+  // Shift+V for Create zone and V for Select both work: an exact match wins over a letter accepting Shift.
+  await click('.keyboard-help-trigger'); await click('.kh-edit');
+  await click(chip('tool.zone', 0)); await key('v', ['shift']);
+  await wait(() => userRules.some(r => r.command === 'tool.zone' && r.key === 'shift+v'), 'Shift+V saved for Create zone');
+  await click(chip('tool.select', 0)); await key('x');
+  await wait(() => userRules.some(r => r.command === 'tool.select' && r.key === 'x'), 'X saved for Select, after Create zone');
+  await key('Escape');
+  // Back on Paths, the new key works at once and the old one does nothing.
+  await click('.places .place', 'Paths');
+  await key('v', ['shift']); assert.equal(await pressed('Zone'), 'true', 'Shift+V selects Create zone');
+  await key('v'); assert.equal(await pressed('Select / move'), 'true', 'V selects Select / move');
+  const fit = await evaluate(() => document.querySelector('.vc-pct').textContent);
+  await click('[aria-label="Zoom in"]');
+  await key('f'); assert.notEqual(await evaluate(() => document.querySelector('.vc-pct').textContent), fit, 'F no longer fits');
+  await key('k'); assert.equal(await evaluate(() => document.querySelector('.vc-pct').textContent), fit, 'K fits');
+  assert.equal(recordingCalls.at(-1), false);
+  console.log('PASS the edited key runs its command without a reload');
+}
 
 // User rules from the host (BORDEAUX_KEYS_RULES): Place waypoint moves to Q and Save to mod+Shift+K. A user rule
 // replaces every default for its command, so 2 and W stop placing waypoints while other tools keep their keys.
@@ -179,7 +314,7 @@ async function customChecks() {
   await key('Escape');
   await click('.keyboard-help-trigger');
   await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open), 'shortcuts dialog');
-  const rows = Object.fromEntries(await evaluate(() => [...document.querySelectorAll('.keyboard-help tr')].map(row => [row.cells[0].textContent, row.cells[1].textContent])));
+  const rows = Object.fromEntries(await dialogRows());
   assert.equal(rows['Place waypoint'], 'Q');
   assert.equal(rows['Save project and BDX files'], M('K', true));
   assert.equal(rows['Place rotation'], '3 or R');
@@ -199,11 +334,11 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'planning');
     await click('.places .place', 'Paths');
 
-    if (customRules) await customChecks(); else await defaultChecks(first);
+    if (editingRun) await editingChecks(); else if (customRules) await customChecks(); else await defaultChecks(first);
 
     assert.deepEqual(errors, []);
     assert.deepEqual(robotCalls, []);
-    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', platform, customRules, sizes: [[1440, 900], [1100, 720]] }, null, 2));
+    await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', platform, customRules, editingRun, sizes: [[1440, 900], [1100, 720]] }, null, 2));
   } catch (error) {
     process.exitCode = 1; console.error(error, errors);
     if (win) { try { await snapshot('failure'); } catch (captureError) { console.error('Failure capture unavailable:', captureError); } }

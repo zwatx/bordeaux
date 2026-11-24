@@ -148,6 +148,10 @@ export interface HostInvokes {
 
   /** The user's own key rules, already checked with sanitizeUserKeyRules. Defaults are not included. */
   "keys:get": { method: "getKeyRules"; call: () => Promise<KeyRule[]> };
+  /** Stores the user's rules after sanitizeUserKeyRules and returns what was kept. The desktop also updates its menu. */
+  "keys:set": { method: "setKeyRules"; call: (rules: KeyRule[]) => Promise<KeyRule[]> };
+  /** While a key is being recorded, the desktop's File menu stops catching its keys, so the page receives them. */
+  "keys:recording": { method: "setKeyRecording"; call: (recording: boolean) => Promise<void> };
 
   "agent:getActiveProposal": { method: "getActiveAgentProposal"; call: () => Promise<AgentProposal | null> };
   "agent:getMcpStatus": { method: "getMcpStatus"; call: () => Promise<McpStatus> };

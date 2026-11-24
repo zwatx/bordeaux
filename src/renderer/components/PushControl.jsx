@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ariaKeys, keyCommand, keyLabel } from '../lib/keyBindings';
+import { ariaKeys, keyCommand, keyLabel, useKeyRules } from '../lib/keyBindings';
 import { UI } from './ui';
 import { shortFact } from '../lib/projectLifecycle';
 
@@ -103,6 +103,7 @@ function PushMenu({ controller, status, total, incomplete, onPushAll }) {
  * folder hides, through the same reviewed request; it has no shortcut and is never reached from the primary half.
  */
 export function PushControl({ place, paths, selection, activeRoutine, controller }) {
+  useKeyRules();
   const pathsPlace = place === 'paths';
   const routinePushAvailable = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.routinePush === true;
   const selected = pathsPlace ? selection.selected : [];
