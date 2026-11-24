@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App, AppErrorBoundary } from "./app/App";
 import { WindowsTitleBar } from "./components/WindowsTitleBar";
 import { installTooltips } from "./components/tooltips";
+import { loadKeyRules } from "./lib/keyBindings";
 import "./styles/app.css";
 import "./styles/library.css";
 import "./styles/routine-workspace.css";
@@ -18,7 +19,8 @@ if (!root) {
 document.documentElement.dataset.platform = window.bordeauxAPI?.platform || "web";
 installTooltips();
 
-createRoot(root).render(
+// Labels and handlers read the user's keys, so they load before the first render.
+void loadKeyRules().then(() => createRoot(root).render(
   <StrictMode>
     <div className={window.bordeauxAPI?.platform === "win32" ? "windows-desktop" : "desktop-root"}>
       <WindowsTitleBar />
@@ -27,4 +29,4 @@ createRoot(root).render(
     </AppErrorBoundary>
     </div>
   </StrictMode>,
-);
+));

@@ -1,5 +1,5 @@
 import {
-  ariaShortcut, commandForEvent, DEFAULT_RESOLVED_KEY_RULES, formatShortcut, shortcutsFor,
+  ariaShortcut, commandForEvent, DEFAULT_RESOLVED_KEY_RULES, formatShortcut, resolveKeyRules, shortcutsFor,
   type CommandId, type KeyContext, type KeyEventLike,
 } from "../../core/keyBindings";
 
@@ -11,8 +11,19 @@ export function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
 }
 
-// The rules key handlers and labels read. Defaults only for now; user rules from the host replace this later.
-const rules = DEFAULT_RESOLVED_KEY_RULES;
+// The rules key handlers and labels read: defaults until loadKeyRules adds the user's rules from the host.
+let rules = DEFAULT_RESOLVED_KEY_RULES;
+
+/** Reads the user's rules from the host. The entry point awaits it before the first render, so labels never change after it. */
+export async function loadKeyRules(): Promise<void> {
+  try {
+    const userRules = await window.bordeauxAPI?.getKeyRules?.();
+    if (userRules) rules = resolveKeyRules(userRules);
+  } catch (error) {
+    // Keys still work with the defaults; the host logs its own read failures.
+    console.warn("Using default keys:", error);
+  }
+}
 
 /** The command a key press runs in `context`, or null. Each handler keeps its own focus checks and passes what it knows. */
 export function keyCommand(event: KeyEventLike, context: KeyContext = {}): CommandId | null {

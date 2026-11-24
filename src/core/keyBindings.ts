@@ -288,3 +288,73 @@ export function menuAccelerator(rules: readonly ResolvedKeyRule[], command: Comm
   return [shortcut.mod && 'CmdOrCtrl', shortcut.ctrl && 'Ctrl', shortcut.meta && 'Cmd', shortcut.alt && 'Alt', shortcut.shift && 'Shift',
     keyName(shortcut.key)].filter(Boolean).join('+');
 }
+
+// ---- The user's own rules ----
+// Hosts store only the user's rules, never the defaults, so new defaults appear without migration. A user rule for a
+// command replaces every default rule for that command.
+
+/** Commands the native File menu owns. Electron's menu catches their keys everywhere, even while someone types. */
+export const MENU_COMMANDS: ReadonlySet<CommandId> = new Set(['project.new', 'project.list', 'project.openFile', 'project.save', 'project.saveCopy', 'export.bdx']);
+const MAX_USER_RULES = 256;
+// Keys the app depends on: selection editing, focus and dialog keys at any modifier, plus clipboard, library rename
+// and the Windows menu keys.
+const RESERVED_KEYS = new Set(['escape', 'tab', 'enter', 'backspace', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+const RESERVED_SHORTCUTS = ['f2', 'f10', 'shift+f10', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'alt+f', 'alt+r', 'alt+a', 'alt+v', 'alt+h']
+  .map((key) => parseShortcut(key)!);
+
+/** Why a rule can't be used, or null. */
+export type RuleProblem =
+  | { readonly kind: 'reserved' }
+  | { readonly kind: 'menu-needs-mod' }
+  | { readonly kind: 'menu-taken'; readonly by: CommandId };
+
+function isReserved(shortcut: Shortcut): boolean {
+  if (RESERVED_KEYS.has(shortcut.key)) return true;
+  const command = shortcut.mod || shortcut.ctrl || shortcut.meta;
+  return RESERVED_SHORTCUTS.some((reserved) => reserved.key === shortcut.key && reserved.mod === command && reserved.shift === shortcut.shift && reserved.alt === shortcut.alt);
+}
+
+/** Checks one rule against the others: reserved keys, a File menu key without ⌘/Ctrl, and two File menu commands on one key. */
+export function ruleProblem(rules: readonly ResolvedKeyRule[], rule: ResolvedKeyRule): RuleProblem | null {
+  if (isReserved(rule.shortcut)) return { kind: 'reserved' };
+  if (!MENU_COMMANDS.has(rule.command)) return null;
+  if (!rule.shortcut.mod && !rule.shortcut.ctrl && !rule.shortcut.meta) return { kind: 'menu-needs-mod' };
+  const id = shortcutId(rule.shortcut);
+  const other = rules.find((candidate) => candidate.command !== rule.command && MENU_COMMANDS.has(candidate.command) && shortcutId(candidate.shortcut) === id);
+  return other ? { kind: 'menu-taken', by: other.command } : null;
+}
+
+function isCommandId(value: unknown): value is CommandId {
+  return typeof value === 'string' && (COMMAND_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * Reads stored user rules from untrusted JSON. Each rule that is malformed, names an unknown command, or has a
+ * `ruleProblem` is dropped on its own, so one bad entry never costs the others. Two File menu commands on one key
+ * keep the earlier rule.
+ */
+export function sanitizeUserKeyRules(value: unknown): KeyRule[] {
+  if (!Array.isArray(value)) return [];
+  const parsed = value.slice(0, MAX_USER_RULES).flatMap((item): KeyRule[] => {
+    if (typeof item !== 'object' || item === null) return [];
+    const { key, command, when } = item as Record<string, unknown>;
+    if (typeof key !== 'string' || !key.trim() || key.length > 64 || !isCommandId(command)) return [];
+    if (when !== undefined && (typeof when !== 'string' || !when.trim() || when.length > 256)) return [];
+    const rule: KeyRule = when === undefined ? { key: key.trim(), command } : { key: key.trim(), command, when: when.trim() };
+    return compileKeyRules([rule]).length ? [rule] : [];
+  });
+  const overridden = new Set(parsed.map((rule) => rule.command));
+  const accepted = DEFAULT_RESOLVED_KEY_RULES.filter((rule) => !overridden.has(rule.command));
+  return parsed.filter((rule) => {
+    const resolved = compileKeyRules([rule])[0]!;
+    if (ruleProblem(accepted, resolved)) return false;
+    accepted.push(resolved);
+    return true;
+  });
+}
+
+/** The rules in effect: defaults for commands the user left alone, then the user's rules, which win ties. */
+export function resolveKeyRules(userRules: readonly KeyRule[]): ResolvedKeyRule[] {
+  const overridden = new Set(userRules.map((rule) => rule.command));
+  return [...DEFAULT_RESOLVED_KEY_RULES.filter((rule) => !overridden.has(rule.command)), ...compileKeyRules(userRules)];
+}

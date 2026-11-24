@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { robotCatalogSemanticSignature } from "../core/agent/catalogSignature";
-import { DEFAULT_RESOLVED_KEY_RULES, menuAccelerator } from "../core/keyBindings";
+import { DEFAULT_RESOLVED_KEY_RULES, menuAccelerator, resolveKeyRules, sanitizeUserKeyRules, type KeyRule } from "../core/keyBindings";
 import type { BordeauxProject, RobotCommandCatalog, RobotIntegrationStatus } from "../core/types";
 import { validateProject, validateProjectSource } from "../core/validation";
 import { ProjectBdxChangedError, type ProjectBdxExportScope } from "./projectBdxExport";
@@ -716,6 +716,13 @@ function createWindow() {
         window.focus();
         const smokeScript = await fs.promises.readFile(path.join(smokeDirectory, "renderer.js"), "utf8");
         const result: Record<string, unknown> = await window.webContents.executeJavaScript(smokeScript);
+        // The smoke seeds keybindings.json in its userData; report what reached the host, the File menu and the dialog.
+        const fileMenu = Menu.getApplicationMenu()?.items.find((item) => item.id === "chrome-file")?.submenu?.items ?? [];
+        result.keyRules = await window.webContents.executeJavaScript("window.bordeauxAPI.getKeyRules()");
+        result.keyRulesMenu = { save: fileMenu.find((item) => item.label === "Save")?.accelerator,
+          export: fileMenu.find((item) => item.label === "Export selected path as BDX…")?.accelerator };
+        result.keyRulesDialog = await window.webContents.executeJavaScript(
+          "[...document.querySelectorAll('.keyboard-help tr')].find((row) => row.cells[0].textContent === 'Place waypoint')?.cells[1].textContent ?? null");
         if (process.env.BORDEAUX_SMOKE_CAPTURE_PATH) {
           await new Promise((resolve) => setTimeout(resolve, 100));
           const capture = await window.webContents.capturePage();
@@ -804,8 +811,21 @@ function updateMenuItem(): Electron.MenuItemConstructorOptions {
     : { label: "Check for updates…", click: () => { void appUpdates?.check(true); } };
 }
 
-// File menu keys come from the same rules the renderer reads (src/core/keyBindings.ts).
-const keyRules = DEFAULT_RESOLVED_KEY_RULES;
+// The user's key rules live in userData/keybindings.json, a JSON array of { key, command, when? } rules
+// (src/core/keyBindings.ts). They are read once at startup, before the first menu, so File menu keys match from
+// launch; hand edits apply at the next launch. The renderer reads the same rules through getKeyRules.
+let userKeyRules: KeyRule[] = [];
+let keyRules = DEFAULT_RESOLVED_KEY_RULES;
+async function loadUserKeyRules(): Promise<void> {
+  try {
+    userKeyRules = sanitizeUserKeyRules(JSON.parse(await fs.promises.readFile(userDataPath("keybindings.json"), "utf8")));
+  } catch (error) {
+    // No file means defaults. A malformed file also means defaults, and the file is left for the user to fix.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Ignoring keybindings.json:", error);
+    userKeyRules = [];
+  }
+  keyRules = resolveKeyRules(userKeyRules);
+}
 
 function buildMenu() {
   const recentSubmenu = recentFiles.length > 0
@@ -1780,6 +1800,7 @@ handle("project:copyDetails", (_event, text) => {
 });
 handle("agent:getActiveProposal", () => agentSessions.getActiveProposal());
 handle("agent:getMcpStatus", () => agentSessions.accessStatus());
+handle("keys:get", () => userKeyRules);
 ipcMain.on("project:setDirty", (event, value) => { assertTrustedSender(event); dirty = value === true; appUpdates?.refresh(); });
 ipcMain.on("agent:publishSession", (event, value) => {
   assertTrustedSender(event);
@@ -1825,6 +1846,7 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
     robotProjectBookmarks = [];
     console.warn("Could not load Robot project bookmarks:", error);
   }
+  await loadUserKeyRules();
   try {
     recentFiles = await readRecentProjectFiles(recentProjectsFile());
   } catch (error) {
