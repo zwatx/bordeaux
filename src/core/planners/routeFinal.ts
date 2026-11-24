@@ -33,38 +33,6 @@ export interface RouteSearchResult {
   statistics: CorridorSearchStatistics;
 }
 
-/**
- * Identifies the curve a geometry traces rather than its handles, where that is
- * cheap to know. A segment whose handles lie on its chord, in order, is that
- * chord whatever their lengths, so candidates that differ only there are one
- * route. Timing them separately only moves the sample points: the results have
- * measured within 0.01 s of each other, under the 0.02 s the search requires
- * before it prefers a route. Curved segments keep their exact handles.
- */
-function curveKey(geometry: RouteGeometry): string {
-  const segments = geometry.knots.slice(0, -1).map((knot, index) => {
-    const end = geometry.knots[index + 1];
-    const chordX = end.x - knot.x;
-    const chordY = end.y - knot.y;
-    const lengthSquared = chordX ** 2 + chordY ** 2;
-    if (lengthSquared > 1e-18) {
-      const length = Math.sqrt(lengthSquared);
-      // Signed distance from the chord's line, and position along the chord from 0 to 1.
-      const offLine = (point: { x: number; y: number }) => Math.abs((point.x - knot.x) * chordY - (point.y - knot.y) * chordX) / length;
-      const along = (point: { x: number; y: number }) => ((point.x - knot.x) * chordX + (point.y - knot.y) * chordY) / lengthSquared;
-      const first = along(knot.nextC);
-      const second = along(end.prevC);
-      if (offLine(knot.nextC) <= 1e-9 && offLine(end.prevC) <= 1e-9 && first >= 0 && first <= second && second <= 1) return "chord";
-    }
-    return [knot.nextC, end.prevC];
-  });
-  return stable({
-    knots: geometry.knots.map(({ x, y, smooth }) => ({ x, y, smooth })),
-    requiredPointIndices: geometry.requiredPointIndices,
-    segments,
-  });
-}
-
 /** The drawn curve and its three shortened-handle repairs, which routeCandidates yields right after the canonical rescue. */
 const HEAD_START_CANDIDATES = 4;
 
@@ -145,7 +113,10 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
     },
     /** False for a curve that was already taken; otherwise counts it as an evaluation. */
     take(geometry: RouteGeometry): boolean {
-      const key = curveKey(geometry);
+      // Every handle is part of the key. Handle lengths along a straight segment
+      // leave its shape alone but change its parameterization, and with it the
+      // timing; merging such candidates lost a 0.07 s faster route on a corpus path.
+      const key = stable(geometry);
       if (seen.has(key)) return false;
       seen.add(key);
       evaluations++;

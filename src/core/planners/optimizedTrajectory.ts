@@ -394,11 +394,14 @@ function diagnostics(
 
 /** The spline seed and the first timing solve on it, shared between a first-pass probe and the full plan. */
 const derivedSeed = rememberByInput(2, (input) => profiledSplineOptimizationInputs(input));
-const firstPass = rememberByInput(2, (input) => {
-  const optimizationSamples = insertOptimizationBoundaries(input, derivedSeed(input).seed.samples);
+const firstPass = rememberByInput(2, (input) => solveTimingPass(input, derivedSeed(input).seed));
+
+/** One timing solve on a seed's samples: the optimization grid, its limits, and the reachable speeds. */
+function solveTimingPass(input: PlannerInput, seed: PlannerResult) {
+  const optimizationSamples = insertOptimizationBoundaries(input, seed.samples);
   const reachabilityInput = buildReachabilityInput(input, optimizationSamples);
   return { optimizationSamples, reachabilityInput, reachability: solveReachabilityProfile(reachabilityInput) };
-});
+}
 
 /**
  * Duration of the first timing solve the planner runs for a physical planning
@@ -461,17 +464,12 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
       let samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT;
       let totalIterations = 0;
       for (let refinementPasses = 0; refinementPasses <= MAX_REFINEMENT_PASSES; refinementPasses += 1) {
-        // The first pass may already be solved by a probe of this same input.
-        const optimizationSamples = refinementPasses === 0
-          ? firstPass(input).optimizationSamples
-          : insertOptimizationBoundaries(input, candidateBase.samples);
+        // A probe of this same input may already have solved the first pass. An
+        // input with an accepted trajectory is not remembered, so solve it here once.
+        const { optimizationSamples, reachabilityInput, reachability } = refinementPasses > 0
+          ? solveTimingPass(input, candidateBase)
+          : input.path.optimization ? solveTimingPass(input, optimizationSeed) : firstPass(input);
         const waypointSampleIndices = remapWaypointIndices(candidateBase, optimizationSamples);
-        const reachabilityInput = refinementPasses === 0
-          ? firstPass(input).reachabilityInput
-          : buildReachabilityInput(input, optimizationSamples);
-        const reachability = refinementPasses === 0
-          ? firstPass(input).reachability
-          : solveReachabilityProfile(reachabilityInput);
         totalIterations += reachability.iterations;
         if (reachability.status !== "optimal") {
           const reason = reachability.reason ?? "The fixed-path optimizer could not produce a trajectory.";
