@@ -351,11 +351,11 @@ function optimizeJob(job, path, derive, emitProgress, startedAt) {
  * One optimize job with its candidates evaluated on `evaluator`'s threads.
  * Returns the same reply as processPathPreviewJob does for the sequential search.
  */
-export async function processParallelOptimizeJob(job, evaluator, isCancelled, emitProgress = () => {}, derive = PM.derivePath) {
+export async function processParallelOptimizeJob(job, evaluator, emitProgress = () => {}, derive = PM.derivePath) {
   const startedAt = performance.now();
   try {
     const search = optimizeJob(job, authoredPath(job.path), derive, emitProgress, startedAt);
-    return search.result(await optimizeRouteFinalParallel(search.input, { ...search.options, isCancelled }, evaluator));
+    return search.result(await optimizeRouteFinalParallel(search.input, search.options, evaluator));
   } catch (error) {
     return {
       id: job.id,
@@ -377,7 +377,8 @@ export async function processParallelOptimizeJob(job, evaluator, isCancelled, em
  * candidate is rejected. With no sub-worker left, every task is rejected.
  *
  * A task has no deadline of its own. One that never answers holds its search
- * until the request deadline, when the renderer abandons the search.
+ * until the request deadline, when the renderer terminates this worker and
+ * with it the whole pool.
  */
 export function createCandidatePool(size) {
   const idle = [];
@@ -511,11 +512,10 @@ export function processPathPreviewJob(
 }
 
 if (typeof self !== 'undefined') {
-  const cancelledJobs = new Set();
   let candidatePool = null;
   // Two threads stay free for the interface and this worker. With none to spare,
   // or if sub-workers cannot start or have all failed, the search runs here in
-  // sequence instead.
+  // sequence instead. The renderer cancels a search by terminating this worker.
   // Each sub-worker holds about 150 MB while this worker lives. Four measured
   // 0.85 GB in the renderer against 1.45 GB for eight, for a 5% slower search.
   const candidatePoolSize = Math.min(4, (self.navigator?.hardwareConcurrency || 1) - 2);
@@ -535,15 +535,11 @@ if (typeof self !== 'undefined') {
     if (job?.mode === 'routeSeed') return post({ id: job.id, outcome: qualifyRouteSeed(job.source) });
     if (job?.mode === 'routeWarm') return post({ id: job.id, outcome: warmRouteEvaluation(job.source) });
     // This worker as the persistent optimizer: it keeps its pool between jobs.
-    if (job?.type === 'cancel') return void cancelledJobs.add(job.id);
     if (job?.type === 'warm') {
       return void pool()?.warm({ path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
     }
     if (job?.optimize === true && job.parallel === true && job.quality === 'final' && job.mode === undefined && pool()) {
-      return void processParallelOptimizeJob(job, pool(), () => cancelledJobs.has(job.id), post).then((result) => {
-        cancelledJobs.delete(job.id);
-        post(result);
-      });
+      return void processParallelOptimizeJob(job, pool(), post).then(post);
     }
     return post(processPathPreviewJob(job, PM.derivePath, optimizeRouteFinal, interactiveTrajectory, post));
   };

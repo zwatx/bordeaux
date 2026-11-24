@@ -98,9 +98,10 @@
           if (persistent) {
             detach();
             optimizerRequests -= 1;
-            // A worker that failed is replaced; one that is still searching is told to stop.
-            if (result.status === 'failure') releaseOptimizer();
-            else if (result.status !== 'success' && worker) worker.postMessage({ type: 'cancel', id });
+            // A failed, timed-out or canceled search is stopped by terminating its
+            // worker, pool included: a search running in sequence cannot read a
+            // cancel message, and a stalled one would hold the next search.
+            if (result.status !== 'success') releaseOptimizer();
             idleOptimizer();
           } else if (worker) worker.terminate();
           resolveResult({
