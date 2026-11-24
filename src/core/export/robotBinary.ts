@@ -40,9 +40,15 @@ function distanceAtTime(samples: readonly TrajectorySample[], time: number): num
 // Inspection paths are portable Windows or POSIX paths; never derive identity from labels.
 const commandBasename = (command: RobotCommandDescriptor) => command.labviewConnector?.file.split(/[\\/]/).at(-1) ?? "";
 
+/**
+ * The one catalog command an event invokes. An empty, unnamed catalog means no LabVIEW commands are available: the
+ * desktop has no linked project or can't read the saved one, or a Systemcore has no pushed command list. The fix is
+ * linking the project, not choosing another command.
+ */
 function resolveCommand(catalog: RobotCommandCatalog, commandId: string, eventName: string) {
   const matches = catalog.commands.filter((command) => command.id === commandId);
   const context = `Event ${eventName}: command ${commandId}`;
+  if (!catalog.commands.length && !catalog.projectName) throw new Error(`${context} can't be built because no LabVIEW commands are available. Link the robot's LabVIEW project in the desktop app.`);
   if (matches.length !== 1) throw new Error(`${context} is ${matches.length ? "ambiguous" : "missing"} in the linked LabVIEW project. ${matches.length ? "Refresh commands before exporting BDX." : "Choose another command for this event."}`);
   const command = matches[0], name = commandBasename(command);
   if (!/^.+\.vi$/i.test(name)) throw new Error(`${context} has no inspected original VI filename. Inspect the linked LabVIEW project before exporting BDX.`);
