@@ -236,7 +236,8 @@ input,select,textarea{font-family:inherit}
 .seg-stack .seg-i{display:flex;align-items:center;gap:8px;padding:0 10px;text-align:left;overflow-wrap:normal}
 .seg-stack .seg-i svg{flex:none;opacity:.8}
 .seg-stack .seg-i.on svg{opacity:1}
-/* Disclosures and popup triggers: every chevron points right while closed and down while open. */
+/* Chevrons: an in-place disclosure points right while closed and turns down when open. A popup or menu trigger keeps a
+   still down chevron (its menu opens below), and a right chevron alone means go into (.choice-go, .choice-crumb). */
 summary{display:flex;align-items:center;gap:8px;min-height:36px;list-style:none;cursor:pointer}
 summary::-webkit-details-marker{display:none}
 summary::marker{content:''}
@@ -662,11 +663,9 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .cmd-picker{position:relative;min-width:0}.cmd-picker>.fieldlabel{margin-top:0}
 .cmd-picker-trigger{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:7px 9px 7px 11px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);text-align:left;transition:border-color .14s,background-color .14s,box-shadow .14s}
 .cmd-picker-trigger>svg{flex-shrink:0;color:var(--txt-3)}
-.cmd-picker-trigger>svg:last-child{transform:rotate(-90deg);transition:transform .14s}
 .cmd-picker-trigger>span{flex:1;min-width:0;font-size:13px;font-weight:550;line-height:1.35;overflow-wrap:anywhere}
 .cmd-picker-trigger>small{flex-shrink:0;padding:1px 6px;border-radius:var(--r-s);background:var(--bg-4);color:var(--txt-3);font-size:10.5px;font-weight:550;white-space:nowrap}
 .cmd-picker-trigger[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
-.cmd-picker-trigger[aria-expanded="true"]>svg:last-child{transform:none}
 .cmd-picker-trigger:disabled{opacity:.45}
 .dropdown.compact .cmd-picker-trigger{min-height:28px;padding:0 7px;gap:5px;border-radius:var(--r-s)}
 .dropdown.compact .cmd-picker-trigger>span{overflow:hidden;font-size:11.5px;text-overflow:ellipsis;white-space:nowrap}

@@ -64,8 +64,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
 // The routine insertion slot and its left-rail source library replace the inline Add styles at about 172 KB.
 // The field comparison and changed-values layout measure about 176.5 KB.
 // Event groups reuse the comparison table and add less than 1 KiB of styles.
-// Closed-right chevrons on every disclosure and popup trigger measure 178,231 B; with fixed-size Robot files views,
-// about 178,450 B (2026-11-23).
+// Closed-right disclosure chevrons (popup triggers stay down) measure 177,704 B; fixed-size Robot files views add
+// about 220 B (2026-11-24).
 const CSS_BUDGET_BYTES = 175 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");

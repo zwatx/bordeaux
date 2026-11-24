@@ -15,8 +15,7 @@
 /* Each new failure (keyed by try) briefly re-lights the word, so an instant failed Retry is still acknowledged. */
 .project-chip[data-status="failed"] .project-chip-status{animation:pj-ack .6s ease-out}
 @keyframes pj-ack{from{opacity:.25}}
-.project-chip-chevron{display:flex;flex:none;align-self:center;color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
-.project-chip[aria-expanded="true"] .project-chip-chevron{transform:none}
+.project-chip-chevron{display:flex;flex:none;align-self:center;color:var(--txt-3)}
 
 .project-menu{max-height:calc(100dvh - 88px);overflow-y:auto;position:absolute;left:0;top:calc(100% + 4px);z-index:250;width:264px;max-width:calc(100vw - 32px);padding:4px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}
 /* A native-menu header: the name, then its folder as a quiet line (start-truncated, whole path in the title). */

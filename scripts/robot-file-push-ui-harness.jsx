@@ -336,16 +336,16 @@ await test('A disconnected robot clears the live green indicator while preservin
   assert(button('Connect'), 'Disconnected state offers reconnect');
   await native({ capture: 'disconnected' });
 });
-// Every chevron points right while closed and down while open; the glyph itself points down.
+// A disclosure chevron points right while closed and down while open; a menu trigger's stays down. The glyph points down.
 const turn = (element, pseudo) => { const m = new DOMMatrix(getComputedStyle(element, pseudo).transform); return Math.round(Math.atan2(m.b, m.a) * 180 / Math.PI); };
 async function enterRobotFiles(keyboard = false) {
   props = { ...props, noSelection: true }; await act(async () => root.render(<Harness />));
   const trigger = document.querySelector('.push-menu-trigger');
   if (keyboard) {
     trigger.focus();
-    assert(turn(trigger.querySelector('.push-chevron')) === -90, 'The closed Push menu chevron points right');
+    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The closed Push menu chevron points down to its menu');
     await act(async () => native({ key: 'Enter' }));
-    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The open Push menu chevron points down');
+    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The open Push menu chevron still points down');
     await act(async () => native({ key: 'Down' }));
     assert(document.activeElement.textContent === 'Robot files…', 'Arrow Down reaches Robot files');
     await act(async () => native({ key: 'Enter' }));
