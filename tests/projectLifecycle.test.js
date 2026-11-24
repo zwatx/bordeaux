@@ -164,12 +164,14 @@ describe('departure sheet', () => {
 });
 
 describe('first-use New and the recovered chip', () => {
-  it('first use has Skip, no robot copy, and a Documents suggestion', () => {
+  it('first use has Not now, no robot copy, and a Documents suggestion', () => {
     const markup = renderToStaticMarkup(React.createElement(ProjectsDialog, { request: { mode: 'new', firstUse: true }, current: { name: 'Untitled', folderPath: null, projectPath: null },
       actions: { listRecent: () => new Promise(() => undefined), creationDefaults: () => new Promise(() => undefined) }, pending: null, onClose() {} }));
-    expect(markup).toContain('data-action="skip">Skip<');
+    expect(markup).toContain('data-action="skip">Not now<');
     expect(markup).not.toContain('Copy robot and limits');
-    expect(markup).toContain('Project name');
+    expect(markup).toContain('>New project</h2>');
+    expect(markup).toContain('Choose Not now to draw in an untitled project.');
+    expect(markup).toContain('>Name</label>');
   });
 
   it('a restored draft reads Recovered and offers Save copy…', () => {

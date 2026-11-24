@@ -5,10 +5,10 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-dialog h3,.robot-push-dialog p{margin:0}
 .robot-push-dialog h3{font-size:13px;font-weight:600}
 .robot-push-close:disabled{opacity:.35}
-.robot-push-intro{padding:14px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.55}
+.robot-push-intro{padding:14px 20px 4px;color:var(--txt-2);font-size:13px;line-height:1.55}
 .robot-push-section{display:grid;gap:12px;padding:14px 20px 20px}
-.robot-push-section>p,.robot-push-status>p,.robot-push-outcome>p{color:var(--txt-2);font-size:12.5px;line-height:1.55}
-.robot-manager .robot-push-selection{color:var(--txt);font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.robot-push-section>p,.robot-push-status>p,.robot-push-outcome>p{color:var(--txt-2);font-size:13px;line-height:1.55}
+.robot-manager .robot-push-selection{color:var(--txt);font-size:16px;font-weight:600;overflow-wrap:anywhere}
 .robot-push-endpoint{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:10px}
 .robot-push-endpoint label{display:grid;gap:6px;color:var(--txt-2);font-size:12px;font-weight:500}
 .robot-push-endpoint input{min-width:0;height:34px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font:13px var(--mono);outline:none}
@@ -24,7 +24,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-push-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:4px}
 .robot-push-actions>button:first-child:nth-last-child(n+3):not(.primary){margin-right:auto}
 .robot-push-actions.split{justify-content:space-between}
-.robot-push-alert{margin:12px 20px 0;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);font-size:12.5px;line-height:1.5}
+.robot-push-alert{margin:12px 20px 0;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);font-size:13px;line-height:1.5}
 .robot-push-status{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;padding:14px 20px 20px}
 .robot-push-status p,.robot-push-status button{grid-column:2}
 .robot-push-status button{justify-self:start}
@@ -37,18 +37,18 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .robot-retention-list{display:grid;margin:0;padding:0;list-style:none}
 .robot-retention-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0}
 .robot-retention-list li+li{border-top:1px solid var(--line)}
-.robot-retention-list strong{display:block;color:var(--txt);font-size:13px;font-weight:550;overflow-wrap:anywhere}
-.robot-retention-list p{margin-top:2px;color:var(--txt-2);font:11.5px/1.45 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.robot-retention-list strong{display:block;color:var(--txt);font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.robot-retention-list p{margin-top:2px;color:var(--txt-2);font:11px/1.45 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .robot-retention-actions{display:flex;flex:none;gap:6px}
 .robot-retention-actions button{min-height:28px;padding:0 10px}
-.robot-history{padding-top:10px;border-top:1px solid var(--line);color:var(--txt-2);font-size:12.5px}
-.robot-history>summary{padding:4px 0;color:var(--txt);font-weight:550}
+.robot-history{padding-top:10px;border-top:1px solid var(--line);color:var(--txt-2);font-size:13px}
+.robot-history>summary{padding:4px 0;color:var(--txt);font-weight:500}
 .robot-history>p,.robot-history>dl,.robot-history>button,.robot-history>ul{margin-top:12px}
-.robot-baseline-confirm{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;line-height:1.5}
+.robot-baseline-confirm{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.5}
 .robot-baseline-confirm input{flex-shrink:0;margin-top:3px;accent-color:var(--accent)}
 /* The diagnostics entry sits quietly at the end of the connection dialog. */
 .robot-manager>.robot-connection-diagnostics{padding:0 20px 18px}
-.robot-push-trigger{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 8px;margin-left:-8px;border-radius:var(--r);color:var(--txt-2);font-size:12px;font-weight:550}
+.robot-push-trigger{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 8px;margin-left:-8px;border-radius:var(--r);color:var(--txt-2);font-size:12px;font-weight:500}
 .robot-push-trigger svg{color:var(--txt-3)}
 .robot-push-trigger-diagnostics::after{content:'Diagnostics'}
 .robot-push-trigger:hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
@@ -75,7 +75,8 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 /* Idle has no dot; its slot is kept so a state change never moves Push. Not set up is a hollow ring, not a color. */
 .push-menu-trigger>.push-dot{flex:none;width:6px;height:6px;border-radius:50%;background:transparent}
 .push-menu-trigger:not([data-tone])>.push-dot{display:none}
-.push-menu-trigger[data-tone="unset"]>.push-dot{box-shadow:inset 0 0 0 1.25px var(--txt-3)}
+/* Not set up is a dim filled dot: a 6px hollow ring read as the letter o, and a bright fill read as connected. */
+.push-menu-trigger[data-tone="unset"]>.push-dot{background:var(--line-3)}
 .push-menu-trigger[data-tone="busy"]>.push-dot{background:var(--txt-2);animation:push-dot-pulse 1s ease-in-out infinite alternate}
 .push-menu-trigger[data-tone="good"]>.push-dot{background:var(--good)}
 .push-menu-trigger[data-tone="bad"]>.push-dot{background:var(--bad)}
@@ -96,16 +97,16 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .push-menu-result[data-tone="good"]::before{background:var(--good)}
 .push-menu-result[data-tone="bad"]{color:var(--bad-txt)}
 .push-menu-result[data-tone="bad"]::before{background:var(--bad)}
-.push-menu [role="menuitem"]{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;width:100%;min-height:32px;padding:6px 10px;border-radius:var(--r);color:var(--txt);font-size:12.5px;font-weight:500;text-align:left}
-.push-menu-detail{color:var(--txt-3);font-size:11.5px;line-height:1.4}
+.push-menu [role="menuitem"]{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;width:100%;min-height:32px;padding:6px 10px;border-radius:var(--r);color:var(--txt);font-size:13px;font-weight:500;text-align:left}
+.push-menu-detail{color:var(--txt-3);font-size:11px;line-height:1.4}
 .push-menu [role="menuitem"]:is(:hover,:focus-visible):not([aria-disabled]){background:var(--bg-3)}
 .push-menu [role="menuitem"]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .push-menu [role="menuitem"][aria-disabled]{cursor:default}
 .push-menu [role="menuitem"][aria-disabled]>.push-menu-label{color:var(--txt-3)}
 .push-menu hr{height:1px;margin:5px 0;border:0;background:var(--line)}
 .rfp{width:min(480px,calc(100vw - 32px))}
-.rfp h2{font-size:15px}
-.rfp-body{display:grid;gap:12px;padding:12px 20px 4px;color:var(--txt-2);font-size:12.5px;line-height:1.5}
+.rfp h2{font-size:16px}
+.rfp-body{display:grid;gap:12px;padding:12px 20px 4px;color:var(--txt-2);font-size:13px;line-height:1.5}
 .rfp-body strong{color:var(--txt);font-weight:600}
 .rfp-fields{display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:12px 10px}
 .rfp-fields label{display:grid;gap:6px;min-width:0;color:var(--txt-2);font-size:12px;font-weight:500}
@@ -114,20 +115,20 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-password{display:flex;gap:8px;align-items:center}
 .rfp-password input{flex:1}
 .rfp-fields .rfp-note{margin:0}
-.rfp-fields input{min-width:0;height:32px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font:12.5px var(--mono);outline:none}
+.rfp-fields input{min-width:0;height:32px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);font:13px var(--mono);outline:none}
 .rfp-fields input:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
 .rfp-fields input:disabled{opacity:.55}
 .rfp-dest{display:flex;align-items:center;gap:12px;padding:9px 8px 9px 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2)}
 .rfp-dest-text{display:grid;flex:1;gap:2px;min-width:0;font-family:var(--mono);overflow-wrap:anywhere}
-.rfp-dest-text strong{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:12.5px;font-weight:500}
-.rfp-dest-text>span{color:var(--txt-3);font-size:11.5px}
-.rfp-dest-status{color:var(--txt-3);font:500 11.5px var(--ui)}
+.rfp-dest-text strong{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:13px;font-weight:500}
+.rfp-dest-text>span{color:var(--txt-3);font-size:11px}
+.rfp-dest-status{color:var(--txt-3);font:500 11px var(--ui)}
 .rfp-dest-status.good{color:var(--good)}
 .rfp-dest .qbtn{flex:none;min-height:28px;padding:0 10px}
 .rfp-files{display:grid;max-height:min(280px,40vh);margin:0;padding:0;overflow:auto;border:1px solid var(--line-2);border-radius:var(--r);list-style:none}
 .rfp-files li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:4px 14px;padding:8px 12px}
 .rfp-files li+li{border-top:1px solid var(--line)}
-.rfp-file-name{min-width:0;color:var(--txt);font-weight:550;overflow-wrap:anywhere}
+.rfp-file-name{min-width:0;color:var(--txt);font-weight:500;overflow-wrap:anywhere}
 .rfp-file-meta{max-width:min(240px,40vw);color:var(--txt-3);font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .rfp-note{color:var(--txt-3);font-size:12px}
 .rfp-key{display:block;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:12px/1.5 var(--mono);overflow-wrap:anywhere;user-select:all}
@@ -138,7 +139,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-view-working{display:flex;align-items:center;gap:10px;padding-top:16px}
 .rfp-view-done{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding-top:14px}
 .rfp-view-done p{margin-top:2px;overflow-wrap:anywhere}
-.rfp-view-done strong{font-size:13.5px}
+.rfp-view-done strong{font-size:13px}
 .rfp-check{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:rgb(75 191 134/.14);color:var(--good)}
 .rfp-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px 18px}
 .rfp-footer .robot-connection-diagnostics{padding:0}
@@ -160,7 +161,7 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-compare-table :is(th,td){padding:6px 8px;text-align:left;border-bottom:1px solid var(--line)}
 .rfp-compare-table th{font-weight:500;color:var(--txt)}
 .rfp-compare-table tbody th{color:var(--txt-2)}
-.rfp-compare-table [data-changed] td{font-weight:550;color:var(--txt)}
+.rfp-compare-table [data-changed] td{font-weight:500;color:var(--txt)}
 .rfp-compare-table thead td{width:36%}
 .rfp-compare-notes{margin:0;padding-left:16px;color:var(--txt-2)}
 .rfp-compare-gap{margin-top:-8px}
@@ -214,14 +215,14 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-field-map .rfp-field-gap circle{fill:var(--trace);stroke:#05060a;stroke-width:1}
 .rfp-field-caution{display:block;color:var(--warn-txt);font-size:12px}
 .rfp-compare .rfp-compare-table thead th:first-child{width:38%}
-.rfp-changed-values thead th{color:var(--txt-3);font-size:11.5px}
+.rfp-changed-values thead th{color:var(--txt-3);font-size:11px}
 /* Column swatches repeat the route legend so each value reads against its line on the field. */
 .rfp-changed-values thead th+th::before{content:"";display:inline-block;width:12px;margin-right:6px;border-top:2px solid var(--accent);vertical-align:middle}
 .rfp-changed-values thead th:last-child::before{border-top:2px dashed var(--robot-route)}
 .rfp-changed-values tbody td{font:12px/1.45 var(--mono)}
 .rfp-changed-values :is(th,td),.rfp-events :is(th,td){padding-block:4px}
 .rfp-events-head>*{border-top:1px solid var(--line-2)}
-.rfp-events .rfp-events-head th{color:var(--txt);font-weight:550}
+.rfp-events .rfp-events-head th{color:var(--txt);font-weight:500}
 .rfp-events .rfp-event-name th{padding-top:8px;padding-bottom:0;border-bottom:0;color:var(--txt)}
 .rfp-event-row th{padding-left:20px}
 .rfp-events .rfp-absent,.rfp-compare-table .rfp-events-foot td{font:12px/1.45 var(--ui);color:var(--txt-3)}

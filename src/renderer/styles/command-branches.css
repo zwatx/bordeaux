@@ -10,7 +10,7 @@
 .command-branch-route .grid2{align-items:start;margin:8px 0 0}
 .command-branch-route .grid2 .fieldlabel{margin-top:0}
 .command-branch-head{display:flex;align-items:center;gap:8px;min-height:24px}
-.command-branch-head strong{font-size:12.5px;font-weight:600}
-.command-branch-head span{flex:1;min-width:0;color:var(--txt-3);font:11.5px var(--mono);overflow-wrap:anywhere}
+.command-branch-head strong{font-size:13px;font-weight:600}
+.command-branch-head span{flex:1;min-width:0;color:var(--txt-3);font:11px var(--mono);overflow-wrap:anywhere}
 .command-branch-head .rt-radio{margin:0 -4px 0 -5px}
 .command-branches>.rt-openbtn{margin-top:16px}
