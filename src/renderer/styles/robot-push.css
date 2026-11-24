@@ -71,7 +71,8 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .push-control .push-menu-trigger[aria-expanded="true"]{background:var(--bg-4);color:var(--txt)}
 .push-control .push-menu-trigger:focus-visible{z-index:1;outline:2px solid var(--focus);outline-offset:2px}
 .push-control .push-split>.push-button:focus-visible{z-index:1}
-.push-chevron{display:flex}
+.push-chevron{display:flex;transform:rotate(-90deg);transition:transform .14s}
+.push-menu-trigger[aria-expanded="true"] .push-chevron{transform:none}
 /* Idle has no dot; its slot is kept so a state change never moves Push. Not set up is a hollow ring, not a color. */
 .push-menu-trigger>.push-dot{flex:none;width:6px;height:6px;border-radius:50%;background:transparent}
 .push-menu-trigger:not([data-tone])>.push-dot{display:none}

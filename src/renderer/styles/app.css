@@ -236,12 +236,12 @@ input,select,textarea{font-family:inherit}
 .seg-stack .seg-i{display:flex;align-items:center;gap:8px;padding:0 10px;text-align:left;overflow-wrap:normal}
 .seg-stack .seg-i svg{flex:none;opacity:.8}
 .seg-stack .seg-i.on svg{opacity:1}
-/* Disclosures: one chevron that turns when open. */
+/* Disclosures and popup triggers: every chevron points right while closed and down while open. */
 summary{display:flex;align-items:center;gap:8px;min-height:36px;list-style:none;cursor:pointer}
 summary::-webkit-details-marker{display:none}
 summary::marker{content:''}
-summary::after{content:'';flex:none;width:6px;height:6px;margin:0 4px 3px auto;border:solid var(--txt-3);border-width:0 1.5px 1.5px 0;transform:rotate(45deg);transition:transform .14s}
-details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
+summary::after{content:'';flex:none;width:6px;height:6px;margin:0 5px 0 auto;border:solid var(--txt-3);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform .14s}
+details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .pill{flex:none;padding:0 6px;border:1px solid var(--line-3);border-radius:var(--r-s);color:var(--txt-2);font-size:10.5px;font-weight:550;line-height:16px}
 .pill.w{border-color:rgba(207,150,47,.4);color:var(--warn)}
 .pill.th{border-color:var(--accent-line);color:var(--accent)}
@@ -445,8 +445,8 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .segrange:hover{border-color:var(--accent-line)}
 .morebtn{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;margin-top:6px;padding:9px 0 3px;color:var(--txt-2);font-size:12px;font-weight:550}
 .morebtn:hover{color:var(--txt)}
-.morebtn svg{color:var(--txt-3);transition:transform .14s}
-.morebtn.on svg{transform:rotate(180deg)}
+.morebtn svg{color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
+.morebtn.on svg{transform:none}
 .endpoint-speed,.endpoint-speed .numrow{min-width:0}
 .marker-position-group{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
 .marker-position-group>.fieldlabel{margin-top:0}
@@ -662,11 +662,11 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .cmd-picker{position:relative;min-width:0}.cmd-picker>.fieldlabel{margin-top:0}
 .cmd-picker-trigger{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:7px 9px 7px 11px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt);text-align:left;transition:border-color .14s,background-color .14s,box-shadow .14s}
 .cmd-picker-trigger>svg{flex-shrink:0;color:var(--txt-3)}
-.cmd-picker-trigger>svg:last-child{transition:transform .14s}
+.cmd-picker-trigger>svg:last-child{transform:rotate(-90deg);transition:transform .14s}
 .cmd-picker-trigger>span{flex:1;min-width:0;font-size:13px;font-weight:550;line-height:1.35;overflow-wrap:anywhere}
 .cmd-picker-trigger>small{flex-shrink:0;padding:1px 6px;border-radius:var(--r-s);background:var(--bg-4);color:var(--txt-3);font-size:10.5px;font-weight:550;white-space:nowrap}
 .cmd-picker-trigger[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
-.cmd-picker-trigger[aria-expanded="true"]>svg:last-child{transform:rotate(180deg)}
+.cmd-picker-trigger[aria-expanded="true"]>svg:last-child{transform:none}
 .cmd-picker-trigger:disabled{opacity:.45}
 .dropdown.compact .cmd-picker-trigger{min-height:28px;padding:0 7px;gap:5px;border-radius:var(--r-s)}
 .dropdown.compact .cmd-picker-trigger>span{overflow:hidden;font-size:11.5px;text-overflow:ellipsis;white-space:nowrap}
@@ -806,8 +806,8 @@ details[open]>summary::after{transform:translateY(3px) rotate(-135deg)}
 .field-status summary{min-width:0;min-height:36px;padding:6px 10px}
 .field-status summary::after{content:none}
 .field-status summary>svg{flex-shrink:0}
-.field-status summary>svg:last-child{color:var(--txt-3);transition:transform .14s}
-.field-status details[open] summary>svg:last-child{transform:rotate(180deg)}
+.field-status summary>svg:last-child{color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
+.field-status details[open] summary>svg:last-child{transform:none}
 .field-status.error summary>svg:first-child{color:var(--bad)}
 .field-status-label{min-width:0;overflow:hidden;color:var(--txt);text-overflow:ellipsis;white-space:nowrap}
 .field-status-disclosure{margin-left:auto;padding-left:4px;color:var(--txt-3);white-space:nowrap}

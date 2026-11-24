@@ -336,12 +336,16 @@ await test('A disconnected robot clears the live green indicator while preservin
   assert(button('Connect'), 'Disconnected state offers reconnect');
   await native({ capture: 'disconnected' });
 });
+// Every chevron points right while closed and down while open; the glyph itself points down.
+const turn = (element, pseudo) => { const m = new DOMMatrix(getComputedStyle(element, pseudo).transform); return Math.round(Math.atan2(m.b, m.a) * 180 / Math.PI); };
 async function enterRobotFiles(keyboard = false) {
   props = { ...props, noSelection: true }; await act(async () => root.render(<Harness />));
   const trigger = document.querySelector('.push-menu-trigger');
   if (keyboard) {
     trigger.focus();
+    assert(turn(trigger.querySelector('.push-chevron')) === -90, 'The closed Push menu chevron points right');
     await act(async () => native({ key: 'Enter' }));
+    assert(turn(trigger.querySelector('.push-chevron')) === 0, 'The open Push menu chevron points down');
     await act(async () => native({ key: 'Down' }));
     assert(document.activeElement.textContent === 'Robot files…', 'Arrow Down reaches Robot files');
     await act(async () => native({ key: 'Enter' }));
@@ -431,9 +435,12 @@ await test('Robot files opens without a selection, compares a matched row and re
   await pointer('Robot');
   const all = document.querySelector('.rfp-all-values');
   assert(!all.open && all.textContent.includes('20.70 ft'), 'Unchanged distance stays available in All values');
-  all.querySelector('summary').focus();
+  const summary = all.querySelector('summary');
+  assert(turn(summary, '::after') === -45, 'The closed All values chevron points right');
+  summary.focus();
   await act(async () => native({ key: 'Enter' }));
   assert(all.open, 'All values is keyboard operable');
+  assert(turn(summary, '::after') === 45, 'The open All values chevron points down');
   await act(async () => native({ key: 'Enter' }));
   await act(async () => native({ key: 'Tab' }));
   assert(document.activeElement === button('All files'), 'Tab reaches the review footer from All values');
