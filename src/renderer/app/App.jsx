@@ -2070,6 +2070,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
       setInspectorOpen(false);
       setOptimizationOpen(true);
+      optimizer.warm(doc.id);
     };
     const startOptimization = (deadline) => {
       setComparison(null);
