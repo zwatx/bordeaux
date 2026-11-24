@@ -55,7 +55,9 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 861 * 1024;
 // Load-dependent traction and force allocation bring the worker to 226,971 bytes.
 // Shared-bus validation and on-demand thermal analysis bring the worker to ~234 KiB decimal.
 // Dense trajectory validation preserves waypoint correspondence across sample grids (235,619 B).
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 231 * 1024;
+// Shared solves, a faster reachability boundary search and leaner sample validation measure 238,219 B;
+// 234 KiB keeps ~1.4 KiB headroom.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 234 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.

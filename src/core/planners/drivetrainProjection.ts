@@ -64,8 +64,8 @@ export function evaluateDrivetrainPower(
   point: Parameters<typeof evaluateDrivetrainForces>[0], robot: RobotConfig,
   velocity: number, acceleration: number, omega: number, alpha: number, otherCurrentA: number,
   forces = evaluateDrivetrainForces(point, robot, velocity, acceleration, omega, alpha),
+  kinematics = evaluateDrivetrainKinematics(point, robot, velocity, acceleration, omega, alpha),
 ) {
-  const kinematics = evaluateDrivetrainKinematics(point, robot, velocity, acceleration, omega, alpha);
   return predictBus(robot, forces.map((force, index) => ({
     label: force.label, speedMps: kinematics[index].speedMps,
     forceN: kinematics[index].speedMps > EPSILON ? force.rollingForceN : force.requiredMotorForceN,
@@ -148,11 +148,66 @@ function translationSplits(
   )));
 }
 
+/**
+ * Traction limits the acceleration of the chassis center of mass. A module
+ * is a force contact on one rigid body, not an independent point mass; its
+ * rotational point acceleration may legitimately exceed the COM limit.
+ */
+export function chassisTractionConstraint(
+  point: Pick<CanonicalPathPoint, "tangentX" | "tangentY" | "normalX" | "normalY" | "curvatureInvM">,
+  accelerationLimitMps2: number,
+): AffineAccelerationConstraint {
+  return {
+    uX: point.tangentX,
+    uY: point.tangentY,
+    xX: point.curvatureInvM * point.normalX,
+    xY: point.curvatureInvM * point.normalY,
+    limit: Math.max(0.01, accelerationLimitMps2),
+    label: "chassis-traction",
+  };
+}
+
+/** Module speed per unit path speed: |tangent + heading' * (k x r)|. */
+function moduleVelocityCoefficient(
+  point: Pick<CanonicalPathPoint, "tangentX" | "tangentY" | "headingDerivativeRadPerM">,
+  cosHeading: number,
+  sinHeading: number,
+  module: { x: number; y: number },
+): number {
+  const offsetX = cosHeading * module.x - sinHeading * module.y;
+  const offsetY = sinHeading * module.x + cosHeading * module.y;
+  const uX = point.tangentX + point.headingDerivativeRadPerM * -offsetY;
+  const uY = point.tangentY + point.headingDerivativeRadPerM * offsetX;
+  return Math.hypot(uX, uY);
+}
+
+/**
+ * The fastest path speed at which no module exceeds the robot's free speed.
+ * Equals projectDrivetrainAtPoint(...).velocityLimitMps without building the
+ * acceleration constraints, for callers that need only the speed cap.
+ */
+export function drivetrainVelocityLimit(
+  point: Pick<CanonicalPathPoint, "headingRad" | "tangentX" | "tangentY" | "headingDerivativeRadPerM">,
+  robot: RobotConfig,
+): number {
+  const freeSpeed = Math.max(0.01, robot.maxSpeed);
+  let velocityLimitMps = freeSpeed;
+  const cosHeading = Math.cos(point.headingRad);
+  const sinHeading = Math.sin(point.headingRad);
+  for (const module of moduleOffsets(robot)) {
+    const velocityCoefficient = moduleVelocityCoefficient(point, cosHeading, sinHeading, module);
+    velocityLimitMps = Math.min(velocityLimitMps, velocityCoefficient > EPSILON ? freeSpeed / velocityCoefficient : Number.POSITIVE_INFINITY);
+  }
+  return velocityLimitMps;
+}
+
+/** `hardLimits` lets a caller that projects many points resolve the robot's limits once. */
 export function projectDrivetrainAtPoint(
   point: CanonicalPathPoint,
   robot: RobotConfig,
   accelerationLimitMps2: number,
   forceSafety = 1,
+  hardLimits = robotHardLimits(robot),
 ): DrivetrainPointProjection {
   const freeSpeed = Math.max(0.01, robot.maxSpeed);
   const velocityConstraints: DrivetrainVelocityConstraint[] = [];
@@ -166,19 +221,8 @@ export function projectDrivetrainAtPoint(
     return { velocityLimitMps, velocityConstraints, accelerationConstraints, scalarAccelerationConstraints };
   }
 
-  // Traction limits the acceleration of the chassis center of mass. A module
-  // is a force contact on one rigid body, not an independent point mass; its
-  // rotational point acceleration may legitimately exceed the COM limit.
-  accelerationConstraints.push({
-    uX: point.tangentX,
-    uY: point.tangentY,
-    xX: point.curvatureInvM * point.normalX,
-    xY: point.curvatureInvM * point.normalY,
-    limit: Math.max(0.01, accelerationLimitMps2),
-    label: "chassis-traction",
-  });
+  accelerationConstraints.push(chassisTractionConstraint(point, accelerationLimitMps2));
 
-  const hardLimits = robotHardLimits(robot);
   const model = robot.driveModel;
   const radiusSquaredSum = offsets.reduce((sum, module) => sum + module.x ** 2 + module.y ** 2, 0);
   const moduleCount = offsets.length;
@@ -340,10 +384,10 @@ export function evaluateDrivetrainKinematics(
   accelerationMps2: number,
   angularVelocityRadps: number,
   angularAccelerationRadps2: number,
+  hardLimits = robotHardLimits(robot),
 ): DrivetrainKinematicValue[] {
   const cosHeading = Math.cos(point.headingRad);
   const sinHeading = Math.sin(point.headingRad);
-  const hardLimits = robotHardLimits(robot);
   return moduleOffsets(robot).map((module) => {
     const offsetX = cosHeading * module.x - sinHeading * module.y;
     const offsetY = sinHeading * module.x + cosHeading * module.y;
@@ -389,9 +433,9 @@ export function evaluateDrivetrainForces(
   accelerationMps2: number,
   angularVelocityRadps: number,
   angularAccelerationRadps2: number,
+  hardLimits = robotHardLimits(robot),
 ): DrivetrainForceValue[] {
   const model = robot.driveModel;
-  const hardLimits = robotHardLimits(robot);
   const offsets = moduleOffsets(robot);
   if (!model || !hardLimits || offsets.length === 0) return [];
 
@@ -708,6 +752,23 @@ function allocateWithLoadTransfer(args: {
   });
 }
 
+/**
+ * Module-speed cap on path speed at every sample. An interval flagged in
+ * `translationPriorityIntervals` drops heading dynamics at both of its samples.
+ */
+export function drivetrainPointVelocityLimits(
+  state: CanonicalPathState,
+  robot: RobotConfig,
+  translationPriorityIntervals: readonly boolean[] = [],
+): number[] {
+  return state.points.map((point, index) => drivetrainVelocityLimit(
+    translationPriorityIntervals[index - 1] || translationPriorityIntervals[index]
+      ? { ...point, headingDerivativeRadPerM: 0 }
+      : point,
+    robot,
+  ));
+}
+
 export function buildDrivetrainProjection(
   state: CanonicalPathState,
   robot: RobotConfig,
@@ -723,22 +784,14 @@ export function buildDrivetrainProjection(
     headingDerivativeRadPerM: 0,
     headingSecondDerivativeRadPerM2: 0,
   });
-  const pointVelocityLimits = state.points.map((point, index) => {
-    const limit = Math.min(
-      intervalAccelerationLimits[index - 1] ?? Number.POSITIVE_INFINITY,
-      intervalAccelerationLimits[index] ?? Number.POSITIVE_INFINITY,
-    );
-    const projectedPoint = translationPriorityIntervals[index - 1] || translationPriorityIntervals[index]
-      ? withoutHeadingDynamics(point)
-      : point;
-    return projectDrivetrainAtPoint(projectedPoint, robot, limit).velocityLimitMps;
-  });
+  const pointVelocityLimits = drivetrainPointVelocityLimits(state, robot, translationPriorityIntervals);
+  const hardLimits = robotHardLimits(robot);
   const intervalProjections = state.points.slice(1).map((point, index) => {
     const midpoint = interpolatePathPoint(state.points[index], point);
     const projectedMidpoint = translationPriorityIntervals[index]
       ? withoutHeadingDynamics(midpoint)
       : midpoint;
-    return projectDrivetrainAtPoint(projectedMidpoint, robot, intervalAccelerationLimits[index], forceSafety);
+    return projectDrivetrainAtPoint(projectedMidpoint, robot, intervalAccelerationLimits[index], forceSafety, hardLimits);
   });
   return {
     pointVelocityLimits,
