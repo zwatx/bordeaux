@@ -42,7 +42,7 @@ Robot push is a separate explicit action. Saving and local deletion do not conne
 
 ## SystemCore app
 
-`npm run package:systemcore` builds `release/bordeaux_<version>_all.ipk` with Node alone (no GNU tar or ar), and the same commit always gives the same bytes. The package carries `LICENSE`, `NOTICE`, `RIGHTS.md` and the font license in `/usr/share/doc/bordeaux`. Upload it under **Add Package** in the SystemCore dashboard, or copy it over and run `opkg install` on the robot. Bordeaux then appears in the dashboard and serves the editor at `http://<robot>:2468/` to any browser on the robot's network.
+Download `bordeaux_<version>_all.ipk` from the [releases page](https://github.com/zwatx/bordeaux/releases) and upload it under **Add Package** in the SystemCore dashboard, or copy it over and run `opkg install` on the robot. To build it from source, run `npm run package:systemcore`; it writes `release/bordeaux_<version>_all.ipk` with Node alone (no GNU tar or ar), and the same commit always gives the same bytes. The package carries `LICENSE`, `NOTICE`, `RIGHTS.md` and the font license in `/usr/share/doc/bordeaux`. Bordeaux then appears in the dashboard and serves the editor at `http://<robot>:2468/` to any browser on the robot's network.
 
 The browser plans paths and builds BDX files; the robot only stores them. **Save** and autosave write project folders to `/home/systemcore/bordeaux/projects`. **Push** is a separate, reviewed step that copies the selected paths' `.bdx` files into `/home/systemcore/bordeaux/paths`, reads them back and checks their SHA-256; LabVIEW robot code reads that folder. Removing the package keeps both folders.
 
