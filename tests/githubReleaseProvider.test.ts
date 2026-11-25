@@ -21,16 +21,20 @@ function setup(releases = [release("1.0.0-beta.2")], raw = manifest(), platform:
 }
 afterEach(() => vi.unstubAllEnvs());
 describe("public GitHub API release provider", () => {
-  it("accepts canonical zwatx asset URLs after the repository owner rename and preserves both checked Mac ZIPs", async () => {
+  it("reads the manifest through the API and downloads installers from public release URLs", async () => {
     const { provider, request } = setup();
     const info = await provider.getLatestVersion();
     const files = provider.resolveFiles(info);
     expect(files.map(file => file.info.url)).toEqual(["Bordeaux-arm64.zip", "Bordeaux-x64.zip"]);
     expect(files.every(file => file.info.sha512 === checksum)).toBe(true);
-    expect(files[0].url.href).toBe(`${base}/assets/2`);
+    expect(files[0].url.href).toBe("https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.2/Bordeaux-arm64.zip");
     expect(request.mock.calls[0][0]).toMatchObject({ hostname: "api.github.com", path: "/repos/zwatx/bordeaux/releases?per_page=100&page=1", headers: { Accept: "application/vnd.github+json" } });
     expect(request.mock.calls[1][0]).toMatchObject({ path: "/repos/zwatx/bordeaux/releases/assets/1", headers: { Accept: "application/octet-stream" } });
-    expect(provider.fileExtraDownloadHeaders.Accept).toBe("application/octet-stream");
+    // Differential updates find the installed version's blockmap in its own release.
+    expect((await provider.getBlockMapFiles(new URL("https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.2/Bordeaux-1.0.0-beta.2-mac-arm64.zip"), "1.0.0-beta.1", "1.0.0-beta.2")).map(url => url.href)).toEqual([
+      "https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.1/Bordeaux-1.0.0-beta.1-mac-arm64.zip.blockmap",
+      "https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.2/Bordeaux-1.0.0-beta.2-mac-arm64.zip.blockmap",
+    ]);
     expect(provider.isUseMultipleRangeRequest).toBe(false);
   });
   it("stable ignores beta, draft, and prerelease-marked stable tags", async () => {
@@ -91,10 +95,7 @@ describe("public GitHub API release provider", () => {
     await expect(provider.getLatestVersion()).rejects.toThrow("Untrusted");
     expect(request).toHaveBeenCalledTimes(1);
   });
-  it("rejects off-repository installer and filename traversal", async () => {
-    const badRelease = release("1.0.0-beta.2");
-    badRelease.assets[1].url = "https://api.github.com/repos/other/bordeaux/releases/assets/2";
-    await expect(setup([badRelease]).provider.getLatestVersion()).rejects.toThrow("Untrusted");
+  it("rejects installer filename traversal", async () => {
     await expect(setup(undefined, manifest("1.0.0-beta.2", ["../Bordeaux.zip"])).provider.getLatestVersion()).rejects.toThrow("filename");
   });
 });
