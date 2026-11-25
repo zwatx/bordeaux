@@ -1,3 +1,4 @@
+import { ACTIVE_FIELD_REFERENCE } from "../core/field/rebuilt2026";
 import fs from "node:fs/promises";
 import { constants, type Stats } from "node:fs";
 import path from "node:path";
@@ -314,7 +315,8 @@ export class ProjectRecoveryStore {
       // Old receipts authenticate the original canonical source, before field migration.
       // Retain those bytes in the envelope when updating resolutions; readSnapshot converts
       // the validated source for the editor without rewriting its historical receipt.
-      const legacy = record(parsed.project) && record(parsed.project.field) && parsed.project.field.coordinateSchemaId === "bordeaux-field/1.0";
+      const legacy = record(parsed.project) && (!record(parsed.project.field)
+        || parsed.project.field.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId);
       const source = legacy ? `${JSON.stringify(parsed.project, null, 2)}\n` : encoded.contents;
       if (typeof parsed.digest !== "string" || !DIGEST.test(parsed.digest) || parsed.digest !== hash(source)) throw new RecoveryStoreError("invalid-record", meta);
       const envelope: Envelope = { format: FORMAT, metadata: meta, project: legacy ? parsed.project as unknown as BordeauxProject : encoded.project, digest: parsed.digest,

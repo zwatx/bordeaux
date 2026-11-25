@@ -2,7 +2,7 @@ import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./type
 import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_H, FIELD_W } from "./math/fieldBounds";
-import { ACTIVE_FIELD_REFERENCE } from "./field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
@@ -447,13 +447,19 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
     if (project.field.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId) issues.push(issue("$.field.coordinateSchemaId", "Coordinate schema is not supported"));
   }
   if (project.fieldMigration !== undefined) {
-    if (!isRecord(project.fieldMigration) || !["legacy-unpinned", "bordeaux-field/1.0"].includes(String(project.fieldMigration.source)) || !isRecord(project.fieldMigration.assigned)) {
+    if (!isRecord(project.fieldMigration) || !["legacy-unpinned", "bordeaux-field/1.0", BLUE_ORIGIN_FIELD_SCHEMA_ID].includes(String(project.fieldMigration.source)) || !isRecord(project.fieldMigration.assigned)) {
       issues.push(issue("$.fieldMigration", "Field migration record is invalid"));
     } else if (!isRecord(project.field)
       || project.fieldMigration.assigned.id !== project.field.id
       || project.fieldMigration.assigned.revision !== project.field.revision
       || project.fieldMigration.assigned.coordinateSchemaId !== project.field.coordinateSchemaId) {
       issues.push(issue("$.fieldMigration.assigned", "Field migration assignment must match the project field reference"));
+    } else {
+      const { source, via } = project.fieldMigration;
+      if (source === BLUE_ORIGIN_FIELD_SCHEMA_ID ? via !== undefined : (
+        !isRecord(via) || via.id !== ACTIVE_FIELD_REFERENCE.id || via.revision !== ACTIVE_FIELD_REFERENCE.revision
+        || via.coordinateSchemaId !== BLUE_ORIGIN_FIELD_SCHEMA_ID
+      )) issues.push(issue("$.fieldMigration.via", "Field migration must record the intermediate blue-origin assignment for legacy sources"));
     }
   }
   if (typeof project.name !== "string" || !project.name.trim()) issues.push(issue("$.name", "Project name is required"));

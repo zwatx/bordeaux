@@ -721,7 +721,8 @@ export interface FieldReference {
 }
 
 export interface FieldMigrationRecord {
-  source: "legacy-unpinned" | "bordeaux-field/1.0";
+  source: "legacy-unpinned" | "bordeaux-field/1.0" | "wpilib-blue-origin/2026-welded/1";
+  via?: FieldReference;
   assigned: FieldReference;
 }
 
