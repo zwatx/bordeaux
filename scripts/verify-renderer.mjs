@@ -52,6 +52,8 @@ import path from "node:path";
 // The sidebar refresh, linked-point picker and per-path Flip sheet measure about 909 KB together.
 // Card-style library dragging (lifted card, closing slot, settle) and the empty-list menu measure 911,447 B against
 // 909,185 B at HEAD (2026-11-24); 892 KiB keeps about 2 KiB of headroom.
+// Timeline item menus (right-click and Shift+F10) measure 912,128 B against 906,221 B before them; 892 KiB keeps
+// ~1 KiB of headroom.
 const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 892 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.

@@ -158,6 +158,31 @@ export function insertionReason(check, doc) {
   return 'Waiting for the path to plan';
 }
 
+/**
+ * A timeline item's right-click menu, built only from actions the band and inspector already offer, in their
+ * words. `target` is { kind, index } from the item's `data-selection`, or the bare lane or points row with the
+ * label of its add; `add` runs that row's own add at the pressed time. An empty list shows no menu.
+ */
+export function timelineMenu(target, { doc, actions, catalog, inspectorOpen, add }) {
+  const { kind, index } = target;
+  if (kind === 'lane' || kind === 'points') return { label: kind === 'lane' ? 'Commands' : 'Points', items: [{ label: target.label, icon: 'plus', onClick: add }] };
+  const items = inspectorOpen || !actions.openInspector ? [] : [{ label: 'Open in inspector', icon: 'panelopen', onClick: actions.openInspector }];
+  const remove = (label, run) => [...items, ...(items.length ? [{ sep: true }] : []), { label, icon: 'trash', danger: true, onClick: run }];
+  const waypoints = doc.waypoints || [];
+  if (kind === 'wp' && waypoints[index]) {
+    const w = waypoints[index], start = index === 0, end = index === waypoints.length - 1;
+    items.push({ label: start ? 'Stop at entry' : end ? 'Stop at exit' : 'Stop here', icon: 'stop', checked: Boolean(w.stop), onClick: () => actions.setStop(index, !w.stop) });
+    if (!start && !end) items.push({ label: 'Duplicate waypoint', icon: 'copy', onClick: () => actions.duplicateWp(index) });
+    return { label: PathLinks.waypointName(null, doc, index) + ' actions', items: remove('Delete waypoint', () => actions.delWp(index)) };
+  }
+  if (kind === 'seg' && waypoints[index + 1]) return { label: PathLinks.waypointName(null, doc, index) + ' to ' + PathLinks.waypointName(null, doc, index + 1) + ' actions',
+    items: [...items, { label: 'Insert waypoint', icon: 'plus', onClick: () => actions.insertWp(index) }] };
+  if (kind === 'rt' && doc.targets?.[index]) return { label: 'Rotation target ' + (index + 1) + ' actions', items: remove('Delete rotation target', () => actions.delTarget(index)) };
+  if (kind === 'em' && doc.markers?.[index]) return { label: commandLabel(doc.markers[index], catalog) + ' actions', items: remove('Delete command', () => actions.delMarker(index)) };
+  if (kind === 'cr' && doc.ranges?.[index]) return { label: (doc.ranges[index].name || 'Zone') + ' actions', items: remove('Delete zone', () => actions.delRange(index)) };
+  return { label: '', items: [] };
+}
+
 // The commands of one stack, chosen one at a time. Arrow keys, Home and End move, Enter or a click chooses
 // and returns focus to the stack, Escape or Tab closes, and a press elsewhere dismisses it.
 export function CommandStackMenu({ stack, at, selectedIndex, style, onChoose, onClose }) {
@@ -188,7 +213,7 @@ export function CommandStackMenu({ stack, at, selectedIndex, style, onChoose, on
       at(chip.t) && h('span', { className: 'ctxmenu-k pt-stack-time' }, fmt(chip.t) + ' s'))));
 }
 
-export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actions, playbackStore, catalog, metric = 'velocity', issues = [], issuesStale = false, selectedIssue = null, stale = false, header, hoverStore, hoverContext }) {
+export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actions, playbackStore, catalog, metric = 'velocity', issues = [], issuesStale = false, selectedIssue = null, stale = false, header, hoverStore, hoverContext, inspectorOpen = false }) {
   const root = useRef(null);
   const [size, setSize] = useState({ w: 900, h: 260 });
   useLayoutEffect(() => {
@@ -416,6 +441,48 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     else hoverStore.clear('timeline', hoverContext);
   };
 
+  // ---------- item menus: right-click, or ContextMenu / Shift+F10 on a focused item ----------
+  const [menu, setMenu] = useState(null);
+  const menuSeq = useRef(0);
+  // Menu actions name items by index; an edit made while it is open (Undo by key) can renumber them.
+  useEffect(() => setMenu(null), [doc]);
+  const menuTarget = (element) => {
+    // A "+N" stack's own menu chooses its commands; it does not nest another menu.
+    if (element?.closest?.('.pt-stack-menu')) return null;
+    const item = element?.closest?.('[data-selection]');
+    if (item) {
+      const [kind, raw] = item.dataset.selection.split(':');
+      return Number.isInteger(Number(raw)) ? { kind, index: Number(raw), element: item } : null;
+    }
+    if (element?.classList?.contains('pt-lane')) return { kind: 'lane', element };
+    if (element?.classList?.contains('pt-points')) return { kind: 'points', element };
+    return null;
+  };
+  // `t` is the pressed time, or the playhead's for the keyboard, as the rows' own Enter uses.
+  const openMenu = (target, clientX, clientY, t, keyboard) => {
+    const label = target.kind === 'lane' ? (keyboard ? 'Add command at the playhead' : 'Add command here')
+      : target.kind === 'points' ? (keyboard ? 'Add waypoint at the playhead' : 'Add waypoint here') : '';
+    const add = target.kind === 'lane' ? () => actions.addMarkerAt(null, fAtT(tl, t)) : () => insertWaypointAt(t);
+    const built = timelineMenu({ ...target, label }, { doc, actions, catalog, inspectorOpen, add });
+    if (!built.items.length) return false;
+    if (target.kind !== 'lane' && target.kind !== 'points') select(target.kind, target.index);
+    setOpenStack(null);
+    setMenu({ key: ++menuSeq.current, x: clientX, y: clientY, returnFocus: target.element, ...built });
+    return true;
+  };
+  const onContextMenu = (event) => {
+    const target = menuTarget(event.target);
+    if (target && openMenu(target, event.clientX, event.clientY, tAtX(local(event).x), false)) event.preventDefault();
+  };
+  const onMenuKey = (event) => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    const target = menuTarget(event.target);
+    if (!target || (target.element !== event.target && !target.element.contains(event.target))) return;
+    const bounds = target.element.getBoundingClientRect();
+    if (!openMenu(target, bounds.left + bounds.width / 2, bounds.bottom, clamp(playbackStore.getSnapshot().time, 0, T), true)) return;
+    event.preventDefault(); event.stopPropagation();
+  };
+
   const selWp = sel.kind === 'wp' ? sel.idx : null;
   const selSeg = sel.kind === 'seg' ? sel.idx : null;
   const selZone = sel.kind === 'cr' ? sel.idx : null;
@@ -434,6 +501,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       else if (kind === 'em') { setOpenStack(null); actions.delMarker(index); }
       else if (kind === 'cr') actions.delRange(index);
     }, (event) => Boolean(event.target.closest?.('[data-selection]'))),
+    onContextMenu, onKeyDown: onMenuKey,
     onPointerMove: onBodyMove, onPointerLeave: () => hoverStore?.clear('timeline', hoverContext),
     onPointerCancel: () => hoverStore?.clear('timeline', hoverContext), onLostPointerCapture: () => hoverStore?.clear('timeline', hoverContext) },
     h('div', { className: 'pt-head', style: { height: HEAD } },
@@ -618,6 +686,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       style: { left: clamp(shownStack.left, 4, Math.max(4, W - 244)), bottom: H - (laneTop + 1 + shownStack.row * CHIP_ROW) + 4,
         maxHeight: Math.max(60, Math.min(260, laneTop + 1 + shownStack.row * CHIP_ROW - 12)) },
       onChoose: (index) => { closeStack(true); select('em', index); } }),
+    menu && h(UI.ContextMenu, { key: menu.key, x: menu.x, y: menu.y, label: menu.label, items: menu.items, returnFocus: menu.returnFocus, onClose: () => setMenu(null) }),
     hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneH, chips }),
     h(Playhead, { store: playbackStore, x, top: HEAD + RULER, bottom: laneTop + laneH - 2 }));
 }
