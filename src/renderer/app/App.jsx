@@ -1376,33 +1376,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       commit(() => candidate);
       finishPlacement('waypoint');
     }, [commit, finishPlacement, plannerId]);
-    const setJiggle = useCallback((options) => {
-      if (!options) {
-        commit((d) => { delete d.waypoints[d.waypoints.length - 1].jiggle; return d; });
-        return true;
-      }
-      const config = {
-        distanceM: Math.max(0.03, Math.min(1.5, Number(options.distanceM))),
-        strokes: Math.max(2, Math.min(12, Math.round(Number(options.strokes)))),
-        startDeg: Number(options.startDeg),
-        stepDeg: Number(options.stepDeg),
-        strokeTimeS: Math.max(0.08, Math.min(5, Number(options.strokeTimeS))),
-      };
-      if (!Object.values(config).every(Number.isFinite)) return false;
-      const anchor = docRef.current.waypoints[docRef.current.waypoints.length - 1];
-      const lastIndex = Math.max(0, (derived.wpIdx && derived.wpIdx[docRef.current.waypoints.length - 1]) || 0);
-      const baseRad = anchor.turnInPlace
-        ? anchor.turnInPlace.headingDeg * Math.PI / 180
-        : derived.metrics && derived.metrics.head ? derived.metrics.head[lastIndex] : (anchor.theta || 0) * Math.PI / 180;
-      const physicalBaseRad = baseRad + (derived.rev ? Math.PI : 0);
-      if (!PM.jigglePositions(anchor, physicalBaseRad, config, { w: FIELD_W, h: FIELD_H })) return false;
-      commit((d) => {
-        d.waypoints[d.waypoints.length - 1].jiggle = config;
-        d.goalVel = 0;
-        return d;
-      });
-      return true;
-    }, [commit, derived]);
+    // Jiggle is no longer authored; a saved one can only be removed.
+    const removeJiggle = useCallback(() => {
+      commit((d) => { delete d.waypoints[d.waypoints.length - 1].jiggle; return d; });
+    }, [commit]);
     const applyWaypointPreview = useCallback(() => {
       if (!waypointPreview?.derived) return;
       commit(() => waypointPreview.doc);
@@ -1766,7 +1743,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [addWaypoint, derived, doc.waypoints.length]);
     const inspActions = { setWp, toggleTheta, setHandleLen, setHandleDir, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
       addTargetMid, addMarkerMid, addRangeMid,
-      setSegMeta, setSegmentHeadingMode, setSegmentLookAt, setJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
+      setSegMeta, setSegmentHeadingMode, setSegmentLookAt, removeJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
       setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward, moveWpOrder,
       openInspector };
     const fieldActions = { addWaypoint, appendWaypoint, moveWaypoint, moveHandle, moveTargetTo, rotateTargetTo, moveMarkerTo, moveRangeHandle, beginEdit, finishEdit, cancelEdit,

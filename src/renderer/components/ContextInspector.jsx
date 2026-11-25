@@ -644,8 +644,6 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       adder || (members.length >= MAX_GROUP_COMMANDS && h('div', { className: 'seg-hint' }, 'A group holds up to ' + MAX_GROUP_COMMANDS + ' commands.')));
   }
 
-  const JIGGLE_DEFAULTS = { distanceM: 0.03, strokes: 8, startDeg: 45, stepDeg: -45, strokeTimeS: 0.08 };
-
   /**
    * The one sidebar inspector shell for paths and routine steps: a header naming the object (with a muted line for its
    * kind and place), a scrolling body, and a fixed footer whose top rule lines up with the library and docked-panel
@@ -683,12 +681,6 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
   function ContextInspector(props) {
     const { doc, sel, derived, actions, drive, robot, robotProject, onClose } = props;
     const [moreLimits, setMoreLimits] = React.useState(false);
-    const [jiggleDistance, setJiggleDistance] = React.useState(JIGGLE_DEFAULTS.distanceM);
-    const [jiggleStrokes, setJiggleStrokes] = React.useState(JIGGLE_DEFAULTS.strokes);
-    const [jiggleStart, setJiggleStart] = React.useState(JIGGLE_DEFAULTS.startDeg);
-    const [jiggleStep, setJiggleStep] = React.useState(JIGGLE_DEFAULTS.stepDeg);
-    const [jiggleStrokeTime, setJiggleStrokeTime] = React.useState(JIGGLE_DEFAULTS.strokeTimeS);
-    const [jiggleError, setJiggleError] = React.useState(false);
     const wps = doc.waypoints;
     const waypointLabel = (index) => PathLinks.waypointName(props.project, doc, index);
     const pathLimits = PM.effectiveConstraints(doc.constraints, robot);
@@ -720,15 +712,6 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
           onChange: (value) => actions.setWp(0, { theta: onTurnOf(degrees + facingOffset, value) - facingOffset, thetaOn: true }) }),
       );
     };
-
-    React.useEffect(() => {
-      setJiggleDistance(endpointJiggle?.distanceM ?? JIGGLE_DEFAULTS.distanceM);
-      setJiggleStrokes(endpointJiggle?.strokes ?? JIGGLE_DEFAULTS.strokes);
-      setJiggleStart(endpointJiggle?.startDeg ?? JIGGLE_DEFAULTS.startDeg);
-      setJiggleStep(endpointJiggle?.stepDeg ?? JIGGLE_DEFAULTS.stepDeg);
-      setJiggleStrokeTime(endpointJiggle?.strokeTimeS ?? JIGGLE_DEFAULTS.strokeTimeS);
-      setJiggleError(false);
-    }, [doc.id, endpointJiggle?.distanceM, endpointJiggle?.strokes, endpointJiggle?.startDeg, endpointJiggle?.stepDeg, endpointJiggle?.strokeTimeS]);
 
     let title = '', kind = null, body = null, headerAction = null, remove = null;
     const fmtS = (value) => Number.isFinite(value) ? value.toFixed(2) + ' s' : null;
@@ -878,26 +861,11 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
         !isEnd && tangentEditor('nextC'),
         alignedTangents && h('div', { className: 'seg-hint' }, 'Directions stay aligned through this waypoint.'),
 
-        isEnd && !isTank && h(React.Fragment, null,
-          h('div', { className: 'inrow' },
-            h('span', { className: 'inrow-l' }, 'Endpoint jiggle', h('small', null, 'Rapid radial strokes')),
-            h(Toggle, { on: !!endpointJiggle, ariaLabel: 'Endpoint jiggle', onChange: (on) => {
-              if (!on) { actions.setJiggle(null); setJiggleError(false); return; }
-              setJiggleError(!actions.setJiggle({ ...JIGGLE_DEFAULTS }));
-            } })),
-          endpointJiggle && h(React.Fragment, null,
-            h('div', { className: 'grid2 compact-fields' },
-              h(Num, { label: 'Distance', value: jiggleDistance, unit: 'm', min: 0.03, max: 1.5, step: 0.01, precision: 2, projectDraft: false, onChange: (v) => { setJiggleDistance(v); setJiggleError(false); } }),
-              h(Num, { label: 'Stroke time', value: jiggleStrokeTime, unit: 's', min: 0.08, max: 5, step: 0.05, precision: 2, projectDraft: false, onChange: (v) => { setJiggleStrokeTime(v); setJiggleError(false); } }),
-              h(Num, { label: 'Strokes', value: jiggleStrokes, min: 2, max: 12, step: 1, precision: 0, projectDraft: false, onChange: (v) => { setJiggleStrokes(v); setJiggleError(false); } }),
-              h(Num, { label: 'First direction', value: jiggleStart, unit: '\u00b0 rel', step: 15, precision: 0, projectDraft: false, onChange: (v) => { setJiggleStart(v); setJiggleError(false); } }),
-              h(Num, { label: 'Direction step', value: jiggleStep, unit: '\u00b0', step: 15, precision: 0, projectDraft: false, onChange: (v) => { setJiggleStep(v); setJiggleError(false); } })),
-            h('button', { className: 'qbtn wide', type: 'button', onClick: () => setJiggleError(!actions.setJiggle({ distanceM: jiggleDistance, strokes: jiggleStrokes, startDeg: jiggleStart, stepDeg: jiggleStep, strokeTimeS: jiggleStrokeTime })) }, h(Icon, { name: 'route', size: 14 }), 'Update jiggle')),
-          endpointJiggle && h('div', { className: 'seg-hint' }, jiggleError ? 'Keep strokes unique and on-field.' : 'Limits may extend the time.')),
-        isEnd && isTank && endpointJiggle && h(React.Fragment, null,
-          h('div', { className: 'cgroup-h' }, 'Jiggle unavailable'),
-          h('div', { className: 'seg-hint' }, 'Arbitrary-direction jiggle requires a swerve drivetrain.'),
-          h('button', { className: 'qbtn', type: 'button', onClick: () => actions.setJiggle(null) }, h(Icon, { name: 'x', size: 14 }), 'Remove jiggle')),
+        // Jiggle is no longer authored. A saved one still plans as before until it is removed here.
+        isEnd && endpointJiggle && h('div', { className: 'inrow' },
+          h('span', { className: 'inrow-l' }, 'Endpoint jiggle',
+            h('small', null, isTank ? 'Needs a swerve drivetrain' : endpointJiggle.strokes + ' strokes at the end')),
+          h('button', { type: 'button', className: 'choice-change', 'aria-label': 'Remove endpoint jiggle', onClick: actions.removeJiggle }, 'Remove')),
 
         // Every feature inspector ends with the same full-width destructive action.
         !isAnchor && h('button', { className: 'qbtn wide', type: 'button', style: { marginTop: '14px' }, onClick: () => actions.duplicateWp(i) }, h(Icon, { name: 'copy', size: 14 }), 'Duplicate waypoint'),
