@@ -15,7 +15,7 @@ async function fixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "bordeaux-publication-"));
   directories.push(directory);
   const names = [
-    ...["arm64", "x64"].flatMap((arch) => ["dmg", "zip"].map((ext) => `Bordeaux-${version}-mac-${arch}.${ext}`)),
+    ...["dmg", "zip", "dmg.blockmap", "zip.blockmap"].map((ext) => `Bordeaux-${version}-mac-arm64.${ext}`),
     ...["arm64", "x86_64"].map((arch) => `Bordeaux-${version}-linux-${arch}.AppImage`),
     ...["setup", "portable"].map((kind) => `Bordeaux-${version}-windows-x64-${kind}.exe`), `bordeaux_${version}_all.ipk`,
     "beta.yml", "beta-mac.yml", "beta-linux.yml", "beta-linux-arm64.yml", "signature-evidence-mac.json", "signature-evidence-windows.json",
@@ -139,6 +139,22 @@ describe("prerelease publication", () => {
     const f = await fixture();
     await rm(path.join(f.directory, `bordeaux_${version}_all.ipk`));
     await expect(publishPrerelease(f.options)).rejects.toThrow(`Missing release asset: bordeaux_${version}_all.ipk`);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it.each(["dmg", "zip"])("requires the Apple Silicon %s before creating the tag", async (extension) => {
+    const f = await fixture();
+    const missing = `Bordeaux-${version}-mac-arm64.${extension}`;
+    await rm(path.join(f.directory, missing));
+    await expect(publishPrerelease(f.options)).rejects.toThrow(`Missing macOS release asset: ${missing}`);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it.each(["x64.dmg", "universal.zip", "x64.zip.blockmap"])("rejects an unexpected Mac asset %s before creating the tag", async (suffix) => {
+    const f = await fixture();
+    const extra = `Bordeaux-${version}-mac-${suffix}`;
+    await writeFile(path.join(f.directory, extra), "unexpected asset");
+    await expect(publishPrerelease(f.options)).rejects.toThrow(`Unexpected macOS release asset for Apple Silicon: ${extra}`);
     expect(f.calls).toHaveLength(0);
   });
 

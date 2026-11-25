@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
+import { macReleaseArtifactNames } from "./mac-release-assets.mjs";
 
 const packageManifest = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -47,6 +48,10 @@ export async function verifyUpdateManifest({
   if (!Array.isArray(updateManifest.files) || updateManifest.files.length === 0) {
     throw new Error(`${manifestName} does not reference any update files`);
   }
+  const macArtifacts = platform === "mac" ? macReleaseArtifactNames(expectedVersion) : null;
+  if (macArtifacts && updateManifest.path !== undefined && !macArtifacts.includes(updateManifest.path)) {
+    throw new Error(`${manifestName} contains an unexpected macOS update path: ${updateManifest.path}`);
+  }
 
   let hasInstallable = false;
   const files = [];
@@ -54,6 +59,9 @@ export async function verifyUpdateManifest({
     const url = typeof entry?.url === "string" ? entry.url : "";
     if (!url || path.basename(url) !== url || url.includes("\\")) {
       throw new Error(`${manifestName} contains an unsafe or invalid update URL: ${url || "<missing>"}`);
+    }
+    if (macArtifacts && !macArtifacts.includes(url)) {
+      throw new Error(`${manifestName} references an unexpected macOS update artifact: ${url}`);
     }
     const artifact = path.join(resolvedOutputDirectory, url);
     const artifactStats = fs.statSync(artifact, { throwIfNoEntry: false });
