@@ -72,7 +72,7 @@ ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++;
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save'); }
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     const driveModel = {
       motorId: 'rev-vortex', motorFreeRpm: 6784, motorMaxTorqueNm: 3.6, motorCount: 4, gearRatio: 5.5, wheelDiameterM: 0.0762,

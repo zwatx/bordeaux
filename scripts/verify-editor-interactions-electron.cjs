@@ -40,7 +40,7 @@ const clock = () => evaluate(() => Number(document.querySelector('.pt-clock-now'
 const playing = () => evaluate(() => document.querySelector('.pt-play').getAttribute('aria-label').startsWith('Pause'));
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find(p => p.id === 'corpus-neutral-stop'));
     const second = structuredClone(first); second.id = 'link-destination'; second.name = 'A long destination path name with interior pickup and scoring points';
     second.waypoints.forEach(point => { point.y += 0.25; if (point.prevC) point.prevC.y += 0.25; if (point.nextC) point.nextC.y += 0.25; });

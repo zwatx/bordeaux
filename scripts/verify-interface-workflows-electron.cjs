@@ -33,7 +33,7 @@ ipcMain.handle('updates:visible', (_event, visible) => { updateState = { ...upda
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save'); }
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     saved = { ...corpus, robot: { ...corpus.robot, w: 0.8128 }, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Keyboard flow', nodes: [{ id: 'path-a', type: 'path', ref: first.id }, { id: 'path-b', type: 'path', ref: first.id }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false, additionalArguments: ['--updates-ui-fixture'] } });

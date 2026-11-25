@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { decodeProjectFile } = require('../dist-electron/core/project/fileFormat');
 const output = process.env.BORDEAUX_PLANNING_RECOVERY_UI_OUTPUT;
 app.setPath('userData', path.join(output, 'user-data'));
 let win, saved, saves = 0, exportSucceeds = false;
@@ -52,15 +53,36 @@ async function save() { const before = saves; await click('.project-chip'); awai
 }
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const source = await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8');
+    const { project: corpus, migrated } = decodeProjectFile(source);
+    assert.equal(migrated, true);
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     first.name = 'Path 1'; first.ranges = [];
     const second = structuredClone(first); second.id = 'fixture-second'; second.name = 'Path 2';
-    saved = { ...corpus, field: { id: '2026-rebuilt', revision: '2026-manual-tu19-welded-4', coordinateSchemaId: 'wpilib-blue-origin/2026-welded/1' }, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-planning-recovery-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'current trajectory');
     assert.ok(await evaluate(() => document.querySelector('.project-chip-name')?.textContent.includes('Recovery project') || document.querySelector('.toolbar').textContent.includes('Recovery project')));
+    const historicalStart = JSON.parse(source).paths.find((p) => p.id === first.id).waypoints[0];
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height);
+      await wait(() => evaluate((w, h) => innerWidth === w && innerHeight === h, width, height), 'field capture viewport');
+      await click('.fieldsvg [data-role="wp"][data-idx="0"]');
+      const measured = await evaluate(() => {
+        const node = document.querySelector('.fieldsvg [data-role="wp"][data-idx="0"]');
+        return {
+          x: +node.getAttribute('x') + +node.getAttribute('width') / 2,
+          y: +node.getAttribute('y') + +node.getAttribute('height') / 2,
+          yReadout: document.getElementById([...document.querySelectorAll('aside label')].find(label => label.textContent === 'Y')?.htmlFor)?.value,
+        };
+      });
+      assert.ok(Math.abs(measured.x - (1950.5 + (16.541/2 - historicalStart.x) * (3377-524)/16.518)) < .1);
+      assert.ok(Math.abs(measured.y - (791.5 - (8.069/2 - historicalStart.y) * (1488-95)/8.043)) < .1);
+      assert.ok(Number(measured.yReadout) < 0, 'Migrated waypoint shows signed Y');
+      await snapshot('field-centered-migrated-' + width);
+    }
+    await key('Escape');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await key('Tab'); // The original failure only appeared after keyboard navigation.
@@ -314,11 +336,11 @@ app.whenReady().then(async () => {
     await click('.field-flip'); await chooseHalfTurn(); await click('.pf-commit'); await closedFlip();
     await save();
     const afterFlip = structuredClone(saved);
-    assert.equal(afterFlip.field.coordinateSchemaId, 'wpilib-blue-origin/2026-welded/1');
+    assert.equal(afterFlip.field.coordinateSchemaId, 'wpilib-center-origin/2026-andymark/1');
     for (let i = 0; i < beforeFlip.paths[0].waypoints.length; i++) {
       const before = beforeFlip.paths[0].waypoints[i], after = afterFlip.paths[0].waypoints[i];
-      assert.ok(Math.abs(after.x - (16.541 - before.x)) < 1e-10, 'Flip saves opposite-alliance X');
-      assert.ok(Math.abs(after.y - (8.069 - before.y)) < 1e-10, 'Flip saves opposite-alliance Y');
+      assert.ok(Math.abs(after.x - (-before.x)) < 1e-10, 'Flip saves opposite-alliance X');
+      assert.ok(Math.abs(after.y - (-before.y)) < 1e-10, 'Flip saves opposite-alliance Y');
       assert.equal(after.theta, before.theta + 180);
     }
     assert.deepEqual(afterFlip.paths.slice(1), beforeFlip.paths.slice(1), 'Other paths stay identical');
@@ -339,12 +361,12 @@ app.whenReady().then(async () => {
             origin: svg.querySelector('.field-origin')?.textContent };
         });
         assert.deepEqual(projection.frame, [524,95,3377-524,1488-95], 'Frame uses the original overlay playable boundaries');
-        assert.equal(projection.imageTransform, 'rotate(180 1950.5 791.5)', 'The original overlay is oriented once into blue-origin and stays fixed while paths flip');
+        assert.equal(projection.imageTransform, null, 'The blue-right raster stays fixed while paths flip');
         assert.equal(projection.origin, undefined, 'Origin and direction labels are hidden without changing the calibrated frame');
         const firstAfter = afterFlip.paths[0].waypoints[0];
-        assert.ok(Math.abs(projection.x - (524 + firstAfter.x * (3377-524)/16.541)) < .1, 'Rendered X equals saved X in the calibrated frame');
-        assert.ok(Math.abs(projection.y - (1488 - firstAfter.y * (1488-95)/8.069)) < .1, 'Rendered Y equals saved Y in the calibrated frame');
-        await snapshot('field-blue-frame-flipped-' + width + '-inspector-' + inspector);
+        assert.ok(Math.abs(projection.x - (1950.5 + firstAfter.x * (3377-524)/16.518)) < .1, 'Rendered X equals saved X in the calibrated frame');
+        assert.ok(Math.abs(projection.y - (791.5 - firstAfter.y * (1488-95)/8.043)) < .1, 'Rendered Y equals saved Y in the calibrated frame');
+        await snapshot('field-centered-flipped-' + width + '-inspector-' + inspector);
       }
     }
     await click('[aria-label="Undo"]'); await save();
@@ -384,7 +406,7 @@ app.whenReady().then(async () => {
     await click('[aria-label="Place waypoint"]');
     const placement = await evaluate(() => {
       const svg = document.querySelector('.fieldsvg');
-      const screen = new DOMPoint(524 + 3 * (3377-524)/16.541, 1488 - 1.5 * (1488-95)/8.069).matrixTransform(svg.getScreenCTM());
+      const screen = new DOMPoint(1950.5 + 3 * (3377-524)/16.518, 791.5 - 1.5 * (1488-95)/8.043).matrixTransform(svg.getScreenCTM());
       return { x: Math.round(screen.x), y: Math.round(screen.y) };
     });
     for (const type of ['mouseDown','mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, modifiers: [], ...placement });
@@ -416,7 +438,7 @@ app.whenReady().then(async () => {
     for (let i = 0; i < copy.waypoints.length; i++) {
       const before = beforePlacement[0].waypoints[i], after = copy.waypoints[i];
       assert.equal(after.x, before.x);
-      assert.ok(Math.abs(after.y - (8.069 - before.y)) < 1e-10);
+      assert.ok(Math.abs(after.y - (-before.y)) < 1e-10);
       assert.ok(after.theta === -before.theta);
     }
     await click('[aria-label="Undo"]'); await save();
@@ -471,7 +493,7 @@ app.whenReady().then(async () => {
     assert.ok(copiedGroup && copiedGroup !== position.positionLink, 'A shared group within the copied path gets its own identity');
     assert.equal(linkedCopy.waypoints.at(-1).positionLink, copiedGroup);
     assert.equal(linkedCopy.waypoints[1].positionLink, undefined, 'A cross-path-only link does not cross into the copy');
-    assert.ok(Math.abs(linkedCopy.waypoints[0].x - (16.541 - position.x)) < 1e-10);
+    assert.ok(Math.abs(linkedCopy.waypoints[0].x - (-position.x)) < 1e-10);
     assert.deepEqual(saved.paths.filter(path => path.id !== linkedCopy.id), linkedBefore);
     await click('[aria-label="Undo"]'); await save();
     assert.deepEqual(saved.paths, linkedBefore);

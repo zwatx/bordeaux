@@ -20,7 +20,7 @@ const out = path.resolve('src/hosts/systemcore/package/bordeaux-tile.png');
 const env = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' };
 delete env.ELECTRON_RUN_AS_NODE;
 const code = await new Promise((resolve) => spawn(electron, [path.resolve('scripts/render-systemcore-tile-electron.cjs'), url,
-  path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), path.resolve('build/icon.png'), out], { env, stdio: 'inherit' }).on('exit', resolve));
+  path.resolve('benchmarks/planner-corpus/v3/corpus.bordeaux.json'), path.resolve('build/icon.png'), out], { env, stdio: 'inherit' }).on('exit', resolve));
 server.kill();
 if (code !== 0) process.exit(1);
 console.log('Wrote ' + path.relative(process.cwd(), out));

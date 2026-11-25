@@ -54,7 +54,7 @@ const activeText = () => evaluate(() => document.activeElement?.textContent.trim
 
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     first.name = 'Full turn through a 180° marker on the far side of the field';
     first.headingMode = 'targets';
