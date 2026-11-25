@@ -235,10 +235,16 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   const listed = pathsMode ? [...folders.flatMap((folder) => items.filter((item) => item.folderId === folder.id)), ...items.filter((item) => !item.folderId)] : items;
   const targetsFor = (item) => multiple && selected.includes(item.id) ? listed.filter((path) => selected.includes(path.id)).map((path) => path.id) : [item.id];
   const canDrag = pathsMode && !query && !editing;
-  const focusRow = (id) => requestAnimationFrame(() => {
-    const target = [...(root.current?.querySelectorAll('[data-library-item]') || [])].find((item) => item.dataset.libraryItem === id);
-    (target || search.current)?.focus();
-  });
+  const focusRow = (id) => {
+    const previous = document.activeElement;
+    requestAnimationFrame(() => {
+      // A click or Tab can move focus while the library update is pending.
+      const active = document.activeElement;
+      if (active !== previous && active !== document.body) return;
+      const target = [...(root.current?.querySelectorAll('[data-library-item]') || [])].find((item) => item.dataset.libraryItem === id);
+      (target || search.current)?.focus();
+    });
+  };
   const expand = (folderId) => { if (folderId && prefs.collapsed[folderId]) update({ collapsed: { ...prefs.collapsed, [folderId]: false } }); };
   // Paths drop before or after a row, into a folder (its header, empty slot or any gap inside it), or anywhere else in
   // the list for no folder. Folders drop before or after another folder. A target that changes nothing is not valid.

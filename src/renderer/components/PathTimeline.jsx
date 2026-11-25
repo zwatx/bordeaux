@@ -554,10 +554,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       const name = PathLinks.waypointName(null, doc, k);
       return h('button', { key: 'wp' + k, type: 'button', className: 'pt-wp' + (w.stop ? ' stop' : '') + (on ? ' selected' : '') + (k === 0 ? ' start' : k === n - 1 ? ' end' : ''),
         style: { left: x(wpT(k)), top: wpTop + WPROW / 2 }, 'aria-label': name + (w.stop ? ', stop' : '') + at(wpT(k)), 'aria-pressed': on, title: name, 'data-selection': 'wp:' + k,
-        onPointerDown: (event) => event.stopPropagation(), onClick: (event) => {
-          event.currentTarget.focus({ preventScroll: true });
-          select('wp', k);
-        } }, h('span', null, k === 0 || k === n - 1 ? '' : k));
+        onPointerDown: (event) => event.stopPropagation(), onClick: () => select('wp', k) }, h('span', null, k === 0 || k === n - 1 ? '' : k));
     }),
 
     h('div', { className: 'pt-gutter', style: { top: laneTop, height: laneH } }, 'Commands'),
