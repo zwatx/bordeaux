@@ -34,6 +34,13 @@ describe('actual library deletion entry points',()=>{
   expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b','c']);
   expect(ui.props.actions.deletePath).not.toHaveBeenCalled();expect(ui.props.actions.deletePaths).not.toHaveBeenCalled();expect(ui.props.onPath).not.toHaveBeenCalled();
  });
+ it('shows routine rows by name with their actions and no step count',()=>{
+  const ui=harness();Object.assign(ui.props,{mode:'routines',routines:[{id:'r',name:'Auto',nodes:[{id:'w',type:'builtin'},{id:'x',type:'builtin'}]}],activeRoutineId:'r'});ui.render();
+  const row=ui.find(n=>n.props.className?.startsWith('library-row'));
+  expect(ui.pick('r').children.map(c=>c.props?.className)).toEqual(['library-mark','library-name']);
+  expect(JSON.stringify(row)).not.toMatch(/\d+ steps?/);
+  expect(ui.find(n=>n.props['aria-label']==='Actions for Auto')).toBeTruthy();
+ });
  it('Shift+Arrow extends the range from the keyboard',()=>{
   const ui=harness(),rows=['a','b','c'].map(id=>({dataset:{libraryItem:id},focus:vi.fn()}));
   ui.find(n=>n.props.className==='editor-library').props.ref.current={querySelectorAll:()=>rows};

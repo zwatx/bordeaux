@@ -428,7 +428,8 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
             rows[next]?.focus(); const nextItem = items.find((value) => value.id === rows[next]?.dataset.libraryItem); if (nextItem) choose(nextItem, event);
           } }, h('span', { className: 'library-mark', 'aria-hidden': true }, multiple && selected.includes(item.id) && h(Icon, { name: 'check', size: 12 })), h('span', { className: 'library-name' }, item.name),
-          h('span', { className: 'library-meta', title: pathsMode ? durationTitle : status.label + ': ' + status.detail }, pathsMode ? durationText : AUTO.countSteps(item) + (AUTO.countSteps(item) === 1 ? ' step' : ' steps'))),
+          // Paths show their time; a routine row is just its name (its steps are on the page beside it).
+          pathsMode && h('span', { className: 'library-meta', title: durationTitle }, durationText)),
         more('Actions for ' + item.name, kind, item)));
   };
   const group = (folder) => {
