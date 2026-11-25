@@ -10,6 +10,7 @@ import { FIELD_DIMS } from "./FieldView";
 import { UI } from "./ui";
 import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerCommands";
+import { onTurnOf, wrapDegrees } from "../../core/math/angles";
 
   const h = React.createElement;
   const { Num, DraftText, Toggle, Seg, TurnDirection, Icon, Dropdown, ChoiceBrowser, constraintRangeSummary } = UI;
@@ -715,8 +716,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const degrees = followsLaw && Number.isFinite(plannedFacing) ? plannedFacing * 180 / Math.PI
         : followsLaw && Number.isFinite(tangent) ? tangent * 180 / Math.PI : wps[0]?.theta || 0;
       return h(React.Fragment, null,
-        h(Num, { label: 'Initial robot facing', value: degrees + facingOffset, unit: '\u00b0', step: 1, precision: 1,
-          onChange: (value) => actions.setWp(0, { theta: value - facingOffset, thetaOn: true }) }),
+        h(Num, { label: 'Initial robot facing', value: wrapDegrees(degrees + facingOffset), unit: '\u00b0', step: 1, precision: 1,
+          onChange: (value) => actions.setWp(0, { theta: onTurnOf(degrees + facingOffset, value) - facingOffset, thetaOn: true }) }),
       );
     };
 
@@ -810,7 +811,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         h('div', { className: 'inrow first' },
           h('span', { className: 'inrow-l' }, 'Pin heading here', h('small', null, 'Otherwise it interpolates')),
           h(Toggle, { on: !!w.thetaOn, ariaLabel: 'Pin heading at waypoint', onChange: (v) => actions.toggleTheta(i, v) })),
-        w.thetaOn && h(Num, { label: 'Heading \u03b8', value: w.theta || 0, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: v }) }),
+        w.thetaOn && h(Num, { label: 'Heading \u03b8', value: wrapDegrees(w.theta || 0), unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: onTurnOf(w.theta || 0, v) }) }),
         w.thetaOn && headingDirection);
       // Each side edits the shape of its adjacent segment and only the handle values that shape uses.
       const tangentEditor = (key) => {
@@ -853,7 +854,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
                 h('button', { className: 'qbtn wide', type: 'button', style: { marginTop: '4px' }, onClick: () => { actions.setSegmentHeadingMode(headingSegment, 'manual'); actions.faceWaypoint(i, 'tangent'); } }, h(Icon, { name: 'compass', size: 14 }), 'Set manual heading on segment'))
             : isAnchor
               ? h(React.Fragment, null,
-                  h(Num, { label: isStart ? 'Initial robot facing' : 'Final robot facing', value: (w.theta || 0) + facingOffset, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: v - facingOffset }) }),
+                  h(Num, { label: isStart ? 'Initial robot facing' : 'Final robot facing', value: wrapDegrees((w.theta || 0) + facingOffset), unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: onTurnOf((w.theta || 0) + facingOffset, v) - facingOffset }) }),
                   h('div', { className: 'seg-hint' }, 'Facing does not change the path tangent.'),
                   isEnd && headingDirection)
               : interiorHeadingEditor(),
@@ -866,7 +867,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
           h('span', { className: 'inrow-l' }, 'Turn in place', h('small', null, 'Rotate without translating')),
           h(Toggle, { on: !!w.turnInPlace, ariaLabel: 'Turn in place at waypoint', onChange: (v) => actions.setTurnInPlace(i, v) })),
         !isStart && w.turnInPlace && h(React.Fragment, null,
-          h(Num, { label: 'Turn to heading', value: w.turnInPlace.headingDeg, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setTurnInPlaceMeta(i, { headingDeg: v }) }),
+          h(Num, { label: 'Turn to heading', value: wrapDegrees(w.turnInPlace.headingDeg), unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setTurnInPlaceMeta(i, { headingDeg: onTurnOf(w.turnInPlace.headingDeg, v) }) }),
           h(TurnDirection, { value: w.turnInPlace.direction, values: { shortest: 'shortest', cw: 'clockwise', ccw: 'counterclockwise' }, ariaLabel: 'Turn in place direction',
             onChange: (direction) => actions.setTurnInPlaceMeta(i, { direction }) }),
           h('div', { className: 'seg-hint' }, 'Uses rotation limits.')),
