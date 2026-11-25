@@ -5,6 +5,7 @@ import '../src/renderer/styles/robot-push.css';
 import { RobotPushDialog, useRobotPushController } from '../src/renderer/components/RobotPushDialog';
 import { DiagnosticBundleDialog } from '../src/renderer/components/DiagnosticBundleDialog';
 import { DEFAULT_ROBOT_PATH_DIRECTORY } from '../src/core/robotFileDelivery';
+import { rotateBlueOriginPoint } from '../src/core/math/fieldBounds';
 import { ACTIVE_FIELD_REFERENCE } from '../src/core/field/rebuilt2026';
 import { PushControl } from '../src/renderer/components/PushControl';
 import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
@@ -369,10 +370,16 @@ const inventoryFixture = {
     { fileName: 'Return-to-pickup.bdx', name: files[1].name, kind: 'localOnly', pathId: 'B' },
   ],
 };
-const localRoute = { field: ACTIVE_FIELD_REFERENCE, endHeading: -.8, length: .88, width: .71, points: [[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.1, 5.12],
-  [4.62, 4.46], [4.9, 3.82], [5.01, 3.06], [5.121, 2.4]] };
-const robotRoute = { ...localRoute, endHeading: -1.1, points: [[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.24, 5.12],
-  [4.88, 4.58], [5.16, 3.96], [5.22, 3.35], [5.124, 2.81]] };
+const centerTrace = (points) => points.map(([x, y]) => {
+  const centered = rotateBlueOriginPoint({ x, y });
+  return [centered.x, centered.y];
+});
+const localRoute = { field: ACTIVE_FIELD_REFERENCE, endHeading: Math.PI - .8, length: .88, width: .71, points: centerTrace([[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.1, 5.12],
+  [4.62, 4.46], [4.9, 3.82], [5.01, 3.06], [5.121, 2.4]]) };
+const robotRoute = { ...localRoute, endHeading: Math.PI - 1.1, points: centerTrace([[1.6, 5.9], [2.5, 5.86], [3.5, 5.55], [4.24, 5.12],
+  [4.88, 4.58], [5.16, 3.96], [5.22, 3.35], [5.124, 2.81]]) };
+const [localEndX, localEndY] = localRoute.points.at(-1);
+const [robotEndX, robotEndY] = robotRoute.points.at(-1);
 const comparisonFixture = (request, extra = {}) => ({
   id: request.args[0], endpoint, readAt: listedAt, verdict: 'different',
   name: files[0].name, fileName: 'Left-side-scoring.bdx',
@@ -380,7 +387,7 @@ const comparisonFixture = (request, extra = {}) => ({
   widestGap: { local: localRoute.points.at(-1), robot: robotRoute.points.at(-1) },
   local: { size: 18840, sha256: 'a'.repeat(64) }, robot: { size: 18112, sha256: 'b'.repeat(64) },
   facts: [['Duration', 4.82, 5.10, 's'], ['Distance', 6.31, 6.31, 'm'], ['Peak speed', 2.5, 2.7, 'm/s'],
-    ['Events', 3, 4], ['Robot speed limit', 3.2, 3.6, 'm/s'], ['Approx. route gap', '—', 0.42, 'm'], ['End X', 5.121, 5.124, 'm'], ['End Y', 2.4, 2.81, 'm']],
+    ['Events', 3, 4], ['Robot speed limit', 3.2, 3.6, 'm/s'], ['Approx. route gap', '—', 0.42, 'm'], ['End X', localEndX, robotEndX, 'm'], ['End Y', localEndY, robotEndY, 'm']],
   notes: [],
   eventChanges: { omitted: 0, unchanged: 2, rows: [
     { id: 'intake-on', robot: { name: 'Intake on', time: 1.2 }, values: [], notes: [] },
@@ -424,6 +431,11 @@ await test('Robot files opens without a selection, compares a matched row and re
   const table = document.querySelector('.rfp-changed-values'), map = document.querySelector('.rfp-field-map');
   assert(!document.querySelector('.rfp-field figcaption'), 'The field has no explanatory caption when both routes can be shown');
   assert(map.querySelectorAll('.rfp-route-stroke').length === 2 && map.querySelectorAll('.rfp-route-arrow').length === 6, 'Both compiled traces show travel direction');
+  const start = map.querySelector('g[data-route="local"] .rfp-route-start');
+  // Historical blue-origin (1.6, 5.9) is centered (6.6705, -1.8655).
+  assert(Math.abs(Number(start.getAttribute('cx')) - (1950.5 + 6.6705 * (3377-524)/16.518)) < .01
+    && Math.abs(Number(start.getAttribute('cy')) - (791.5 + 1.8655 * (1488-95)/8.043)) < .01,
+  'An off-center BDX waypoint has the same calibrated pixels as the editor');
   assert(map.querySelectorAll('.rfp-route-end').length === 2 && map.querySelector('.rfp-field-gap'), 'Both end footprints and the largest separation are marked');
   assert(!table.textContent.includes('Distance') && table.textContent.includes('5.10 s') && table.textContent.includes('Robot speed limit'), 'Changed timing and settings are highlighted above unchanged values');
   const events = table.querySelector('.rfp-events');
@@ -433,11 +445,11 @@ await test('Robot files opens without a selection, compares a matched row and re
   const eventTime = [...events.rows].find(row => row.cells[0].textContent === 'Time');
   assert(eventTime.cells[1].textContent === '0.80 s' && eventTime.cells[2].textContent === '1.10 s', 'Changed times appear in separate columns');
   assert(events.querySelector('th[aria-label="Arm up, height"]') && !document.querySelector('.rfp-compare-notes'), 'Changed inputs have their own rows and event context');
-  assert(table.textContent.includes('5.121 m') && table.textContent.includes('5.124 m'), 'Measured changes survive display rounding');
+  assert(table.textContent.includes('3.149 m') && table.textContent.includes('3.147 m'), 'Measured changes survive display rounding');
   await native({ capture: 'robot-files-paired-metric' });
   UnitPrefs.set('imperial');
   await act(async () => root.render(<Harness />));
-  assert(table.textContent.includes('9.22 ft') && table.textContent.includes('11.81 ft/s'), 'Changed values use the current units');
+  assert(table.textContent.includes('4.02 ft') && table.textContent.includes('11.81 ft/s'), 'Changed values use the current units');
   assert(document.querySelector('.rfp-field-map').getAttribute('aria-label').includes('ft'), 'The map description uses the current units');
   await native({ capture: 'robot-files-paired-imperial' });
   const fit = map.getAttribute('viewBox');
@@ -560,7 +572,7 @@ await test('Robot files pairs a new robot and downloads an absent local path aft
   await resolve(request, comparisonFixture(request, { verdict: 'robotOnly', robotOnly: true, name: 'Center pickup', routes: { robot: robotRoute },
     fileName: 'Old center path.BDX', robot: { size: 11832, sha256: 'b'.repeat(64) }, local: undefined,
     facts: [['Duration', '—', 4.4, 's'], ['Distance', '—', 5.2, 'm'], ['Peak speed', '—', 2.4, 'm/s'],
-      ['Events', '—', 2], ['Field frame', '—', '2026 Rebuilt · wpilib-blue-origin'], ['Planner', '—', 'bezier'], ['Format', '—', 'BDX 1.1']],
+      ['Events', '—', 2], ['Field frame', '—', ACTIVE_FIELD_REFERENCE.coordinateSchemaId], ['Planner', '—', 'bezier'], ['Format', '—', 'BDX 1.1']],
     eventChanges: { omitted: 0, rows: [['Intake on', 1.2], ['Intake off', 3.9]].map(([name, time]) =>
       ({ id: name, robot: { name, time }, values: [], notes: [] })) } }));
   assert(dialogSize() === listSize, 'Reading and the inspected file share the list size');
