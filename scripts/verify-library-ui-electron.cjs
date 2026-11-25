@@ -334,12 +334,36 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => [...document.querySelectorAll('.library-folder')].some(el => el.textContent.includes('Side'))), true, 'Shift-click on folder actions never deletes the folder');
     await key('Escape');
     await click('.place', 'Routines');
-    await pointerClick('[data-id="step-a"] .rt-step-ic', ['shift']);
-    assert.equal(await evaluate(() => !!document.querySelector('[data-id="step-a"].sel')), true, 'Routine Shift-click selects the step instead of deleting it');
-    await pointerClick('[data-id="step-finish"] .rt-step-ic', ['shift']);
-    assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.rt-step.sel')].map((row) => row.dataset.id).filter((id) => ['step-a', 'decision-a', 'step-finish'].includes(id))), ['step-a', 'decision-a', 'step-finish'], 'Routine Shift-click extends the range over siblings');
-    assert.equal(await evaluate(() => document.querySelector('.rt-range-bar span')?.textContent), '3 steps selected');
+    // In the routine flow, Shift-click deletes a step (a branch with its steps) as one Undo step, like the field,
+    // outline and timeline. The row's own controls keep their meaning.
+    await click('[aria-label="Save project"]');
+    const routineBeforeShift = structuredClone(saved.routines.find((routine) => routine.id === 'routine-a'));
+    const flowIds = () => evaluate(() => [...document.querySelectorAll('.rt-step')].map((row) => row.dataset.id));
+    const allFlowIds = ['step-a', 'decision-a', 'step-then', 'step-else', 'step-finish'];
+    await pointerClick('[data-id="decision-a"] .rt-collapse', ['shift']);
+    assert.deepEqual(await flowIds(), ['step-a', 'decision-a', 'step-finish'], 'Shift-click on a collapse control collapses the branch and deletes nothing');
+    await pointerClick('[data-id="decision-a"] .rt-collapse', ['shift']);
+    await pointerClick('[data-id="step-a"] .rt-more', ['shift']);
+    assert.equal(await evaluate(() => !!document.querySelector('.rt-row-menu')), true, 'Shift-click on step actions opens the menu');
     await key('Escape');
+    await pointerClick('.rt-list>.rt-addwrap .rt-add', ['shift']);
+    assert.equal(await evaluate(() => !!document.querySelector('.rt-slot')), true, 'Shift-click on Add step opens the slot');
+    await key('Escape');
+    await pointerClick('[data-id="step-a"] .rt-grip', ['shift']);
+    assert.deepEqual(await flowIds(), allFlowIds, 'Shift-click on controls, Add step and the grip deletes nothing');
+    await pointerClick('[data-id="step-a"] .rt-step-body', ['shift']);
+    await wait(async () => !(await flowIds()).includes('step-a'), 'Shift-click deletes the routine step');
+    assert.deepEqual(await flowIds(), allFlowIds.slice(1), 'Shift-click deletes only that step');
+    assert.equal(await evaluate(() => document.querySelector('.deletion-notice .deletion-copy')?.textContent), 'Step deleted', 'Shift-deleting a step offers Undo in the library footer');
+    await evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await fs.writeFile(path.join(output, 'routine-shift-delete.png'), (await win.webContents.capturePage()).toPNG());
+    await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.routines.find((routine) => routine.id === 'routine-a'), routineBeforeShift, 'One Undo restores the Shift-deleted step');
+    await pointerClick('[data-id="decision-a"] .rt-step-body', ['shift']);
+    await wait(async () => !(await flowIds()).includes('decision-a'), 'Shift-click deletes the branch');
+    assert.deepEqual(await flowIds(), ['step-a', 'step-finish'], 'Shift-click deletes a branch with its nested steps');
+    await click('[title^="Undo"]'); await click('[aria-label="Save project"]');
+    assert.deepEqual(saved.routines.find((routine) => routine.id === 'routine-a'), routineBeforeShift, 'One Undo restores the branch and its nested steps');
     await pointerClick('[data-library-item="routine-b"]', ['shift']);
     assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"][aria-current="true"]')), true, 'Shift-click opens the routine instead of deleting it');
     await key('Delete');
@@ -348,7 +372,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => !!document.querySelector('[data-library-item="routine-b"]')), true, 'Undo restores the routine');
     await click('[data-library-item="routine-a"]');
     await click('.place', 'Paths');
-    check('Sidebar Shift-click selects library ranges and routine step ranges without deleting; Delete and Undo still work');
+    check('Sidebar Shift-click selects library ranges without deleting; routine flow Shift-click deletes a step or branch as one Undo step, never from its controls; Delete and Undo still work');
     if (process.env.BORDEAUX_SHIFT_DELETE_ONLY) {
       assert.deepEqual(errors, []);
       await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));

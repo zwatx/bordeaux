@@ -176,6 +176,51 @@ app.whenReady().then(async () => {
       await key('Enter');
       await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp [data-route-editor="then"]')), 'Enter on a lane header opens its route');
       assert.deepEqual(await source(), baseline, 'Preview selection does not rewrite the routine');
+      // The rails' footer rules (library feedback, step inspector) continue the transport's top rule as one line.
+      const rules = await evaluate(() => ['.routine-workspace-transport', '.stage-auto .deletion-footer', '.rail-r .ctxinsp-foot']
+        .map(selector => Math.round(document.querySelector(selector).getBoundingClientRect().top)));
+      assert.ok(rules.every(top => top === rules[0]), 'Library and inspector footer rules line up with the transport: ' + rules.join());
+      // Dragging a step lifts it into a card the size of its row; its slot closes and a matching gap opens at the target.
+      const grip = await evaluate(() => {
+        const row = document.querySelector('[data-id="return"]'), r = row.querySelector('.rt-grip').getBoundingClientRect(), box = row.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), width: box.width, height: box.height };
+      });
+      const header = await evaluate(() => { const r = document.querySelector('[data-id="cycle"]').getBoundingClientRect(); return { x: Math.round(r.x + 60), y: Math.round(r.y + r.height / 4) }; });
+      const stepDrag = async (to) => {
+        await focus();
+        win.webContents.sendInputEvent({ type: 'mouseDown', x: grip.x, y: grip.y, button: 'left', clickCount: 1 });
+        await delay(40);
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 8, y: grip.y - 8, button: 'left', modifiers: ['leftButtonDown'] });
+        await wait(() => evaluate(() => Boolean(document.querySelector('.rt-drag-card'))), 'the step lifts into a card');
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: to.x, y: to.y, button: 'left', modifiers: ['leftButtonDown'] });
+        await wait(() => evaluate(() => Boolean(document.querySelector('.rt-group.drop-before'))), 'a gap opens before the repeat');
+        await delay(260);
+      };
+      await stepDrag(header);
+      const lifted = await evaluate(() => {
+        // The card's layout size (it is drawn lifted, scaled 2%).
+        const card = { width: document.querySelector('.rt-drag-card').offsetWidth, height: document.querySelector('.rt-drag-card').offsetHeight }, source = document.querySelector('[data-id="return"]');
+        const gap = document.querySelector('[data-id="cycle"]').parentElement, before = getComputedStyle(gap).marginTop, well = getComputedStyle(gap, '::after');
+        return { width: card.width, height: card.height, label: document.querySelector('.rt-drag-card').textContent, away: source.classList.contains('away'), sourceHeight: source.getBoundingClientRect().height,
+          gap: parseFloat(before), well: parseFloat(well.height), target: gap.classList.contains('drop-before') };
+      });
+      assert.ok(Math.abs(lifted.width - grip.width) < 1 && Math.abs(lifted.height - grip.height) < 1, 'The card is the size of the row: ' + JSON.stringify(lifted));
+      assert.equal(lifted.label, 'Collect along the alliance wall and return through the protected crossing', 'The card names the step');
+      assert.ok(lifted.away && lifted.sourceHeight < 1, 'The source slot closes');
+      assert.ok(lifted.target && Math.abs(lifted.gap - grip.height - 4) < 1 && Math.abs(lifted.well - grip.height + 4) < 1, 'A gap the card\'s height opens at the target: ' + JSON.stringify(lifted));
+      await snapshot('step-drag-' + width);
+      await key('Escape');
+      await wait(() => evaluate(() => !document.querySelector('.rt-drag-card, .rt-panel.dragging, .drop-before, .drop-after')), 'Escape drops nothing');
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: header.x, y: header.y, button: 'left', clickCount: 1 });
+      await delay(120);
+      assert.deepEqual(await source(), baseline, 'Escape cancels the drag without an edit');
+      await stepDrag(header);
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: header.x, y: header.y, button: 'left', clickCount: 1 });
+      await wait(async () => (await source())[0].nodes.map(node => node.id).join() === 'return,cycle', 'the drop moves the step before the repeat');
+      assert.ok(await evaluate(() => !document.querySelector('.rt-drag-card, .rt-panel.dragging')), 'The card is gone after the drop');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'one Undo restores the order');
+      if (await evaluate(() => document.querySelector('[data-id="return"]').classList.contains('sel'))) await click('[data-id="choice"] .rt-step-body');
       await click('[data-id="return"] .rt-step-body');
       await key('A');
       await wait(() => evaluate(() => document.activeElement?.matches('.rt-slot [data-action="path"]')), 'A opens a slot with its strip focused');
@@ -457,7 +502,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));
