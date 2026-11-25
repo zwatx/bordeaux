@@ -1,9 +1,10 @@
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { FIELD_H, FIELD_W, rotateBlueOriginPoint } from "../math/fieldBounds";
 import type { FieldLandmark, FieldPack, FieldPoint, FieldRect } from "./types";
 import { FIELD_IMAGE } from "./imageCalibration";
 
 export const REBUILT_2026_FIELD_REVISION = "2026-manual-tu19-welded-4";
-export const BORDEAUX_FIELD_COORDINATE_SCHEMA_ID = "wpilib-blue-origin/2026-welded/1";
+export const BLUE_ORIGIN_FIELD_SCHEMA_ID = "wpilib-blue-origin/2026-welded/1";
+export const BORDEAUX_FIELD_COORDINATE_SCHEMA_ID = "wpilib-center-origin/2026-welded/1";
 export const ACTIVE_FIELD_REFERENCE = {
   id: "2026-rebuilt",
   revision: REBUILT_2026_FIELD_REVISION,
@@ -12,7 +13,7 @@ export const ACTIVE_FIELD_REFERENCE = {
 export const REBUILT_2026_FIELD_LENGTH_M = 16.541;
 export const REBUILT_2026_FIELD_WIDTH_M = 8.069;
 
-// Authored geometry, planner output and exports use the official blue-origin frame.
+// Manual measurements and the historical AprilTag fixture use the 2026 blue-origin frame.
 const BLUE_BARRIER_X = 4.02844;
 const RED_BARRIER_X = REBUILT_2026_FIELD_LENGTH_M - BLUE_BARRIER_X;
 const TRENCH_OPENING_WIDTH_M = 1.278636;
@@ -39,12 +40,13 @@ export function officialToAppPoint(point: FieldPoint): FieldPoint {
 }
 
 export function officialToAppRect(bounds: FieldRect): FieldRect {
-  const first = officialToAppPoint({ x: bounds.xMin, y: bounds.yMin });
-  const second = officialToAppPoint({ x: bounds.xMax, y: bounds.yMax });
-  return {
-    xMin: Math.min(first.x, second.x), xMax: Math.max(first.x, second.x),
-    yMin: Math.min(first.y, second.y), yMax: Math.max(first.y, second.y),
-  };
+  return { ...bounds };
+}
+
+function centerRect(bounds: FieldRect): FieldRect {
+  const min = rotateBlueOriginPoint({ x: bounds.xMax, y: bounds.yMax });
+  const max = rotateBlueOriginPoint({ x: bounds.xMin, y: bounds.yMin });
+  return { xMin: min.x, xMax: max.x, yMin: min.y, yMax: max.y };
 }
 
 export function appToOfficialPoint(point: FieldPoint): FieldPoint {
@@ -52,7 +54,7 @@ export function appToOfficialPoint(point: FieldPoint): FieldPoint {
 }
 
 export function appToAllianceViewPoint(point: FieldPoint, allianceView: "blue" | "red"): FieldPoint {
-  return allianceView === "red" ? { x: FIELD_W - point.x, y: FIELD_H - point.y } : { ...point };
+  return allianceView === "red" ? { x: -point.x, y: -point.y } : { ...point };
 }
 
 function pointLandmark(
@@ -88,7 +90,7 @@ function descriptiveLandmark(id: string, name: string, aliases: string[], descri
   return { id, name, aliases, kind: "point", behavior: "interaction", navigable: false, description, ...extra };
 }
 
-export const REBUILT_2026_NEUTRAL_ZONE: FieldRect = {
+const measuredNeutralZone: FieldRect = {
   xMin: NEUTRAL_X_MIN,
   xMax: NEUTRAL_X_MAX,
   yMin: 0,
@@ -96,7 +98,7 @@ export const REBUILT_2026_NEUTRAL_ZONE: FieldRect = {
 };
 
 /** Approximate pre-MATCH FUEL corral from Game Manual section 6.3.4.1. */
-export const REBUILT_2026_INITIAL_FUEL_REGION: FieldRect = {
+const measuredFuelRegion: FieldRect = {
   xMin: REBUILT_2026_FIELD_LENGTH_M / 2 - INITIAL_FUEL_DEPTH_M / 2,
   xMax: REBUILT_2026_FIELD_LENGTH_M / 2 + INITIAL_FUEL_DEPTH_M / 2,
   yMin: REBUILT_2026_FIELD_WIDTH_M / 2 - INITIAL_FUEL_WIDTH_M / 2,
@@ -145,8 +147,8 @@ const landmarks: FieldLandmark[] = [
   regionLandmark("field-carpet", "FIELD carpet", ["field", "field carpet", "playing field"], { xMin: 0, xMax: REBUILT_2026_FIELD_LENGTH_M, yMin: 0, yMax: REBUILT_2026_FIELD_WIDTH_M }),
   regionLandmark("blue-alliance-zone", "Blue ALLIANCE ZONE", ["blue alliance zone", "blue side"], { xMin: 0, xMax: BLUE_BARRIER_X, yMin: 0, yMax: REBUILT_2026_FIELD_WIDTH_M }),
   regionLandmark("red-alliance-zone", "Red ALLIANCE ZONE", ["red alliance zone", "red side"], { xMin: RED_BARRIER_X, xMax: REBUILT_2026_FIELD_LENGTH_M, yMin: 0, yMax: REBUILT_2026_FIELD_WIDTH_M }),
-  regionLandmark("neutral-zone", "NEUTRAL ZONE", ["neutral zone", "neutral"], REBUILT_2026_NEUTRAL_ZONE),
-  regionLandmark("initial-fuel-region", "Initial NEUTRAL ZONE FUEL region", ["initial fuel region", "fuel staging region", "neutral fuel band", "starting fuel cloud"], REBUILT_2026_INITIAL_FUEL_REGION),
+  regionLandmark("neutral-zone", "NEUTRAL ZONE", ["neutral zone", "neutral"], measuredNeutralZone),
+  regionLandmark("initial-fuel-region", "Initial NEUTRAL ZONE FUEL region", ["initial fuel region", "fuel staging region", "neutral fuel band", "starting fuel cloud"], measuredFuelRegion),
   lineLandmark("center-line", "CENTER LINE", ["center line", "midfield", "middle of the field"], { x: REBUILT_2026_FIELD_LENGTH_M / 2, y: 0 }, { x: REBUILT_2026_FIELD_LENGTH_M / 2, y: REBUILT_2026_FIELD_WIDTH_M }),
   lineLandmark("blue-robot-starting-line", "Blue ROBOT STARTING LINE", ["blue starting line", "blue alliance line"], { x: BLUE_BARRIER_X, y: 0 }, { x: BLUE_BARRIER_X, y: REBUILT_2026_FIELD_WIDTH_M }, "blue"),
   lineLandmark("red-robot-starting-line", "Red ROBOT STARTING LINE", ["red starting line", "red alliance line"], { x: RED_BARRIER_X, y: 0 }, { x: RED_BARRIER_X, y: REBUILT_2026_FIELD_WIDTH_M }, "red"),
@@ -190,7 +192,19 @@ const landmarks: FieldLandmark[] = [
   ...hubLandmarks,
 ];
 
-const solidObstacles = hubLandmarks;
+export const REBUILT_2026_NEUTRAL_ZONE = centerRect(measuredNeutralZone);
+export const REBUILT_2026_INITIAL_FUEL_REGION = centerRect(measuredFuelRegion);
+
+const centeredLandmarks = landmarks.map((landmark): FieldLandmark => ({
+  ...landmark,
+  ...(landmark.point && { point: rotateBlueOriginPoint(landmark.point) }),
+  ...(landmark.bounds && { bounds: centerRect(landmark.bounds) }),
+  ...(landmark.line && { line: {
+    start: rotateBlueOriginPoint(landmark.line.start),
+    end: rotateBlueOriginPoint(landmark.line.end),
+  } }),
+  ...(landmark.headingDeg !== undefined && { headingDeg: landmark.headingDeg + 180 }),
+}));
 
 function crossingPortal(id: string, side: "table" | "away") {
   const landmark = landmarks.find((item) => item.id === id)!;
@@ -211,9 +225,9 @@ function crossingPortal(id: string, side: "table" | "away") {
     traversal: landmark.traversal!,
     side,
     allianceSide: landmark.allianceSide!,
-    point: landmark.point!,
+    point: rotateBlueOriginPoint(landmark.point!),
     widthM: landmark.openingWidthM!,
-    bounds: { xMin, xMax, yMin, yMax },
+    bounds: centerRect({ xMin, xMax, yMin, yMax }),
     depthM: xMax - xMin,
     ...(landmark.clearanceHeightM === undefined ? {} : { clearanceHeightM: landmark.clearanceHeightM }),
   };
@@ -223,7 +237,7 @@ const crossingBarriers = [
   {
     id: "blue-alliance-barrier",
     allianceOwner: "blue" as const,
-    x: BLUE_BARRIER_X,
+    x: rotateBlueOriginPoint({ x: BLUE_BARRIER_X, y: 0 }).x,
     portals: [
       crossingPortal("blue-trench-table", "table"),
       crossingPortal("blue-trench-away", "away"),
@@ -234,7 +248,7 @@ const crossingBarriers = [
   {
     id: "red-alliance-barrier",
     allianceOwner: "red" as const,
-    x: RED_BARRIER_X,
+    x: rotateBlueOriginPoint({ x: RED_BARRIER_X, y: 0 }).x,
     portals: [
       crossingPortal("red-trench-table", "table"),
       crossingPortal("red-trench-away", "away"),
@@ -250,26 +264,26 @@ export const REBUILT_2026_FIELD: FieldPack = {
   name: "2026 REBUILT presented by Haas",
   dimensions: { lengthM: REBUILT_2026_FIELD_LENGTH_M, widthM: REBUILT_2026_FIELD_WIDTH_M },
   imageCalibration: FIELD_IMAGE,
-  coordinateFrame: "Official WPILib blue-wall origin: +X toward red, +Y away from the scoring-table guardrail",
+  coordinateFrame: "WPILib center origin: +X toward blue, +Y toward the scoring-table guardrail",
   appDisplayTransform: {
     appLengthM: FIELD_W,
     appWidthM: FIELD_H,
-    description: "Identity: authored coordinates are official blue-origin meters; calibrated image projection changes display pixels only",
+    description: "Centered meters; calibrated image projection shows blue on the right",
   },
   authoringInvariants: [
-    "Canonical Bordeaux coordinates use the fixed blue-side origin: +X toward red, +Y away from the scoring table, heading zero along +X and positive headings counterclockwise.",
+    "Canonical Bordeaux coordinates use the fixed center origin: +X toward blue, +Y toward the scoring table, heading zero along +X and positive headings counterclockwise.",
     "Flip rotates all authored paths 180 degrees in the canonical frame, including headings, handles and look-at points; it is a saved, undoable edit.",
     "Alliance left/right is from that alliance's drivers facing the field: red-left is scoring-table side and blue-left is non-scoring-table side.",
     "A route with different outbound and inbound crossings must use ordered per-leg traversal requirements; one global traversal is invalid.",
     "A swoosh is a typed 180-degree maneuver with explicit turn direction and radius, not an arbitrary coordinate loop.",
     "Initial FUEL collection uses the approximately 72-inch-deep staging band around the CENTER LINE, not the full 283-inch NEUTRAL ZONE depth.",
-    "Official +Y points away from the scoring table: low-Y is scoring-table side and high-Y is non-scoring-table side.",
+    "Positive Y is scoring-table side and negative Y is non-scoring-table side.",
     "The ROBOT STARTING LINE is the alliance-side face of the HUB/BUMP/TRENCH band, not the center of those structures.",
     "AprilTags and HUB faces are perception/aiming references, not collision-free chassis poses.",
     "DEPOT barrier dimensions are official, but its exact floor polygon is not certified in this pack; never invent a center or route through a DEPOT reference.",
   ],
-  landmarks,
-  solidObstacles,
+  landmarks: centeredLandmarks,
+  solidObstacles: centeredLandmarks.filter((landmark) => landmark.behavior === "solid"),
   crossingBarriers,
   sources: [
     {
@@ -298,32 +312,19 @@ export const REBUILT_2026_FIELD: FieldPack = {
   ],
 };
 
-export const REBUILT_2026_OFFICIAL_CROSSINGS = {
+export const REBUILT_2026_CROSSINGS = {
   blue: {
-    trenchTable: landmarks.find((item) => item.id === "blue-trench-table")!.point!,
-    trenchAway: landmarks.find((item) => item.id === "blue-trench-away")!.point!,
-    bumpTable: landmarks.find((item) => item.id === "blue-bump-table")!.point!,
-    bumpAway: landmarks.find((item) => item.id === "blue-bump-away")!.point!,
+    trenchTable: centeredLandmarks.find((item) => item.id === "blue-trench-table")!.point!,
+    trenchAway: centeredLandmarks.find((item) => item.id === "blue-trench-away")!.point!,
+    bumpTable: centeredLandmarks.find((item) => item.id === "blue-bump-table")!.point!,
+    bumpAway: centeredLandmarks.find((item) => item.id === "blue-bump-away")!.point!,
   },
   red: {
-    trenchTable: landmarks.find((item) => item.id === "red-trench-table")!.point!,
-    trenchAway: landmarks.find((item) => item.id === "red-trench-away")!.point!,
-    bumpTable: landmarks.find((item) => item.id === "red-bump-table")!.point!,
-    bumpAway: landmarks.find((item) => item.id === "red-bump-away")!.point!,
+    trenchTable: centeredLandmarks.find((item) => item.id === "red-trench-table")!.point!,
+    trenchAway: centeredLandmarks.find((item) => item.id === "red-trench-away")!.point!,
+    bumpTable: centeredLandmarks.find((item) => item.id === "red-bump-table")!.point!,
+    bumpAway: centeredLandmarks.find((item) => item.id === "red-bump-away")!.point!,
   },
 } as const;
 
-export const REBUILT_2026_CROSSINGS = {
-  blue: {
-    trenchTable: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.blue.trenchTable),
-    trenchAway: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.blue.trenchAway),
-    bumpTable: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.blue.bumpTable),
-    bumpAway: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.blue.bumpAway),
-  },
-  red: {
-    trenchTable: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.red.trenchTable),
-    trenchAway: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.red.trenchAway),
-    bumpTable: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.red.bumpTable),
-    bumpAway: officialToAppPoint(REBUILT_2026_OFFICIAL_CROSSINGS.red.bumpAway),
-  },
-} as const;
+export const REBUILT_2026_OFFICIAL_CROSSINGS = REBUILT_2026_CROSSINGS;
