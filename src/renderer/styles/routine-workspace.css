@@ -15,6 +15,11 @@
 .routine-workspace [hidden]{display:none!important}
 .routine-workspace .viewctl{bottom:16px}
 .routine-workspace-transport{position:relative;flex-shrink:0}
+/* With a transport, the rails' footer strips take its height (RoutineWorkspace sets --side-foot), so their top rules
+   and the transport's are one line. Their content sits on the transport's 34px control row. */
+.stage-auto[data-transport-foot] .deletion-notice{height:34px}
+.stage-auto[data-transport-foot] .ctxinsp-foot{align-items:flex-start;padding-top:2px}
+.stage-auto[data-transport-foot] .rt-src-keys{min-height:var(--side-foot);align-content:flex-start}
 @media(max-width:1180px){.routine-workspace-head{gap:12px;padding-left:18px}}
 
 /* ============ flow ============ */
@@ -51,7 +56,6 @@
   min-height:34px;padding:3px 4px 3px 2px;border-radius:var(--r)}
 .rt-step.sel{background:var(--bg-3)}
 .rt-step.active:not(.sel){background:var(--bg-2)}
-.rt-step.dragging{opacity:.4}
 .rt-step.off .rt-step-title{color:var(--txt-2);font-weight:500}
 .rt-step.off :is(.rt-step-ic,.rt-collapse){opacity:.6}
 .rt-step.unreachable :is(.rt-step-body,.rt-step-ic,.rt-collapse,.rt-step-dur){opacity:.55}
@@ -90,11 +94,33 @@
 .rt-tool{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:var(--r-s);color:var(--txt-3)}
 .rt-more{opacity:0}
 .rt-step:is(:hover,:focus-within,.sel) :is(.rt-more,.rt-grip),.rt-more[aria-expanded=true]{opacity:1}
-/* Drop feedback: a line in the gap; a rejected target shows no line and its reason below the flow. */
-.rt-step.drop-before::after,.rt-step.drop-after::after,.rt-route.drop-after::after,.rt-addwrap.drop-before::after{content:'';position:absolute;z-index:5;left:36px;right:28px;height:2px;border-radius:1px;background:var(--txt);pointer-events:none}
-.rt-step.drop-before::after,.rt-addwrap.drop-before::after{top:-1px}
-.rt-step.drop-after::after,.rt-route.drop-after::after{bottom:-1px}
-.drop-invalid::after{display:none}
+/* Dragging works like the library's card list: the grip lifts the row into a card (EditorLibrary's lifted card), its
+   slot becomes a well and closes once there is somewhere else to go, and a matching well (--drag-gap, the card's
+   height) opens where the step will land. An open group moves as its whole box. Transitions run only while dragging;
+   a rejected target opens nothing and says why below the flow on release. */
+.rt-panel{--settle:cubic-bezier(.2,.8,.2,1)}
+.rt-panel.dragging :is(.rt-step,.rt-group,.rt-route,.rt-addwrap){interpolate-size:allow-keywords;transition:height .18s var(--settle),min-height .18s var(--settle),margin .18s var(--settle),padding .18s var(--settle),border-width .18s var(--settle)}
+.rt-panel.dragging :is(.rt-step,.rt-group).dragging{background:oklch(0 0 0/.16);box-shadow:inset 0 0 0 1px var(--line-2)}
+:is(.rt-step,.rt-group).dragging>*{visibility:hidden}
+.rt-step.away{height:0;min-height:0;padding-block:0;overflow:hidden}
+.rt-panel.dragging .rt-group.away{height:0;margin-block:0;border-width:0;overflow:hidden;box-shadow:none}
+.rt-group:is(.drop-before,.drop-after){position:relative}
+:is(.rt-step,.rt-addwrap).drop-before{margin-top:var(--drag-gap)}
+:is(.rt-step,.rt-route).drop-after{margin-bottom:var(--drag-gap)}
+.rt-group.drop-before{margin-top:calc(var(--drag-gap) + 4px)}
+.rt-group.drop-after{margin-bottom:calc(var(--drag-gap) + 4px)}
+:is(.rt-step,.rt-group,.rt-route,.rt-addwrap):is(.drop-before,.drop-after)::after{content:'';position:absolute;z-index:5;left:2px;right:2px;height:calc(var(--drag-gap) - 4px);border-radius:var(--r);background:oklch(1 0 0/.04);box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
+:is(.rt-step,.rt-addwrap).drop-before::after{top:calc(2px - var(--drag-gap))}
+:is(.rt-step,.rt-route).drop-after::after{bottom:calc(2px - var(--drag-gap))}
+.rt-group.drop-before::after{left:1px;right:1px;top:calc(-3px - var(--drag-gap))}
+.rt-group.drop-after::after{left:1px;right:1px;bottom:calc(-3px - var(--drag-gap))}
+/* The card (in the body, outside the workspace) lays out the row's glyph and name, with its time where it was. */
+.rt-drag-card{--settle:cubic-bezier(.2,.8,.2,1);--cmd:oklch(.86 .1 300);gap:6px;padding-right:38px;font-weight:500}
+.rt-drag-card .rt-step-ic{flex:none}
+.rt-drag-card .library-drag-label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:17px;white-space:normal;overflow-wrap:anywhere}
+.rt-drag-card.cmd .rt-step-ic{color:var(--cmd)}
+.rt-drag-card.wait .rt-step-ic{color:var(--warn)}
+@media (prefers-reduced-motion:reduce){.rt-panel.dragging *{transition:none}}
 
 /* A lane header: the preview radio, then the route's name, how it matches, and what it holds. The name opens the
    route's editor in the inspector; only the radio changes the preview route. */

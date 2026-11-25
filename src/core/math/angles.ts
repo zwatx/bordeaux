@@ -1,3 +1,5 @@
+import { MAX_AUTHORED_ANGLE_DEG } from "../planners/limits";
+
 const FULL_TURN = Math.PI * 2;
 
 /** Moving anchors may request a complete revolution when headings match. */
@@ -17,6 +19,24 @@ export function wrapRadians(value: number): number {
   if (wrapped > Math.PI) return wrapped - FULL_TURN;
   if (wrapped < -Math.PI) return wrapped + FULL_TURN;
   return wrapped;
+}
+
+/** Facing fields show a stored heading within one turn, like wrapRadians. Stored headings keep their turns, so an
+ * exact half-turn keeps its direction; the robot unwraps what it receives. */
+export function wrapDegrees(value: number): number {
+  // In degrees, so a whole-degree entry stays exact; an exact half-turn keeps its sign, as in wrapRadians.
+  const wrapped = value % 360;
+  if (Math.abs(Math.abs(wrapped) - 180) < 1e-9) return Math.sign(wrapped) * 180;
+  if (wrapped > 180) return wrapped - 360;
+  if (wrapped < -180) return wrapped + 360;
+  return wrapped;
+}
+
+/** A value entered in a wrapped facing field, kept on the stored heading's turn so a scrub never reverses a half-turn.
+ * Past the planner's heading bound (less a turn for the facing offset) the entered value stands on its own. */
+export function onTurnOf(stored: number, entered: number): number {
+  const kept = stored + entered - wrapDegrees(stored);
+  return Math.abs(kept) <= MAX_AUTHORED_ANGLE_DEG - 360 ? kept : entered;
 }
 
 /** A shortest stationary half-turn is counterclockwise unless direction is explicit.

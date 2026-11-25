@@ -54,7 +54,9 @@ import path from "node:path";
 // 909,185 B at HEAD (2026-11-24); 892 KiB keeps about 2 KiB of headroom.
 // Timeline item menus (right-click and Shift+F10) measure 914,448 B against 911,504 B before them (2026-11-24);
 // 895 KiB keeps about 2 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 895 * 1024;
+// Routine step dragging as lifted cards, Shift-click step deletion and footer alignment measure 917,066 B against
+// 914,458 B before them (2026-11-25); 898 KiB keeps about 2 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 898 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -81,7 +83,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 240 * 1024;
 // The editable shortcuts dialog measures 179,282 B against 177,817 B before it. Closed-right disclosure chevrons
 // (popup triggers stay down) add little; 176 KiB still fits the combined styles (2026-11-24).
 // Shared rail styles and the linked-point and Flip sheets measure about 186 KB together.
-const CSS_BUDGET_BYTES = 183 * 1024;
+// Routine step drag cards, wells and transport-height footers measure 188,882 B against 187,080 B before them (2026-11-25).
+const CSS_BUDGET_BYTES = 185 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

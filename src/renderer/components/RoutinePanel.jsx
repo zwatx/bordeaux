@@ -1,4 +1,4 @@
-import { deletionInput } from './DeletionNotice';
+import { deletionInput, shiftDeletionInput } from './DeletionNotice';
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { PointerDrag } from "../hooks/usePointerDrag";
@@ -138,6 +138,9 @@ export function groupClosing(node, after, paths, catalog) {
   return { glyph: 'join', parts: [count > 1 ? 'Waits for all ' + count + ' to finish, then ' : 'Waits for it to finish, then ', ...next] };
 }
 
+function stepKind(node) {
+  return node.type === 'path' ? 'path' : node.type === 'decision' ? 'decision' : node.type === 'builtin' ? 'wait' : node.type === 'function' && node.cat === 'command' ? 'cmd' : node.type === 'group' ? 'grp' : 'control';
+}
 function glyphFor(node) {
   if (node.type === 'path' || node.type === 'generatedTrajectory') return 'route';
   if (node.type === 'builtin') return 'pause';
@@ -245,20 +248,53 @@ function navKeys(event) {
   return false;
 }
 
-// ---- drag: drop between any rows of any list that accepts the step; feedback and commit share checkEdit ----
-function useDnd(routine, edit, report) {
-  const [drag, setDrag] = useState(null); // { id, target: { operation, rowId, before, ref } | null, reason }
-  const state = useRef(null);
+// ---- drag: like the library's card list. The grip lifts the step into a card the size of its row, held where it was
+// grabbed. The step's slot closes once it has somewhere else to go and stays closed, so the flow cannot flicker
+// between layouts; a matching gap opens where it will land. Near the flow's top or bottom edge the flow scrolls.
+// Release drops on the last target (one checked edit, one Undo step); Escape, blur or a cancelled pointer drop
+// nothing. The card then settles into its new place, or back home. Feedback and commit share checkEdit. ----
+const DRAG_EDGE = 32, SETTLE_MS = 200;
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** What a step occupies in the flow: an open group's whole box, otherwise its row. */
+function stepElement(root, id) {
+  const row = [...(root?.querySelectorAll('.rt-step') || [])].find((element) => element.dataset.id === id);
+  return row?.parentElement?.classList.contains('rt-group') ? row.parentElement : row;
+}
+function useDnd(routine, edit, report, scrollRef) {
+  const [drag, setDrag] = useState(null); // { id, box, x, y, target: { operation, mark, allowed, reason } | null, away }
+  const settle = useRef(null);
   const pointerDrag = PointerDrag.useController();
   // Another routine or source cancels an active drag without applying it.
   useEffect(() => () => pointerDrag.cancel?.({ flush: false }), [routine.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const targetAt = (id, x, y) => {
+  // After the drop renders, the moved step starts where the card was and eases into its place.
+  useLayoutEffect(() => {
+    const card = settle.current;
+    if (!card || drag) return;
+    settle.current = null;
+    const element = stepElement(scrollRef.current, card.id);
+    if (!element || reducedMotion()) return;
+    const box = element.getBoundingClientRect(), dx = card.x - box.left, dy = card.y - box.top;
+    if (Math.hypot(dx, dy) < 1) return;
+    element.classList.add('settling');
+    element.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], { duration: SETTLE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' })
+      .finished.catch(() => {}).finally(() => element.classList.remove('settling'));
+  });
+  // A point inside the flow but on no target (an open gap, a closing row) keeps the previous target, so a gap that
+  // moves rows away from the pointer does not close again under it. Outside the flow there is no target.
+  const targetAt = (id, x, y, previous) => {
     const el = document.elementFromPoint(x, y);
-    const row = el?.closest?.('.rt-step'), route = el?.closest?.('.rt-route'), add = el?.closest?.('.rt-addwrap');
+    if (!el || !scrollRef.current?.querySelector('.rt-list')?.contains(el)) return null;
+    // Over its own (hidden) contents a group cannot land; the model names why on release.
+    if (stepElement(scrollRef.current, id)?.contains(el)) {
+      const node = A.locate(routine, id)?.node, inside = node && A.childLists(node)[0];
+      return inside ? { operation: null, mark: null, allowed: false, reason: A.checkEdit(routine, { kind: 'move', nodeId: id, listRef: inside.ref, index: 0 }).reason } : null;
+    }
+    const row = el.closest('.rt-step'), route = el.closest('.rt-route'), add = el.closest('.rt-addwrap');
     let operation = null, mark = null;
     if (row && row.dataset.id !== id) {
       const at = A.locate(routine, row.dataset.id); if (!at) return null;
-      const r = row.getBoundingClientRect(), before = y < r.top + r.height / 2;
+      // An open group's header takes a step before the group; its own rows take the rest.
+      const r = row.getBoundingClientRect(), before = row.parentElement?.classList.contains('rt-group') || y < r.top + r.height / 2;
       operation = { kind: 'move', nodeId: id, listRef: at.listRef, index: at.index + (before ? 0 : 1) };
       mark = { rowId: row.dataset.id, before };
     } else if (route?.dataset.list) {
@@ -270,32 +306,44 @@ function useDnd(routine, edit, report) {
       operation = { kind: 'move', nodeId: id, listRef: ref, index: nodes.length };
       mark = { list: add.dataset.list, edge: 'end' };
     }
-    if (!operation) return null;
+    if (!operation) return previous;
     const check = A.checkEdit(routine, operation);
     return { operation, mark, allowed: check.allowed, reason: check.reason };
   };
   const start = (id, e) => {
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    state.current = { id, target: null };
-    setDrag({ id, target: null });
-    const move = (ev) => {
-      const target = targetAt(id, ev.clientX, ev.clientY);
-      state.current = { id, target }; setDrag({ id, target });
+    const row = e.currentTarget.closest('.rt-step'), bounds = row.getBoundingClientRect();
+    const icon = row.querySelector('.rt-step-ic, .rt-collapse');
+    const box = { width: bounds.width, height: bounds.height, inset: icon ? icon.getBoundingClientRect().left - bounds.left : 36, dx: e.clientX - bounds.left, dy: e.clientY - bounds.top };
+    let point = { x: e.clientX, y: e.clientY }, target = null, away = false, frame = 0;
+    const show = () => setDrag({ id, box, x: point.x, y: point.y, target, away });
+    const locate = () => { target = targetAt(id, point.x, point.y, target); away = away || Boolean(target?.allowed); show(); };
+    const home = () => { settle.current = { id, x: point.x - box.dx, y: point.y - box.dy }; };
+    const tick = () => {
+      frame = 0;
+      const list = scrollRef.current; if (!list) return;
+      const r = list.getBoundingClientRect();
+      const depth = point.y < r.top + DRAG_EDGE ? point.y - r.top - DRAG_EDGE : point.y > r.bottom - DRAG_EDGE ? point.y - r.bottom + DRAG_EDGE : 0;
+      if (!depth || point.x < r.left || point.x > r.right) return;
+      const before = list.scrollTop;
+      list.scrollTop += Math.sign(depth) * Math.min(18, 3 + Math.abs(depth) / 2);
+      if (list.scrollTop !== before) { locate(); frame = requestAnimationFrame(tick); }
     };
+    const move = (ev) => { point = { x: ev.clientX, y: ev.clientY }; locate(); if (!frame) frame = requestAnimationFrame(tick); };
     // Escape cancels the drag without moving anything.
     const escape = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); pointerDrag.cancel({ flush: false }); } };
+    const finish = () => { window.removeEventListener('keydown', escape, true); cancelAnimationFrame(frame); frame = 0; home(); setDrag(null); };
     window.addEventListener('keydown', escape, true);
     const end = () => {
-      window.removeEventListener('keydown', escape, true);
-      const target = state.current?.target;
-      state.current = null; setDrag(null);
+      finish();
       if (!target) return;
       if (!target.allowed) { if (target.reason) report(target.reason); return; }
       const result = edit(target.operation);
       if (!result.changed && result.reason) report(result.reason);
     };
-    pointerDrag.start(e, { move, end, cancel: () => { window.removeEventListener('keydown', escape, true); state.current = null; setDrag(null); } });
+    pointerDrag.start(e, { move, end, cancel: finish });
+    show();
   };
   return { drag, start };
 }
@@ -369,7 +417,6 @@ export function RoutinePanel(props) {
     else if (result.reason) report(result.reason);
     return result;
   };
-  const dnd = useDnd(routine, edit, report);
   const [localCollapsed, setLocalCollapsed] = useState(() => new Set());
   const collapsed = props.collapsedIds ? new Set(props.collapsedIds) : localCollapsed;
   const toggleCollapse = (id) => {
@@ -384,6 +431,7 @@ export function RoutinePanel(props) {
   // One Tab stop for the whole sheet (rows, route rows, Add rows); arrows move within it. It follows focus.
   const [tabStop, setTabStop] = useState(null);
   const scrollRef = useRef(null);
+  const dnd = useDnd(routine, edit, report, scrollRef);
   const stop = (key) => (key === tabStop ? 0 : -1);
   useLayoutEffect(() => {
     const root = scrollRef.current; if (!root || root.querySelector('[data-nav][tabindex="0"]')) return;
@@ -638,7 +686,7 @@ export function RoutinePanel(props) {
     ];
   };
 
-  // ---- range: Shift extends over eligible siblings of the selected step ----
+  // ---- range: Shift+Arrow extends over eligible siblings of the selected step ----
   const extendTo = (id) => {
     const anchor = A.locate(routine, selId), target = A.locate(routine, id);
     if (!anchor || !target || anchor.siblings !== target.siblings) { setRange([]); onSelect(id); return; }
@@ -763,6 +811,23 @@ export function RoutinePanel(props) {
     return '';
   }
 
+  // Drag feedback: the dragged step's slot (a well that closes once it has somewhere else to go) and the gap where it
+  // will land. Only a target the model accepts opens a gap; an open group carries both on its whole box.
+  const dropMark = () => (dnd.drag?.target?.allowed ? dnd.drag.target.mark : null);
+  const dragClass = (id) => {
+    if (!dnd.drag) return '';
+    const mark = dropMark();
+    return (dnd.drag.id === id ? ' dragging' + (dnd.drag.away ? ' away' : '') : '') + (mark?.rowId === id ? (mark.before ? ' drop-before' : ' drop-after') : '');
+  };
+  /** The lifted card: the step's glyph, name and time, at its row's size where it was grabbed. */
+  function dragCard(drag) {
+    const node = A.locate(routine, drag.id)?.node; if (!node) return null;
+    const time = durationOf(node, segByNode.get(node.id));
+    return createPortal(h('div', { className: 'library-drag-ghost rt-drag-card ' + stepKind(node) + (drag.target?.allowed ? '' : ' idle'), 'aria-hidden': true, 'data-meta': time || undefined,
+      style: { left: drag.x - drag.box.dx, top: drag.y - drag.box.dy, width: drag.box.width, height: drag.box.height, paddingLeft: drag.box.inset } },
+      h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })), h('span', { className: 'library-drag-label' }, stepTitle(node, paths, catalog))), document.body);
+  }
+
   function stepRow(node, ctx, numbered) {
     const { depth, offPreview, readOnly } = ctx;
     const sel = selId === node.id || range.includes(node.id);
@@ -771,23 +836,21 @@ export function RoutinePanel(props) {
     const kids = A.childLists(node);
     const isCollapsed = kids.length > 0 && collapsed.has(node.id);
     const info = describe(node, seg, offPreview, ctx.exitTo);
-    const kind = node.type === 'path' ? 'path' : node.type === 'decision' ? 'decision' : node.type === 'builtin' ? 'wait' : node.type === 'function' && node.cat === 'command' ? 'cmd' : node.type === 'group' ? 'grp' : 'control';
+    const kind = stepKind(node);
     const loop = node.type === 'function' && node.invocation?.loop;
-    const mark = dnd.drag?.target?.mark;
-    const markHere = mark?.rowId === node.id;
     const chosen = isBranch(node) ? A.selectedBranch(node, outcomes) : null;
     const nestedCount = isCollapsed ? kids.reduce((count, list) => count + A.branchCount(list.nodes), 0) : 0;
     const title = stepTitle(node, paths, catalog);
     const live = active && activePass ? 'Pass ' + activePass.pass + ' of ' + (passOf(activePass.repeatId) || '?') : active ? 'Now' : null;
     return h('div', { key: node.id, 'data-id': node.id, style: { '--depth': depth },
-      // Shift-click anywhere on an editable row extends the range from the selected step; it never deletes.
-      onClickCapture: (event) => {
-        if (!event.shiftKey || readOnly || event.metaKey || event.ctrlKey) return;
-        event.preventDefault(); event.stopPropagation();
-        if (selId) extendTo(node.id); else { setRange([]); onSelect(node.id); }
-      },
+      // Shift-click on an editable row deletes the step (a group with its steps) through the row's own Delete, as on
+      // the field, outline and timeline. Its controls (collapse, grip, actions) keep their own meaning, and a
+      // keyboard-activated click (detail 0) only selects.
+      ...(readOnly ? {} : shiftDeletionInput(() => { setMenu(null); setRange([]); acq.del(node.id); },
+        (event) => !event.metaKey && !event.ctrlKey && !event.altKey && !(event.type === 'click' && event.detail === 0)
+          && !event.target.closest?.('.rt-collapse, .rt-grip, .rt-step-tools'))),
       className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '') + (change?.nodeId === node.id ? ' replacing' : '')
-        + (dnd.drag?.id === node.id ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') + (dnd.drag.target.allowed ? '' : ' drop-invalid') : '') },
+        + (kids.length && !isCollapsed ? '' : dragClass(node.id)) },
       readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
       h('span', { className: 'rt-step-num', 'aria-hidden': true }, numbered ? topIndex.get(node.id) : ''),
       kids.length
@@ -823,9 +886,8 @@ export function RoutinePanel(props) {
   function addRow(ref, depth, ariaLabel, empty) {
     const where = { list: ref }, key = 'add:' + refKey(ref);
     const open = adding && adding.where.list && refKey(adding.where.list) === refKey(ref);
-    const mark = dnd.drag?.target?.mark;
-    const markHere = mark?.list === refKey(ref) && mark.edge === 'end';
-    return h('div', { key, className: 'rt-addwrap' + (empty ? ' empty' : '') + (open ? ' open' : '') + (markHere ? ' drop-before' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
+    const markHere = dropMark()?.list === refKey(ref) && dropMark().edge === 'end';
+    return h('div', { key, className: 'rt-addwrap' + (empty ? ' empty' : '') + (open ? ' open' : '') + (markHere ? ' drop-before' : ''), 'data-list': refKey(ref), style: { '--depth': depth } },
       open ? inserter() : h('button', { className: 'rt-add', type: 'button', 'data-nav': key, tabIndex: stop(key), 'aria-expanded': false, 'aria-label': ariaLabel,
         onClick: (e) => openAdd(where, e.currentTarget, ariaLabel, key), onKeyDown: navKeys },
         h(Icon, { name: 'plus', size: 14 }), 'Add step'));
@@ -873,9 +935,9 @@ export function RoutinePanel(props) {
         const routeId = routeIdOf(list.ref), live = list.ref.kind === 'fallback' ? false : chosen && chosen.id === routeId, count = A.branchCount(list.nodes);
         const flow = A.flowSummary(list.nodes, flowCache);
         const outcome = flow.normal ? (count ? '' : 'continues') : flow.endRoutine && flow.exitRepeat ? 'ends routine or leaves repeat' : flow.exitRepeat ? 'leaves repeat' : 'ends routine';
-        const mark = dnd.drag?.target?.mark, markHere = mark?.list === refKey(list.ref) && mark.edge === 'start';
+        const markHere = dropMark()?.list === refKey(list.ref) && dropMark().edge === 'start';
         body.push(h('div', { key: refKey(list.ref), className: 'rt-branch' + (live ? ' live' : '') + (offPreview ? ' off' : ''), role: 'group', 'aria-label': 'Route ' + list.label },
-          h('div', { className: 'rt-route' + (markHere ? ' drop-after' + (dnd.drag.target.allowed ? '' : ' drop-invalid') : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
+          h('div', { className: 'rt-route' + (markHere ? ' drop-after' : ''), 'data-list': fixed ? undefined : refKey(list.ref), style: { '--depth': depth + 1 } },
             list.ref.kind === 'fallback'
               ? h('span', { className: 'rt-brlbl static' }, h('span', { className: 'rt-brname' }, 'Saved fallback'), h('span', { className: 'rt-brkey' }, 'read-only'), h('span', { className: 'rt-brcount' }, plural(count, 'step')))
               // Two controls per lane: the preview choice (one radio group per branch, shared with the inspector's route
@@ -893,10 +955,10 @@ export function RoutinePanel(props) {
       body.push(closingRow(depth + 1, node.type === 'generatedTrajectory' ? { glyph: 'join', parts: ['End of the saved fallback'] } : branchClosing(kids, ctx.after, paths, catalog, flowCache)));
     }
     const shape = node.type === 'repeat' ? 'repeat' : node.type === 'group' ? 'cgroup ' + (node.mode === 'sequential' ? 'seq' : 'par') : 'branch';
-    return h('div', { key: node.id, className: 'rt-step-wrap rt-group ' + shape }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
+    return h('div', { key: node.id, className: 'rt-step-wrap rt-group ' + shape + dragClass(node.id) }, row, h('div', { className: 'rt-block', role: 'group', 'aria-label': 'Inside ' + stepTitle(node, paths, catalog) }, body));
   }
 
-  return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : ''), 'data-input': keyboard ? 'keyboard' : 'pointer',
+  return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : ''), 'data-input': keyboard ? 'keyboard' : 'pointer', style: dnd.drag ? { '--drag-gap': dnd.drag.box.height + 'px' } : undefined,
     // Arrow keys move focus by script, which withholds :focus-visible after a click; track the input instead.
     onKeyDownCapture: (e) => { if (!keyboard && !e.metaKey && !e.ctrlKey) setKeyboard(true); }, onPointerDownCapture: () => keyboard && setKeyboard(false) },
     range.length > 1 && h('div', { className: 'rt-range-bar', role: 'toolbar', 'aria-label': 'Selected steps' },
@@ -909,6 +971,7 @@ export function RoutinePanel(props) {
       h('div', { className: 'rt-list' + (routine.nodes.length ? '' : ' rt-empty') + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
         renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
+    dnd.drag && dragCard(dnd.drag),
     menu && h(RowMenu, { anchor: menu.anchor, items: rowItems(menu.id), onClose: (refocus) => { const anchor = menu.anchor; setMenu(null); if (refocus) anchor?.closest('.rt-step')?.querySelector('.rt-step-body')?.focus(); } }),
     // The library takes the routine list's place in the left rail; without that rail it follows the flow.
     library && (props.sourceHost ? createPortal(library, props.sourceHost) : h('div', { className: 'rt-source-inline' }, library)));

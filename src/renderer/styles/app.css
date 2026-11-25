@@ -283,6 +283,9 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .tb-push:empty{display:none}
 .toolbar>.update-button,.toolbar>.keyboard-help-trigger{flex:none;margin-left:6px}
 .toolbar .keyboard-help-trigger{display:grid;place-items:center;width:32px;min-width:32px;height:32px;min-height:32px;padding:0;border-color:transparent;border-radius:var(--r);background:transparent;color:var(--txt-3);font-size:13px}
+/* On macOS the help button sits in the window's top-right corner. Keep it concentric with that corner: about 18px on
+   current macOS, less the button's 6–8px inset from the window edge. */
+[data-platform="darwin"] .toolbar .keyboard-help-trigger{border-radius:11px}
 /* The update icon: muted while there is nothing to do, a filled circle once an update needs the user. */
 .toolbar .update-button{position:relative;display:grid;place-items:center;width:32px;height:32px;padding:0;border-radius:50%;color:var(--txt-3);transition:background-color .14s,color .14s}
 .update-button:not(.idle){background:var(--bg-3);color:var(--txt)}

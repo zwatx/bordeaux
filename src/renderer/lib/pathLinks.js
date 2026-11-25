@@ -166,8 +166,9 @@ function waypointName(project, path, index) {
   return index === 0 ? 'Start' : index === (path?.waypoints?.length || 0) - 1 ? 'End' : 'Waypoint ' + index;
 }
 
-// One choice per connected position, including unnamed points and legacy endpoint links.
-function linkChoices(project, pathId, index) {
+// One choice per connected position, including unnamed points and legacy endpoint links. `withMembers` adds every
+// waypoint at that position, from the same traversal, for callers that list each path's own points.
+function linkChoices(project, pathId, index, { withMembers = false } = {}) {
   const pi = project.paths.findIndex((path) => path.id === pathId), graph = positionGraph(project);
   const selected = pi + ':' + index;
   if (!graph.members.has(selected)) return [];
@@ -186,7 +187,8 @@ function linkChoices(project, pathId, index) {
     choices.push({ value: path.id + ':' + at, pathId: path.id, index: at,
       label: named ? named.waypoint.positionName : path.name + ' · ' + position,
       meta: paths.length > 1 ? paths.length + ' paths' : named ? path.name + ' · ' + position : '',
-      searchText: paths.map((member) => project.paths[member].name).join(' ') });
+      searchText: paths.map((member) => project.paths[member].name).join(' '),
+      ...(withMembers ? { members: members.map((member) => ({ pathId: project.paths[member.pi].id, index: member.wi })) } : {}) });
   }
   const order = new Map(project.paths.map((path, at) => [path.id, at]));
   return choices.sort((a, b) => order.get(a.pathId) - order.get(b.pathId) || a.index - b.index);

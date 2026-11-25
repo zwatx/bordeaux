@@ -9,6 +9,7 @@ import { commandLabel } from './PathTimeline';
 import { fAtT, featureFraction, featurePositionPatch, tAtF, zoneFractions } from './pathTimelineModel';
 import { plainProblem } from './planProblems';
 import { UI } from './ui';
+import { onTurnOf, wrapDegrees } from '../../core/math/angles';
 import { ProblemsMenu } from './ProblemsMenu';
 import { PowerAnalysis } from './PowerAnalysis';
 
@@ -18,7 +19,8 @@ import { PowerAnalysis } from './PowerAnalysis';
 const h = React.createElement;
 const { Num, DraftText, Toggle, Dropdown, Icon } = UI;
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '–';
-const SHAPES = PM.SEGTYPES.map((type) => ({ value: type.id, label: type.label }));
+// A legacy type (Arc, Clothoid) is listed only on a segment that already uses it.
+const shapesFor = (current) => PM.SEGTYPES.filter((type) => !type.legacy || type.id === current).map((type) => ({ value: type.id, label: type.label }));
 const FACING = [
   { value: 'manual', label: 'Manual' },
   { value: 'tangent', label: 'Tangent' },
@@ -135,14 +137,14 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
       const follows = segmentMode === 'tangent' || segmentMode === 'lookAt';
       const planned = derived.metrics?.head?.[0], tangent = derived.sample?.pts?.[0]?.heading;
       const degrees = follows && Number.isFinite(planned) ? planned * 180 / Math.PI : follows && Number.isFinite(tangent) ? tangent * 180 / Math.PI : w.theta || 0;
-      heading = h(Num, { label: 'Facing', value: degrees + facingOffset, unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(0, { theta: v - facingOffset, thetaOn: true }) });
+      heading = h(Num, { label: 'Facing', value: wrapDegrees(degrees + facingOffset), unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(0, { theta: onTurnOf(degrees + facingOffset, v) - facingOffset, thetaOn: true }) });
     } else if (continuityOwned || segmentMode === 'tangent' || segmentMode === 'lookAt') {
       heading = h(Row, { label: 'Heading' }, h('span', { className: 'pp-value-text' }, segmentMode === 'lookAt' ? 'Faces a point' : 'Follows path'));
     } else if (isEnd) {
-      heading = h(Num, { label: 'Facing', value: (w.theta || 0) + facingOffset, unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: v - facingOffset }) });
+      heading = h(Num, { label: 'Facing', value: wrapDegrees((w.theta || 0) + facingOffset), unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: onTurnOf((w.theta || 0) + facingOffset, v) - facingOffset }) });
     } else if (w.thetaOn) {
       heading = h('div', { className: 'pp-num-with-action' },
-        h(Num, { label: 'Heading', value: w.theta || 0, unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: v }) }),
+        h(Num, { label: 'Heading', value: wrapDegrees(w.theta || 0), unit: '°', step: 1, precision: 1, onChange: (v) => actions.setWp(i, { theta: onTurnOf(w.theta || 0, v) }) }),
         h('button', { type: 'button', className: 'pp-mini', 'aria-label': 'Free heading', title: 'Free heading', onClick: () => actions.toggleTheta(i, false) }, h(Icon, { name: 'x', size: 12 })));
     } else {
       heading = h(Row, { label: 'Heading' }, h('button', { type: 'button', className: 'pp-text-btn', 'aria-label': 'Set heading here', onClick: () => actions.toggleTheta(i, true) }, 'Free'));
@@ -165,7 +167,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     sub = t0 != null ? fmt(t1 - t0) + ' s' : null;
     const shape = ['line', 'arc', 'clothoid'].includes(wps[i].segType) ? wps[i].segType : 'bezier';
     body = h(React.Fragment, null,
-      h(Row, { label: 'Shape' }, h(Dropdown, { id: 'band-segment-shape', ariaLabel: 'Segment shape', compact: true, value: shape, items: SHAPES, onChange: (v) => actions.setSegMeta(i, { segType: v }) })),
+      h(Row, { label: 'Shape' }, h(Dropdown, { id: 'band-segment-shape', ariaLabel: 'Segment shape', compact: true, value: shape, items: shapesFor(shape), onChange: (v) => actions.setSegMeta(i, { segType: v }) })),
       !isTank && h(Row, { label: 'Facing' }, h(Dropdown, { id: 'band-segment-facing', ariaLabel: 'Facing on this segment', compact: true, value: wps[i].segmentHeadingMode || headingMode, items: FACING, onChange: (v) => actions.setSegmentHeadingMode(i, v) })),
       h('div', { className: 'pp-actions' }, h('button', { type: 'button', className: 'qbtn pp-action', onClick: () => actions.insertWp(i) }, h(Icon, { name: 'plus', size: 13 }), 'Insert waypoint')));
   } else if (sel.kind === 'rt' && doc.targets?.[sel.idx]) {

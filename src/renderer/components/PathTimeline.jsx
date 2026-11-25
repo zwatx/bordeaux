@@ -293,6 +293,11 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     const kept = p.filter((_, i) => i % stride === 0 || i === p.length - 1);
     const base = yDisplay(0);
     const py = (point) => yDisplay(shown(valueOf(point)));
+    // Each line segment takes the field path's color for the same value, on the field's scale for this path.
+    const M = derived?.metrics;
+    const fieldPeak = series && M && { a: M.aMax, w: M.wMax * 180 / Math.PI, k: M.kMax }[series.key];
+    const scale = series ? fieldPeak || p.reduce((value, point) => Math.max(value, Math.abs(valueOf(point))), 0) || 1 : Math.max(0.1, robot.maxSpeed);
+    const colorOf = (value) => PM.metricColor(metric, series?.signed ? 0.5 + 0.5 * value / scale : value / scale);
     let area = 'M' + x(kept[0].t).toFixed(1) + ' ' + base;
     const segments = [];
     kept.forEach((point, i) => {
@@ -300,12 +305,12 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       if (i) {
         const before = kept[i - 1];
         segments.push({ x1: x(before.t), y1: py(before), x2: x(point.t), y2: py(point),
-          color: series ? 'var(--accent)' : PM.metricColor('velocity', ((before.v + point.v) / 2) / Math.max(0.1, robot.maxSpeed)) });
+          color: colorOf((valueOf(before) + valueOf(point)) / 2) });
       }
     });
     area += 'L' + x(kept[kept.length - 1].t).toFixed(1) + ' ' + base + 'Z';
     return { area, segments };
-  }, [tl, T, W, H, robot.maxSpeed, vTop, vLow, metric]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tl, T, W, H, robot.maxSpeed, vTop, vLow, metric, derived?.metrics]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tStep = niceStep(T, Math.max(2, plotW / 84));
   const tDigits = Math.max(0, Math.min(3, -Math.floor(Math.log10(tStep) + 1e-9)));

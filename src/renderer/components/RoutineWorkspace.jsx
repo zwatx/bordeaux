@@ -35,6 +35,23 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
 
   // An empty routine has nothing to show on the field or to play, so it offers only the flow and its first step.
   const empty = !routine.nodes.length, shown = empty ? 'flow' : view;
+  // The rails' footer strips (library feedback, step inspector) take the transport's height on this page, so their
+  // top rules continue the transport's top rule as one line. The transport grows with its rows; without it they keep
+  // the shared --side-foot height.
+  const transportRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const element = transportRef.current, stage = element?.closest('.stage-auto');
+    if (!element || !stage) return undefined;
+    const measure = () => {
+      const height = element.offsetHeight;
+      if (height) { stage.style.setProperty('--side-foot', height + 'px'); stage.setAttribute('data-transport-foot', ''); }
+      else { stage.style.removeProperty('--side-foot'); stage.removeAttribute('data-transport-foot'); }
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(element);
+    return () => { observer?.disconnect(); stage.style.removeProperty('--side-foot'); stage.removeAttribute('data-transport-foot'); };
+  }, [empty]);
   return h('section', { className: 'routine-workspace', 'aria-label': 'Routine workspace: ' + routine.name },
     h('header', { className: 'routine-workspace-head' },
       h('div', { className: 'routine-workspace-actions' },
@@ -53,5 +70,5 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
       h('div', { className: 'routine-workspace-flow', hidden: shown !== 'flow', 'aria-label': 'Routine flow' }, flow),
       h('div', { className: 'fieldcol routine-workspace-field', hidden: shown !== 'field', 'aria-label': 'Routine field preview' }, field)),
     status,
-    !empty && h('div', { className: 'routine-workspace-transport' }, transport));
+    !empty && h('div', { ref: transportRef, className: 'routine-workspace-transport' }, transport));
 }
