@@ -3,7 +3,7 @@ import '../styles/path-flip.css';
 
 const h = React.createElement;
 
-// The field draws +x right (toward the far alliance wall) and +y up, so a left/right mirror
+// The field draws +x right (toward the blue alliance wall) and +y up, so a left/right mirror
 // changes alliance ends and a top/bottom mirror keeps the end but swaps the side.
 export const FLIP_DIRECTIONS = [
   { v: 'horizontal', label: 'Flip horizontal', axis: 'Left ↔ right', detail: 'Mirrors across the center line to the other alliance’s end.' },

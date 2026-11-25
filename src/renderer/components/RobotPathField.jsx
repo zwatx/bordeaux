@@ -1,7 +1,7 @@
 import * as React from 'react';
 import fieldImage from '../assets/field.png';
 import { ACTIVE_FIELD_REFERENCE } from '../../core/field/rebuilt2026';
-import { FIELD_IMAGE, FIELD_IMAGE_SCALE, worldToFieldImage } from '../../core/field/imageCalibration';
+import { FIELD_IMAGE, FIELD_IMAGE_CENTER, FIELD_IMAGE_SCALE, worldToFieldImage } from '../../core/field/imageCalibration';
 import { UnitPrefs } from '../lib/unitPreferences';
 
 const h = React.createElement;
@@ -82,7 +82,7 @@ function Grid({ box }) {
         y1: vertical ? y : at, y2: vertical ? y + hgt : at });
     });
   };
-  return h('g', { className: 'rfp-field-grid' }, lines(x, w, left, FIELD_IMAGE_SCALE.x, true), lines(y, hgt, bottom, FIELD_IMAGE_SCALE.y, false));
+  return h('g', { className: 'rfp-field-grid' }, lines(x, w, FIELD_IMAGE_CENTER.x, FIELD_IMAGE_SCALE.x, true), lines(y, hgt, FIELD_IMAGE_CENTER.y, FIELD_IMAGE_SCALE.y, false));
 }
 
 function routeDescription(route, label) {
@@ -97,7 +97,7 @@ export function RobotPathField({ routes, verdict, widestGap, gap }) {
   const available = sides.filter(side => canPlot(routes?.[side]));
   if (!routes) return null;
   if (!available.length) return h('p', { className: 'rfp-field-caution' }, 'These coordinates can’t be placed on the field.');
-  const separate = available.length === 2 && routes.local.field.id !== routes.robot.field.id;
+  const separate = available.length === 2 && (routes.local.field.id !== routes.robot.field.id || routes.local.field.revision !== routes.robot.field.revision);
   const shown = separate ? [single] : available.filter(side => side !== hidden);
   const active = shown.map(side => routes[side]);
   const field = active[0].field;
@@ -105,7 +105,7 @@ export function RobotPathField({ routes, verdict, widestGap, gap }) {
   const differentRevision = art && active.some(route => route.field.revision !== ACTIVE_FIELD_REFERENCE.revision);
   const unavailable = sides.some(side => routes[side] && !available.includes(side));
   const caption = [unavailable && 'One route uses coordinates that can’t be placed on the field.',
-    separate && 'The two files use different fields. Select a route to view it.',
+    separate && 'The two files use different field references. Select a route to view it.',
     !art && 'Field ' + field.id + ' isn’t installed. Showing a coordinate grid.',
     differentRevision && 'A file uses a different field revision. Landmarks may differ.'].filter(Boolean).join(' ');
   const box = art && whole ? wholeField : fitPaths(separate ? active : available.map(side => routes[side]), art);
