@@ -30,9 +30,14 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
   const wpName = (i, n) => i === 0 ? 'Start' : i === n - 1 ? 'End' : 'Waypoint ' + i;
 
   function ConstraintsBody({ c, robot, setC, moreLimits, setMoreLimits }) {
-    const rotation = moreLimits ? h('div', { className: 'grid2 compact-fields' },
-      h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngVel: v }) }),
-      h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngAccel: v }) })) : null;
+    const advanced = moreLimits && h(React.Fragment, null,
+      h('div', { className: 'grid2 compact-fields' },
+        h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngVel: v }) }),
+        h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngAccel: v }) })),
+      h('div', { className: 'grid2 compact-fields' },
+        h(Num, { label: 'Linear jerk check', value: c.maxJerk ?? 0, unit: 'm/s³', min: 0, step: 0.1, format: formatAngularLimit, onChange: (v) => setC({ maxJerk: v }) }),
+        h(Num, { label: 'Angular jerk', value: c.maxAngJerk ?? 0, unit: '°/s³', min: 0, step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngJerk: v }) })),
+      h('p', { className: 'seg-hint' }, 'Set jerk to 0 to disable its limit. Linear jerk must be 0 to optimize.'));
     return h(React.Fragment, null,
       h('div', { className: 'cgroup-h' }, 'Translation'),
       h('div', { className: 'grid2' },
@@ -40,8 +45,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         h(Num, { label: 'Max acceleration', value: c.maxAccel, unit: 'm/s\u00b2', min: 0.1, onChange: (v) => setC({ maxAccel: v, maxDecel: v }) })),
       c.maxDecel != null && c.maxDecel !== c.maxAccel && h('div', { className: 'seg-hint' }, 'Saved slowing limit: ' + UnitPrefs.format(c.maxDecel, 'm/s²', 2) + '. Editing acceleration sets both limits.'),
       h(Num, { label: 'Corner acceleration', value: c.maxCentripetalAccel != null ? c.maxCentripetalAccel : c.maxAccel, unit: 'm/s\u00b2', min: 0.1, onChange: (v) => setC({ maxCentripetalAccel: v }) }),
-      h('button', { className: 'morebtn' + (moreLimits ? ' on' : ''), type: 'button', 'aria-expanded': moreLimits, onClick: () => setMoreLimits(!moreLimits) }, h('span', null, moreLimits ? 'Fewer limits' : 'Rotation limits'), h(Icon, { name: 'chevron', size: 13 })),
-      rotation);
+      h('button', { className: 'morebtn' + (moreLimits ? ' on' : ''), type: 'button', 'aria-expanded': moreLimits, onClick: () => setMoreLimits(!moreLimits) }, h('span', null, 'Advanced limits'), h(Icon, { name: 'chevron', size: 13 })),
+      advanced);
   }
 
   function RangeLimits({ range, limits, onChange }) {
@@ -640,6 +645,40 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
 
   const JIGGLE_DEFAULTS = { distanceM: 0.03, strokes: 8, startDeg: 45, stepDeg: -45, strokeTimeS: 0.08 };
 
+  /**
+   * The one sidebar inspector shell for paths and routine steps: a header naming the object (with a muted line for its
+   * kind and place), a scrolling body, and a fixed footer whose top rule lines up with the library and docked-panel
+   * footers. The footer keeps the selection's delete action reachable however long the body grows.
+   */
+  function InspectorShell({ title, kind, action, onClose, closeLabel = 'Hide inspector', closeTitle = closeLabel, bodyKey, inert, remove, className = '', attrs, children }) {
+    return h('div', { className: 'ctxinsp inspector-refresh' + (className ? ' ' + className : ''), ...attrs },
+      h('div', { className: 'ctxinsp-hd' },
+        h('div', { className: 'ctxinsp-heading' },
+          h('span', { className: 'ctxinsp-t', title }, title),
+          kind && h('span', { className: 'ctxinsp-kind', title: kind }, kind)),
+        action,
+        h('button', { className: 'ctxinsp-x', type: 'button', title: closeTitle, 'aria-label': closeLabel, onClick: onClose }, h(Icon, { name: 'x', size: 14 }))),
+      // Keyed by the selected item so an unfinished numeric or text draft never moves to another item.
+      h('div', { className: 'ctxinsp-body', key: bodyKey, inert }, children),
+      remove && h('div', { className: 'ctxinsp-foot' }, remove));
+  }
+
+  /** Quiet destructive footer action: a short visible verb, with the object it removes in its accessible name. */
+  function DeleteAction({ label, visible = 'Delete', ...rest }) {
+    return h('button', { className: 'delbtn', type: 'button', 'aria-label': label, title: label, ...rest }, h(Icon, { name: 'trash', size: 14 }), visible);
+  }
+
+  /** Less-used settings behind one row that still states their current values while closed. */
+  function Disclosure({ id, label, summary, defaultOpen = false, children }) {
+    const [open, setOpen] = React.useState(defaultOpen);
+    return h(React.Fragment, null,
+      h('button', { className: 'morebtn insp-disclosure' + (open ? ' on' : ''), type: 'button', 'aria-expanded': open, 'aria-controls': id, onClick: () => setOpen(!open) },
+        h('span', { className: 'insp-disclosure-label' }, label),
+        summary && h('span', { className: 'insp-disclosure-summary' }, summary),
+        h(Icon, { name: 'chevron', size: 13 })),
+      open && h('div', { id, className: 'insp-disclosure-body' }, children));
+  }
+
   function ContextInspector(props) {
     const { doc, sel, derived, actions, drive, robot, robotProject, onClose } = props;
     const [moreLimits, setMoreLimits] = React.useState(false);
@@ -690,7 +729,11 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       setJiggleError(false);
     }, [doc.id, endpointJiggle?.distanceM, endpointJiggle?.strokes, endpointJiggle?.startDeg, endpointJiggle?.stepDeg, endpointJiggle?.strokeTimeS]);
 
-    let title = '', tag = null, body = null, headerAction = null;
+    let title = '', kind = null, body = null, headerAction = null, remove = null;
+    const fmtS = (value) => Number.isFinite(value) ? value.toFixed(2) + ' s' : null;
+    const kindLine = (...parts) => parts.filter(Boolean).join(' · ');
+    // Planned time at a waypoint, when the current trajectory has one.
+    const waypointTime = (index) => fmtS(derived?.prof?.t && derived.wpIdx ? derived.prof.t[derived.wpIdx[index]] : NaN);
 
     if (props.repairMode) {
       // These controls use authored values only. Failed or stale trajectories must
@@ -701,9 +744,11 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const marker = sel.kind === 'em' && doc.markers?.[sel.idx];
       title = range ? range.name || 'Zone' : waypoint ? waypointLabel(sel.idx)
         : target ? 'Rotation target' : marker ? marker.name || 'Command' : doc.name || 'Path';
-      const remove = range ? () => actions.delRange(sel.idx) : target ? () => actions.delTarget(sel.idx)
+      const removeAction = range ? () => actions.delRange(sel.idx) : target ? () => actions.delTarget(sel.idx)
         : marker ? () => actions.delMarker(sel.idx) : waypoint ? () => actions.delWp(sel.idx) : null;
       const removeLabel = range ? 'Delete zone' : target ? 'Delete rotation target' : marker ? 'Delete command' : 'Delete waypoint';
+      kind = range ? 'Zone' : waypoint ? 'Waypoint' : target ? null : marker ? 'Command' : 'Path';
+      remove = removeAction && h(DeleteAction, { label: removeLabel, onClick: removeAction });
       body = h(React.Fragment, null,
         h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit a value or remove a feature to retry.'),
         waypoint && h('div', { className: 'grid2' },
@@ -713,11 +758,11 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         range && h(RangeLimits, { range, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         !waypoint && !range && !target && !marker && h(ConstraintsBody, {
           c: pathLimits, robot, setC: actions.setConstraint, moreLimits, setMoreLimits,
-        }),
-        remove && h('button', { className: 'delbtn', type: 'button', onClick: remove }, h(Icon, { name: 'trash', size: 15 }), removeLabel));
+        }));
     }
     else if (!sel.kind) {
       title = doc.name || 'Path';
+      kind = kindLine('Path', (derived?.totalDistance || derived?.sample?.length) > 0 && UnitPrefs.format(derived.totalDistance || derived.sample.length, 'm', 2), fmtS(derived?.prof?.totalTime));
       // Path-level actions live in the header; waypoint placement belongs to the tool rail.
       headerAction = h('button', { className: 'ctxinsp-act', type: 'button', disabled: n < 2 || !actions.canReversePath, 'aria-label': 'Swap start/end',
         title: n < 2 ? 'Place two waypoints to swap start and end' : actions.canReversePath ? 'Swap start/end' : 'Waiting for the current path preview', onClick: () => actions.reversePath() }, h(Icon, { name: 'shuffle', size: 14 }));
@@ -782,6 +827,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const headingDirection = h(TurnDirection, { value: w.rotationDirection, values: AUTHORED_DIRECTION, label: 'Turn into heading', ariaLabel: 'Turn direction into heading',
         onChange: (rotationDirection) => actions.setWp(i, { rotationDirection }) });
       title = waypointLabel(i);
+      kind = kindLine(isStart ? 'Start waypoint' : isEnd ? 'End waypoint' : 'Waypoint', waypointTime(i));
+      remove = h(DeleteAction, { label: 'Delete waypoint', onClick: () => actions.delWp(i) });
       body = h(React.Fragment, null,
         h('div', { className: 'grid2' },
           h(Num, { label: 'X', value: w.x, unit: 'm', onChange: (v) => actions.setWp(i, { x: v }) }),
@@ -855,8 +902,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         !isAnchor && h('button', { className: 'qbtn wide', type: 'button', style: { marginTop: '14px' }, onClick: () => actions.duplicateWp(i) }, h(Icon, { name: 'copy', size: 14 }), 'Duplicate waypoint'),
         actions.moveWpOrder && n > 2 && h('div', { className: 'qrow', style: { marginTop: '8px' } },
           h('button', { className: 'qbtn', type: 'button', disabled: i === 0, onClick: () => actions.moveWpOrder(i, -1) }, 'Move earlier'),
-          h('button', { className: 'qbtn', type: 'button', disabled: i === n - 1, onClick: () => actions.moveWpOrder(i, 1) }, 'Move later')),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delWp(i) }, h(Icon, { name: 'trash', size: 15 }), 'Delete waypoint'));
+          h('button', { className: 'qbtn', type: 'button', disabled: i === n - 1, onClick: () => actions.moveWpOrder(i, 1) }, 'Move later')));
     }
 
     else if (sel.kind === 'seg' && wps[sel.idx] && wps[sel.idx + 1]) {
@@ -875,6 +921,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const segLo = derived.wpFrac ? derived.wpFrac[i] : 0, segHi = derived.wpFrac ? derived.wpFrac[i + 1] : 1;
       const affecting = (doc.ranges || []).map((rg, ri) => ({ rg, ri, ef: (derived.effRanges && derived.effRanges[ri]) || rg }))
         .filter((x) => { const lo = Math.min(x.ef.f0, x.ef.f1), hi = Math.max(x.ef.f0, x.ef.f1); return hi >= segLo && lo <= segHi; });
+      kind = 'Segment';
       body = h(React.Fragment, null,
         Stat3([
           { v: UnitPrefs.format(segLen, 'm', 2), k: 'Length' },
@@ -918,6 +965,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       if (derived.wpFrac) for (let i = 0; i < derived.wpFrac.length - 1; i++) if (targetFraction >= derived.wpFrac[i] - 1e-6) targetSegment = i;
       const targetHeadingMode = isTank ? 'tangent' : (wps[targetSegment]?.segmentHeadingMode || headingMode);
       title = 'Rotation target';
+      kind = targetAnchor === 'dist' ? UnitPrefs.format(targetDistance, 'm', 2) + ' from start' : Math.round(targetFraction * 100) + '% along path';
+      remove = h(DeleteAction, { label: 'Delete rotation target', onClick: () => actions.delTarget(sel.idx) });
       body = h(React.Fragment, null,
         targetHeadingMode !== 'targets' && h('div', { className: 'hint' }, h(Icon, { name: 'info', size: 14 }), 'Inactive on this segment \u2014 switch its heading mode to Targets.'),
         h(Num, { label: 'Target heading', value: t.deg, unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setTarget(sel.idx, { deg: v }) }),
@@ -928,8 +977,7 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         targetAnchor === 'dist'
           ? h(Num, { label: 'Distance from start', value: targetDistance, unit: 'm', step: 0.1, precision: 2, min: 0, max: derived.sample.length || 0, onChange: (v) => actions.setTarget(sel.idx, { d: v }) })
           : h(Num, { label: 'Position along path', value: targetFraction * 100, unit: '%', step: 1, precision: 0, min: 0, max: 100, onChange: (v) => actions.setTarget(sel.idx, { f: v / 100 }) }),
-        h('div', { className: 'seg-hint' }, 'Drag the arrow to adjust facing. Shift-click to delete.'),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delTarget(sel.idx) }, h(Icon, { name: 'trash', size: 15 }), 'Delete target'));
+        h('div', { className: 'seg-hint' }, 'Drag the arrow to adjust facing. Shift-click to delete.'));
     }
 
     else if (sel.kind === 'em' && doc.markers[sel.idx]) {
@@ -944,42 +992,46 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const commands = catalog ? catalog.commands || [] : [];
       const operation = robotProject && robotProject.operation;
       title = m.name || 'Command';
+      const timed = derived?.markers?.find?.((item) => item.id === m.id);
+      kind = kindLine('Command', timed && fmtS(timed.timeS));
+      remove = h(DeleteAction, { label: 'Delete command', onClick: () => actions.delMarker(sel.idx) });
+      // What runs comes first, then where it fires; how it fires (trigger source, repeat, expiry) is rarer and waits
+      // behind one row that still names its current values.
+      const byPosition = schedule.trigger === 'position', repeating = schedule.repeatEveryS != null, ending = schedule.endTimeS != null;
+      const executionSummary = kindLine(byPosition ? 'Position' : 'Time', repeating ? 'every ' + Number(schedule.repeatEveryS.toFixed(3)) + ' s' : 'once', ending && 'ends ' + schedule.endTimeS.toFixed(2) + ' s');
       body = h(React.Fragment, null,
-        h('label', { className: 'fieldlabel first', htmlFor: 'event-marker-name' }, 'Name'),
-        h(DraftText, { id: 'event-marker-name', className: 'textinput', value: m.name, owner: doc.id + ':' + (m.id || sel.idx), autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setMarker(sel.idx, { name }) }),
-
         h(MarkerCommands, { marker: m, setMarker: (patch) => actions.setMarker(sel.idx, patch), commands, catalog, robotProject, resetKey: doc.id + ':' + sel.idx,
           maxDistance: Math.max(0, (derived.sample.length || 0) - markerDistance) }),
         m.actionIntent && h('div', { className: 'cmd-project-notice', role: 'status' }, 'Choose a command for ' + m.actionIntent.description + '.'),
-        h('div', { className: 'cgroup-h' }, 'Execution'),
         m.group && m.group !== 'sequential' && h('div', { className: 'cmd-schema-warning', role: 'status' }, h('span', null, 'This saved group cannot be exported as BDX.'), h('button', { type: 'button', className: 'qbtn', onClick: () => actions.setMarker(sel.idx, { group: 'sequential' }) }, 'Use single command')),
-        h('div', { className: 'fieldlabel' }, 'Trigger from'),
-        h(Seg, { value: schedule.trigger || 'time', ariaLabel: 'Event trigger', options: [
-          { v: 'time', label: 'Time', title: 'Fire when planned time reaches this marker' },
-          { v: 'position', label: 'Position', title: 'Fire when measured progress reaches this marker' },
-        ], onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, trigger: v } }) }),
-        h('div', { className: 'seg-hint' }, schedule.trigger === 'position' ? 'Measured position.' : 'Planned time.'),
-        h('div', { className: 'inrow' },
-          h('span', { className: 'inrow-l' }, 'Repeat command', h('small', null, 'While the window is active')),
-          h(Toggle, { on: schedule.repeatEveryS != null, ariaLabel: 'Repeat event', onChange: (on) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: on ? 0.1 : undefined } }) })),
-        schedule.repeatEveryS != null && markerUsesEventExtension(m) && h('div', { className: 'cmd-schema-warning', role: 'status' },
+        repeating && markerUsesEventExtension(m) && h('div', { className: 'cmd-schema-warning', role: 'status' },
           h('span', null, (m.commandGroup ? 'A command group' : 'A looping command') + ' can’t also repeat on a schedule.'),
           h('button', { type: 'button', className: 'qbtn', onClick: () => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: undefined } }) }, 'Turn off repeat')),
-        schedule.repeatEveryS != null && h(Num, { label: 'Repeat every', value: schedule.repeatEveryS, unit: 's', min: 0.001, step: 0.02, precision: 3, onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: v } }) }),
-        h('div', { className: 'inrow' },
-          h('span', { className: 'inrow-l' }, 'End time', h('small', null, 'Expire or stop repeating')),
-          h(Toggle, { on: schedule.endTimeS != null, ariaLabel: 'Limit event end time', onChange: (on) => actions.setMarker(sel.idx, { schedule: { ...schedule, endTimeS: on ? (derived.prof.totalTime || 0) : undefined } }) })),
-        schedule.endTimeS != null && h(Num, { label: 'End path time', value: schedule.endTimeS, unit: 's', min: 0, max: derived.prof.totalTime || 0, step: 0.1, precision: 2, onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, endTimeS: v } }) }),
         schedule.conditionId && h('div', { className: 'cmd-project-error' }, 'Legacy condition: ' + schedule.conditionId,
           h('button', { type: 'button', className: 'rt-openbtn', onClick: () => actions.setMarker(sel.idx, { schedule: { ...schedule, conditionId: undefined } }) }, 'Remove legacy condition')),
+        h('label', { className: 'fieldlabel', htmlFor: 'event-marker-name' }, 'Name'),
+        h(DraftText, { id: 'event-marker-name', className: 'textinput', value: m.name, owner: doc.id + ':' + (m.id || sel.idx), autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setMarker(sel.idx, { name }) }),
         h('div', { className: 'marker-position-group' },
-          h('div', { className: 'fieldlabel' }, 'Anchor position'),
+          h('div', { className: 'cgroup-h' }, 'Position'),
           h(Seg, { value: markerAnchor, ariaLabel: 'Anchor position', options: ANCHOR_OPTIONS, onChange: (v) => actions.setMarker(sel.idx, { anchor: v }) }),
           markerAnchor === 'dist'
             ? h(Num, { label: 'Distance from start', value: markerDistance, unit: 'm', step: 0.1, precision: 2, min: 0, max: derived.sample.length || 0, onChange: (v) => actions.setMarker(sel.idx, { d: v }) })
-            : h(Num, { label: 'Position along path', value: markerFraction * 100, unit: '%', step: 1, precision: 0, min: 0, max: 100, onChange: (v) => actions.setMarker(sel.idx, { f: v / 100 }) }),
-          ),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delMarker(sel.idx) }, h(Icon, { name: 'trash', size: 15 }), 'Delete command'));
+            : h(Num, { label: 'Position along path', value: markerFraction * 100, unit: '%', step: 1, precision: 0, min: 0, max: 100, onChange: (v) => actions.setMarker(sel.idx, { f: v / 100 }) })),
+        h(Disclosure, { id: 'event-execution-' + safeControlId(m.id || String(sel.idx)), label: 'Trigger and repeat', summary: executionSummary, defaultOpen: byPosition || repeating || ending },
+          h('div', { className: 'fieldlabel first' }, 'Trigger from'),
+          h(Seg, { value: schedule.trigger || 'time', ariaLabel: 'Event trigger', options: [
+            { v: 'time', label: 'Time', title: 'Fire when planned time reaches this marker' },
+            { v: 'position', label: 'Position', title: 'Fire when measured progress reaches this marker' },
+          ], onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, trigger: v } }) }),
+          h('div', { className: 'seg-hint' }, byPosition ? 'Fires when measured progress reaches it.' : 'Fires at its planned time.'),
+          h('div', { className: 'inrow' },
+            h('span', { className: 'inrow-l' }, 'Repeat command', h('small', null, 'While the window is active')),
+            h(Toggle, { on: repeating, ariaLabel: 'Repeat event', onChange: (on) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: on ? 0.1 : undefined } }) })),
+          repeating && h(Num, { label: 'Repeat every', value: schedule.repeatEveryS, unit: 's', min: 0.001, step: 0.02, precision: 3, onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, repeatEveryS: v } }) }),
+          h('div', { className: 'inrow' },
+            h('span', { className: 'inrow-l' }, 'End time', h('small', null, 'Expire or stop repeating')),
+            h(Toggle, { on: ending, ariaLabel: 'Limit event end time', onChange: (on) => actions.setMarker(sel.idx, { schedule: { ...schedule, endTimeS: on ? (derived.prof.totalTime || 0) : undefined } }) })),
+          ending && h(Num, { label: 'End path time', value: schedule.endTimeS, unit: 's', min: 0, max: derived.prof.totalTime || 0, step: 0.1, precision: 2, onChange: (v) => actions.setMarker(sel.idx, { schedule: { ...schedule, endTimeS: v } }) })));
     }
 
     else if (sel.kind === 'cr' && doc.ranges && doc.ranges[sel.idx]) {
@@ -990,7 +1042,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const clampFraction = (value) => Math.max(0, Math.min(1, value / 100));
       const rangeAnchor = rg.anchor === 'dist' ? 'dist' : 'param';
       title = rg.name || 'Zone';
-      tag = UnitPrefs.fromCanonical(loF * len, 'm').toFixed(1) + '\u2013' + UnitPrefs.format(hiF * len, 'm', 1);
+      kind = kindLine(rg.name && 'Zone', UnitPrefs.fromCanonical(loF * len, 'm').toFixed(1) + '\u2013' + UnitPrefs.format(hiF * len, 'm', 1));
+      remove = h(DeleteAction, { label: 'Delete zone', onClick: () => actions.delRange(sel.idx) });
       body = h(React.Fragment, null,
         h(RangeLimits, { range: rg, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         h('section', { className: 'range-anchor-editor', 'aria-label': 'Zone position' },
@@ -1006,20 +1059,13 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
           ),
         h('label', { className: 'fieldlabel', htmlFor: 'constraint-range-label' }, 'Name'),
         h(DraftText, { id: 'constraint-range-label', className: 'textinput', value: rg.name || '', owner: doc.id + ':' + sel.idx, placeholder: 'Zone', autoComplete: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-1p-ignore': true, onCommit: (name) => actions.setRange(sel.idx, { name }) }),
-        h('div', { className: 'chint' }, 'Overlapping zones use the lowest limit.'),
-        h('button', { className: 'delbtn', type: 'button', onClick: () => actions.delRange(sel.idx) }, h(Icon, { name: 'trash', size: 15 }), 'Delete zone'));
+        h('div', { className: 'chint' }, 'Overlapping zones use the lowest limit.'));
     } else {
       return null;
     }
 
-    return h('div', { className: 'ctxinsp inspector-refresh' },
-      h('div', { className: 'ctxinsp-hd' },
-        h('span', { className: 'ctxinsp-t', title }, title),
-        tag && h('span', { className: 'ctxinsp-tag' }, tag),
-        headerAction,
-        h('button', { className: 'ctxinsp-x', type: 'button', title: 'Hide inspector', 'aria-label': 'Hide inspector', onClick: onClose }, h(Icon, { name: 'x', size: 14 }))),
-      // Keyed by the selected item so an unfinished numeric or text draft never moves to another item.
-      h('div', { className: 'ctxinsp-body', key: doc.id + ':' + (sel.kind || 'path') + ':' + sel.idx, inert: props.pending ? '' : undefined }, body));
+    return h(InspectorShell, { title, kind, action: headerAction, onClose, remove,
+      bodyKey: doc.id + ':' + (sel.kind || 'path') + ':' + sel.idx, inert: props.pending ? '' : undefined }, body);
   }
 
-export { ContextInspector, CommandLoopEditor, CommandParameterEditor, commandArguments, parameterValueError, safeControlId };
+export { ContextInspector, CommandLoopEditor, CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId };

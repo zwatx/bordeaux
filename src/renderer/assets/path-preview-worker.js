@@ -6,7 +6,7 @@ import { optimizeRouteFinal, optimizeRouteFinalParallel } from "../../core/plann
 import { evaluateRouteCandidate, qualifyRouteSeed, warmRouteEvaluation } from "../../core/planners/routeCandidateEvaluation";
 import { getPlanner } from "../../core/planners";
 import { authoredPath, getAcceptedTrajectory } from "../../core/planners/acceptedTrajectory";
-import { flipProjectPaths } from "../../core/project/flipField";
+import { flipPath } from "../../core/project/flipField";
 import { analyzeRoutinePower, analyzeTrajectoryPower } from '../../core/planners/trajectoryPower';
 
 const FINAL_POSITION_TOLERANCE_M = 1e-4;
@@ -459,13 +459,11 @@ export function processPathPreviewJob(
       return { id: job.id, value, durationMs: performance.now() - startedAt };
     }
     if (job.mode === 'flip') {
-      const value = flipProjectPaths(job.project, path => Boolean(getAcceptedTrajectory(path, job.project.robot, job.project.field)));
-      for (let index = 0; index < value.paths.length; index++) {
-        const path = value.paths[index], accepted = path.optimization?.accepted;
-        if (accepted && accepted !== job.project.paths[index].optimization?.accepted
-            && !getAcceptedTrajectory(path, value.robot, value.field)) {
-          throw new Error(`${path.name}: Flip could not preserve the applied trajectory. Choose Use normal or optimize and apply again before flipping.`);
-        }
+      const qualify = (path) => Boolean(getAcceptedTrajectory(path, job.robot, job.field));
+      const value = flipPath(job.path, job.direction, job, qualify, job.copy);
+      const accepted = value.optimization?.accepted;
+      if (accepted && accepted !== job.path.optimization?.accepted && !qualify(value)) {
+        throw new Error(`${value.name}: Flip could not preserve the applied trajectory. Choose Use normal or optimize and apply again before flipping.`);
       }
       return { id: job.id, quality: job.quality, value, durationMs: performance.now() - startedAt };
     }

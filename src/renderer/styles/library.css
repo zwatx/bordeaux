@@ -38,7 +38,8 @@
 .library-folder>button:first-child>svg{flex:none;transition:transform .14s}
 .library-folder>button:first-child[aria-expanded="false"]>svg{transform:rotate(-90deg)}
 .library-group .library-row{padding-left:20px}
-.library-empty{padding:10px 14px;color:var(--txt-3);font-size:12px;line-height:1.5}
+.library-empty{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:10px 14px;color:var(--txt-3);font-size:12px;line-height:1.5}
+.library-empty-action{min-height:30px}
 .library-group .library-empty{padding-left:36px}
 .library-blocked{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:4px 12px 8px;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt-2);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .library-blocked strong{color:var(--txt)}
@@ -105,7 +106,7 @@ body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-sel
 @media (pointer:coarse){.library-more{opacity:1}}
 
 /* A fixed local-feedback row; batch selection keeps its own count and Clear control. */
-.deletion-footer{flex:0 0 32px;height:32px;min-height:32px;padding:0 8px 0 14px;border-top:1px solid var(--line)}
+.deletion-footer{flex:0 0 var(--side-foot,40px);height:var(--side-foot,40px);min-height:var(--side-foot,40px);padding:0 8px 0 14px;border-top:1px solid var(--line)}
 .deletion-notice{height:100%;display:flex;align-items:center;gap:6px;color:var(--txt-2);font:500 12px/1.25 var(--ui)}
 .deletion-copy{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .deletion-notice button{flex:0 0 42px;width:42px;height:28px;color:var(--txt);font:500 12px/1.25 var(--ui);border-radius:var(--r)}

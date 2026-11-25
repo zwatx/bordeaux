@@ -146,9 +146,11 @@ describe('unsupported saved steps are described, not promoted', () => {
     const { plain } = panel([node], { run });
     expect(plain).toContain('Legacy generate step · preview plays its saved reference path');
     expect(plain).not.toContain('ignored by the preview');
-    const inspector = text(renderToStaticMarkup(React.createElement(StepInspector, { node, routine, paths, acq: {}, run, robotProject: { catalog } })));
+    const markup = renderToStaticMarkup(React.createElement(StepInspector, { node, routine, paths, acq: {}, run, robotProject: { catalog } }));
+    const inspector = text(markup);
     expect(inspector).toContain('Plays the saved preview path. Runtime generation is unavailable.');
-    expect(inspector).toContain('Remove unsupported step');
+    // The footer shows a short Delete; its accessible name says exactly what goes.
+    expect(markup).toMatch(/class="ctxinsp-foot"><button class="delbtn" type="button" aria-label="Remove unsupported step"[^>]*>.*Delete<\/button>/);
     expect(inspector).not.toContain('The preview ignores it');
   });
 

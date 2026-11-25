@@ -51,6 +51,14 @@ function LibraryRestore({ mode, onRestore, rail }) {
       h(Icon, { name: 'panelopen', size: 18 }), h('span', { 'aria-hidden': true }, mode === 'paths' ? 'Paths' : 'Routines')));
 }
 
+// Hiding sits at the library's own edge, beside its other header actions; the restore strip is the single way back.
+function LibraryHide({ onHide }) {
+  useKeyRules();
+  const key = keyLabel('view.focusField');
+  return h('button', { type: 'button', className: 'library-icon-button library-hide', 'aria-label': 'Hide path list', title: key ? 'Hide path list  (' + key + ')' : 'Hide path list', onClick: onHide },
+    h(Icon, { name: 'panelclose', size: 15 }));
+}
+
 export function LibraryRail({ preferenceKey, mode, hidden, onRestore, children, ...props }) {
   const storageKey = 'bordeaux.library.' + preferenceKey + '.' + mode;
   const [prefs, setPrefs] = useState(() => readPreferences(storageKey));
@@ -204,7 +212,7 @@ function useLibraryDrag({ scroll, locate, drop }) {
   return { drag, begin };
 }
 
-function EditorLibrary({ mode, prefs, update, project, routines, activePathId, activeRoutineId, onPath, onRoutine, actions, times, controller, selection, deletionNotice }) {
+function EditorLibrary({ mode, prefs, update, project, routines, activePathId, activeRoutineId, onPath, onRoutine, actions, times, controller, selection, deletionNotice, onHide }) {
   const pathsMode = mode === 'paths';
   const routinePushAvailable = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.routinePush === true;
   const pushUnavailable = !pathsMode && !routinePushAvailable;
@@ -419,10 +427,15 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
       h('input', { ref: search, className: 'library-search', type: 'search', 'aria-label': pathsMode ? 'Search paths and folders' : 'Search routines', placeholder: pathsMode ? 'Search paths' : 'Search routines', value: prefs.query, onChange: (event) => { update({ query: event.target.value, scroll: 0 }); setMenu(null); } }),
       pathsMode && h('button', { type: 'button', className: 'library-icon-button', title: 'New folder', 'aria-label': 'New folder', onClick: () => create('folder', actions.addFolder) }, h(Icon, { name: 'folder', size: 14 })),
       h('button', { type: 'button', className: 'library-icon-button', title: pathsMode ? 'New path' : 'New routine', 'aria-label': pathsMode ? 'New path' : 'New routine',
-        onClick: () => create(pathsMode ? 'path' : 'routine', () => pathsMode ? actions.addPath(active?.folderId) : actions.addRoutine()) }, h(Icon, { name: 'plus', size: 15 }))),
+        onClick: () => create(pathsMode ? 'path' : 'routine', () => pathsMode ? actions.addPath(active?.folderId) : actions.addRoutine()) }, h(Icon, { name: 'plus', size: 15 })),
+      pathsMode && onHide && h(LibraryHide, { onHide })),
     h('div', { ref: scroll, className: 'library-scroll', onScroll: (event) => update({ scroll: event.currentTarget.scrollTop }) },
       blocked && h('div', { className: 'library-blocked', role: 'alert' }, h('strong', null, 'Cannot delete ' + blocked.name), h('p', null, (blocked.several ? 'Remove their steps' : 'Remove its steps') + ' from these routines first:'), blocked.routines.map((routine) => h('button', { key: routine.id, type: 'button', onClick: () => onRoutine(routine.id) }, 'Open ' + routine.name))),
-      !visible.length ? h('div', { className: 'library-empty' }, query ? 'No matching names.' : pathsMode ? 'Create a path to get started.' : 'Create a routine to get started.') : pathsMode && !query ? [...folders.map(group), ...visible.filter((item) => !item.folderId).map(row)] : visible.map(row),
+      // An empty collection offers its first item directly; an empty search offers to clear itself.
+      !visible.length ? h('div', { className: 'library-empty' }, query ? 'No matching names.' : pathsMode ? 'No paths yet.' : 'No routines yet.',
+        h('button', { type: 'button', className: 'qbtn library-empty-action', onClick: query ? () => { update({ query: '' }); search.current?.focus(); }
+          : () => create(pathsMode ? 'path' : 'routine', () => pathsMode ? actions.addPath() : actions.addRoutine()) },
+          !query && h(Icon, { name: 'plus', size: 14 }), query ? 'Clear search' : pathsMode ? 'New path' : 'New routine')) : pathsMode && !query ? [...folders.map(group), ...visible.filter((item) => !item.folderId).map(row)] : visible.map(row),
       // While paths from a folder are dragged, the end of the list takes them out of their folders.
       drag?.kind === 'path' && folders.length > 0 && h('div', { className: 'library-drop-unfiled' + (mark?.unfiled ? ' over' : ''), 'aria-hidden': true }, 'No folder')),
     // Only while Push would send more than the open path: the count, how many are out of view, and Clear.

@@ -265,10 +265,10 @@ describe("renderer application", () => {
     expect(field).toContain("const W2P = worldToFieldImage;");
     expect(field).toContain("const world = fieldImageToWorld(u);");
     expect(field).not.toContain("transform: flip ?");
-    expect(app).toContain("commitProjectChange(before, result.value)");
-    expect(app).toContain("mode: 'flip', project: before");
-    expect(app).toContain("if (projectRef.current !== before) return;");
-    expect(app).toContain("onFlip: flipPaths");
+    expect(app).toContain("mode: 'flip', path, direction, copy");
+    expect(app).toContain("paths.splice(copy ? index + 1 : index, copy ? 0 : 1, result.value)");
+    expect(app).toContain("projectRef.current !== before || request.epoch !== documentEpoch.current");
+    expect(app).toContain("onFlip: openFlip");
   });
   it("keeps dormant Chap assets out of the application shell", () => {
     const html = fs.readFileSync(new URL("../src/renderer/index.html", import.meta.url), "utf8");

@@ -153,7 +153,7 @@ async function defaultChecks(first) {
   // The shortcuts dialog lists every command from the registry, then the fixed keys.
   const expected = [
     ['Select / move', '1 or V'], ['Place waypoint', '2 or W'], ['Place rotation', '3 or R'], ['Place command', '4 or M'], ['Create zone', '5 or C'],
-    ['Fit field', 'F'], ['Toggle grid', 'G'], ['Focus field', '\\'], ['Next pass through a point', ']'], ['Previous pass through a point', '['],
+    ['Fit field', 'F'], ['Toggle grid', 'G'], ['Toggle path list', '\\'], ['Next pass through a point', ']'], ['Previous pass through a point', '['],
     ['Play / pause', 'Space'], ['Undo', M('Z')], ['Redo', M('Z', true) + ' or ' + M('Y')],
     ['New project', M('N')], ['Projects', M('O')], ['Open project file', M('O', true)], ['Save project and BDX files', M('S')], ['Save copy', M('S', true)],
     ['Export selected path as BDX', M('E')], ['Push selected paths', M('P', true)],

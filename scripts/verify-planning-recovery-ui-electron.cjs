@@ -33,6 +33,13 @@ async function click(selector, text, clickCount = 1) {
 }
 async function key(keyCode) { await focusWindow(); win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: [] }); if (keyCode === 'Space') win.webContents.sendInputEvent({ type: 'char', keyCode: ' ', modifiers: [] }); if (keyCode === 'Enter') win.webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers: [] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: [] }); await delay(70); }
 async function snapshot(name) { await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
+const flipDialog = '.path-flip[open]';
+const flipChoice = (group, value) => flipDialog + ' label:has(input[name="pf-' + group + '"][value="' + value + '"])';
+async function chooseHalfTurn() {
+  await click(flipChoice('direction', 'rotate'));
+  await click(flipChoice('target', 'replace'));
+}
+const closedFlip = () => wait(() => evaluate(selector => !document.querySelector(selector), flipDialog), 'Flip dialog closes');
 ipcMain.handle('branches:restore', () => ({ project: saved, location }));
 ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true, location }; });
@@ -192,7 +199,7 @@ app.whenReady().then(async () => {
     await save(); assert.equal(saved.paths[0].constraints.maxVel, 0.6);
     console.log('PASS A planning timeout keeps editing available and recovers with Try again');
 
-    // Expanded export failures must reserve their height above placement guidance.
+    // Expanded export failures remain readable during command placement.
     await click('[aria-label="Place command"]');
     win.webContents.send('branches:menu', { command: 'export-bdx' });
     await wait(() => evaluate(() => document.querySelector('.field-status-label')?.textContent === 'Export failed'), 'export failure');
@@ -208,11 +215,12 @@ app.whenReady().then(async () => {
         await delay(200);
         const geometry = await evaluate(() => {
           const details = document.querySelector('.field-status-details').getBoundingClientRect();
-          const hint = document.querySelector('.stage-hint').getBoundingClientRect();
           const field = document.querySelector('.fieldcol').getBoundingClientRect();
-          return { bottom: details.bottom, hintTop: hint.top, left: details.left, right: details.right, fieldLeft: field.left, fieldRight: field.right };
+          return { bottom: details.bottom, left: details.left, right: details.right, fieldBottom: field.bottom,
+            fieldLeft: field.left, fieldRight: field.right, placementHint: Boolean(document.querySelector('.stage-hint')) };
         });
-        assert.ok(geometry.bottom <= geometry.hintTop, 'Expanded error must not overlap command placement hint');
+        assert.equal(geometry.placementHint, false, 'Command placement adds no instruction overlay');
+        assert.ok(geometry.bottom <= geometry.fieldBottom, 'Expanded error fits above the field footer');
         assert.ok(geometry.left >= geometry.fieldLeft && geometry.right <= geometry.fieldRight, 'Error details fit the field');
         assert.ok(await actionCentered(), 'Recovery action stays centered on its summary row when details expand');
         await snapshot('export-command-' + width + '-inspector-' + inspector);
@@ -231,7 +239,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.activeElement?.textContent), 'Dismiss');
     await key('Enter');
     await wait(() => evaluate(() => !document.querySelector('.field-status')), 'keyboard dismisses export failure');
-    console.log('PASS Expanded long export error stays above command placement guidance at both sizes and inspector states; keyboard disclosure and dismissal');
+    console.log('PASS Expanded export error fits the field during command placement at both sizes and inspector states; keyboard disclosure and dismissal');
 
     async function actionCentered() {
       return evaluate(() => {
@@ -258,10 +266,11 @@ app.whenReady().then(async () => {
         await exportSuccess();
         assert.ok(await evaluate(() => {
           const notice = document.querySelector('.field-confirmation');
-          const { left, right, height } = notice.getBoundingClientRect();
-          return left >= 0 && right <= innerWidth && height <= 32
+          const { left, right, height, top } = notice.getBoundingClientRect();
+          const field = notice.closest('.fieldcol').getBoundingClientRect();
+          return left >= field.left && right <= field.right && height <= 32 && top >= field.top && top - field.top <= 12
             && notice.querySelector('[role="status"]') && !notice.querySelector('details, button, [tabindex]');
-        }), 'Success is a compact, noninteractive status at ' + width);
+        }), 'Success is compact and anchored near the top of the field at ' + width);
         await snapshot('export-success-' + width + '-inspector-' + inspector);
       }
     }
@@ -297,20 +306,22 @@ app.whenReady().then(async () => {
     await click(speedInput);
     await evaluate(selector => document.querySelector(selector).select(), speedInput);
     await win.webContents.insertText('-');
-    await click('[aria-label="Flip all paths 180 degrees"]');
+    await click('.field-flip');
     assert.equal(await evaluate(selector => document.activeElement === document.querySelector(selector), speedInput), true, 'Flip owns its press before moving focus away from an invalid draft');
-    assert.deepEqual(saved.paths, beforeFlip.paths, 'Invalid draft refuses Flip');
+    assert.equal(await evaluate(selector => Boolean(document.querySelector(selector)), flipDialog), false, 'Invalid draft refuses Flip');
+    assert.deepEqual(saved.paths, beforeFlip.paths);
     await key('Escape');
-    await click('[aria-label="Flip all paths 180 degrees"]');
+    await click('.field-flip'); await chooseHalfTurn(); await click('.pf-commit'); await closedFlip();
     await save();
     const afterFlip = structuredClone(saved);
     assert.equal(afterFlip.field.coordinateSchemaId, 'wpilib-blue-origin/2026-welded/1');
-    for (let p = 0; p < beforeFlip.paths.length; p++) for (let i = 0; i < beforeFlip.paths[p].waypoints.length; i++) {
-      const before = beforeFlip.paths[p].waypoints[i], after = afterFlip.paths[p].waypoints[i];
-      assert.ok(Math.abs(after.x - (16.541 - before.x)) < 1e-10, 'Flip saves opposite-alliance X for every path');
-      assert.ok(Math.abs(after.y - (8.069 - before.y)) < 1e-10, 'Flip saves opposite-alliance Y for every path');
+    for (let i = 0; i < beforeFlip.paths[0].waypoints.length; i++) {
+      const before = beforeFlip.paths[0].waypoints[i], after = afterFlip.paths[0].waypoints[i];
+      assert.ok(Math.abs(after.x - (16.541 - before.x)) < 1e-10, 'Flip saves opposite-alliance X');
+      assert.ok(Math.abs(after.y - (8.069 - before.y)) < 1e-10, 'Flip saves opposite-alliance Y');
       assert.equal(after.theta, before.theta + 180);
     }
+    assert.deepEqual(afterFlip.paths.slice(1), beforeFlip.paths.slice(1), 'Other paths stay identical');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       for (const inspector of [false, true]) {
@@ -347,9 +358,10 @@ app.whenReady().then(async () => {
     for (let i = 0; i < 100 && !(await evaluate(() => document.activeElement?.matches('.field-flip'))); i++) await key('Tab');
     assert.equal(await evaluate(() => document.activeElement?.matches('.field-flip')), true);
     await key('Enter');
+    await chooseHalfTurn(); await click('.pf-commit'); await closedFlip();
     await save();
-    for (let p = 0; p < beforeFlip.paths.length; p++) for (let i = 0; i < beforeFlip.paths[p].waypoints.length; i++) {
-      const before = beforeFlip.paths[p].waypoints[i], after = saved.paths[p].waypoints[i];
+    for (let i = 0; i < beforeFlip.paths[0].waypoints.length; i++) {
+      const before = beforeFlip.paths[0].waypoints[i], after = saved.paths[0].waypoints[i];
       assert.ok(Math.abs(after.x-before.x) < 1e-10 && Math.abs(after.y-before.y) < 1e-10, 'Two flips restore coordinates');
       assert.equal(after.theta, before.theta + 360);
     }
@@ -382,6 +394,34 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(placed.x-3) < .02 && Math.abs(placed.y-1.5) < .02, 'Pointer placement in imperial display stores canonical blue-origin meters');
     await click('[aria-label="Undo"]'); await save();
     assert.deepEqual(saved.paths, beforePlacement, 'Undo restores the paths exactly after inverse-mapped placement');
+
+    await click('.field-flip');
+    assert.equal(await evaluate(() => document.activeElement?.value), 'horizontal', 'Flip opens on the direction group');
+    await key('Right');
+    assert.equal(await evaluate(() => document.activeElement?.value), 'vertical', 'Arrow keys choose the mirror axis');
+    await click('[aria-label="New path name"]');
+    await evaluate(() => document.activeElement.select());
+    await win.webContents.insertText(beforePlacement[1].name);
+    await click('.pf-commit');
+    assert.match(await evaluate(() => document.querySelector('.pf-error').textContent), /already exists/);
+    await click('[aria-label="New path name"]');
+    await evaluate(() => document.activeElement.select());
+    await win.webContents.insertText('Mirrored pickup');
+    await snapshot('flip-copy-1100');
+    await click('.pf-commit'); await closedFlip(); await save();
+    const copy = saved.paths.find(item => item.name === 'Mirrored pickup');
+    assert.ok(copy && copy.id !== beforePlacement[0].id, 'The mirror becomes a separate named path');
+    assert.equal(saved.editor.activePathId, copy.id);
+    assert.deepEqual(saved.paths.filter(item => item.id !== copy.id), beforePlacement);
+    for (let i = 0; i < copy.waypoints.length; i++) {
+      const before = beforePlacement[0].waypoints[i], after = copy.waypoints[i];
+      assert.equal(after.x, before.x);
+      assert.ok(Math.abs(after.y - (8.069 - before.y)) < 1e-10);
+      assert.ok(after.theta === -before.theta);
+    }
+    await click('[aria-label="Undo"]'); await save();
+    assert.deepEqual(saved.paths, beforePlacement, 'One Undo removes the copy and preserves its source');
+
     await evaluate(() => {
       const post = Worker.prototype.postMessage;
       Worker.prototype.postMessage = function(message, ...args) {
@@ -393,7 +433,10 @@ app.whenReady().then(async () => {
       };
       window.restoreFlipWorker = () => { Worker.prototype.postMessage = post; delete window.restoreFlipWorker; };
     });
-    await click('[aria-label="Flip all paths 180 degrees"]');
+    await click('.field-flip'); await chooseHalfTurn(); await click('.pf-commit');
+    assert.equal(await evaluate(() => document.querySelector('.path-flip')?.getAttribute('aria-busy')), 'true');
+    await key('Escape'); await closedFlip();
+    assert.equal(await evaluate(() => document.activeElement?.matches('.field-flip')), true, 'Cancel returns focus to Flip');
     const pendingSpeedInput = await evaluate(() => '#' + CSS.escape([...document.querySelectorAll('.path-band label.numlbl')].find(label => label.textContent === 'Speed').htmlFor));
     await click(pendingSpeedInput);
     await evaluate(selector => document.querySelector(selector).select(), pendingSpeedInput);
@@ -401,9 +444,38 @@ app.whenReady().then(async () => {
     const interveningEdit = structuredClone(saved.paths);
     assert.notEqual(interveningEdit[0].constraints.maxVel, beforePlacement[0].constraints.maxVel);
     await delay(2400); await save();
-    assert.deepEqual(saved.paths, interveningEdit, 'A delayed Flip cannot overwrite an intervening committed edit');
+    assert.deepEqual(saved.paths, interveningEdit, 'A canceled delayed Flip cannot overwrite an intervening committed edit');
     await evaluate(() => window.restoreFlipWorker());
-    console.log('PASS Native pointer/keyboard Flip moves all paths and saved headings to the opposite alliance; invalid-draft protection, exact Undo/Redo, save/reopen, two flips, calibrated overlay bounds, saved/rendered coordinate agreement and inverse pointer placement; both sizes/inspector states and metric/imperial');
+
+    // Sharing means that replacing one path could move another. The chooser must offer an independent copy.
+    const linked = structuredClone(saved);
+    const position = linked.paths[0].waypoints[0];
+    position.positionLink = 'flip-shared';
+    linked.paths[0].waypoints.at(-1).positionLink = position.positionLink;
+    const other = linked.paths[1].waypoints[0];
+    other.x = position.x; other.y = position.y; other.positionLink = position.positionLink;
+    linked.paths[0].waypoints[1].positionLink = 'flip-cross-only';
+    linked.paths[1].waypoints[1].positionLink = 'flip-cross-only';
+    saved = linked;
+    await win.reload();
+    await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'linked paths restored');
+    await save();
+    const linkedBefore = structuredClone(saved.paths);
+    await click('.field-flip');
+    assert.equal(await evaluate(() => document.querySelector('input[name="pf-target"][value="replace"]').disabled), true);
+    await snapshot('flip-linked-1100');
+    await click('.pf-commit'); await closedFlip(); await save();
+    const linkedCopy = saved.paths.find(path => path.id === saved.editor.activePathId);
+    assert.ok(linkedCopy && !linkedBefore.some(path => path.id === linkedCopy.id));
+    const copiedGroup = linkedCopy.waypoints[0].positionLink;
+    assert.ok(copiedGroup && copiedGroup !== position.positionLink, 'A shared group within the copied path gets its own identity');
+    assert.equal(linkedCopy.waypoints.at(-1).positionLink, copiedGroup);
+    assert.equal(linkedCopy.waypoints[1].positionLink, undefined, 'A cross-path-only link does not cross into the copy');
+    assert.ok(Math.abs(linkedCopy.waypoints[0].x - (16.541 - position.x)) < 1e-10);
+    assert.deepEqual(saved.paths.filter(path => path.id !== linkedCopy.id), linkedBefore);
+    await click('[aria-label="Undo"]'); await save();
+    assert.deepEqual(saved.paths, linkedBefore);
+    console.log('PASS Selected-path half-turn, named vertical copy, duplicate-name validation, native keyboard/cancel focus, calibrated rendering, exact Undo/Redo and save/reopen');
   } catch (error) { console.error(error); if(win) await snapshot('failure'); process.exitCode=1; }
   finally { win?.destroy(); app.exit(process.exitCode || 0); }
 });

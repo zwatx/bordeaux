@@ -1,6 +1,7 @@
 import { createLibraryDurations } from "../lib/libraryDurations";
 import { DeletionNotice } from "../components/DeletionNotice";
 import { FieldStatus } from "../components/FieldStatus";
+import { PathFlipDialog } from "../components/PathFlipDialog";
 import * as React from "react";
 import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
@@ -93,6 +94,24 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     duplicate.id = pathId();
     duplicate.name = name;
     duplicate.markers = duplicate.markers.map((marker) => ({ ...marker, id: markerId() }));
+    return duplicate;
+  }
+  function duplicatePathForFlip(source, name) {
+    const duplicate = duplicatePathForLibrary(source, name), groups = new Map();
+    for (const point of duplicate.waypoints) {
+      if (!point.positionLink) continue;
+      const members = groups.get(point.positionLink) || [];
+      members.push(point);
+      groups.set(point.positionLink, members);
+    }
+    // Close the copy's position groups over the new path only.
+    for (const members of groups.values()) {
+      if (members.length === 1) delete members[0].positionLink;
+      else {
+        const id = pathLinkId();
+        members.forEach((point) => { point.positionLink = id; });
+      }
+    }
     return duplicate;
   }
 
@@ -454,6 +473,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const appliedPreview = useRef(null);
     const [metric, setMetric] = useState('velocity');
     const [tool, setTool] = useState('select');
+    const finishPlacement = useCallback((placedTool) => {
+      setTool((current) => current === placedTool ? 'select' : current);
+    }, []);
     const [waypointPreviewRequest, setWaypointPreviewRequest] = useState(null);
     const [headMenu, setHeadMenu] = useState(null);
     const [dirty, setDirty] = useState(false);
@@ -1056,7 +1078,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // A path with fewer than two waypoints is unfinished authoring (a blank first-use path, or one being drawn), not
     // a failure: no problem marks or failure notice, a placement hint instead, and Push stays unavailable.
     const unfinishedPath = (doc.waypoints?.length || 0) < 2;
-    const stageHint = (tool !== 'select' || unfinishedPath) ? toolHint(tool, doc.waypoints?.length || 0) : '';
     const editingFailure = editing.status === 'error' && !unfinishedPath ? editing.error : null;
     const planIssues = comparing || unfinishedPath ? [] : editing.issues;
     const derivedValue = derivation.value || PENDING_PATH_PREVIEW;
@@ -1343,11 +1364,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
       if (segmentType === 'clothoid') {
         const message = 'This join may rebuild the previous turn. Review the dashed path.';
-        setWaypointPreviewRequest({ doc: candidate, index: oldCount, plannerId, message, actionLabel: 'Place endpoint' });
+        setWaypointPreviewRequest({ doc: candidate, index: oldCount, plannerId, message, actionLabel: 'Place endpoint', placedTool: 'waypoint' });
         return;
       }
       commit(() => candidate);
-    }, [commit, plannerId]);
+      finishPlacement('waypoint');
+    }, [commit, finishPlacement, plannerId]);
     const setJiggle = useCallback((options) => {
       if (!options) {
         commit((d) => { delete d.waypoints[d.waypoints.length - 1].jiggle; return d; });
@@ -1378,8 +1400,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const applyWaypointPreview = useCallback(() => {
       if (!waypointPreview?.derived) return;
       commit(() => waypointPreview.doc);
+      if (waypointPreview.placedTool) finishPlacement(waypointPreview.placedTool);
       setWaypointPreviewRequest(null);
-    }, [commit, waypointPreview]);
+    }, [commit, finishPlacement, waypointPreview]);
     useEffect(() => { setWaypointPreviewRequest(null); }, [doc, robot, plannerId]);
     useEffect(() => { if (doc._selAfter != null) { select('wp', doc._selAfter); mutate((d) => { delete d._selAfter; return d; }); } }, [doc._selAfter]);
 
@@ -1416,7 +1439,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const closePointLinks = () => {
       const origin = pointLinks?.origin;
       flushSync(() => setPointLinks(null));
+      // Unlinking re-renders the entry while the dialog is open; its replacement keeps the id.
+      const replacement = !origin?.isConnected && origin?.id ? document.getElementById(origin.id) : null;
       if (origin?.isConnected) focusIfAvailable(origin);
+      else if (replacement) focusIfAvailable(replacement);
       else focusIfAvailable([...document.querySelectorAll('[data-library-item]')].find(row => row.dataset.libraryItem === pointLinks?.pathId));
     };
     const applyPointLink = (pathId, index, target) => {
@@ -1438,17 +1464,55 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     const commitWaypointProject = (before, next) => commitProjectChange(before, next, pathScope(docRef.current.id));
     const flipPlanning = useMemo(() => FinalPlanning.create(), []);
-    const flipPaths = async () => {
+    const flipOwner = useRef(null);
+    const [flipRequest, setFlipRequest] = useState(null);
+    const closeFlip = useCallback(() => {
+      flipOwner.current?.job?.cancel();
+      flipOwner.current = null;
+      setFlipRequest(null);
+    }, []);
+    useEffect(() => {
+      closeFlip();
+      return () => flipOwner.current?.job?.cancel();
+    }, [closeFlip, page, projectKey, doc.id]);
+    const openFlip = (event) => {
       if (!preflightDeletion()) return;
+      event.currentTarget.focus({ preventScroll: true });
+      const request = { id: docRef.current.id, epoch: documentEpoch.current, origin: event.currentTarget, job: null };
+      flipOwner.current = request;
+      setFlipRequest(request);
+    };
+    const applyFlip = async ({ direction, copyName }) => {
+      const request = flipOwner.current;
+      if (!request || request.job || request.epoch !== documentEpoch.current || projectTransitionRef.current) return;
       const before = projectRef.current;
-      const result = await flipPlanning.request({ mode: 'flip', project: before }, {
-        deadline: 'hard', failureNote: 'The paths were not changed.',
-      }).promise;
-      // A delayed worker response cannot overwrite intervening edits or a new project.
-      if (projectRef.current !== before) return;
-      if (result.status !== 'success') { alert(result.error?.message || result.fallbackReason); return; }
-      if (!preflightDeletion() || projectRef.current !== before) return;
-      commitProjectChange(before, result.value);
+      const index = before.paths.findIndex(path => path.id === request.id), source = before.paths[index];
+      if (!source || docRef.current.id !== request.id) return 'Open Flip from the path you want to change.';
+      const copy = copyName !== null;
+      const name = copyName?.trim();
+      if (!copy && linkedPathIds(before, source.id).length > 1) return 'This path shares waypoints with another path. Create a copy or unlink the shared waypoints.';
+      if (copy && !name) return 'Enter a name for the new path.';
+      if (copy && uniqueItemName(before.paths, name) !== name) return 'A path with that name already exists.';
+      const path = copy ? duplicatePathForFlip(source, name) : source;
+      request.job = flipPlanning.request({ mode: 'flip', path, direction, copy, robot: before.robot, field: before.field },
+        { deadline: 'hard', failureNote: 'The path was not changed.' });
+      const result = await request.job.promise;
+      request.job = null;
+      if (flipOwner.current !== request) return;
+      if (projectRef.current !== before || request.epoch !== documentEpoch.current || projectTransitionRef.current || docRef.current.id !== source.id) {
+        return 'The project changed while flipping. Review the path and try again.';
+      }
+      if (result.status !== 'success') return result.error?.message || result.fallbackReason;
+      const paths = before.paths.slice();
+      paths.splice(copy ? index + 1 : index, copy ? 0 : 1, result.value);
+      commitProjectChange(before, { ...before, paths }, copy ? PROJECT_SCOPE : pathScope(source.id));
+      closeFlip();
+      if (copy) {
+        resetForPath(index + 1);
+        requestAnimationFrame(() => {
+          if (!request.origin.isConnected && document.activeElement === document.body) focusIfAvailable(document.querySelector('.field-flip'));
+        });
+      }
       playbackStore.reset(); routinePlaybackStore.reset();
       setComparison(null);
     };
@@ -1699,7 +1763,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setSegMeta, setSegmentHeadingMode, setSegmentLookAt, setJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
       setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward, moveWpOrder,
       openInspector };
-    const fieldActions = { addWaypoint, appendWaypoint, moveWaypoint, moveHandle, addTargetAt, addMarkerAt, moveTargetTo, rotateTargetTo, moveMarkerTo, addRange, moveRangeHandle, beginEdit, finishEdit, cancelEdit,
+    const fieldActions = { addWaypoint, appendWaypoint, moveWaypoint, moveHandle, moveTargetTo, rotateTargetTo, moveMarkerTo, moveRangeHandle, beginEdit, finishEdit, cancelEdit,
+      addTargetAt: (point, fraction) => { addTargetAt(point, fraction); finishPlacement('rotation'); },
+      addMarkerAt: (point, fraction) => { addMarkerAt(point, fraction); finishPlacement('marker'); },
+      addRange: (start, end) => { addRange(start, end); finishPlacement('range'); },
       setWaypointHeading, moveSegmentLookAt, headingMenu, faceWaypoint, delWp, delTarget, delMarker, delRange,
       openInspector,
       select };
@@ -2992,7 +3059,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       else setActiveRoutine(routine.id);
     };
     const renderLibrary = (mode, structure) => h(LibraryRail, {
-      key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, hidden: mode === 'paths' && fieldFocus, onRestore: toggleFieldFocus, project, routines,
+      key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, hidden: mode === 'paths' && fieldFocus, onRestore: toggleFieldFocus, onHide: mode === 'paths' ? toggleFieldFocus : undefined, project, routines,
       activePathId: doc.id, activeRoutineId: routine.id, times, selection: pushSelection,
       onPath: (id) => { const index = pathIndex(id); if (index >= 0) setActive(index); }, onRoutine: setActiveRoutine,
       controller: pushActions,
@@ -3028,6 +3095,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     return h('div', { className: 'app' },
       h(AppUpdateDialog, { state: appUpdates.state, ownsDeparture: updatePanelOwnsDeparture, ...appUpdates.actions, onEditingResumed: resumeEditingAfterInstall }),
       pointLinks && h(PointLinksDialog, { project, request: pointLinks, onApply: applyPointLink, onClose: closePointLinks }),
+      flipRequest?.id === doc.id && flipRequest.epoch === documentEpoch.current && page === 'plan' && h(PathFlipDialog, {
+        pathName: doc.name, defaultCopyName: uniquePathName(doc.name + ' flipped'),
+        canReplace: linkedPathIds(project, doc.id).length === 1, hasAppliedOptimization: Boolean(doc.optimization?.accepted && !outdatedOptimization),
+        onCancel: closeFlip, onConfirm: applyFlip,
+      }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
@@ -3051,7 +3123,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths })),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: h(React.Fragment, null,
                 (bdxNotice || exportError) && h('div', { className: 'routine-export-notices' }, h(FieldStatus, { notices: fieldNotices.filter(notice => ['bdx-export', 'export'].includes(notice.id)) })),
@@ -3075,7 +3147,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
-              stageHint && !waypointPreview && h('div', { className: 'stage-hint', dangerouslySetInnerHTML: { __html: stageHint } }),
+              unfinishedPath && !waypointPreview && h('div', { className: 'stage-hint' },
+                tool === 'waypoint'
+                  ? 'Click the field to place the ' + (doc.waypoints.length ? 'next waypoint.' : 'first waypoint.')
+                  : 'Choose Place waypoint to ' + (doc.waypoints.length ? 'continue this path.' : 'start this path.')),
               waypointPreview && h('div', { className: 'insert-preview', inert: derivationCurrent ? undefined : '', role: 'region', 'aria-label': 'Preview waypoint insertion' },
                 h('div', { className: 'insert-preview-copy' },
                   h('b', null, waypointPreview.pending ? 'Preparing waypoint preview' : waypointPreview.error ? 'Waypoint preview unavailable' : 'Preview waypoint'),
@@ -3103,8 +3178,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               h('div', { className: 'field-view-footer', inert: derivationCurrent ? undefined : '' },
                 h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
                 h('div', { className: 'field-view-tools' },
-                  h(Panels.MetricControl, { metric, setMetric, derived: scene.derived }),
-                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: flipPaths, fieldFocus, toggleFieldFocus })))),
+                  h(Panels.MetricControl, { metric, setMetric, derived: scene.derived, robot }),
+                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),
             h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
             h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
               actions: bandActions, edit: { begin: beginEdit, mutate, finish: finishEdit, cancel: cancelEdit, draft: editStore.getSnapshot, flushDraft: flushProjectDraft },
@@ -3130,15 +3205,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 ? h(ContextInspector, { project, setWaypointPositionLink, openPointLinks, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
                 : null),
             headMenu && h(UI.ContextMenu, { x: headMenu.x, y: headMenu.y, items: headMenu.items, returnFocus: headMenu.returnFocus, onClose: () => setHeadMenu(null) })));
-  }
-
-  function toolHint(tool, waypoints = 2) {
-    if (waypoints < 2) return tool === 'waypoint' ? 'Click the field to place the <b>' + (waypoints ? 'next waypoint' : 'first waypoint') + '</b>'
-      : 'Press <b>W</b>, then click the field to ' + (waypoints ? 'continue' : 'start') + ' this path';
-    if (tool === 'waypoint') return '';
-    if (tool === 'marker') return 'Click the path to place a <b>command</b>';
-    if (tool === 'range') return 'Drag along the path to add a <b>zone</b>, then set its limits';
-    return '';
   }
 
   class AppErrorBoundary extends React.Component {

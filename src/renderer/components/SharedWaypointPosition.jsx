@@ -44,13 +44,17 @@ export function SharedWaypointPosition({ project, doc, index, onLink, onName, on
         onChange: (event) => setName(event.target.value), onBlur: saveName,
         onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { event.stopPropagation(); setName(waypoint.positionName); } } })),
 
-    onOpen ? h('button', { type: 'button', className: 'qbtn', onClick: () => onOpen(doc.id, index) }, members.length ? 'Manage linked points…' : 'Link points…') : h(UI.ChoiceBrowser, { id: 'waypoint-position-link', label: 'Linked position', value: members[0]?.value || '', resetKey: doc.id + ':' + index,
+    onOpen ? h('div', { className: 'inrow' },
+      h('span', { className: 'inrow-l' }, 'Linked position',
+        h('small', { style: { overflowWrap: 'anywhere' } }, members.length ? 'With ' + members.map((item) => waypointName(item.index, project.paths.find((path) => path.id === item.pathId).waypoints.length) + ' · ' + (item.pathId === doc.id ? 'this path' : project.paths.find((path) => path.id === item.pathId).name)).join(', ') : 'Independent')),
+      h('button', { type: 'button', id: 'inspector-waypoint-link', className: 'choice-change', onClick: () => onOpen(doc.id, index) }, members.length ? 'Manage…' : 'Link…'))
+      : h(UI.ChoiceBrowser, { id: 'waypoint-position-link', label: 'Linked position', value: members[0]?.value || '', resetKey: doc.id + ':' + index,
       placeholder: 'Search named points', emptyText: 'Name a shared point in another path to link it here.',
       items: [...members.slice(0, 1), ...candidates],
       onChange: (value) => { const target = candidates.find((item) => item.value === value); if (target) onLink(index, target); } }),
-    (waypoint.positionLink || members.length > 0) && h('div', { className: 'inrow' },
+    !onOpen && (waypoint.positionLink || members.length > 0) && h('div', { className: 'inrow' },
       h('span', { className: 'inrow-l', style: { minWidth: 0, overflowWrap: 'anywhere' }, title: members.map((item) => item.label).join('\n') },
         members.length ? 'Linked to ' + members.length + ' other ' + (members.length === 1 ? 'point' : 'points') : 'No other linked waypoints'),
       h('button', { type: 'button', className: 'choice-change', onClick: () => onLink(index, null) }, 'Unlink')),
-    h('div', { className: 'seg-hint' }, members.length ? 'Position is shared. Facing and tangents stay independent.' : ''));
+    !onOpen && h('div', { className: 'seg-hint' }, members.length ? 'Position is shared. Facing and tangents stay independent.' : ''));
 }

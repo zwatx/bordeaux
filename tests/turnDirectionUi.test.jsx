@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
 import { ContextInspector } from '../src/renderer/components/ContextInspector';
 import { Panels } from '../src/renderer/components/Panels';
+import { LibraryRail } from '../src/renderer/components/EditorLibrary';
 import { UI } from '../src/renderer/components/ui';
 import { createDemoProject } from '../src/core/project/defaults';
 import { PM } from '../src/renderer/lib/pathMath';
@@ -78,14 +79,22 @@ describe('turn direction placement in the inspector', () => {
   });
 });
 
-describe('Focus view control', () => {
-  const focusButton = (fieldFocus) => renderToStaticMarkup(h(Panels.ViewControls, { zoomPct: 100, zoomBy() {}, onFit() {}, showGrid: false, setShowGrid() {}, fieldFocus, toggleFieldFocus() {} }))
-    .match(/<button class="vc-text field-focus"[^>]*>.*?<\/button>/)[0];
+describe('Path list hide control', () => {
+  const rail = (hidden) => renderToStaticMarkup(h(LibraryRail, { preferenceKey: 'focus-test', mode: 'paths', hidden, onRestore() {}, onHide() {},
+    project: { paths: [{ id: 'a', name: 'Path A', waypoints: [{}, {}] }], pathFolders: [] }, activePathId: 'a', selection: { selected: [], set() {}, clear() {} },
+    controller: { busy: false, itemStatus: () => ({}) }, actions: {}, times: {} }));
 
-  it('keeps one accessible name and reports whether the path list is hidden', () => {
-    const off = focusButton(false), on = focusButton(true);
-    expect(off).toContain('aria-pressed="false"'); expect(on).toContain('aria-pressed="true"');
-    for (const button of [off, on]) { expect(button).toContain('aria-label="Focus field"'); expect(button).toContain('<span>Focus</span>'); expect(button).toContain('<svg'); }
-    expect(off).toContain('title="Hide the path list'); expect(on).toContain('title="Show the path list');
+  it('lives on the library header, not the field view controls', () => {
+    expect(renderToStaticMarkup(h(Panels.ViewControls, { zoomPct: 100, zoomBy() {}, onFit() {}, showGrid: false, setShowGrid() {} }))).not.toMatch(/field-focus|path list/);
+    const open = rail(false);
+    expect(open.match(/aria-label="Hide path list"/g)).toHaveLength(1);
+    expect(open).toMatch(/class="library-find"[^]*aria-label="Hide path list"/);
+    expect(open).not.toContain('Show path list');
+  });
+
+  it('leaves one way back while the list is hidden', () => {
+    const closed = rail(true);
+    expect(closed.match(/aria-label="Show path list"/g)).toHaveLength(1);
+    expect(closed).toMatch(/<nav hidden=""[^>]*class="rail rail-l library-rail/);
   });
 });

@@ -1,0 +1,52 @@
+/* Flip path: the Projects sheet with three direction cards and a copy-or-change choice. The
+   checked card is raised like a segmented option; color stays for the optimization warning. */
+.pj-sheet.path-flip{width:min(460px,calc(100vw - 32px));max-height:calc(100vh - 48px);margin-top:max(24px,12vh)}
+.pf-form{display:flex;flex-direction:column;min-height:0;overflow:auto}
+.pf-head{padding:16px 16px 12px}
+.pf-head h2{margin:0;color:var(--txt);font-size:16px;font-weight:600;line-height:1.35}
+.pf-path{display:-webkit-box;margin:3px 0 0;overflow:hidden;color:var(--txt-2);font-size:12px;line-height:1.45;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.pf-group{min-width:0;margin:0;padding:0 16px 14px;border:0}
+.pf-group legend{margin:0 0 7px;padding:0;color:var(--txt-2);font-size:12px;font-weight:500;line-height:16px}
+.pf-directions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.pf-direction{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;padding:10px 6px 9px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt-3);text-align:center;cursor:pointer;transition:background-color .14s ease-out,border-color .14s ease-out,color .14s ease-out}
+.pf-direction:has(:checked){border-color:var(--line-3);background:var(--bg-4);color:var(--txt);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.35)}
+.pf-direction:has(:focus-visible){outline:2px solid var(--focus);outline-offset:1px}
+@media (hover:hover){.pf-direction:not(:has(:checked)):hover{background:var(--bg-3);color:var(--txt-2)}}
+.pf-group:disabled{opacity:.6}
+.pf-group:disabled .pf-direction,.pf-group:disabled .pf-target{cursor:default}
+.pf-glyph{flex:none;margin-bottom:6px;overflow:visible}
+.pf-field{fill:none;stroke:var(--line-3)}
+.pf-axis{fill:none;stroke:currentColor;stroke-dasharray:2 2.5;opacity:.45}
+.pf-center{fill:currentColor;opacity:.55}
+.pf-before{fill:none;stroke:var(--txt-3);stroke-width:1.5;stroke-linecap:round;stroke-dasharray:3 2.5;opacity:.55}
+.pf-before-dot{fill:var(--txt-3);opacity:.55}
+.pf-after{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.pf-after-dot{fill:currentColor}
+.pf-direction-label{max-width:100%;color:var(--txt-2);font-size:12px;font-weight:500;line-height:1.35;overflow-wrap:anywhere}
+.pf-direction:has(:checked) .pf-direction-label{color:var(--txt)}
+.pf-direction-axis{color:var(--txt-3);font-size:11px;line-height:1.4;white-space:nowrap}
+.pf-detail{margin:8px 0 0;color:var(--txt-3);font-size:12px;line-height:1.45;text-wrap:pretty}
+.pf-targets{display:flex;flex-direction:column;gap:2px}
+.pf-target{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:10px;padding:5px 0;cursor:pointer}
+.pf-target input{display:grid;place-content:center;width:16px;height:16px;margin:2px 0 0;border:1.5px solid var(--line-3);border-radius:50%;background:var(--bg-1);appearance:none;-webkit-appearance:none;cursor:inherit;transition:border-color .14s ease-out}
+.pf-target input::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--txt);transform:scale(0);transition:transform .12s ease-out}
+.pf-target input:checked{border-color:var(--txt)}
+.pf-target input:checked::before{transform:scale(1)}
+@media (hover:hover){.pf-target:not([data-unavailable]):hover input:not(:checked){border-color:var(--txt-3)}}
+.pf-target input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.pf-target-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pf-target-label{color:var(--txt);font-size:13px;font-weight:500;line-height:1.4}
+.pf-target-note{color:var(--txt-3);font-size:12px;line-height:1.45;overflow-wrap:anywhere;text-wrap:pretty}
+.pf-target[data-unavailable]{cursor:default}
+.pf-target[data-unavailable] .pf-target-label{color:var(--txt-3)}
+.pf-target[data-unavailable] input{opacity:.45}
+.pf-name{padding:0 0 8px 26px}
+.pf-name .textinput:disabled{color:var(--txt-3);opacity:.6}
+.pf-name .textinput[aria-invalid="true"]{border-color:var(--bad)}
+.pf-optimization{margin:6px 0 0;padding-top:10px;border-top:1px solid var(--line);color:var(--txt-3);font-size:12px;line-height:1.45;text-wrap:pretty}
+.pf-optimization[data-clears]{color:var(--warn-txt)}
+.pf-error{padding:0 16px 12px;color:var(--bad-txt);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.pf-error:empty{display:none}
+.path-flip .pj-foot{justify-content:flex-end;margin-top:auto;padding:10px 12px}
+.path-flip .pj-foot .qbtn{min-width:80px}
+@media (prefers-reduced-motion:reduce){.pf-direction,.pf-target input,.pf-target input::before{transition:none}}

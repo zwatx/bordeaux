@@ -340,6 +340,8 @@ async function runPlacement() {
       });
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...point });
       await markers(1); await opened('field tool');
+      assert.equal(await evaluate(() => document.querySelector('.toolrail [aria-label="Select / move"]').getAttribute('aria-pressed')), 'true',
+        'Placing a command returns to Select / move while its chooser opens');
       await focusEditor(); await win.webContents.insertText('sho'); await key('Enter');
       await wait(async () => (await state()).value === 'Shoot note', 'field placement pick');
       await undo(); await undo(); await markers(0); await click('button[aria-label="Select / move"]');

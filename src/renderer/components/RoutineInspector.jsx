@@ -4,7 +4,7 @@ import { CommandBranches } from "./CommandBranches";
 import "../styles/command-branches.css";
 import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
-import { CommandParameterEditor, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
+import { CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { continuityText, describeStop, stepTitle } from "./RoutinePanel";
@@ -196,18 +196,17 @@ export function StepInspector(props) {
   const issues = (props.issues || []).filter((issue) => issue.nodeId === node.id && !OWNED.includes(issue.code));
   const set = (patch) => acq.set(node.id, patch);
   const seg = (run?.segs || []).find((s) => s.nodeId === node.id);
-  const remove = (label) => h('button', { className: 'delbtn', type: 'button', ...deletionInput(() => acq.del(node.id)) }, h(Icon, { name: 'trash', size: 15 }), label);
+  // Each branch names its removal with remove(label); the shell shows it in the footer. A path step is removed from the
+  // routine (the path stays in the library); every other step is deleted.
+  let removal = null;
+  const remove = (label) => { removal = h(DeleteAction, { label, visible: label === 'Remove from routine' ? 'Remove' : 'Delete', ...deletionInput(() => acq.del(node.id)) }); return null; };
   const deployment = A.nodeDeploymentState(node, catalog);
   // The local-only boundary and preview assumptions are stated once, in the workspace header, not per step.
   let title = 'Step', body = null, tag = null;
   // Steps inside a generated trajectory's fallback are retained as authored and cannot be edited or removed here.
   if (A.locate(routine, node.id)?.readOnly) {
-    return h('div', { className: 'ctxinsp inspector-refresh routine-insp', 'data-step-id': node.id },
-      h('div', { className: 'ctxinsp-hd' },
-        h('span', { className: 'ctxinsp-t', title: stepTitle(node, paths, catalog) }, stepTitle(node, paths, catalog)),
-        h('span', { className: 'ctxinsp-tag' }, 'Read-only'),
-        h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
-      h('div', { className: 'ctxinsp-body', key: node.id }, Hint('Saved fallback. Read-only here.')));
+    return h(InspectorShell, { className: 'routine-insp', attrs: { 'data-step-id': node.id }, title: stepTitle(node, paths, catalog), kind: 'Read-only',
+      closeLabel: 'Close step inspector', closeTitle: 'Close', onClose: () => acq.select(null), bodyKey: node.id }, Hint('Saved fallback. Read-only here.'));
   }
 
   if (node.type === 'path') {
@@ -378,15 +377,12 @@ export function StepInspector(props) {
   }
 
   // `data-step-id` lets the flow send focus here (a lane header opens its route; Branch on output opens the output choice).
-  return h('div', { className: 'ctxinsp inspector-refresh routine-insp', 'data-step-id': node.id },
-    h('div', { className: 'ctxinsp-hd' },
-      h('span', { className: 'ctxinsp-t', title }, title),
-      tag && h('span', { className: 'ctxinsp-tag' }, tag),
-      h('button', { className: 'ctxinsp-x', type: 'button', title: 'Close', 'aria-label': 'Close step inspector', onClick: () => acq.select(null) }, h(Icon, { name: 'x', size: 14 }))),
+  return h(InspectorShell, { className: 'routine-insp', attrs: { 'data-step-id': node.id }, title, kind: tag,
+    closeLabel: 'Close step inspector', closeTitle: 'Close', onClose: () => acq.select(null), remove: removal,
     // Keyed by step so an unfinished draft never moves to another step.
-    h('div', { className: 'ctxinsp-body', key: node.id },
-      h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id) }),
-      body));
+    bodyKey: node.id },
+    h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id) }),
+    body);
 }
 
 /** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, untimed commands as markers.

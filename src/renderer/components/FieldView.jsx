@@ -405,6 +405,10 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: e.button === 1 });
         return;
       }
+      if (e.button === 1) {
+        startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: true });
+        return;
+      }
       const world = clientToWorld(e.clientX, e.clientY);
       if (e.button === 0 && e.shiftKey) {
         const idx = parseInt(t.getAttribute && t.getAttribute('data-idx'), 10);
@@ -479,7 +483,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         return;
       }
       const visit = role === 'ins' ? resolveVisit(world, { cycle: tool === 'select' }) : null;
-      startPointer(e, { role: 'bg', onPath: role === 'ins', segment: visit && visit.seg, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: e.button === 1 });
+      startPointer(e, { role: 'bg', onPath: role === 'ins', segment: visit && visit.seg, visit, insertWaypoint: e.altKey, start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, world, moved: false, mid: false });
     };
 
     const startPointer = (event, next) => {
@@ -756,7 +760,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         if (metric === 'accel') return PM.metricColor('accel', 0.5 + 0.5 * (M.accel[i] / (M.aMax || 1)));
         if (metric === 'angvel') return PM.metricColor('angvel', 0.5 + 0.5 * (M.omega[i] / (M.wMax || 1)));
         if (metric === 'curvature') return PM.metricColor('curvature', M.curv[i] / (M.kMax || 1));
-        return PM.metricColor('velocity', M.v[i] / (M.vMax || 1));
+        // Same scale as the timeline speed graph (robot max speed), so a speed has one color in both views.
+        return PM.metricColor('velocity', M.v[i] / Math.max(0.1, robot.maxSpeed || M.vMax || 1));
       };
 
       if (showGrid) {

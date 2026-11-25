@@ -49,7 +49,8 @@ import path from "node:path";
 // (2026-11-23); 866 KiB keeps under 1 KiB of headroom.
 // Editing keys in the shortcuts dialog (recording, moving a key with Undo, Settings entry, and the keys a focused
 // control declares for itself) measures 895,502 B against 886,374 B before it; 876 KiB keeps under 2 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 876 * 1024;
+// The sidebar refresh, linked-point picker and per-path Flip sheet measure about 909 KB together.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 889 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -74,7 +75,8 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 239 * 1024;
 // Event groups reuse the comparison table and add less than 1 KiB of styles.
 // The editable shortcuts dialog measures 179,282 B against 177,817 B before it. Closed-right disclosure chevrons
 // (popup triggers stay down) add little; 176 KiB still fits the combined styles (2026-11-24).
-const CSS_BUDGET_BYTES = 176 * 1024;
+// Shared rail styles and the linked-point and Flip sheets measure about 186 KB together.
+const CSS_BUDGET_BYTES = 183 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
