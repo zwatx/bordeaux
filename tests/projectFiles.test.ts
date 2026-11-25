@@ -8,6 +8,10 @@ import { blankPath, buildWaypoints, createDemoProject } from "../src/core/projec
 import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
 import { applyAcceptedRouteTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
 import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../src/core/project/fileFormat";
+import { decodeBdx } from "../src/core/export/bdxReader";
+import { buildRobotBinary } from "../src/core/export/robotBinary";
+import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
+import historicalCommand from "./fixtures/systemcoreCommandProject.json";
 import type { BordeauxProject, CommandArgumentValue } from "../src/core/types";
 import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, autosaveProjectFolder, openProjectFolder, projectFileName, projectWorkspacePath, readProject, writeBufferAtomically, writeProject } from "../src/electron/projectFiles";
 
@@ -59,10 +63,33 @@ async function identities(directory: string) {
 }
 
 describe("managed document persistence", () => {
+  it("opens the historical command project and saves an identical centered BDX twice", async () => {
+    const directory = await folder(), source = path.join(directory, "Historical.bordeaux.json");
+    await fs.writeFile(source, JSON.stringify(historicalCommand.project));
+    const opened = await readProject(source);
+    expect(opened.migrated).toBe(true);
+    const project = opened.project;
+    const build = (value: BordeauxProject) => buildRobotBinary(value, { kind: "path", id: historicalCommand.pathId }, binaryWriterFixture(true).bindings);
+    const first = build(project);
+    await autosaveProjectFolder(directory, project, null);
+    const file = path.join(directory, "Paths", first.fileName);
+    await writeBufferAtomically(file, Buffer.from(first.bytes));
+    const reopened = (await openProjectFolder(directory)).project!;
+    expect(reopened.fieldMigration).toEqual(project.fieldMigration);
+    const standaloneFile = (await fs.readdir(path.join(directory, "Paths"))).find((name) => name.endsWith(".path"))!;
+    const standalone = await fs.readFile(path.join(directory, "Paths", standaloneFile), "utf8");
+    expect(decodeProjectFile(standalone).project.paths).toEqual(project.paths);
+    await autosaveProjectFolder(directory, reopened, null);
+    const second = build((await openProjectFolder(directory)).project!);
+    const readBack = await fs.readFile(file);
+    expect(Buffer.from(second.bytes)).toEqual(readBack);
+    expect(decodeBdx(readBack).field).toEqual(project.field);
+  });
+
   it("writes selected routes as versioned standalone paths and reopens their exact selection", async () => {
     const directory = await folder(), project = createDemoProject();
     const source = project.paths[0];
-    source.waypoints = buildWaypoints([{ x: 6.5, y: 2 }, { x: 10, y: 2 }]);
+    source.waypoints = buildWaypoints([{ x: -1.7705, y: 2.0345 }, { x: 1.7295, y: 2.0345 }]);
     source.headingMode = 'manual'; source.constraints.maxVel = .5;
     const route = optimizeRouteFinal({ path: source, robot: project.robot }, { maximumEvaluations: 2 }).candidate;
     expect(route).toBeDefined();

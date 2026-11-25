@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+// @ts-expect-error The renderer component is a JSX module.
+import { RobotPathField } from "../src/renderer/components/RobotPathField";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -76,6 +80,10 @@ describe("robot path differences", () => {
     expect(frame?.[2]).toContain("wpilib-blue-origin/2026-welded/1");
     expect(mixed.widestGap).toBeUndefined();
     expect(mixed.notes).toContain("Trajectory comparison requires matching field frames.");
+    const markup = renderToStaticMarkup(createElement(RobotPathField, { routes: mixed.routes, verdict: mixed.verdict }));
+    expect(markup).toContain('<g data-route="local">');
+    expect(markup).not.toContain('<g data-route="robot">');
+    expect(markup).toContain("unsupported frame");
     expect(diff.facts.some(([label]) => label === "Approx. route gap" || label === "End X")).toBe(false);
   });
 

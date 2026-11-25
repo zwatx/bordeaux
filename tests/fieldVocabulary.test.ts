@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { appToOfficialPoint, officialToAppPoint, REBUILT_2026_CROSSINGS, REBUILT_2026_FIELD, REBUILT_2026_FIELD_LENGTH_M, REBUILT_2026_INITIAL_FUEL_REGION } from "../src/core/field/rebuilt2026";
+import { appToOfficialPoint, officialToAppPoint, REBUILT_2026_CROSSINGS, REBUILT_2026_FIELD, REBUILT_2026_INITIAL_FUEL_REGION } from "../src/core/field/rebuilt2026";
 import { resolveFieldTerm, resolveProjectFieldTerm, resolveStrategyTerm } from "../src/core/field/vocabulary";
 import { validateProject } from "../src/core/validation";
 import { createDemoProject } from "../src/core/project/defaults";
 
 describe("2026 field vocabulary", () => {
-  it("uses official dimensions directly in the blue-origin frame", () => {
-    expect(REBUILT_2026_FIELD.dimensions.lengthM).toBe(16.541);
-    expect(REBUILT_2026_FIELD.appDisplayTransform.appLengthM).toBe(16.541);
+  it("uses official dimensions directly in the center-origin frame", () => {
+    expect(REBUILT_2026_FIELD.dimensions.lengthM).toBe(16.518);
+    expect(REBUILT_2026_FIELD.appDisplayTransform.appLengthM).toBe(16.518);
     const official = { x: 4.883, y: 2.25 };
     const roundTrip = appToOfficialPoint(officialToAppPoint(official));
     expect(roundTrip.x).toBeCloseTo(official.x, 10);
@@ -19,16 +19,16 @@ describe("2026 field vocabulary", () => {
     const red = resolveFieldTerm("far side of the neutral zone", { alliance: "red" });
     expect(blue.status).toBe("resolved");
     expect(red.status).toBe("resolved");
-    expect(blue.matches[0].officialPoint?.x).toBeGreaterThan(REBUILT_2026_FIELD_LENGTH_M / 2);
-    expect(red.matches[0].officialPoint?.x).toBeLessThan(REBUILT_2026_FIELD_LENGTH_M / 2);
+    expect(blue.matches[0].officialPoint?.x).toBeLessThan(0);
+    expect(red.matches[0].officialPoint?.x).toBeGreaterThan(0);
   });
 
   it("preserves the physical lane when resolving red near/far vocabulary", () => {
     const result = resolveFieldTerm("far side of the neutral zone", {
       alliance: "red",
-      pose: { headingSource: "physical", x: 4.3, y: 7.2, physicalHeadingRad: 0 },
+      pose: { headingSource: "physical", x: 4.3, y: -3.1655, physicalHeadingRad: 0 },
     });
-    expect(result.matches[0].point.y).toBeCloseTo(7.2, 10);
+    expect(result.matches[0].point.y).toBeCloseTo(-3.1655, 10);
   });
 
   it("distinguishes the shallow initial FUEL band from the full NEUTRAL ZONE", () => {
@@ -36,23 +36,23 @@ describe("2026 field vocabulary", () => {
     const fuel = resolveFieldTerm("far side of the initial neutral FUEL band", { alliance: "red" });
     const neutral = resolveFieldTerm("far side of the neutral zone", { alliance: "red" });
     expect(fuel.status).toBe("resolved");
-    expect(fuel.matches[0].point.x).toBeCloseTo(7.3561, 3);
-    expect(fuel.matches[0].point.x).toBeGreaterThan(neutral.matches[0].point.x);
+    expect(fuel.matches[0].point.x).toBeCloseTo(0.9144, 3);
+    expect(fuel.matches[0].point.x).toBeLessThan(neutral.matches[0].point.x);
   });
 
-  it("keeps blue at low X and red at high X in the fixed official frame", () => {
-    expect(REBUILT_2026_CROSSINGS.red.trenchTable.x).toBeGreaterThan(REBUILT_2026_CROSSINGS.blue.trenchTable.x);
+  it("keeps blue at positive X and red at negative X in the fixed official frame", () => {
+    expect(REBUILT_2026_CROSSINGS.red.trenchTable.x).toBeLessThan(REBUILT_2026_CROSSINGS.blue.trenchTable.x);
     expect(REBUILT_2026_CROSSINGS.red.trenchTable.y).toBeCloseTo(REBUILT_2026_CROSSINGS.blue.trenchTable.y, 10);
-    expect(REBUILT_2026_CROSSINGS.red.trenchTable.y).toBeLessThan(REBUILT_2026_CROSSINGS.red.trenchAway.y);
-    expect(REBUILT_2026_FIELD.coordinateFrame).toContain("+Y away from the scoring-table");
+    expect(REBUILT_2026_CROSSINGS.red.trenchTable.y).toBeGreaterThan(REBUILT_2026_CROSSINGS.red.trenchAway.y);
+    expect(REBUILT_2026_FIELD.coordinateFrame).toContain("+Y toward the scoring-table");
   });
 
   it("resolves red left from the red drivers' perspective, independent of Blue view", () => {
     const result = resolveFieldTerm("red left trench", { defaultAlliance: "blue", allianceView: "blue", robotHeightM: 0.5 });
     expect(result.status).toBe("resolved");
     expect(result.matches[0].id).toBe("red-trench-table");
-    expect(result.matches[0].point.x).toBeGreaterThan(REBUILT_2026_FIELD.appDisplayTransform.appLengthM / 2);
-    expect(result.matches[0].point.y).toBeLessThan(REBUILT_2026_FIELD.appDisplayTransform.appWidthM / 2);
+    expect(result.matches[0].point.x).toBeLessThan(0);
+    expect(result.matches[0].point.y).toBeGreaterThan(0);
     expect(resolveFieldTerm("red left trench", { alliance: "blue" }).message).toContain("will not silently substitute");
   });
 
@@ -60,13 +60,13 @@ describe("2026 field vocabulary", () => {
     const blue = REBUILT_2026_FIELD.crossingBarriers.find((item) => item.allianceOwner === "blue")!;
     const tableTrench = blue.portals.find((item) => item.traversal === "trench" && item.side === "table")!;
     const tableBump = blue.portals.find((item) => item.traversal === "bump" && item.side === "table")!;
-    expect(tableTrench.bounds.yMin).toBe(0);
-    expect(tableTrench.bounds.yMax).toBeCloseTo(1.278636, 6);
+    expect(tableTrench.bounds.yMax).toBe(4.0215);
+    expect(tableTrench.bounds.yMin).toBeCloseTo(2.755864, 6);
     expect(tableBump.bounds.xMax - tableBump.bounds.xMin).toBeCloseTo(1.12776, 6);
     expect(tableBump.bounds.yMax - tableBump.bounds.yMin).toBeCloseTo(1.8542, 6);
     const blueHub = REBUILT_2026_FIELD.solidObstacles.find((item) => item.id === "blue-hub")!;
-    expect(blueHub.bounds?.xMin).toBeCloseTo(4.02844, 6);
-    expect(blueHub.bounds?.xMax).toBeCloseTo(5.22224, 6);
+    expect(blueHub.bounds?.xMax).toBeCloseTo(4.24206, 6);
+    expect(blueHub.bounds?.xMin).toBeCloseTo(3.04826, 6);
     expect(resolveFieldTerm("red HUB").status).toBe("resolved");
     expect(REBUILT_2026_FIELD.solidObstacles.every((item) => item.behavior === "solid")).toBe(true);
   });
@@ -75,7 +75,10 @@ describe("2026 field vocabulary", () => {
     const ids = new Set(REBUILT_2026_FIELD.landmarks.map((item) => item.id));
     expect(["blue-depot", "red-depot", "alliance-area", "outpost-area", "human-starting-line", "blue-outpost-chute", "red-outpost-corral", "blue-tower-low-rung", "red-tower-high-rung", "blue-driver-station-1", "red-driver-station-3", "blue-hub-neutral-face", "red-hub-table-face"].every((id) => ids.has(id))).toBe(true);
     expect(REBUILT_2026_FIELD.landmarks.filter((item) => item.id.startsWith("apriltag-"))).toHaveLength(32);
-    expect(resolveFieldTerm("AprilTag 29")).toMatchObject({ status: "resolved", matches: [{ navigable: false, officialPoint: { x: 0.007747, y: 0.6659626 } }] });
+    expect(resolveFieldTerm("AprilTag 29")).toMatchObject({ status: "resolved", matches: [{ navigable: false }] });
+    const tag = resolveFieldTerm("AprilTag 29").matches[0].point;
+    expect(tag.x).toBeCloseTo(8.2453094, 6);
+    expect(tag.y).toBeCloseTo(3.3707266, 6);
     expect(resolveFieldTerm("alliance area")).toMatchObject({ status: "unresolved", matches: [] });
     expect(resolveFieldTerm("alliance area").message).toContain("not an on-field robot drive coordinate");
   });
@@ -123,7 +126,7 @@ describe("2026 field vocabulary", () => {
     const collision = resolveProjectFieldTerm("center line", { locations: [{ id: "team-center", name: "center line", kind: "pose", x: 1, y: 1 }] });
     expect(collision.status).toBe("ambiguous");
     expect(collision.message).toContain("both team strategy vocabulary and the official field pack");
-    const outside = resolveFieldTerm("front of bot", { pose: { headingSource: "physical", x: 0.1, y: 2, physicalHeadingRad: Math.PI }, relativeDistanceM: 0.5 });
+    const outside = resolveFieldTerm("front of bot", { pose: { headingSource: "physical", x: -8.1, y: 2, physicalHeadingRad: Math.PI }, relativeDistanceM: 0.5 });
     expect(outside.status).toBe("unresolved");
     expect(outside.message).toContain("will not shorten or clamp");
   });

@@ -35,19 +35,22 @@ async function fixture(options: { write?: ConstructorParameters<typeof ProjectSo
   return { root, recovery, source, persistence, catalog, open, get context() { return context; }, get location() { return location; }, request: (project = createDemoProject()) => ({ context: { ...context }, snapshotRevision: 0, project }) };
 }
 describe("persistent recovery source resolution", () => {
-  it.each([false, true])("resolves a migrated historical receipt only when the saved source is its exact editor copy (edited: %s)", async (edited) => {
+  it.each([
+    ['bordeaux-field/1.0', false], ['bordeaux-field/1.0', true],
+    ['wpilib-blue-origin/2026-welded/1', false], ['wpilib-blue-origin/2026-welded/1', true],
+  ])("resolves a migrated %s receipt only when the saved source is its exact editor copy (edited: %s)", async (schema, edited) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const f = await fixture(); await f.open(0);
     const receipt = await f.recovery.writeSnapshot({ recordId: randomUUID(), revision: 1, capturedAt: new Date().toISOString(),
       displayName: 'Legacy recovered', reason: 'checkpoint', origin: { kind: 'untitled', id: randomUUID() }, project: createDemoProject() });
     const file = path.join(f.root, 'recovery', receipt.recordId + '.json');
     const historical = JSON.parse(await fs.readFile(file, 'utf8'));
-    historical.project.field.coordinateSchemaId = 'bordeaux-field/1.0';
+    historical.project.field = { ...historical.project.field, revision: '2026-manual-tu19-welded-4', coordinateSchemaId: schema };
     historical.digest = createHash('sha256').update(JSON.stringify(historical.project, null, 2) + '\n').digest('hex');
     await fs.writeFile(file, JSON.stringify(historical));
     const prepared = await f.persistence.prepareRestore(f.context, receipt.recordId);
     expect(prepared.recoveredFrom.receipt.digest).toBe(historical.digest);
-    expect(prepared.project.field?.coordinateSchemaId).toBe('wpilib-blue-origin/2026-welded/1');
+    expect(prepared.project.field?.coordinateSchemaId).toBe('wpilib-center-origin/2026-andymark/1');
     f.persistence.contextChanged(true, prepared.recoveredFrom);
     const destination = path.join(f.root, 'recovered-copy'); await fs.mkdir(destination);
     const project = structuredClone(prepared.project);

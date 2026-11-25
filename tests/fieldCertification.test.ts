@@ -21,7 +21,7 @@ describe("field certification", () => {
       field: {
         id: "2026-rebuilt",
         revision: REBUILT_2026_FIELD.revision,
-        coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
+        coordinateSchemaId: "wpilib-center-origin/2026-andymark/1",
       },
       supportPromises: FIELD_SUPPORT_PROMISES,
     });
