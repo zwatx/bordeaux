@@ -191,8 +191,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [previewer, request, draft, robot, field, plannerId]);
     if (draft && !editBase.current) editBase.current = doc;
     const finished = !draft && editStore.getLastResolution() === 'finish';
-    const bridgeFinishedEdit = finished && editBase.current && (editBase.current === doc || derivedPath !== doc);
-    if (!draft && (!finished || (derivedPath === doc && editBase.current !== doc))) editBase.current = null;
+    // A finished edit keeps its own solved preview until the committed path's timing arrives. The derivation names
+    // the new path before its timing is ready, and the pre-edit timing would flash the old curve on release.
+    const committedTimingReady = derivedPath === doc && !timingPending;
+    const bridgeFinishedEdit = finished && editBase.current && (editBase.current === doc || !committedTimingReady);
+    if (!draft && (!finished || (committedTimingReady && editBase.current !== doc))) editBase.current = null;
     const solved = preview.value?.derived;
     const target = draft || (bridgeFinishedEdit || timingPending ? doc : null);
     // Before this edit's first solve, the committed release timing seeds the live geometry.
