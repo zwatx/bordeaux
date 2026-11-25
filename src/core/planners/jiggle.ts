@@ -6,7 +6,7 @@ const DEG = Math.PI / 180;
 export function jigglePositions(
   anchor: Pick<Waypoint, "x" | "y">,
   baseRad: number,
-  options: Omit<JiggleAction, "distanceM"> & { distanceM?: number; distance?: number },
+  options: Pick<JiggleAction, "strokes" | "startDeg" | "stepDeg"> & { distanceM?: number; distance?: number },
 ): Array<{ x: number; y: number }> | null {
   const distance = Number(options.distanceM ?? options.distance);
   const strokes = Math.round(Number(options.strokes));

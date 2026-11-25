@@ -736,8 +736,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       body = h(React.Fragment, null,
         h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit a value or remove a feature to retry.'),
         waypoint && h('div', { className: 'grid2' },
-          h(Num, { label: 'X', value: waypoint.x, unit: 'm', onChange: (x) => actions.setWp(sel.idx, { x }) }),
-          h(Num, { label: 'Y', value: waypoint.y, unit: 'm', onChange: (y) => actions.setWp(sel.idx, { y }) })),
+          h(Num, { label: 'X', value: waypoint.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (x) => actions.setWp(sel.idx, { x }) }),
+          h(Num, { label: 'Y', value: waypoint.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (y) => actions.setWp(sel.idx, { y }) })),
         target && h(Num, { label: 'Heading', value: target.deg, unit: '°', onChange: (deg) => actions.setTarget(sel.idx, { deg }) }),
         range && h(RangeLimits, { range, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         !waypoint && !range && !target && !marker && h(ConstraintsBody, {
@@ -815,8 +815,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       remove = h(DeleteAction, { label: 'Delete waypoint', onClick: () => actions.delWp(i) });
       body = h(React.Fragment, null,
         h('div', { className: 'grid2' },
-          h(Num, { label: 'X', value: w.x, unit: 'm', onChange: (v) => actions.setWp(i, { x: v }) }),
-          h(Num, { label: 'Y', value: w.y, unit: 'm', onChange: (v) => actions.setWp(i, { y: v }) })),
+          h(Num, { label: 'X', value: w.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (v) => actions.setWp(i, { x: v }) }),
+          h(Num, { label: 'Y', value: w.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (v) => actions.setWp(i, { y: v }) })),
         props.project && props.setWaypointPositionLink && h(SharedWaypointPosition, { project: props.project, doc, index: i, onOpen: props.openPointLinks, onLink: props.setWaypointPositionLink, onName: (at, name) => actions.setWp(at, { positionName: name }) }),
 
         isTank

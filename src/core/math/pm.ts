@@ -2,7 +2,7 @@ import { jigglePositions } from "../planners/jiggle";
 import { indexIntervalPolicies } from "../planners/intervalPolicies";
 import { stationaryTurnDelta } from "./angles";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
-import type { ConstraintRange, ControlPoint, DriveType, PathConstraints, PathDoc, RobotConfig, TurnInPlace } from "../types";
+import type { ConstraintRange, DriveType, PathConstraints, PathDoc, RobotConfig, TurnInPlace } from "../types";
 import type { GeometryPoint } from "./geometry";
 import type { HeadingAnchor } from "./headingAnchors";
 import type { HeadingTransitionWindow } from "../planners/headingTransitions";
