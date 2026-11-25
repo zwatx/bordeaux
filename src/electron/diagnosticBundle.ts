@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { ACTIVE_FIELD_REFERENCE } from "../core/field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "../core/field/rebuilt2026";
 
 export const DIAGNOSTIC_FILE_NAME = "bordeaux-beta-diagnostic.json";
 
@@ -64,10 +64,10 @@ function teamNumber(value: number): number {
 
 function fieldPin(value: DiagnosticBundleInput["fieldPin"] & object): NonNullable<DiagnosticBundleInput["fieldPin"]> {
   if (value.id !== ACTIVE_FIELD_REFERENCE.id || value.revision !== ACTIVE_FIELD_REFERENCE.revision
-    || value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId) {
+    || ![ACTIVE_FIELD_REFERENCE.coordinateSchemaId, BLUE_ORIGIN_FIELD_SCHEMA_ID, "bordeaux-field/1.0"].includes(value.coordinateSchemaId)) {
     throw new Error("Diagnostic field identity is invalid");
   }
-  return { ...ACTIVE_FIELD_REFERENCE };
+  return { id: value.id, revision: value.revision, coordinateSchemaId: value.coordinateSchemaId };
 }
 
 function identity(value: DiagnosticRobotPushIdentity) {

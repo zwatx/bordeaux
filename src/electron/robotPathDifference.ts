@@ -117,8 +117,10 @@ function describe(local: PathBinary | undefined, robot: PathBinary | undefined, 
   add("Distance", local?.totalDistanceM, robot?.totalDistanceM, "m");
   add("Peak speed", peakSpeed(local), peakSpeed(robot), "m/s");
   add("Events", local?.events.length, robot?.events.length);
+  if (!local || !robot || !isDeepStrictEqual(local.field, robot.field)) {
+    add("Field frame", local && frameName(local.field), robot && frameName(robot.field));
+  }
   if (robot && !local) {
-    add("Field frame", undefined, frameName(robot.field));
     add("Planner", undefined, robot.planner);
     add("Format", undefined, `BDX 1.${robot.minor}`);
   }
@@ -146,8 +148,8 @@ function describe(local: PathBinary | undefined, robot: PathBinary | undefined, 
       if (Math.abs(((a - b + 900) % 360) - 180) > 0.1) add(`${label} heading`, a.toFixed(1) + "°", b.toFixed(1) + "°");
     }
   }
-  if (!sameFrame) add("Field frame", frameName(local.field), frameName(robot.field));
-  if (local.samples.length !== robot.samples.length) add("Samples", local.samples.length, robot.samples.length);
+  if (!sameFrame) notes.push("Trajectory comparison requires matching field frames.");
+  if (sameFrame && local.samples.length !== robot.samples.length) add("Samples", local.samples.length, robot.samples.length);
   if (local.minor !== robot.minor) add("Format", `BDX 1.${local.minor}`, `BDX 1.${robot.minor}`);
   if (local.planner !== robot.planner) add("Planner", local.planner, robot.planner);
   for (const [field, label, unit] of [["widthM", "Robot width", "m"], ["lengthM", "Robot length", "m"], ["maxSpeedMps", "Robot speed limit", "m/s"]] as const) {
@@ -156,7 +158,7 @@ function describe(local: PathBinary | undefined, robot: PathBinary | undefined, 
   eventDifferences(local, robot, result);
   if (local.commandProtocolId !== robot.commandProtocolId || local.catalogHash !== robot.catalogHash) notes.push("Command definitions differ.");
   if (!isDeepStrictEqual(local.followSections, robot.followSections)) notes.push("Follow section boundaries or modes differ.");
-  if (differentSamples) notes.push("Trajectory samples or wheel forces differ.");
+  if (sameFrame && differentSamples) notes.push("Trajectory samples or wheel forces differ.");
 }
 
 export function inspectDeployedPath(bytes: Uint8Array) {
