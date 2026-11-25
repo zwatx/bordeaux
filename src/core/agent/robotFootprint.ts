@@ -145,7 +145,7 @@ export function boundsPolygon(bounds: Bounds2d): ControlPoint[] {
 }
 
 export function footprintBoundsClearance(vertices: readonly ControlPoint[], width: number, height: number): number {
-  return vertices.reduce((clearance, point) => Math.min(clearance, point.x, width - point.x, point.y, height - point.y), Number.POSITIVE_INFINITY);
+  return vertices.reduce((clearance, point) => Math.min(clearance, width / 2 - Math.abs(point.x), height / 2 - Math.abs(point.y)), Number.POSITIVE_INFINITY);
 }
 
 export function interpolateHeading(first: number, second: number, ratio: number): number {

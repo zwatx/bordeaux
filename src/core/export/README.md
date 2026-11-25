@@ -1,4 +1,32 @@
-# Runtime routine files
+# Robot file contracts
+
+## BDX field coordinates
+
+Every standalone BDX and every BDX embedded in a BDR carries the exact field reference
+`2026-rebuilt · 2026-manual-tu19-andymark-1 · wpilib-center-origin/2026-andymark/1`.
+The robot must validate all three fields against its supported odometry frame
+before executing any sample or command. Reject older pins, missing pins, and unknown
+pins during preload. A successful push or binary decode confirms delivery or
+readability only.
+
+Positions are in meters from the field center in the NWU convention. Positive X
+points toward the blue wall at +8.259 m. Positive Y points toward the scoring-table
+guardrail at +4.0215 m. Robot heading and travel heading are radians, with zero along
++X and counterclockwise positive. Timing stays in seconds. Robot-local force
+components keep their existing axes and units.
+
+Historical projects rotate around the welded field center to preserve positions relative to the interior structures. The center-origin AndyMark perimeter is smaller. Opening a historical project reports authored positions outside the new limits.
+
+For example, the historical welded blue-origin pose (2 m, 1 m, 30°) describes the same
+physical pose as (6.2705 m, 3.0345 m, 210°) in the centered frame. Both heading
+angles rotate by π modulo 2π. Angular velocity is unchanged.
+
+Coordinate-aware robot code, odometry, and any team-defined command or generator
+arguments containing field poses need to be updated together. Bordeaux leaves
+opaque arguments as authored. Verify the LabVIEW reader rejects a historical BDX
+and accepts the matching centered fixture before running on a robot.
+
+## Runtime routine files
 
 The explicit **Export active routine…** File menu command saves a local `.bdr` file. **Push routine** uploads only the selected routine file through the same immutable review, pinned SSH identity, temporary-file readback and publication used by standalone `.bdx` paths. Publication uses atomic rename where supported; the existing SFTP overwrite fallback can leave an incomplete selected file after interruption. Save and autosave remain local. A successful transfer confirms stored bytes; it does not certify robot acceptance or execution.
 

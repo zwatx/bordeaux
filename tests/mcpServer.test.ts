@@ -59,7 +59,7 @@ describe("Bordeaux MCP surface", () => {
       expect(result.content[0].type === "text" ? result.content[0].text.length : Number.POSITIVE_INFINITY).toBeLessThan(200);
       expect(requests[0]).toEqual({ method: "inspect_session" });
       const planned = await client.callTool({ name: "plan_path", arguments: {
-        intent: "Drive and shoot", alliance: "blue", goals: [{ x: 3, y: 1 }],
+        intent: "Drive and shoot", alliance: "blue", goals: [{ x: 5.2705, y: 3.0345 }],
         endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
       } });
       expect(planned.structuredContent).toMatchObject({ proposalId: "proposal_test", recommendedCandidate: { valid: true } });
@@ -69,7 +69,7 @@ describe("Bordeaux MCP surface", () => {
         intent: "Mixed route", alliance: "red", start: { term: "red left trench" },
         steps: [
           { kind: "swoosh", at: { term: "far side of the neutral zone" }, traversal: "trench-table", turn: "clockwise", radiusM: 0.8, insetM: 1, collectFuel: { maxHeadingErrorDeg: 8 } },
-          { kind: "travel", to: { x: 2.2, y: 5.45 }, traversal: "bump-table" },
+          { kind: "travel", to: { x: 6.0705, y: -1.4155 }, traversal: "bump-table" },
         ],
         endActionIntent: { semanticTag: "shoot-fuel", description: "shoot into the red HUB" },
       } });
@@ -78,7 +78,7 @@ describe("Bordeaux MCP surface", () => {
         intent: "Conflicting route", alliance: "red", steps: [{ kind: "travel", to: { x: 8, y: 4 }, traversal: "bump-table" }], traversal: "trench",
       } });
       expect(conflictingTraversal.isError).toBe(true);
-      const invalidPose = await client.callTool({ name: "resolve_field_terms", arguments: { phrases: ["front of bot"], pose: { headingSource: "physical", x: -1, y: 1, physicalHeadingRad: 0 } } });
+      const invalidPose = await client.callTool({ name: "resolve_field_terms", arguments: { phrases: ["front of bot"], pose: { headingSource: "physical", x: -9, y: 1, physicalHeadingRad: 0 } } });
       expect(invalidPose.isError).toBe(true);
       await client.callTool({ name: "propose_robot_profile", arguments: {
         intent: "Configure the front intake",

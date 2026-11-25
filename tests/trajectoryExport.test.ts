@@ -18,8 +18,8 @@ describe("project files", () => {
 
     expect(project.field).toEqual({
       id: "2026-rebuilt",
-      revision: "2026-manual-tu19-welded-4",
-      coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
+      revision: "2026-manual-tu19-andymark-1",
+      coordinateSchemaId: "wpilib-center-origin/2026-andymark/1",
     });
     expect(JSON.parse(encodeProjectFile(project).contents).field).toEqual(project.field);
   });
@@ -33,11 +33,12 @@ describe("project files", () => {
     expect(decoded.migrated).toBe(true);
     expect(decoded.project.field).toEqual({
       id: "2026-rebuilt",
-      revision: "2026-manual-tu19-welded-4",
-      coordinateSchemaId: "wpilib-blue-origin/2026-welded/1",
+      revision: "2026-manual-tu19-andymark-1",
+      coordinateSchemaId: "wpilib-center-origin/2026-andymark/1",
     });
     expect(decoded.project.fieldMigration).toEqual({
       source: "legacy-unpinned",
+      via: { ...decoded.project.field, revision: "2026-manual-tu19-welded-4", coordinateSchemaId: "wpilib-blue-origin/2026-welded/1" },
       assigned: decoded.project.field,
     });
     const reopened = decodeProjectValue(JSON.parse(encodeProjectFile(decoded.project).contents));
@@ -48,7 +49,7 @@ describe("project files", () => {
   it.each([
     [{ id: "2027-unknown", revision: "1", coordinateSchemaId: "wpilib-blue-origin/2026-welded/1" }, "field ID"],
     [{ id: "2026-rebuilt", revision: "future-revision", coordinateSchemaId: "wpilib-blue-origin/2026-welded/1" }, "field revision"],
-    [{ id: "2026-rebuilt", revision: "2026-manual-tu19-welded-4", coordinateSchemaId: "future-coordinates/2.0" }, "coordinate schema"],
+    [{ id: "2026-rebuilt", revision: "2026-manual-tu19-andymark-1", coordinateSchemaId: "future-coordinates/2.0" }, "coordinate schema"],
   ])("rejects an unsupported %s with a compatibility error", (field, expectedPart) => {
     const project = createDemoProject() as unknown as Record<string, unknown>;
     project.field = field;
@@ -217,9 +218,9 @@ describe("native trajectory export", () => {
   it("retains anchored marker timing after path length changes", () => {
     const project = createDemoProject();
     project.paths[0].markers = [{ id: "fixed", f: 0.5, anchor: "dist", d: 2, name: "fixed" }];
-    project.paths[0].waypoints = buildWaypoints([{ x: 1, y: 2 }, { x: 11, y: 2 }]);
+    project.paths[0].waypoints = buildWaypoints([{ x: -5, y: 2 }, { x: 5, y: 2 }]);
     expect(buildBdxExport(project).paths[0].markers[0].fraction).toBeCloseTo(0.2, 2);
-    project.paths[0].waypoints = buildWaypoints([{ x: 1, y: 2 }, { x: 15, y: 2 }]);
+    project.paths[0].waypoints = buildWaypoints([{ x: -7, y: 2 }, { x: 7, y: 2 }]);
     expect(buildBdxExport(project).paths[0].markers[0].fraction).toBeCloseTo(2 / 14, 2);
   });
 

@@ -15,11 +15,11 @@ function representativeProject() {
   const project: any = createDemoProject();
   const path = project.paths[0];
   path.waypoints = buildWaypoints([
-    { x: 1.5, y: 1.5, theta: 0 },
-    { x: 4, y: 3.5, theta: 45, thetaOn: true },
-    { x: 7, y: 2, stop: true, wait: 0.5 },
-    { x: 10, y: 5, theta: 90, thetaOn: true },
-    { x: 13, y: 3, theta: 180 },
+    { x: -5.5, y: -0.5, theta: 0 },
+    { x: -3, y: 1.5, theta: 45, thetaOn: true },
+    { x: 0, y: 0, stop: true, wait: 0.5 },
+    { x: 3, y: 3, theta: 90, thetaOn: true },
+    { x: 6, y: 1, theta: 180 },
   ] as any);
   path.headingMode = 'targets';
   path.ranges = [{ anchor: 'param', f0: 0.55, f1: 0.7, name: 'Slow', maxVel: 1.5 }];

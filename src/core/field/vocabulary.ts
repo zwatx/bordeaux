@@ -1,12 +1,9 @@
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { pointInsideField } from "../math/fieldBounds";
 import {
   appToAllianceViewPoint,
-  appToOfficialPoint,
   officialToAppPoint,
   REBUILT_2026_CROSSINGS,
   REBUILT_2026_FIELD,
-  REBUILT_2026_FIELD_LENGTH_M,
-  REBUILT_2026_FIELD_WIDTH_M,
   REBUILT_2026_INITIAL_FUEL_REGION,
   REBUILT_2026_NEUTRAL_ZONE,
   REBUILT_2026_TRENCH_CLEARANCE_M,
@@ -52,7 +49,7 @@ function relativePoint(direction: "front" | "back" | "left" | "right", options: 
       message: `“${direction} of the bot” needs a specific robot pose or trajectory sample.`,
     };
   }
-  if (!Number.isFinite(options.pose.x) || !Number.isFinite(options.pose.y) || options.pose.x < 0 || options.pose.x > FIELD_W || options.pose.y < 0 || options.pose.y > FIELD_H) {
+  if (!pointInsideField(options.pose)) {
     return { phrase: direction, status: "unresolved", matches: [], message: "Robot-relative vocabulary requires a finite pose inside the Bordeaux field bounds." };
   }
   const distance = Math.max(0.01, Math.min(5, options.relativeDistanceM ?? 0.5));
@@ -68,7 +65,7 @@ function relativePoint(direction: "front" | "back" | "left" | "right", options: 
     x: options.pose.x + Math.cos(angle) * distance,
     y: options.pose.y + Math.sin(angle) * distance,
   };
-  if (point.x < 0 || point.x > FIELD_W || point.y < 0 || point.y > FIELD_H) {
+  if (!pointInsideField(point)) {
     return { phrase: direction, status: "unresolved", matches: [], message: `The requested point ${distance.toFixed(2)} m ${direction} of the robot is outside the field; Bordeaux will not shorten or clamp it.` };
   }
   return {
@@ -108,7 +105,7 @@ export function withAllianceView(result: ResolvedFieldTerm, allianceView: "blue"
 
 function allianceOfficialPoint(alliance: "blue" | "red", bluePoint: FieldPoint): FieldPoint {
   return alliance === "blue" ? bluePoint : {
-    x: REBUILT_2026_FIELD_LENGTH_M - bluePoint.x,
+    x: -bluePoint.x,
     // Near/far is longitudinal. Preserve the caller's physical guardrail lane;
     // rotating Y here silently moved red routes to the opposite side.
     y: bluePoint.y,
@@ -137,9 +134,9 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
       phrase: rawPhrase,
       status: "resolved",
       matches: [fieldMatch("center-line", "CENTER LINE", {
-        x: REBUILT_2026_FIELD_LENGTH_M / 2,
-        y: options.pose ? appToOfficialPoint(options.pose).y : REBUILT_2026_FIELD_WIDTH_M / 2,
-      }, "Official CENTER LINE landmark, transformed into Bordeaux coordinates.")],
+        x: 0,
+        y: options.pose?.y ?? 0,
+      }, "Official CENTER LINE landmark, in Bordeaux coordinates.")],
     };
   }
 
@@ -148,7 +145,7 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
     const requested = requestedAlliance(rawPhrase, phrase, options);
     if (requested.error) return requested.error;
     if (!requested.alliance) return { phrase: rawPhrase, status: "unresolved", matches: [], message: "The far side of the initial FUEL band needs an alliance context." };
-    const bluePoint = { x: REBUILT_2026_INITIAL_FUEL_REGION.xMax, y: options.pose ? appToOfficialPoint(options.pose).y : REBUILT_2026_FIELD_WIDTH_M / 2 };
+    const bluePoint = { x: REBUILT_2026_INITIAL_FUEL_REGION.xMin, y: options.pose?.y ?? 0 };
     const officialPoint = allianceOfficialPoint(requested.alliance, bluePoint);
     return {
       phrase: rawPhrase,
@@ -161,7 +158,7 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
     const requested = requestedAlliance(rawPhrase, phrase, options);
     if (requested.error) return requested.error;
     if (!requested.alliance) return { phrase: rawPhrase, status: "unresolved", matches: [], message: "The near side of the initial FUEL band needs an alliance context." };
-    const bluePoint = { x: REBUILT_2026_INITIAL_FUEL_REGION.xMin, y: options.pose ? appToOfficialPoint(options.pose).y : REBUILT_2026_FIELD_WIDTH_M / 2 };
+    const bluePoint = { x: REBUILT_2026_INITIAL_FUEL_REGION.xMax, y: options.pose?.y ?? 0 };
     const officialPoint = allianceOfficialPoint(requested.alliance, bluePoint);
     return {
       phrase: rawPhrase,
@@ -174,7 +171,7 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
     const requested = requestedAlliance(rawPhrase, phrase, options);
     if (requested.error) return requested.error;
     if (!requested.alliance) return { phrase: rawPhrase, status: "unresolved", matches: [], message: "The far side of the NEUTRAL ZONE needs an alliance context." };
-    const bluePoint = { x: REBUILT_2026_NEUTRAL_ZONE.xMax, y: options.pose ? appToOfficialPoint(options.pose).y : REBUILT_2026_FIELD_WIDTH_M / 2 };
+    const bluePoint = { x: REBUILT_2026_NEUTRAL_ZONE.xMin, y: options.pose?.y ?? 0 };
     const officialPoint = allianceOfficialPoint(requested.alliance, bluePoint);
     return {
       phrase: rawPhrase,
@@ -187,7 +184,7 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
     const requested = requestedAlliance(rawPhrase, phrase, options);
     if (requested.error) return requested.error;
     if (!requested.alliance) return { phrase: rawPhrase, status: "unresolved", matches: [], message: "The near side of the NEUTRAL ZONE needs an alliance context." };
-    const bluePoint = { x: REBUILT_2026_NEUTRAL_ZONE.xMin, y: options.pose ? appToOfficialPoint(options.pose).y : REBUILT_2026_FIELD_WIDTH_M / 2 };
+    const bluePoint = { x: REBUILT_2026_NEUTRAL_ZONE.xMax, y: options.pose?.y ?? 0 };
     const officialPoint = allianceOfficialPoint(requested.alliance, bluePoint);
     return {
       phrase: rawPhrase,
@@ -258,7 +255,7 @@ export function resolveFieldTerm(rawPhrase: string, options: ResolveFieldTermOpt
       x: (landmark.bounds.xMin + landmark.bounds.xMax) / 2,
       y: (landmark.bounds.yMin + landmark.bounds.yMax) / 2,
     } : null);
-    return point ? [{ id: landmark.id, label: landmark.name, officialPoint: point, point: officialToAppPoint(point), confidence: 1, reason: "Exact official field-pack alias, transformed into Bordeaux coordinates.", navigable: landmark.navigable !== false, ...(landmark.traversal ? { traversal: landmark.traversal } : {}) }] : [];
+    return point ? [{ id: landmark.id, label: landmark.name, officialPoint: point, point: officialToAppPoint(point), confidence: 1, reason: "Exact official field-pack alias, in Bordeaux coordinates.", navigable: landmark.navigable !== false, ...(landmark.traversal ? { traversal: landmark.traversal } : {}) }] : [];
   });
   const descriptive = exact.filter((landmark) => !landmark.point && !landmark.bounds);
   return matches.length

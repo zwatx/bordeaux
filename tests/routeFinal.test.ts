@@ -16,7 +16,7 @@ import { buildBdxExport } from "../src/core/export/bdx";
 import { PM } from "../src/core/math/pm";
 import type { PathDoc, PlannerResult } from "../src/core/types";
 
-function fixture(points = [{ x: 6.5, y: 2 }, { x: 10, y: 2 }]) {
+function fixture(points = [{ x: 1.7705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]) {
   const project = createDemoProject();
   project.robot = { ...project.robot, w: 0.4, l: 0.4, heightM: 0.5 };
   const path = project.paths[0];
@@ -33,13 +33,13 @@ function solve(path: PathDoc, robot = fixture().robot, maximumEvaluations = 12) 
 describe("waypoint-defined route search", () => {
   it("chooses full handle vectors more than 1.5 m from a poor drawn seed", () => {
     const { path, robot } = fixture();
-    path.waypoints[0].nextC = { x: 6.5, y: 7 };
-    path.waypoints[1].prevC = { x: 10, y: 7 };
+    path.waypoints[0].nextC = { x: 1.7705, y: -2.9655 };
+    path.waypoints[1].prevC = { x: -1.7295, y: -2.9655 };
     const original = structuredClone(path);
     const result = solve(path, robot, 3);
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
-    expect(result.candidate!.routeGeometry!.knots[0].nextC.y).toBe(2);
-    expect(Math.max(...PM.sample(path.waypoints, 128).pts.map((p) => p.y)) - 2).toBeGreaterThan(1.5);
+    expect(result.candidate!.routeGeometry!.knots[0].nextC.y).toBeCloseTo(2.0345);
+    expect(2.0345 - Math.min(...PM.sample(path.waypoints, 128).pts.map((p) => p.y))).toBeGreaterThan(1.5);
     expect(result.candidate!.totalDistanceM).toBeCloseTo(3.5, 4);
     expect(path).toEqual(original);
     expect(routeCandidateFailure({ path, robot }, result.candidate!)).toBeUndefined();
@@ -47,8 +47,8 @@ describe("waypoint-defined route search", () => {
 
   it("repairs an invalid seed without fabricating a baseline or gain", () => {
     const { path, robot } = fixture();
-    path.waypoints[0].nextC.y = 20;
-    path.waypoints[1].prevC.y = 20;
+    path.waypoints[0].nextC.y = -15.9655;
+    path.waypoints[1].prevC.y = -15.9655;
     const result = solve(path, robot, 3);
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
     expect(result.baseline).toBeUndefined();
@@ -59,7 +59,7 @@ describe("waypoint-defined route search", () => {
   });
 
   it("finds a solver-knot detour from a seed crossing the HUB and a legal portal", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 4.1 }, { x: 6.6, y: 4.1 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
     const result = solve(path, robot, 14);
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
     expect(result.baseline).toBeUndefined();
@@ -71,7 +71,7 @@ describe("waypoint-defined route search", () => {
   }, 30_000);
 
   it("preserves required headings, stopped waits, command events and leg-local ranges", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints[1] = { ...path.waypoints[1], stop: true, thetaOn: true, theta: 30, wait: 0.137 };
     path.markers = [{ id: "command-event", name: "Intake", cmd: "intake.collect", group: "parallel", f: 0.25, anchor: "param" }];
     path.ranges = [{ anchor: "wp", w0: 0, t0: 0.5, w1: 1, t1: 0.5, f0: 0, f1: 1, maxVel: 0.7 }];
@@ -87,7 +87,7 @@ describe("waypoint-defined route search", () => {
   }, 30_000);
 
   it("resolves leg-local ranges and stationary turns across generated knots", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 4.1 }, { x: 6.6, y: 4.1 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
     path.waypoints[1] = { ...path.waypoints[1], stop: true, wait: 0.137, turnInPlace: { headingDeg: 90, direction: "counterclockwise" } };
     path.ranges = [{ anchor: "wp", w0: 0, t0: 0.5, w1: 1, f0: 0, f1: 1, maxVel: 0.6, maxAngVel: 30 }];
     const result = solve(path, robot, 12);
@@ -111,9 +111,9 @@ describe("waypoint-defined route search", () => {
   }, 30_000);
 
   it("can choose a different legal portal from the drawn seed", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 4.1 }, { x: 6.6, y: 4.1 }]);
-    path.waypoints[0].nextC = { x: 3.5, y: 1.8 };
-    path.waypoints[1].prevC = { x: 5.8, y: 1.8 };
+    const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
+    path.waypoints[0].nextC = { x: 4.7705, y: 2.2345 };
+    path.waypoints[1].prevC = { x: 2.4705, y: 2.2345 };
     const original = getPlanner("profiledSpline").generate({ path, robot });
     const seedPortals = observeRobotFieldPortalSequence(robot, original.samples);
     const result = solve(path, robot, 14);
@@ -125,7 +125,7 @@ describe("waypoint-defined route search", () => {
   }, 30_000);
 
   it("rejects too-tall or unknown-height trench use while permitting a different legal route", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 0.55 }, { x: 6.6, y: 0.55 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: 3.4845 }, { x: 1.6705, y: 3.4845 }]);
     const low = solve(path, robot, 2).candidate!;
     expect(low).toBeDefined();
     expect(observeRobotFieldPortalSequence(robot, low.samples).visits[0].id).toMatch(/trench/);
@@ -189,7 +189,7 @@ describe("waypoint-defined route search", () => {
   });
 
   it("independently refuses exact, physically timed geometry that crosses a solid obstacle", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 4.1 }, { x: 6.6, y: 4.1 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
     const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
     const raw = optimizeFixedGeometryFinal({ path: planning, robot });
     expect(raw.optimization!.fallback).toBe(false);
@@ -199,7 +199,7 @@ describe("waypoint-defined route search", () => {
   });
 
   it("bounds stationary rotation clearance even with safe endpoint footprints", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 0.4 }, { x: 10, y: 0.4 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 3.6345 }, { x: -1.7295, y: 3.6345 }]);
     robot.w = 0.2; robot.l = 1.2;
     path.waypoints[1].stop = true;
     path.waypoints[1].turnInPlace = { headingDeg: 180, direction: "counterclockwise" };
@@ -211,7 +211,7 @@ describe("waypoint-defined route search", () => {
   });
 
   it("uses configured BUMP speed without inventing field policy", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 2.6 }, { x: 6.6, y: 2.6 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: 1.4345 }, { x: 1.6705, y: 1.4345 }]);
     path.constraints.maxVel = 4;
     const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
     const raw = optimizeFixedGeometryFinal({ path: planning, robot });
@@ -226,11 +226,11 @@ describe("waypoint-defined route search", () => {
     path.headingMode = "tangent";
     // Current editor endpoints retain thetaOn and stale theta even in tangent mode.
     path.waypoints.forEach((w) => { w.thetaOn = true; w.theta = 75; });
-    path.waypoints[0].nextC = { x: 6.5, y: 7 };
-    path.waypoints[1].prevC = { x: 10, y: 7 };
+    path.waypoints[0].nextC = { x: 1.7705, y: -2.9655 };
+    path.waypoints[1].prevC = { x: -1.7295, y: -2.9655 };
     const tangent = solve(path, robot, 3).candidate!;
     expect(tangent, "Tangent solve").toBeDefined();
-    expect(tangent.samples[0].headingRad).toBeCloseTo(0, 6);
+    expect(Math.abs(tangent.samples[0].headingRad)).toBeCloseTo(Math.PI, 6);
     path.headingMode = "targets";
     path.targets = [{ f: 0.5, deg: 90, anchor: "param" }];
     const targeted = solve(path, robot, 3).candidate!;
@@ -258,7 +258,7 @@ describe("waypoint-defined route search", () => {
     path.waypoints[0].segType = "arc";
     expect(solve(path, robot)).toMatchObject({ status: "unsupported" });
     path.waypoints[0].segType = "bezier";
-    path.waypoints[0].x = -5;
+    path.waypoints[0].x = 13.2705;
     const result = solve(path, robot, 2);
     expect(result).toMatchObject({ status: "no-candidate", candidate: undefined });
     expect(result.reason).toMatch(/does not prove/);
@@ -275,17 +275,17 @@ describe("drawn curve grazing the field wall", () => {
     constraints: { maxVel: 5.346559406159112, maxAccel: 11.76798, maxDecel: 11.76798, maxAngVel: 656.3992730002224, maxAngAccel: 2675.753917905203,
       maxAngDecel: 2675.753917905203, maxJerk: 0, maxAngJerk: 0, maxCentripetalAccel: 11.76798 },
     waypoints: [
-      { linked: true, thetaOn: true, theta: 0, stop: false, x: 5.0226004845070955, y: 7.600939592596264, segType: "bezier",
-        prevC: { x: 4.238600484507095, y: 7.600939592596264 }, nextC: { x: 5.806600484507095, y: 7.600939592596264 }, segmentHeadingMode: "tangent" },
-      { linked: true, thetaOn: true, theta: -87, stop: false, x: 9.41188469045642, y: 5.276725929738121, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
-        prevC: { x: 9.486418174813297, y: 8.103169505614527 }, nextC: { x: 9.360824995282305, y: 3.3404505944797855 } },
-      { linked: false, thetaOn: true, theta: -87, stop: true, x: 6.402403683889392, y: 5.2613553095049275, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
-        prevC: { x: 7.41623284562869, y: 5.249294787237334 }, nextC: { x: 5.317490086367311, y: 5.274261452960974 } },
+      { linked: true, thetaOn: true, theta: 0, stop: false, x: 3.2478995154929045, y: -3.566439592596264, segType: "bezier",
+        prevC: { x: 4.031899515492905, y: -3.566439592596264 }, nextC: { x: 2.463899515492905, y: -3.566439592596264 }, segmentHeadingMode: "tangent" },
+      { linked: true, thetaOn: true, theta: -87, stop: false, x: -1.14138469045642, y: -1.242225929738121, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
+        prevC: { x: -1.215918174813297, y: -4.068669505614527 }, nextC: { x: -1.090324995282305, y: 0.6940494055202145 } },
+      { linked: false, thetaOn: true, theta: -87, stop: true, x: 1.868096316110608, y: -1.2268553095049275, segType: "bezier", segmentHeadingMode: "tangent", corner: false,
+        prevC: { x: 0.85426715437131, y: -1.214794787237334 }, nextC: { x: 2.953009913632689, y: -1.239761452960974 } },
     ] } as any;
 
 
   // Preserve the report's wall-relative clearance after the field-height correction.
-  for (const w of grazingPath.waypoints) for (const point of [w, w.prevC, w.nextC]) point.y += 8.069 - 8.052;
+  for (const w of grazingPath.waypoints) for (const point of [w, w.prevC, w.nextC]) point.y -= 8.069 - 8.052;
 
   it("repairs the curve near its drawn shape instead of offering a slower hairpin", () => {
     const normal = getPlanner("profiledSpline").generate({ path: grazingPath, robot: grazingRobot });
@@ -310,7 +310,7 @@ describe("route candidate identity", () => {
   it("times straight handles of different lengths separately on a corpus path", () => {
     // Collinear handles leave a straight segment's shape alone but not its timing:
     // treating them as one route lost the fastest candidate here (3.7492 s).
-    const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v2/corpus.bordeaux.json", "utf8")).project;
+    const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v3/corpus.bordeaux.json", "utf8")).project;
     const path = project.paths.find((item) => item.name === "Neutral Stop and Reorient")!;
     const clock = vi.spyOn(performance, "now").mockReturnValue(0);
     const result = (() => { try { return optimizeRouteFinal({ path, robot: project.robot }); } finally { clock.mockRestore(); } })();

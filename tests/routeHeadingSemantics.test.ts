@@ -14,7 +14,7 @@ import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src
 import { routeCandidateIssue } from "../src/core/planners/routeValidation";
 import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/core/types";
 
-const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v2/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
+const corpus = JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v3/corpus.bordeaux.json", import.meta.url), "utf8")) as { paths: PathDoc[] };
 // Math transcendental results differ by a few ULPs between supported Node versions.
 // Keep all values and structure, ignoring only sub-nanounit noise in these regression fingerprints.
 function trajectoryFingerprint(value: unknown): string {
@@ -55,9 +55,12 @@ function normal(input: PlannerInput) {
   } }, geometry, routePlanningPath(input.path, geometry));
 }
 
-function straight(mode: PathDoc["headingMode"] = "manual"): PlannerInput {
+function straight(mode: PathDoc["headingMode"] = "manual", historical = false): PlannerInput {
   const path = createDemoProject().paths[0];
-  path.waypoints = buildWaypoints([{ x: 6.5, y: 2 }, { x: 8, y: 2 }, { x: 10, y: 2 }]);
+  path.waypoints = buildWaypoints([{ x: -1.5, y: 2 }, { x: 0, y: 2 }, { x: 2, y: 2 }]);
+  if (historical) for (const waypoint of path.waypoints) {
+    for (const point of [waypoint, waypoint.prevC, waypoint.nextC]) point.x += 8;
+  }
   path.headingMode = mode;
   return { path, robot };
 }
@@ -75,17 +78,17 @@ describe("route heading semantics match Normal", () => {
     const inputs: Record<string, PlannerInput> = {};
     for (const mode of ["manual", "targets"] as const) {
       for (const reverse of [false, true]) {
-        const input = straight(mode);
+        const input = straight(mode, true);
         input.path.driveBackward = reverse;
         input.path.waypoints.forEach((w, i) => { w.thetaOn = i === 1; w.theta = 15 + i * 30; });
         inputs[`${mode}-${reverse}`] = input;
       }
-      const input = straight("tangent");
+      const input = straight("tangent", true);
       Object.assign(input.path.waypoints[1], { stop: true, thetaOn: true, theta: 90, segmentHeadingMode: mode,
         turnInPlace: { headingDeg: 90, direction: "counterclockwise" } });
       input.path.waypoints.at(-1)!.theta = 90;
       inputs[`tangent-turn-${mode}`] = input;
-      const moving = straight(mode);
+      const moving = straight(mode, true);
       moving.path.waypoints.forEach((w) => { w.thetaOn = true; w.theta = 30; });
       moving.path.waypoints[1].segmentHeadingMode = "tangent";
       inputs[`${mode}-tangent`] = moving;
@@ -172,13 +175,13 @@ describe("route heading semantics match Normal", () => {
     input.path.headingMode = "manual";
     const lastLeg = input.path.waypoints.at(-2)!;
     lastLeg.segmentHeadingMode = "lookAt";
-    lastLeg.segmentLookAt = { x: 8.27, y: 4.035 };
+    lastLeg.segmentLookAt = { x: 0, y: 0 };
     const search = optimizeRouteFinal(input);
     expect(search.candidate, JSON.stringify(search.statistics)).toBeDefined();
     expect(routeCandidateIssue(input, search.candidate!)).toBeUndefined();
     expect(search.statistics.rejectionReasons.some((r) => /explicit required heading/.test(r.reason))).toBe(false);
     const end = search.candidate!.samples.at(-1)!;
-    const delta = end.headingRad - Math.atan2(4.035 - end.y, 8.27 - end.x);
+    const delta = end.headingRad - Math.atan2(-end.y, -end.x);
     expect(Math.atan2(Math.sin(delta), Math.cos(delta))).toBeCloseTo(0, 4);
   }, 15_000);
 
@@ -189,7 +192,7 @@ describe("route heading semantics match Normal", () => {
       input.path.headingMode = "manual";
       input.path.waypoints[0].segmentHeadingMode = "targets";
     }
-    if (law === "lookAt") input.path.waypoints.slice(0, -1).forEach((w) => { w.segmentHeadingMode = "lookAt"; w.segmentLookAt = { x: 12, y: 4 }; });
+    if (law === "lookAt") input.path.waypoints.slice(0, -1).forEach((w) => { w.segmentHeadingMode = "lookAt"; w.segmentLookAt = { x: 4, y: 4 }; });
     const changed = structuredClone(input);
     changed.path.waypoints.forEach((w, i) => { w.thetaOn = true; w.theta = 45 + 30 * i; });
     expect(normal(changed).samples).toEqual(normal(input).samples);
@@ -248,11 +251,11 @@ describe("route heading semantics match Normal", () => {
 
   it.each([false, true])("preserves visible tangent turn departure in every handle family with thetaOn=%s", (thetaOn) => {
     const input = straight("tangent");
-    input.path.waypoints = buildWaypoints([{ x: 6.5, y: 2 }, { x: 8, y: 2, stop: true }, { x: 8, y: 4 }]);
-    input.path.waypoints[0].nextC = { x: 7, y: 2 };
-    Object.assign(input.path.waypoints[1], { thetaOn, theta: 172, prevC: { x: 7.5, y: 2 }, nextC: { x: 8, y: 2.6 },
+    input.path.waypoints = buildWaypoints([{ x: -1.5, y: 2 }, { x: 0, y: 2, stop: true }, { x: 0, y: 3.5 }]);
+    input.path.waypoints[0].nextC = { x: -1, y: 2 };
+    Object.assign(input.path.waypoints[1], { thetaOn, theta: 172, prevC: { x: -.5, y: 2 }, nextC: { x: 0, y: 2.6 },
       turnInPlace: { headingDeg: 90, direction: "counterclockwise" } });
-    input.path.waypoints[2].prevC = { x: 8, y: 3.4 };
+    input.path.waypoints[2].prevC = { x: 0, y: 3.4 };
     const candidates: RouteGeometry[] = [...routeCandidates(input, () => false)];
     for (const candidate of candidates) {
       const knot = candidate.knots[candidate.requiredPointIndices[1]];

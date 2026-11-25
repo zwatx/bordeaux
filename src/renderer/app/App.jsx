@@ -79,7 +79,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
   const { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } = React;
   const h = React.createElement;
-  const { FIELD_W, FIELD_H, IMG_W, IMG_H } = FIELD_DIMS;
+  const { IMG_W, IMG_H } = FIELD_DIMS;
   const PERSEG = 56;
   function operationErrorMessage(error) {
     const message = error && error.message ? error.message : String(error);
@@ -1783,7 +1783,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const start = source.waypoints[source.waypoints.length - 1], angle = (start.theta || 0) * Math.PI / 180;
       let end = clampWorld({ x: start.x + Math.cos(angle) * 2.8, y: start.y + Math.sin(angle) * 2.8 });
       if (Math.hypot(end.x - start.x, end.y - start.y) < 0.75) {
-        const towardCenter = Math.atan2(FIELD_H / 2 - start.y, FIELD_W / 2 - start.x);
+        const towardCenter = Math.atan2(-start.y, -start.x);
         end = clampWorld({ x: start.x + Math.cos(towardCenter) * 2.8, y: start.y + Math.sin(towardCenter) * 2.8 });
       }
       path.waypoints = buildWps([{ x: start.x, y: start.y, theta: start.theta || 0 }, { x: end.x, y: end.y, theta: start.theta || 0 }]);

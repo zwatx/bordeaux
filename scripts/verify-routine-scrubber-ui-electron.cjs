@@ -87,7 +87,7 @@ async function planned() {
 
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const pick = (id, name, folderId) => ({ ...structuredClone(corpus.paths.find((p) => p.id === id)), name, ...(folderId ? { folderId } : {}) });
     const paths = [
       pick('corpus-neutral-stop', 'Collect along the alliance wall and return through the protected crossing', 'f-collect'),

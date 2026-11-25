@@ -46,6 +46,7 @@ export function isOptimizationOutdated(path: PathDoc, robot: RobotConfig, field:
 export function acceptedTrajectoryShapeError(value: unknown): string | null {
   if (!record(value) || (value.version !== 1 && value.version !== 2) || typeof value.inputKey !== "string" || value.inputKey.length > 4_000_000
     || !Number.isInteger(value.samplesPerSegment) || Number(value.samplesPerSegment) < 1 || Number(value.samplesPerSegment) > 448) return "Accepted trajectory identity or version is invalid";
+  if (value.requiresFieldReview !== undefined && value.requiresFieldReview !== true) return "Accepted trajectory field review flag is invalid";
   const result = value.result;
   if (value.version === 2 && (!record(result) || routeGeometryShapeError(result.routeGeometry))) return "Accepted route geometry is invalid";
   if (!record(result) || !["profiledSpline", "optimizedTrajectory"].includes(String(result.planner))

@@ -106,8 +106,8 @@ describe("heading constraint math", () => {
     // Curved geometry and an off-grid target put inserted turn knots on
     // different chords at planning and validation resolutions.
     path.waypoints = buildWaypoints([
-      { x: 2.2, y: 4, theta: 0, nextC: { x: 3.69, y: 3.13 } },
-      { x: 8.17, y: 6.04, theta: 0, rotationDirection: "ccw", prevC: { x: 7.39, y: 6.04 } },
+      { x: -2.8, y: 0, theta: 0, nextC: { x: -1.31, y: -0.87 } },
+      { x: 3.17, y: 2.04, theta: 0, rotationDirection: "ccw", prevC: { x: 2.39, y: 2.04 } },
     ]);
     path.targets = [{ f: 0.486366, deg: 81.7 }];
     const input = { path, robot: project.robot, samplesPerSegment: 56 };

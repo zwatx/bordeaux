@@ -2,8 +2,8 @@ import * as React from "react";
 import { FieldScene } from "../assets/field-scene";
 import { displayedPoseAtTime, hoverWorldPoint, hoverVisits } from "../lib/pathHover";
 import fieldImage from "../assets/field.png";
-import { FIELD_W, FIELD_H } from "../../core/math/fieldBounds";
-import { FIELD_IMAGE, FIELD_IMAGE_SCALE, worldToFieldImage, fieldImageToWorld } from "../../core/field/imageCalibration";
+import { FIELD_X_MAX, FIELD_X_MIN, FIELD_Y_MAX, FIELD_Y_MIN, clampWorldPoint } from "../../core/math/fieldBounds";
+import { FIELD_IMAGE, FIELD_IMAGE_CENTER, FIELD_IMAGE_SCALE, worldToFieldImage, fieldImageToWorld } from "../../core/field/imageCalibration";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
 import { tangentHandleUse } from "../lib/pathEditing";
@@ -19,6 +19,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
   // ---- field calibration (image px) ----
   const { width: IMG_W, height: IMG_H, left: X0, right: X1, top: Y0, bottom: Y1 } = FIELD_IMAGE;
   const { x: SX, y: SY } = FIELD_IMAGE_SCALE;
+  const { x: CX, y: CY } = FIELD_IMAGE_CENTER;
 
   // muted semantic colors (reserved for meaning, low saturation)
   const C_START = '#4bbf86', C_END = '#d2655f', C_NODE = '#8b94a2', C_NEUTRAL = '#9aa3b0';
@@ -109,7 +110,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
   function routineRouteGeometry(pts) {
     let geometry = routeGeometry.get(pts);
     if (geometry) return geometry;
-    const toImage = (p) => ({ x: X0 + p.x * SX, y: Y1 - p.y * SY });
+    const toImage = worldToFieldImage;
     let d = '';
     pts.forEach((p, k) => { const q = toImage(p); d += (k ? ' L ' : 'M ') + q.x.toFixed(1) + ' ' + q.y.toFixed(1); });
     geometry = { d, start: toImage(pts[0]), end: toImage(pts[pts.length - 1]), mid: toImage(pts[Math.floor(pts.length / 2)]) };
@@ -152,9 +153,6 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     const lastInspectPress = useRef({ key: null, at: 0 });
     const isTank = drive === 'tank';
 
-    const clampWorld = (p) => ({ x: Math.max(0, Math.min(FIELD_W, p.x)), y: Math.max(0, Math.min(FIELD_H, p.y)) });
-    const wx = (x) => X0 + x * SX;
-    const wy = (y) => Y1 - y * SY;
     const W2P = worldToFieldImage;
 
     const clientToWorld = useCallback((cx, cy, bounded = true) => {
@@ -163,7 +161,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy;
       const u = pt.matrixTransform(ctm.inverse());
       const world = fieldImageToWorld(u);
-      return bounded ? clampWorld(world) : world;
+      return bounded ? clampWorldPoint(world) : world;
     }, []);
 
     useEffect(() => {
@@ -552,7 +550,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       }
       d.moved = true;
       if (!ensureEdit(d)) return;
-      const p = d.role === 'ct' ? world : clampWorld(world);
+      const p = d.role === 'ct' ? world : clampWorldPoint(world);
       d.owner.write(() => {
         const actions = actionsRef.current;
         if (d.role === 'wp') actions.moveWaypoint(d.idx, p);
@@ -766,8 +764,8 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
       if (showGrid) {
         const g = [];
-        for (let m = 0; m <= Math.floor(FIELD_W); m++) { const x = X0 + m * SX; g.push(h('line', { key: 'gx' + m, x1: x, y1: Y0, x2: x, y2: Y1, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
-        for (let m = 0; m <= Math.floor(FIELD_H); m++) { const y = Y1 - m * SY; g.push(h('line', { key: 'gy' + m, x1: X0, y1: y, x2: X1, y2: y, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
+        for (let m = Math.ceil(FIELD_X_MIN); m <= FIELD_X_MAX; m++) { const x = CX + m * SX; g.push(h('line', { key: 'gx' + m, x1: x, y1: Y0, x2: x, y2: Y1, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
+        for (let m = Math.ceil(FIELD_Y_MIN); m <= FIELD_Y_MAX; m++) { const y = CY - m * SY; g.push(h('line', { key: 'gy' + m, x1: X0, y1: y, x2: X1, y2: y, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
         els.push(h('g', { key: 'grid' }, g));
       }
 
@@ -991,7 +989,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       if (endpoint && endpoint.jiggle) {
         const baseRad = (endpoint.turnInPlace ? endpoint.turnInPlace.headingDeg : endHead) * Math.PI / 180;
         const physicalBase = baseRad + (derived.rev ? Math.PI : 0);
-        const positions = PM.jigglePositions(endpoint, physicalBase, endpoint.jiggle, { w: FIELD_W, h: FIELD_H });
+        const positions = PM.jigglePositions(endpoint, physicalBase, endpoint.jiggle);
         if (positions) {
           const anchor = W2P(endpoint);
           const strokes = [];
@@ -1287,7 +1285,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     },
       h('rect', { x: -2000, y: -2000, width: IMG_W + 4000, height: IMG_H + 4000, fill: '#0a0b0d', 'data-role': 'bg' }),
       h('rect', { x: X0 - 6, y: Y0 - 6, width: (X1 - X0) + 12, height: (Y1 - Y0) + 12, rx: 4, fill: '#131418', stroke: '#2a2d33', strokeWidth: P(1.5), 'data-role': 'bg' }),
-      h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, transform: `rotate(${FIELD_IMAGE.rotationDeg} ${(X0+X1)/2} ${(Y0+Y1)/2})`, 'data-role': 'bg', style: { pointerEvents: 'none' } },
+      h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, 'data-role': 'bg', style: { pointerEvents: 'none' } },
         h('img', { src: fieldImage, width: IMG_W, height: IMG_H, draggable: false, style: { width: IMG_W + 'px', height: IMG_H + 'px', display: 'block', opacity: 0.9, filter: 'brightness(0.38) saturate(0.32) contrast(1.06)', WebkitUserDrag: 'none', userSelect: 'none', pointerEvents: 'none' } })),
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
@@ -1295,7 +1293,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),
         fill: 'none', stroke: accent, strokeOpacity: 0.14,
         strokeWidth: props.optimizationCorridor.widthM * 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-        transform: `translate(${X0} ${Y1}) scale(${SX} ${-SY})`,
+        transform: `translate(${CX} ${CY}) scale(${SX} ${-SY})`,
         style: { pointerEvents: 'none' },
       }),
       routine ? null : problemUnderlays,
@@ -1311,5 +1309,5 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
     );
   }
 
-export const FIELD_DIMS = { FIELD_W, FIELD_H, IMG_W, IMG_H };
+export const FIELD_DIMS = { IMG_W, IMG_H };
 export { FieldView, rangeLabelIndexes, toolRailLabelObstacle, createFieldGestureOwner, fieldRangeEndpoint };

@@ -236,6 +236,13 @@ app.whenReady().then(async () => {
     await commitsSettled();
     await evaluate(() => window.bordeauxAPI.newProject());
     await evaluate((project) => window.bordeauxAPI.saveProject(project), commandCase.project);
+    if (home) {
+      const seededProject = (await api('/api/info')).lastProject;
+      const workspacePath = path.join(home, 'projects', seededProject, '.bordeaux-workspace.json');
+      const seeded = JSON.parse(await fs.readFile(workspacePath, 'utf8'));
+      seeded.project = commandCase.project;
+      await fs.writeFile(workspacePath, JSON.stringify(seeded) + '\n');
+    }
     await win.loadURL(url);
     await editorReady();
     const commandProject = (await api('/api/info')).lastProject;
@@ -246,6 +253,14 @@ app.whenReady().then(async () => {
     const commandWorkspace = await workspaceOf(commandProject);
     const built = commandWorkspace.generatedFiles?.[`Paths/${commandCase.fileName}`];
     if (built !== commandCase.sha256) throw new Error(`The robot built ${built} for ${commandCase.fileName}; the desktop builds ${commandCase.sha256}`);
+    const frame = commandWorkspace.project.field.coordinateSchemaId;
+    if (frame !== 'wpilib-center-origin/2026-andymark/1' || (home && commandWorkspace.project.fieldMigration?.source !== commandCase.project.field.coordinateSchemaId)) {
+      throw new Error('Historical workspace did not record the centered assignment: ' + JSON.stringify(commandWorkspace.project.fieldMigration));
+    }
+    await save();
+    const savedAgain = await workspaceOf(commandProject);
+    if (savedAgain.generatedFiles?.[`Paths/${commandCase.fileName}`] !== built ||
+      JSON.stringify(savedAgain.project) !== JSON.stringify(commandWorkspace.project)) throw new Error('Second save changed the migrated project or BDX bytes');
     check('with the desktop\'s command list, the robot builds the same command BDX as the desktop', { project: commandProject, file: commandCase.fileName, sha256: built });
     await click('.push-button');
     await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'command push review');

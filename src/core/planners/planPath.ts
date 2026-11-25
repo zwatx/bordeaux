@@ -1,5 +1,6 @@
 import { sample as sampleGeometry } from "../math/geometry";
 import { wrapRadians } from "../math/angles";
+import { pointInsideField } from "../math/fieldBounds";
 import type { PlannerInput, PlannerResult, TrajectorySample, ValidationIssue } from "../types";
 import { canonicalPlanningInput, getPlanner } from "./index";
 import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_AUTHORED_ANGLE_DEG, MAX_TRAJECTORY_SAMPLES } from "./limits";
@@ -168,6 +169,9 @@ function invalidInputIssue(input: PlannerInput, samplesPerSegment: number): { is
     if (!isFiniteNumber(waypoint.theta) && invalidHeading === undefined) invalidHeading = index;
     if (waypoint.rotationDirection !== undefined && !["shortest", "cw", "ccw"].includes(waypoint.rotationDirection)) return fail("Waypoint rotation direction is invalid", true, { waypoint: index });
   }
+  // A migrated project can keep a point just outside the AndyMark perimeter; it plans only once moved back on.
+  const offField = path.waypoints.findIndex((waypoint) => !pointInsideField(waypoint));
+  if (offField >= 0) return fail("Waypoint is outside the field", true, { waypoint: offField });
   const excessiveHeading = path.waypoints.findIndex((waypoint) => Math.abs(waypoint.theta) > MAX_AUTHORED_ANGLE_DEG);
   if (excessiveHeading >= 0) return fail("Waypoint heading is too large", true, { waypoint: excessiveHeading });
   if (invalidHeading !== undefined) return fail("Waypoint heading is not a number", true, { waypoint: invalidHeading });

@@ -46,7 +46,7 @@ describe("HTML toolrail obstacle in root SVG coordinates", () => {
   });
 });
 
-it("keeps the calibrated blue-origin projection fixed regardless of retired view preferences", () => {
+it("keeps the calibrated center-origin projection fixed regardless of retired view preferences", () => {
   const project = createDemoProject(), doc = project.paths[0];
   doc.ranges = [{ anchor: "param", f0: .15, f1: .85, maxAngVel: .01, maxAngAccel: .004 }];
   const derived = PM.derivePath(doc, project.robot, 14, "profiledSpline");
@@ -55,6 +55,6 @@ it("keeps the calibrated blue-origin projection fixed regardless of retired view
     drive: project.robot.drive, accent: "#fff", metric: "velocity", playTime: 0, actions: {} }));
   const blue = render("blue"), red = render("red");
   expect(blue).toContain('preserveAspectRatio="xMidYMid meet"');
-  expect(red).toMatch(/<foreignObject[^>]* transform="rotate\(180 1950.5 791.5\)"/);
+  expect(red).not.toMatch(/<foreignObject[^>]* transform=/);
   expect(red).toBe(blue);
 });

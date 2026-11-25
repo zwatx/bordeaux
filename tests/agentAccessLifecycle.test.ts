@@ -91,7 +91,7 @@ describe("main-process agent access periods", () => {
     const published = editorSnapshot(0, first.generation);
     service.publishEditorSnapshot(published);
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Go", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Go", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     expect(service.getActiveProposal()?.id).toBe(proposal.proposalId);
 

@@ -1,11 +1,9 @@
 import { sha256Hex } from "../bytes";
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { FIELD_X_MAX, FIELD_Y_MAX, centerAndyMarkPoint } from "../math/fieldBounds";
 import {
   ACTIVE_FIELD_REFERENCE,
   REBUILT_2026_FIELD,
   appToAllianceViewPoint,
-  appToOfficialPoint,
-  officialToAppPoint,
 } from "./rebuilt2026";
 import type { FieldPack, FieldPoint, FieldRect } from "./types";
 
@@ -13,7 +11,7 @@ const CERTIFICATION_SCHEMA_VERSION = "bordeaux-field-certification/1.0" as const
 const EPSILON = 1e-8;
 
 /** Update deliberately only after reviewing a changed certification report. */
-export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:042a3128a371136874cfc5739dfb53132a860cfc9c1a5a18f8810feb1152928e";
+export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:bf457c53a7382d07332e6a3de36875f9f7ae7746d1d11cb19bb8cb97e05efe3e";
 
 /** These commitments are deliberately distinct so coordinate fixes do not imply full behavior certification. */
 export const FIELD_SUPPORT_PROMISES = {
@@ -83,13 +81,13 @@ function finiteRect(rect: FieldRect | undefined): rect is FieldRect {
 }
 
 function pointInBounds(point: FieldPoint, dimensions: FieldPack["dimensions"]): boolean {
-  return point.x >= -EPSILON && point.x <= dimensions.lengthM + EPSILON
-    && point.y >= -EPSILON && point.y <= dimensions.widthM + EPSILON;
+  return Math.abs(point.x) <= dimensions.lengthM / 2 + EPSILON
+    && Math.abs(point.y) <= dimensions.widthM / 2 + EPSILON;
 }
 
 function rectInBounds(rect: FieldRect, dimensions: FieldPack["dimensions"]): boolean {
-  return rect.xMin >= -EPSILON && rect.xMax <= dimensions.lengthM + EPSILON
-    && rect.yMin >= -EPSILON && rect.yMax <= dimensions.widthM + EPSILON;
+  return rect.xMin >= -dimensions.lengthM / 2 - EPSILON && rect.xMax <= dimensions.lengthM / 2 + EPSILON
+    && rect.yMin >= -dimensions.widthM / 2 - EPSILON && rect.yMax <= dimensions.widthM / 2 + EPSILON;
 }
 
 function close(left: number, right: number): boolean {
@@ -129,7 +127,7 @@ export function certifyField(
   pack: FieldPack = REBUILT_2026_FIELD,
   options: FieldCertificationOptions = {},
 ): FieldCertificationReport {
-  const transforms = options.transforms ?? { officialToAppPoint, appToOfficialPoint };
+  const transforms = options.transforms ?? { officialToAppPoint: centerAndyMarkPoint, appToOfficialPoint: centerAndyMarkPoint };
   const coordinateSchemaId = options.coordinateSchemaId ?? ACTIVE_FIELD_REFERENCE.coordinateSchemaId;
   const expectedDigest = options.expectedDigest === undefined
     ? FIELD_CERTIFICATION_EXPECTED_DIGEST
@@ -146,7 +144,7 @@ export function certifyField(
   const officialSamples: FieldPoint[] = [
     { x: 0, y: 0 },
     { x: pack.dimensions.lengthM, y: pack.dimensions.widthM },
-    ...pack.crossingBarriers.flatMap((barrier) => barrier.portals.map((portal) => portal.point)),
+    ...pack.crossingBarriers.flatMap((barrier) => barrier.portals.map((portal) => centerAndyMarkPoint(portal.point))),
   ];
   let roundtrip = true;
   try {
@@ -156,15 +154,15 @@ export function certifyField(
       return finitePoint(restored) && close(restored.x, point.x) && close(restored.y, point.y);
     });
   } catch { roundtrip = false; }
-  check("transform.roundtrip", roundtrip, "Official-to-app and app-to-official transforms round-trip corners and every portal center.");
+  check("transform.roundtrip", roundtrip, "AndyMark blue-origin and centered transforms round-trip corners and every portal center.");
 
   let orientation = true;
   try {
     const officialCorners = [
-      { official: { x: 0, y: 0 }, app: { x: 0, y: 0 } },
-      { official: { x: pack.dimensions.lengthM, y: 0 }, app: { x: FIELD_W, y: 0 } },
-      { official: { x: 0, y: pack.dimensions.widthM }, app: { x: 0, y: FIELD_H } },
-      { official: { x: pack.dimensions.lengthM, y: pack.dimensions.widthM }, app: { x: FIELD_W, y: FIELD_H } },
+      { official: { x: 0, y: 0 }, app: { x: FIELD_X_MAX, y: FIELD_Y_MAX } },
+      { official: { x: pack.dimensions.lengthM, y: 0 }, app: { x: -FIELD_X_MAX, y: FIELD_Y_MAX } },
+      { official: { x: 0, y: pack.dimensions.widthM }, app: { x: FIELD_X_MAX, y: -FIELD_Y_MAX } },
+      { official: { x: pack.dimensions.lengthM, y: pack.dimensions.widthM }, app: { x: -FIELD_X_MAX, y: -FIELD_Y_MAX } },
     ];
     orientation = officialCorners.every(({ official, app: expected }) => {
       const app = transforms.officialToAppPoint(official);
@@ -176,7 +174,23 @@ export function certifyField(
     orientation = orientation && finitePoint(redView) && finitePoint(redOpposite)
       && close(redView.x, redOpposite.x) && close(redView.y, redOpposite.y);
   } catch { orientation = false; }
-  check("transform.alliance-orientation", orientation, "Authored coordinates equal official blue-origin meters; the opposite alliance is a 180-degree rotation within the same fixed frame.");
+  check("transform.alliance-orientation", orientation, "Authored coordinates use centered meters; the opposite alliance is a 180-degree rotation within the same fixed frame.");
+
+  const find = (id: string) => pack.landmarks.find((landmark) => landmark.id === id);
+  const wall = find("blue-alliance-wall")?.line;
+  const rail = find("scoring-table-guardrail")?.line;
+  const wallTag = find("apriltag-29")?.point;
+  const blueBarrier = pack.crossingBarriers.find((barrier) => barrier.allianceOwner === "blue");
+  check("andymark.perimeter-and-wall-tags",
+    !!wall && !!rail && !!wallTag && [wall.start.x, wall.end.x].every((x) => close(x, 8.259))
+    && [rail.start.y, rail.end.y].every((y) => close(y, 4.0215))
+    && close(wallTag.x, 8.2453094) && close(wallTag.y, 3.3707266),
+    "Perimeter and wall tags use WPILib v2026.2.1 AndyMark measurements.");
+  check("andymark.interior-registration", !!blueBarrier
+    && close(blueBarrier.x, 4.24206)
+    && blueBarrier.portals.filter((portal) => portal.side === "table").every(({ point }) => point.y > 0)
+    && blueBarrier.portals.filter((portal) => portal.side === "away").every(({ point }) => point.y < 0),
+    "Interior features retain the welded center-relative geometry; the perimeter limits the wall-side trench clear span.");
 
   check("landmark.unique-finite-in-bounds", landmarkGeometryIsValid(pack), "Landmarks have unique IDs and all declared coordinates, lines, and regions are finite and in bounds.");
 
@@ -210,15 +224,15 @@ export function certifyField(
   const red = pack.crossingBarriers.find((barrier) => barrier.allianceOwner === "red");
   const symmetryValid = !!blue && !!red && blue.portals.length === red.portals.length && blue.portals.every((bluePortal) => {
     const redPortal = red.portals.find((candidate) => candidate.traversal === bluePortal.traversal && candidate.side === bluePortal.side);
-    return !!redPortal && close(bluePortal.point.x + redPortal.point.x, pack.dimensions.lengthM)
+    return !!redPortal && close(bluePortal.point.x + redPortal.point.x, 0)
       && close(bluePortal.point.y, redPortal.point.y) && close(bluePortal.widthM, redPortal.widthM)
       && close(bluePortal.depthM, redPortal.depthM) && bluePortal.allianceSide !== redPortal.allianceSide;
   });
   check("crossing.red-blue-symmetry", symmetryValid, "Blue and Red portal centers, dimensions, and driver-relative sides mirror across the field length.");
 
   const routes = pack.crossingBarriers.flatMap((barrier) => barrier.portals.map((portal) => {
-    const fromAllianceSide = barrier.allianceOwner === "blue" ? portal.bounds.xMin - 0.2 : portal.bounds.xMax + 0.2;
-    const towardNeutral = barrier.allianceOwner === "blue" ? portal.bounds.xMax + 0.2 : portal.bounds.xMin - 0.2;
+    const fromAllianceSide = barrier.allianceOwner === "blue" ? portal.bounds.xMax + 0.2 : portal.bounds.xMin - 0.2;
+    const towardNeutral = barrier.allianceOwner === "blue" ? portal.bounds.xMin - 0.2 : portal.bounds.xMax + 0.2;
     return { portal, points: [{ x: fromAllianceSide, y: portal.point.y }, portal.point, { x: towardNeutral, y: portal.point.y }] };
   }));
   const routeBoundsAndOpening = routes.every(({ portal, points }) => points.every((point) => pointInBounds(point, pack.dimensions))

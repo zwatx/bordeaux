@@ -86,7 +86,7 @@ if (home) {
     try {
       const bdx = decodeBdx(bytes);
       decoded[name] = { version: `1.${bdx.minor}`, pathId: bdx.id, name: bdx.name, seconds: bdx.totalTimeS, meters: bdx.totalDistanceM, samples: bdx.samples.length,
-        first: bdx.samples[0], last: bdx.samples.at(-1), followSections: bdx.followSections, events: bdx.events };
+        field: bdx.field, first: bdx.samples[0], last: bdx.samples.at(-1), followSections: bdx.followSections, events: bdx.events };
     } catch (error) { readBack = false; decoded[name] = { error: String(error?.message || error) }; console.error(`FAIL ${name} does not read back: ${decoded[name].error}`); }
   }
   // The command path's events are counted by the desktop's writer, independently of the reader.

@@ -89,7 +89,7 @@ export function projectDocuments(project: BordeauxProject, previousFiles?: Recor
     const file = prior && reusable && !used.has(prior.toLowerCase()) ? prior : "";
     if (file) used.add(file.toLowerCase());
     const pathVersion = "waypoints" in item && item.optimization?.accepted?.version === 2 ? "2.1" : "2.0";
-    return { key, stem, extension, file, contents: `${JSON.stringify(extension === "path" ? { version: pathVersion, field: project.field, robot: project.robot, ...item } : { format: "bordeaux-routine/1", ...item }, null, 2)}\n` };
+    return { key, stem, extension, file, contents: `${JSON.stringify(extension === "path" ? { version: pathVersion, field: project.field, ...(project.fieldMigration && { fieldMigration: project.fieldMigration }), robot: project.robot, ...item } : { format: "bordeaux-routine/1", ...item }, null, 2)}\n` };
   });
   for (const document of documents) {
     if (document.file) continue;

@@ -89,7 +89,7 @@ ipcMain.handle('branches:robot-call', (_event, name, args) => { robotCalls.push(
 ipcMain.handle('branches:save', (_event, project) => { saved = structuredClone(project); saves++; return { saved: true }; });
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const route = structuredClone(corpus.paths.find(p => p.id === 'corpus-neutral-stop'));
     route.name = 'Collect along the alliance wall and return through the protected crossing';
     route.folderId = 'collection';

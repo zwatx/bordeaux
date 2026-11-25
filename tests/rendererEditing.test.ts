@@ -23,10 +23,10 @@ describe("editor waypoint operations", () => {
   it("uses the actual clamped displacement when moving a waypoint and its controls", () => {
     const draft = path(), waypoint = draft.waypoints[1];
     const before = structuredClone(waypoint);
-    moveWaypointTo(draft, 1, { x: -2, y: 3.5 });
-    expect(waypoint).toMatchObject({ x: 0, y: 3.5 });
-    expect(waypoint.prevC).toEqual({ x: before.prevC.x - 4, y: before.prevC.y + 0.5 });
-    expect(waypoint.nextC).toEqual({ x: before.nextC.x - 4, y: before.nextC.y + 0.5 });
+    moveWaypointTo(draft, 1, { x: -10, y: 3.5 });
+    expect(waypoint).toMatchObject({ x: -8.259, y: 3.5 });
+    expect(waypoint.prevC).toEqual({ x: before.prevC.x - 12.259, y: before.prevC.y + 0.5 });
+    expect(waypoint.nextC).toEqual({ x: before.nextC.x - 12.259, y: before.nextC.y + 0.5 });
   });
 
   it("reverses outgoing segment policy, controls, turn direction, range anchors, and endpoint speeds together", () => {

@@ -1,6 +1,10 @@
-// 2026 REBUILT welded field, in the fixed WPILib blue-origin frame.
-export const FIELD_W = 16.541;
-export const FIELD_H = 8.069;
+// 2026 REBUILT AndyMark field in the WPILib center-origin frame.
+export const FIELD_W = 16.518;
+export const FIELD_H = 8.043;
+
+// Historical source and interior measurements are pinned to the welded field.
+export const WELDED_FIELD_W = 16.541;
+export const WELDED_FIELD_H = 8.069;
 
 export interface WorldPoint {
   x: number;
@@ -9,8 +13,34 @@ export interface WorldPoint {
 
 export function clampWorldPoint(point: WorldPoint): WorldPoint {
   return {
-    x: Math.max(0, Math.min(FIELD_W, point.x)),
-    y: Math.max(0, Math.min(FIELD_H, point.y)),
+    x: Math.max(FIELD_X_MIN, Math.min(FIELD_X_MAX, point.x)),
+    y: Math.max(FIELD_Y_MIN, Math.min(FIELD_Y_MAX, point.y)),
   };
 }
 
+
+/** Half extents of the AndyMark playing area, measured from its center. */
+export const FIELD_X_MAX = FIELD_W / 2;
+export const FIELD_Y_MAX = FIELD_H / 2;
+export const FIELD_X_MIN = -FIELD_X_MAX;
+export const FIELD_Y_MIN = -FIELD_Y_MAX;
+
+export function pointInsideField({ x, y }: WorldPoint): boolean {
+  return x >= FIELD_X_MIN && x <= FIELD_X_MAX && y >= FIELD_Y_MIN && y <= FIELD_Y_MAX;
+}
+
+/** Inside the welded perimeter. A migrated project may keep a point in the strip the AndyMark perimeter removes; it
+ * opens and saves as authored, and planning (so export) refuses it until the point is moved onto the field. */
+export function pointInsideMigratedField({ x, y }: WorldPoint): boolean {
+  return Math.abs(x) <= WELDED_FIELD_W / 2 && Math.abs(y) <= WELDED_FIELD_H / 2;
+}
+
+/** This rigid transform is its own inverse. */
+export function rotateBlueOriginPoint({ x, y }: WorldPoint): WorldPoint {
+  return { x: WELDED_FIELD_W / 2 - x, y: WELDED_FIELD_H / 2 - y };
+}
+
+/** WPILib v2026.2.1 AndyMark layout measurements use the historical axes. */
+export function centerAndyMarkPoint({ x, y }: WorldPoint): WorldPoint {
+  return { x: FIELD_X_MAX - x, y: FIELD_Y_MAX - y };
+}

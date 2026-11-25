@@ -11,8 +11,8 @@ import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFi
 import { decodeProjectFile } from "../src/core/project/fileFormat";
 import type { PlannerResult, TrajectorySample } from "../src/core/types";
 
-const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
-const corpus = CorridorCorpus.loadV2(directory);
+const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v3");
+const corpus = CorridorCorpus.loadV3(directory);
 const project = decodeProjectFile(readFileSync(join(directory, "corpus.bordeaux.json"), "utf8")).project;
 
 function events(ids: readonly string[], totalTimeS: number) {

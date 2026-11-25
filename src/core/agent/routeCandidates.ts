@@ -1,6 +1,6 @@
 import { officialToAppPoint, officialToAppRect, REBUILT_2026_FIELD, REBUILT_2026_INITIAL_FUEL_REGION, REBUILT_2026_TRENCH_CLEARANCE_M } from "../field/rebuilt2026";
 import { resolveProjectFieldTerm } from "../field/vocabulary";
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { pointInsideField } from "../math/fieldBounds";
 import { PM } from "../math/pm";
 import { orderedWaypointSampleIndices } from "../planners/waypointSamples";
 import { buildWaypoints, clone, createPathId } from "../project/defaults";
@@ -23,7 +23,7 @@ function resolveLocation(
   allowReference = false,
 ): FieldPointInput {
   if (!isFieldTerm(input)) {
-    if (!Number.isFinite(input.x) || !Number.isFinite(input.y) || input.x < 0 || input.x > FIELD_W || input.y < 0 || input.y > FIELD_H || (input.headingDeg !== undefined && !Number.isFinite(input.headingDeg))) {
+    if (!pointInsideField(input) || (input.headingDeg !== undefined && !Number.isFinite(input.headingDeg))) {
       throw new Error("Route coordinates must be finite and inside Bordeaux's field bounds; requested points are never silently clamped.");
     }
     return { ...input };
@@ -328,7 +328,7 @@ function appendLeg(points: FieldPointInput[], goal: FieldPointInput, traversal: 
 }
 
 function assertPointInside(point: FieldPointInput, label: string): void {
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > FIELD_W || point.y < 0 || point.y > FIELD_H) {
+  if (!pointInsideField(point)) {
     throw new Error(`${label} extends outside Bordeaux's field bounds; reduce the maneuver radius or choose a different turn direction.`);
   }
 }

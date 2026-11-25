@@ -1,8 +1,8 @@
 import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./types";
 import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
-import { FIELD_H, FIELD_W } from "./math/fieldBounds";
-import { ACTIVE_FIELD_REFERENCE } from "./field/rebuilt2026";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField, pointInsideMigratedField } from "./math/fieldBounds";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
@@ -447,13 +447,23 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
     if (project.field.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId) issues.push(issue("$.field.coordinateSchemaId", "Coordinate schema is not supported"));
   }
   if (project.fieldMigration !== undefined) {
-    if (!isRecord(project.fieldMigration) || !["legacy-unpinned", "bordeaux-field/1.0"].includes(String(project.fieldMigration.source)) || !isRecord(project.fieldMigration.assigned)) {
+    if (!isRecord(project.fieldMigration) || !["legacy-unpinned", "bordeaux-field/1.0", BLUE_ORIGIN_FIELD_SCHEMA_ID].includes(String(project.fieldMigration.source)) || !isRecord(project.fieldMigration.assigned)) {
       issues.push(issue("$.fieldMigration", "Field migration record is invalid"));
     } else if (!isRecord(project.field)
       || project.fieldMigration.assigned.id !== project.field.id
       || project.fieldMigration.assigned.revision !== project.field.revision
       || project.fieldMigration.assigned.coordinateSchemaId !== project.field.coordinateSchemaId) {
       issues.push(issue("$.fieldMigration.assigned", "Field migration assignment must match the project field reference"));
+    } else {
+      const { source, sourceField, via } = project.fieldMigration;
+      if (source === "legacy-unpinned" ? sourceField !== undefined : (
+        !isRecord(sourceField) || sourceField.id !== ACTIVE_FIELD_REFERENCE.id || sourceField.revision !== WELDED_FIELD_REVISION
+        || sourceField.coordinateSchemaId !== source
+      )) issues.push(issue("$.fieldMigration.sourceField", "Field migration must record the complete historical pin for pinned sources"));
+      if (source === BLUE_ORIGIN_FIELD_SCHEMA_ID ? via !== undefined : (
+        !isRecord(via) || via.id !== ACTIVE_FIELD_REFERENCE.id || via.revision !== WELDED_FIELD_REVISION
+        || via.coordinateSchemaId !== BLUE_ORIGIN_FIELD_SCHEMA_ID
+      )) issues.push(issue("$.fieldMigration.via", "Field migration must record the intermediate blue-origin assignment for legacy sources"));
     }
   }
   if (typeof project.name !== "string" || !project.name.trim()) issues.push(issue("$.name", "Project name is required"));
@@ -608,7 +618,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
           validateFinite(issues, waypoint.x, `${wpBase}.x`, "Waypoint X");
           validateFinite(issues, waypoint.y, `${wpBase}.y`, "Waypoint Y");
           if (waypoint.positionLink !== undefined && (typeof waypoint.positionLink !== "string" || !waypoint.positionLink.trim())) issues.push(issue(`${wpBase}.positionLink`, "Shared position ID must be a nonempty string"));
-          if (finite(waypoint.x) && finite(waypoint.y) && (waypoint.x < 0 || waypoint.x > FIELD_W || waypoint.y < 0 || waypoint.y > FIELD_H)) {
+          if (finite(waypoint.x) && finite(waypoint.y) && !(allowIncompletePaths ? pointInsideMigratedField : pointInsideField)({ x: waypoint.x, y: waypoint.y })) {
             issues.push(issue(wpBase, "Waypoint must stay inside the FRC field bounds"));
           }
           if (waypoint.positionName !== undefined && (typeof waypoint.positionName !== "string" || !waypoint.positionName.trim() || waypoint.positionName.length > 80)) {
@@ -646,7 +656,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
           if (waypoint.segmentLookAt !== undefined) {
             validatePoint(issues, waypoint.segmentLookAt, `${wpBase}.segmentLookAt`, "Tracked field point");
             if (isRecord(waypoint.segmentLookAt) && finite(waypoint.segmentLookAt.x) && finite(waypoint.segmentLookAt.y)
-              && (waypoint.segmentLookAt.x < 0 || waypoint.segmentLookAt.x > FIELD_W || waypoint.segmentLookAt.y < 0 || waypoint.segmentLookAt.y > FIELD_H)) {
+              && !pointInsideField({ x: waypoint.segmentLookAt.x, y: waypoint.segmentLookAt.y })) {
               issues.push(issue(`${wpBase}.segmentLookAt`, "Tracked field point must stay inside the FRC field bounds"));
             }
           }
@@ -866,14 +876,14 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         if (location.kind === "pose") {
           validateFinite(issues, location.x, `${base}.x`, "Strategy pose X");
           validateFinite(issues, location.y, `${base}.y`, "Strategy pose Y");
-          if (finite(location.x) && finite(location.y) && (location.x < 0 || location.x > FIELD_W || location.y < 0 || location.y > FIELD_H)) issues.push(issue(base, "Strategy pose must stay inside the FRC field bounds"));
+          if (finite(location.x) && finite(location.y) && !pointInsideField({ x: location.x, y: location.y })) issues.push(issue(base, "Strategy pose must stay inside the FRC field bounds"));
         } else if (location.kind === "region") {
           if (!isRecord(location.bounds)) issues.push(issue(`${base}.bounds`, "Strategy region bounds are required"));
           else {
             const bounds = location.bounds;
             ["xMin", "xMax", "yMin", "yMax"].forEach((key) => validateFinite(issues, bounds[key], `${base}.bounds.${key}`, `Strategy region ${key}`));
             if (finite(bounds.xMin) && finite(bounds.xMax) && finite(bounds.yMin) && finite(bounds.yMax)
-              && (bounds.xMin < 0 || bounds.xMax > FIELD_W || bounds.yMin < 0 || bounds.yMax > FIELD_H || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax)) {
+              && (bounds.xMin < FIELD_X_MIN || bounds.xMax > FIELD_X_MAX || bounds.yMin < FIELD_Y_MIN || bounds.yMax > FIELD_Y_MAX || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax)) {
               issues.push(issue(`${base}.bounds`, "Strategy region bounds must be ordered inside the FRC field"));
             }
           }

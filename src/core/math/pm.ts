@@ -1,7 +1,8 @@
+import { jigglePositions } from "../planners/jiggle";
 import { indexIntervalPolicies } from "../planners/intervalPolicies";
 import { stationaryTurnDelta } from "./angles";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
-import type { ConstraintRange, ControlPoint, DriveType, PathConstraints, PathDoc, RobotConfig, TurnInPlace } from "../types";
+import type { ConstraintRange, DriveType, PathConstraints, PathDoc, RobotConfig, TurnInPlace } from "../types";
 import type { GeometryPoint } from "./geometry";
 import type { HeadingAnchor } from "./headingAnchors";
 import type { HeadingTransitionWindow } from "../planners/headingTransitions";
@@ -435,23 +436,6 @@ function derivePath(doc: PathDoc, robot: RobotConfig | null, perSeg?: number, op
       : [{ id: 'cap', label: 'Lower the speed cap around here' }, { id: 'handles', label: 'Lengthen handles to ease the curve' }, { id: 'insert', label: 'Insert a waypoint here' }];
   });
   return { sample: smp, prof, anchors, metrics: mtr, warnings, wpFrac, wpIdx, mode, effRanges, headingMode, rev: !!doc.driveBackward };
-}
-function jigglePositions(anchor: ControlPoint, baseRad: number, options: { distanceM?: number; distance?: number; strokes: number; startDeg: number; stepDeg: number }, bounds = { w: 16.541, h: 8.069 }) {
-  const distance = Number(options.distanceM ?? options.distance), strokes = Math.round(Number(options.strokes)), startDeg = Number(options.startDeg), stepDeg = Number(options.stepDeg);
-  if (!(distance >= 0.03) || strokes < 2 || strokes > 12 || !Number.isFinite(startDeg + stepDeg)) return null;
-  const directions = new Set<number>(), positions: ControlPoint[] = [];
-  for (let stroke = 0; stroke < strokes; stroke++) {
-    const relativeDeg = startDeg + stepDeg * stroke;
-    const key = ((relativeDeg % 360) + 360) % 360;
-    const roundedKey = Math.round(key * 1000) / 1000;
-    if (directions.has(roundedKey)) return null;
-    directions.add(roundedKey);
-    const angle = baseRad + relativeDeg * D2R;
-    const point = { x: anchor.x + Math.cos(angle) * distance, y: anchor.y + Math.sin(angle) * distance };
-    if (point.x < 0 || point.x > bounds.w || point.y < 0 || point.y > bounds.h) return null;
-    positions.push(point, { x: anchor.x, y: anchor.y });
-  }
-  return positions;
 }
 export const PM = { bez, bezD, sample, profile, poseAtTime, headingAt, metrics, analyze, metricColor, metricGradient, METRICS, SEGTYPES, buildAnchors, pointAtFraction, nearestFraction, autoHandles, angWrap, angLerp, D2R, R2D, lerp, derivePath, jigglePositions, effectiveRanges, featureFraction, remapWaypointRange, waypointFracs };
 export default PM;

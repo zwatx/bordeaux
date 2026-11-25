@@ -6,7 +6,7 @@ import * as React from "react";
 import { PM } from "../lib/pathMath";
 import { tangentDirectionDeg, tangentHandleUse } from "../lib/pathEditing";
 import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
-import { FIELD_DIMS } from "./FieldView";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../../core/math/fieldBounds";
 import { UI } from "./ui";
 import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerCommands";
@@ -16,7 +16,6 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
   const { Num, DraftText, Toggle, Seg, TurnDirection, Icon, Dropdown, ChoiceBrowser, constraintRangeSummary } = UI;
   // Shortest is the default, so choosing it clears the authored direction instead of storing it.
   const AUTHORED_DIRECTION = { shortest: undefined, cw: 'cw', ccw: 'ccw' };
-  const { FIELD_W, FIELD_H } = FIELD_DIMS;
 
   // Anchor meaning lives in each option's tooltip instead of a hint under every anchor control.
   const ANCHOR_OPTIONS = [
@@ -737,8 +736,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       body = h(React.Fragment, null,
         h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit a value or remove a feature to retry.'),
         waypoint && h('div', { className: 'grid2' },
-          h(Num, { label: 'X', value: waypoint.x, unit: 'm', onChange: (x) => actions.setWp(sel.idx, { x }) }),
-          h(Num, { label: 'Y', value: waypoint.y, unit: 'm', onChange: (y) => actions.setWp(sel.idx, { y }) })),
+          h(Num, { label: 'X', value: waypoint.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (x) => actions.setWp(sel.idx, { x }) }),
+          h(Num, { label: 'Y', value: waypoint.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (y) => actions.setWp(sel.idx, { y }) })),
         target && h(Num, { label: 'Heading', value: target.deg, unit: '°', onChange: (deg) => actions.setTarget(sel.idx, { deg }) }),
         range && h(RangeLimits, { range, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         !waypoint && !range && !target && !marker && h(ConstraintsBody, {
@@ -816,8 +815,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       remove = h(DeleteAction, { label: 'Delete waypoint', onClick: () => actions.delWp(i) });
       body = h(React.Fragment, null,
         h('div', { className: 'grid2' },
-          h(Num, { label: 'X', value: w.x, unit: 'm', onChange: (v) => actions.setWp(i, { x: v }) }),
-          h(Num, { label: 'Y', value: w.y, unit: 'm', onChange: (v) => actions.setWp(i, { y: v }) })),
+          h(Num, { label: 'X', value: w.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (v) => actions.setWp(i, { x: v }) }),
+          h(Num, { label: 'Y', value: w.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (v) => actions.setWp(i, { y: v }) })),
         props.project && props.setWaypointPositionLink && h(SharedWaypointPosition, { project: props.project, doc, index: i, onOpen: props.openPointLinks, onLink: props.setWaypointPositionLink, onName: (at, name) => actions.setWp(at, { positionName: name }) }),
 
         isTank
@@ -911,8 +910,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
           h(Seg, { value: wps[i].segmentHeadingMode || headingMode, options: [...HEAD_MODES, { v: 'lookAt', label: 'Look at' }], ariaLabel: 'Heading on this segment', className: 'seg-heading', onChange: (v) => actions.setSegmentHeadingMode(i, v) })),
         !isTank && wps[i].segmentHeadingMode === 'lookAt' && wps[i].segmentLookAt && h(React.Fragment, null,
           h('div', { className: 'grid2 compact-fields' },
-            h(Num, { label: 'Target X', value: wps[i].segmentLookAt.x, unit: 'm', min: 0, max: FIELD_W, onChange: (v) => actions.setSegmentLookAt(i, { x: v }) }),
-            h(Num, { label: 'Target Y', value: wps[i].segmentLookAt.y, unit: 'm', min: 0, max: FIELD_H, onChange: (v) => actions.setSegmentLookAt(i, { y: v }) })),
+            h(Num, { label: 'Target X', value: wps[i].segmentLookAt.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (v) => actions.setSegmentLookAt(i, { x: v }) }),
+            h(Num, { label: 'Target Y', value: wps[i].segmentLookAt.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (v) => actions.setSegmentLookAt(i, { y: v }) })),
           h('div', { className: 'seg-hint' }, 'Drag target on field.')),
         h('div', { className: 'fieldlabel' }, 'Zones'),
         affecting.length === 0

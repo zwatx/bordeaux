@@ -223,7 +223,7 @@ ipcMain.handle('library:prepare', (_event, project, pathIds) => {
 ipcMain.handle('library:confirm', () => new Promise((resolve) => { finishPush = resolve; }));
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v2/corpus.bordeaux.json'), 'utf8'));
+    const corpus = JSON.parse(await fs.readFile(path.resolve('benchmarks/planner-corpus/v3/corpus.bordeaux.json'), 'utf8'));
     const source = corpus.paths.find((item) => item.id === 'corpus-neutral-stop');
     saved = { ...corpus, name: 'Library verification', paths: Array.from({ length: 200 }, (_, index) => ({ ...structuredClone(source), id: 'library-path-' + index, name: index === 0 ? 'Opening move' : index === 1 ? 'Collect second' : 'Practice path ' + index, folderId: 'center' })),
       pathFolders: [{ id: 'center', name: 'Center' }, { id: 'side', name: 'Side' }], pathLinks: [],
@@ -1285,12 +1285,14 @@ app.whenReady().then(async () => {
     const saveCurrent = async () => { await click('[aria-label="Save project"]'); };
     const editNumber = async (label, value) => {
       await wait(() => evaluate((label) => { const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input'); return field && !field.matches(':disabled') && !field.closest('[inert]'); }, label), 'editable ' + label);
+      win.show(); win.focus(); win.webContents.focus();
       await evaluate((label) => {
         const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
         if (!field || field.matches(':disabled')) throw new Error('Numeric field unavailable: ' + label);
         field.focus();
       }, label);
-      // Num first replaces its formatted value with an editing draft, then selects it on the next frame.
+      // Select the current draft through native keys even if the input was already focused.
+      await key('Home'); await key('End', ['shift']);
       await wait(() => evaluate((label) => {
         const field = [...document.querySelectorAll('.numrow')].find((row) => row.querySelector('label')?.textContent === label)?.querySelector('input');
         return document.hasFocus() && document.activeElement === field && field.selectionStart === 0 && field.selectionEnd === field.value.length;
@@ -1311,7 +1313,14 @@ app.whenReady().then(async () => {
     const headPoint = await evaluate(() => {
       const handle = document.querySelector('circle[data-role="head"][data-idx="0"]');
       if (!handle) throw new Error('Start facing handle missing in tangent mode');
-      const rect = handle.getBoundingClientRect(); return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+      const rect = handle.getBoundingClientRect();
+      // At the minimum viewport, the next waypoint may cover the circle's center.
+      // Start on an exposed part of the actual heading control.
+      for (const [fx, fy] of [[.5, .5], [.25, .25], [.75, .25], [.25, .75], [.75, .75]]) {
+        const point = { x: Math.round(rect.x + rect.width * fx), y: Math.round(rect.y + rect.height * fy) };
+        if (document.elementFromPoint(point.x, point.y) === handle) return point;
+      }
+      throw new Error('Start facing handle has no exposed interior hit target');
     });
     win.webContents.sendInputEvent({ type: 'mouseMove', ...headPoint });
     win.webContents.sendInputEvent({ type: 'mouseDown', ...headPoint, button: 'left', clickCount: 1 });

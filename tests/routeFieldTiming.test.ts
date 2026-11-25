@@ -16,7 +16,7 @@ import type { PlannerResult } from "../src/core/types";
 function crossing() {
   const project = createDemoProject();
   const path = project.paths[0];
-  path.waypoints = buildWaypoints([{ x: 1.2, y: 2.6 }, { x: 10, y: 2.6 }]);
+  path.waypoints = buildWaypoints([{ x: 7.0705, y: 1.4345 }, { x: -1.7295, y: 1.4345 }]);
   path.constraints.maxVel = 4.2;
   path.headingMode = "tangent";
   path.ranges = [];
@@ -100,18 +100,18 @@ describe("route field safety and authored timing", () => {
 
   it("retains tangent headings, exact actions, events and authored ranges with solver knots", () => {
     const { path, robot } = crossing();
-    path.waypoints[1] = { ...path.waypoints[1], stop: true, wait: 0.137, turnInPlace: { headingDeg: 90, direction: "counterclockwise" } };
+    path.waypoints[1] = { ...path.waypoints[1], stop: true, wait: 0.137, turnInPlace: { headingDeg: 270, direction: "counterclockwise" } };
     path.ranges = [{ anchor: "wp", w0: 0, t0: 0.8, w1: 1, f0: 0, f1: 1, maxVel: 0.8, maxAngVel: 30 }];
     path.markers = [{ id: "crossing", name: "Intake", cmd: "intake.collect", anchor: "dist", d: 4, f: 0 }];
     const original = structuredClone(path);
-    const expanded = { ...path, waypoints: buildWaypoints([{ x: 1.2, y: 2.6 }, { x: 6.5, y: 2.6 }, { x: 10, y: 2.6 }]) };
+    const expanded = { ...path, waypoints: buildWaypoints([{ x: 7.0705, y: 1.4345 }, { x: 1.7705, y: 1.4345 }, { x: -1.7295, y: 1.4345 }]) };
     const geometry = { ...geometryFromPath(expanded), requiredPointIndices: [0, 2] };
     const planning = routePlanningPath(path, geometry);
     const raw = optimizeFixedGeometryFinal({ path: planning, robot });
     const candidate = routeResultToSource(raw, geometry, planning);
     expect(routeCandidateFailure({ path, robot }, candidate)).toBeUndefined();
     expect(candidate.samples.filter((s) => s.f > 0.81).every((s) => Math.abs(s.velocityMps) <= 0.8 + 1e-6)).toBe(true);
-    expect(candidate.samples.filter((s) => s.f < 0.99).every((s) => Math.abs(s.headingRad) < 1e-6)).toBe(true);
+    expect(candidate.samples.filter((s) => s.f < 0.99).every((s) => Math.abs(Math.abs(s.headingRad) - Math.PI) < 1e-6)).toBe(true);
     expect(candidate.markers[0]).toMatchObject({ command: "intake.collect", fraction: 4 / candidate.totalDistanceM });
     const turn = candidate.stationaryActions!.find((a) => a.kind === "turn")!;
     const wait = candidate.stationaryActions!.find((a) => a.kind === "wait")!;
@@ -126,7 +126,7 @@ describe("route field safety and authored timing", () => {
   it("resolves authored required-leg ranges consistently across generated knots", () => {
     const { path } = crossing();
     path.ranges = [{ anchor: "wp", w0: 0, t0: 0.8, w1: 1, f0: 0, f1: 1, maxVel: 0.8, maxAngVel: 30 }];
-    const expanded = { ...path, waypoints: buildWaypoints([{ x: 1.2, y: 2.6 }, { x: 6.5, y: 2.6 }, { x: 10, y: 2.6 }]) };
+    const expanded = { ...path, waypoints: buildWaypoints([{ x: 7.0705, y: 1.4345 }, { x: 1.7705, y: 1.4345 }, { x: -1.7295, y: 1.4345 }]) };
     const geometry = { ...geometryFromPath(expanded), requiredPointIndices: [0, 2] };
     const planning = routePlanningPath(path, geometry);
     const sampled = PM.sample(planning.waypoints, 56);

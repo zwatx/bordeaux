@@ -1,4 +1,4 @@
-import { REBUILT_2026_FIELD, REBUILT_2026_FIELD_WIDTH_M, officialToAppPoint } from "../field/rebuilt2026";
+import { REBUILT_2026_FIELD, officialToAppPoint } from "../field/rebuilt2026";
 import { FIELD_H, FIELD_W } from "../math/fieldBounds";
 import type { RobotConfig, TrajectorySample } from "../types";
 import {
@@ -28,11 +28,7 @@ const BARRIER_X = new Map(REBUILT_2026_FIELD.crossingBarriers.map((barrier) => (
   [barrier, officialToAppPoint({ x: barrier.x, y: 0 }).x] as const
 )));
 const PORTAL_BOUNDS = new Map(REBUILT_2026_FIELD.crossingBarriers.flatMap((barrier) => (
-  barrier.portals.map((portal) => {
-    const point = officialToAppPoint(portal.point);
-    const halfWidth = portal.widthM * FIELD_H / REBUILT_2026_FIELD_WIDTH_M / 2;
-    return [portal, { minY: point.y - halfWidth, maxY: point.y + halfWidth }] as const;
-  })
+  barrier.portals.map((portal) => [portal, { minY: portal.bounds.yMin, maxY: portal.bounds.yMax }] as const)
 )));
 
 export interface RobotFieldClearanceMeasurement {

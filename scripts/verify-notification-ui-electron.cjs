@@ -137,7 +137,7 @@ async function exportFromLibrary() {
 app.on('window-all-closed', () => {}); // Replacing the window between sizes is not a quit; the check exits explicitly.
 app.whenReady().then(async () => {
   try {
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const pick = (id, name) => ({ ...structuredClone(corpus.paths.find((p) => p.id === id)), name });
     const wall = pick('corpus-neutral-stop', 'Collect along the alliance wall'), slalom = pick('corpus-neutral-slalom', 'Slalom warm-up');
     const spare = pick('corpus-blue-table-trench', 'Spare path to delete'); spare.id = 'spare-path';

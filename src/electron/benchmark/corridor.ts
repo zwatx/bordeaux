@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { minimumRobotFieldClearance } from "../../core/agent/fieldClearance";
 import { robotFootprintAt, robotFootprintRadius } from "../../core/agent/robotFootprint";
-import { FIELD_H, FIELD_W } from "../../core/math/fieldBounds";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../../core/math/fieldBounds";
 import { PM } from "../../core/math/pm";
 import { decodeProjectFile } from "../../core/project/fileFormat";
 import type { BordeauxProject, ControlPoint, PathDoc } from "../../core/types";
@@ -11,7 +11,7 @@ import {
   densifyNormalizedTrajectory,
   CANDIDATE_ADJACENT_CENTRIPETAL_RELATIVE_TOLERANCE,
   CANDIDATE_CENTRIPETAL_RELATIVE_TOLERANCE,
-  FIXED_GEOMETRY_V2_SHA256,
+  FIXED_GEOMETRY_V3_SHA256,
   FixedGeometryCorpus,
   normalizeTrajectoryCandidate,
   validateNormalizedTrajectoryConstraints,
@@ -20,7 +20,7 @@ import {
   type NormalizedTrajectory,
 } from "./fixedGeometry";
 
-const CORRIDOR_V2_SHA256 = "sha256:626ec8af867207729815446bf0257d1ed5993ddcd22b35ad6759ea4e4c20c89b";
+const CORRIDOR_V3_SHA256 = "sha256:c37dd5050b2d62d0a714a8ca3dedc97f941e6a73e39f78c4b63c3573068e6d6c";
 const CORPUS_AUTHORITY = Symbol("bordeaux-corridor-corpus");
 const MAX_DENSE_STEP_M = 0.02;
 const MAX_DENSE_STEP_S = 0.02;
@@ -257,7 +257,7 @@ function validateCandidate(fixture: CorridorFixture, candidate: unknown): FixedG
 function parseManifest(contents: string): CorridorManifest {
   const value = JSON.parse(contents) as CorridorManifest;
   if (value.schemaVersion !== "bordeaux-corridor/1.0"
-    || value.sourceFixedGeometry?.sha256 !== FIXED_GEOMETRY_V2_SHA256
+    || value.sourceFixedGeometry?.sha256 !== FIXED_GEOMETRY_V3_SHA256
     || value.validation?.maximumDenseStepM !== MAX_DENSE_STEP_M
     || value.validation?.maximumDenseStepS !== MAX_DENSE_STEP_S
     || value.validation?.maximumSourceStepM !== MAX_SOURCE_STEP_M
@@ -287,12 +287,12 @@ export class CorridorCorpus {
     this.#fixtures = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
   }
 
-  static loadV2(directory: string): CorridorCorpus {
-    const fixed = FixedGeometryCorpus.loadV2(directory);
+  static loadV3(directory: string): CorridorCorpus {
+    const fixed = FixedGeometryCorpus.loadV3(directory);
     const contents = readFileSync(join(directory, "corridor.json"), "utf8");
     const lockDigest = readFileSync(join(directory, "corridor.sha256"), "utf8").trim();
-    if (digest(contents) !== CORRIDOR_V2_SHA256 || lockDigest !== CORRIDOR_V2_SHA256) {
-      throw new Error("Corridor manifest digest does not match the pinned v2 corpus.");
+    if (digest(contents) !== CORRIDOR_V3_SHA256 || lockDigest !== CORRIDOR_V3_SHA256) {
+      throw new Error("Corridor manifest digest does not match the pinned v3 corpus.");
     }
     const manifest = parseManifest(contents);
     if (manifest.corpusId !== fixed.corpusId || manifest.sourceFixedGeometry.file !== "fixed-geometry.json") {
@@ -304,7 +304,7 @@ export class CorridorCorpus {
     }
     const decoded = decodeProjectFile(projectContents);
     if (decoded.migrated || decoded.project.robot.drive !== "swerve") {
-      throw new Error("Corridor v2 requires a current, migration-free swerve project.");
+      throw new Error("Corridor v3 requires a current, migration-free swerve project.");
     }
     const fixedPaths = new Set(fixed.cases.map((value) => value.pathId));
     const ids = new Set<string>();
@@ -332,7 +332,7 @@ export class CorridorCorpus {
         const bounds = gate?.bounds;
         if (!gate?.id?.trim() || !bounds || ![bounds.xMin, bounds.xMax, bounds.yMin, bounds.yMax].every(finite)
           || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax
-          || bounds.xMin < 0 || bounds.xMax > FIELD_W || bounds.yMin < 0 || bounds.yMax > FIELD_H) {
+          || bounds.xMin < FIELD_X_MIN || bounds.xMax > FIELD_X_MAX || bounds.yMin < FIELD_Y_MIN || bounds.yMax > FIELD_Y_MAX) {
           throw new Error("Corridor gates must be named, finite, ordered field bounds.");
         }
       }

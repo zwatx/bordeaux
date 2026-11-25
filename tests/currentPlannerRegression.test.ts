@@ -397,6 +397,13 @@ describe("current planner regressions", () => {
 
   it("searches corridor improvements with the same robot-derived limits as the fixed planner", () => withWorkBudget(() => {
     const project = currentTangentToTargetsProject();
+    for (const waypoint of project.paths[0].waypoints) {
+      waypoint.theta += 180;
+      for (const point of [waypoint, waypoint.prevC, waypoint.nextC]) {
+        point.x = 8.2705 - point.x;
+        point.y = 4.0345 - point.y;
+      }
+    }
     project.paths[0].waypoints.slice(1, -1).forEach((waypoint) => { waypoint.corner = true; });
     const input = {
       path: project.paths[0],
@@ -451,8 +458,8 @@ describe("current planner regressions", () => {
     const project = createDemoProject();
     const path = project.paths[0];
     path.waypoints = buildWaypoints([
-      { x: 2.2, y: 4.0, theta: 0 },
-      { x: 6.36, y: 4.99, theta: 0 },
+      { x: 6.0705, y: 0.0345, theta: 180 },
+      { x: 1.9105, y: -0.9555, theta: 180 },
     ]);
 
     const result = finalPreview(path, project, true, optimizeCorridorFinal);

@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../math/fieldBounds";
 
 const trimmedString = (maximum: number) => z.string().trim().min(1).max(maximum);
 
@@ -27,8 +27,8 @@ export const robotPlanningProfileSchema = z.object({
 
 export const routeLocationSchema = z.union([
   z.object({
-    x: z.number().finite().min(0).max(FIELD_W),
-    y: z.number().finite().min(0).max(FIELD_H),
+    x: z.number().finite().min(FIELD_X_MIN).max(FIELD_X_MAX),
+    y: z.number().finite().min(FIELD_Y_MIN).max(FIELD_Y_MAX),
     headingDeg: z.number().finite().optional(),
   }),
   z.object({ term: trimmedString(160) }),
@@ -116,8 +116,8 @@ export const resolveFieldTermsInputSchema = z.object({
   phrases: z.array(trimmedString(160)).min(1).max(24).refine((values) => new Set(values).size === values.length, { message: "Field phrases must be unique." }),
   alliance: z.enum(["blue", "red"]).optional(),
   pose: z.discriminatedUnion("headingSource", [
-    z.object({ headingSource: z.literal("physical"), x: z.number().min(0).max(FIELD_W), y: z.number().min(0).max(FIELD_H), physicalHeadingRad: z.number().finite() }),
-    z.object({ headingSource: z.literal("authored"), x: z.number().min(0).max(FIELD_W), y: z.number().min(0).max(FIELD_H), authoredHeadingRad: z.number().finite(), driveBackward: z.boolean() }),
+    z.object({ headingSource: z.literal("physical"), x: z.number().min(FIELD_X_MIN).max(FIELD_X_MAX), y: z.number().min(FIELD_Y_MIN).max(FIELD_Y_MAX), physicalHeadingRad: z.number().finite() }),
+    z.object({ headingSource: z.literal("authored"), x: z.number().min(FIELD_X_MIN).max(FIELD_X_MAX), y: z.number().min(FIELD_Y_MIN).max(FIELD_Y_MAX), authoredHeadingRad: z.number().finite(), driveBackward: z.boolean() }),
   ]).optional(),
   relativeDistanceM: z.number().min(0.01).max(5).optional(),
   robotHeightM: z.number().positive().max(5).optional().describe("Fallback height only for migrated projects whose robot configuration has no height; configured project height is authoritative."),

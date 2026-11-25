@@ -1,9 +1,9 @@
 import type { BordeauxProject } from "../types";
-import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "../field/rebuilt2026";
 import { validateProjectSource } from "../validation";
 import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
-import { LEGACY_FIELD_SCHEMA, migrateLegacyFieldProject } from "./fieldMigration";
+import { LEGACY_FIELD_SCHEMA, migrateFieldProject } from "./fieldMigration";
 
 const CURRENT_PROJECT_SCHEMA_VERSION = "1.0" as const;
 
@@ -22,10 +22,11 @@ function assertSupportedFieldReference(value: unknown): void {
   if (value.id !== ACTIVE_FIELD_REFERENCE.id) {
     throw new Error(`Bordeaux field compatibility error: unsupported field ID ${JSON.stringify(value.id)}.`);
   }
-  if (value.revision !== ACTIVE_FIELD_REFERENCE.revision) {
+  const historical = value.coordinateSchemaId === BLUE_ORIGIN_FIELD_SCHEMA_ID || value.coordinateSchemaId === LEGACY_FIELD_SCHEMA;
+  if (value.revision !== (historical ? WELDED_FIELD_REVISION : ACTIVE_FIELD_REFERENCE.revision)) {
     throw new Error(`Bordeaux field compatibility error: unsupported field revision ${JSON.stringify(value.revision)}.`);
   }
-  if (value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId && value.coordinateSchemaId !== LEGACY_FIELD_SCHEMA) {
+  if (value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId && value.coordinateSchemaId !== BLUE_ORIGIN_FIELD_SCHEMA_ID && value.coordinateSchemaId !== LEGACY_FIELD_SCHEMA) {
     throw new Error(`Bordeaux field compatibility error: unsupported coordinate schema ${JSON.stringify(value.coordinateSchemaId)}.`);
   }
 }
@@ -70,7 +71,7 @@ function needsV1Migration(value: Record<string, unknown>): boolean {
 }
 
 function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile {
-  const prepared = migrateLegacyFieldProject(value);
+  const prepared = migrateFieldProject(value);
   const needsFieldMigration = prepared !== value;
   const routinePromoted = isRecord(prepared) ? promoteRoutineProjectSchema(prepared) : prepared;
   const hasRouteSelection = isRecord(routinePromoted) && Array.isArray(routinePromoted.paths)

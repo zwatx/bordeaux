@@ -1,3 +1,4 @@
+import { rotateBlueOriginPoint } from "../../src/core/math/fieldBounds";
 import { compileLabviewCatalog } from "../../src/electron/labviewProject";
 import { bdxBindingsFromCatalog } from "../../src/electron/bdxBindings";
 import { blankPath, buildWaypoints, createDemoProject } from "../../src/core/project/defaults";
@@ -9,7 +10,7 @@ export function binaryWriterFixture(curved = false, withEvents = true) {
   project.robot = forceExportRobot();
   path.id = curved ? "fixture-curve" : "fixture-straight";
   if (curved) {
-    path.waypoints = buildWaypoints([{ x: 2.2, y: 4, theta: 90, segType: "bezier" }, { x: 3.5, y: 5, theta: 0, segType: "bezier" }, { x: 5, y: 4, theta: -90 }]);
+    path.waypoints = buildWaypoints([{ ...rotateBlueOriginPoint({ x: 2.2, y: 4 }), theta: 270, segType: "bezier" }, { ...rotateBlueOriginPoint({ x: 3.5, y: 5 }), theta: 180, segType: "bezier" }, { ...rotateBlueOriginPoint({ x: 5, y: 4 }), theta: 90 }]);
     path.followMode = "time"; path.waypoints[0].segmentFollowMode = "time";
   }
   const declaration = { schemaVersion: "bordeaux-labview-catalog/1", catalogId: "test-only.binary-fixtures", commands: [{

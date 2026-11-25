@@ -1,4 +1,3 @@
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
 import type { BordeauxProject, ControlPoint, PathDoc, RobotConfig, RotationDirection, TurnInPlace, Waypoint } from "../types";
 import { wrapRadians } from "../math/angles";
 import { deriveHeadingGeometry } from "../math/pm";
@@ -10,7 +9,7 @@ import { routePlanningPath } from "../planners/routeGeometry";
 export type FieldFlipDirection = "horizontal" | "vertical" | "rotate";
 type PlanningContext = Pick<BordeauxProject, "robot" | "field">;
 
-const oppositeAlliancePoint = ({ x, y }: ControlPoint): ControlPoint => ({ x: FIELD_W - x, y: FIELD_H - y });
+const oppositeAlliancePoint = ({ x, y }: ControlPoint): ControlPoint => ({ x: -x, y: -y });
 const mirrorMoving = (direction: RotationDirection): RotationDirection => direction === "cw" ? "ccw" : direction === "ccw" ? "cw" : direction;
 const mirrorStationary = (direction: NonNullable<TurnInPlace["direction"]>): NonNullable<TurnInPlace["direction"]> =>
   direction === "clockwise" ? "counterclockwise" : direction === "counterclockwise" ? "clockwise" : direction;
@@ -39,8 +38,8 @@ function flipFieldPath(path: PathDoc, direction: FieldFlipDirection, robot: Robo
   const mirrored = direction !== "rotate";
   const stationaryTies = mirrored ? mirroredStationaryTies(path, robot) : null;
   const point = ({ x, y }: ControlPoint): ControlPoint => ({
-    x: direction === "vertical" ? x : FIELD_W - x,
-    y: direction === "horizontal" ? y : FIELD_H - y,
+    x: direction === "vertical" ? x : -x,
+    y: direction === "horizontal" ? y : -y,
   });
   // Keep raw authored angles so signed half-turns keep their interpolation branch.
   const heading = (degrees: number) => {
@@ -79,6 +78,7 @@ function flipFieldPath(path: PathDoc, direction: FieldFlipDirection, robot: Robo
 export function flipPath(path: PathDoc, direction: FieldFlipDirection, { robot, field }: PlanningContext,
   qualifyAccepted: (path: PathDoc) => boolean, copy = false): PathDoc {
   const flipped = flipFieldPath(path, direction, robot), accepted = path.optimization?.accepted;
+  if (accepted?.requiresFieldReview && !copy) return flipped;
   const keyFor = accepted?.version === 2 ? routeIntentKey : optimizationInputKey;
   if (direction !== "rotate" || copy || accepted && accepted.inputKey !== keyFor(path, robot, field)) {
     // Replan a reflection with the actual robot. A stale selection cannot reactivate at the transformed geometry.

@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
   try {
     if (placementMode) return await runPlacement();
     if (process.env.BORDEAUX_BRANCH_UI_MODE === 'completion') return await runCompletion();
-    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+    const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     saved = { ...corpus, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Command output branching', nodes: [{ id: 'inspect-step', type: 'function', cat: 'command', title: catalog.commands[0].label, invocation: { commandId: 'inspect', arguments: {} } }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
@@ -195,7 +195,7 @@ async function runCompletion() {
   Object.assign(catalog, require('./command-completion-fixture.cjs').completionCatalog());
   assert.equal(catalog.commands.length, 4);
   assert.ok(catalog.commands.every(command => command.outputs.length === 1));
-  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
   const nodes = catalog.commands.map((command, index) => ({ id: 'completion-' + index, type: 'function', cat: 'command', title: command.label, invocation: { commandId: command.id, arguments: {} } }));
   saved = { ...corpus, routines: [{ id: 'route-test', name: 'Command completion routes', nodes }], activeRoutineId: 'route-test',
     editor: { activePathId: corpus.paths[0].id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
@@ -236,7 +236,7 @@ async function runPlacement() {
   const rows = [];
   win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
   win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
-  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v2/corpus.bordeaux.json', 'utf8'));
+  const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
   const pathOf = (id, over = {}) => ({ ...structuredClone(corpus.paths.find((p) => p.id === id)), markers: [], ...over });
   const fixture = ({ bookmark = true, paths = [pathOf('corpus-neutral-stop'), pathOf('corpus-neutral-slalom')] } = {}) => ({ ...corpus, paths, pathLinks: [], routines: [], activeRoutineId: undefined,
     editor: { activePathId: paths[0].id, ...(bookmark ? { robotProjectBookmarkId: 'fixture' } : {}), unitSystem: 'metric' } });
