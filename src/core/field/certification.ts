@@ -1,5 +1,5 @@
 import { sha256Hex } from "../bytes";
-import { FIELD_X_MAX, FIELD_Y_MAX, rotateBlueOriginPoint } from "../math/fieldBounds";
+import { FIELD_X_MAX, FIELD_Y_MAX, centerAndyMarkPoint } from "../math/fieldBounds";
 import {
   ACTIVE_FIELD_REFERENCE,
   REBUILT_2026_FIELD,
@@ -11,7 +11,7 @@ const CERTIFICATION_SCHEMA_VERSION = "bordeaux-field-certification/1.0" as const
 const EPSILON = 1e-8;
 
 /** Update deliberately only after reviewing a changed certification report. */
-export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:dd15accbf828c65c0590a4f25b8672d4b7a5dd87c56bb4d40a2cdafe6ba3f378";
+export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:bf457c53a7382d07332e6a3de36875f9f7ae7746d1d11cb19bb8cb97e05efe3e";
 
 /** These commitments are deliberately distinct so coordinate fixes do not imply full behavior certification. */
 export const FIELD_SUPPORT_PROMISES = {
@@ -127,7 +127,7 @@ export function certifyField(
   pack: FieldPack = REBUILT_2026_FIELD,
   options: FieldCertificationOptions = {},
 ): FieldCertificationReport {
-  const transforms = options.transforms ?? { officialToAppPoint: rotateBlueOriginPoint, appToOfficialPoint: rotateBlueOriginPoint };
+  const transforms = options.transforms ?? { officialToAppPoint: centerAndyMarkPoint, appToOfficialPoint: centerAndyMarkPoint };
   const coordinateSchemaId = options.coordinateSchemaId ?? ACTIVE_FIELD_REFERENCE.coordinateSchemaId;
   const expectedDigest = options.expectedDigest === undefined
     ? FIELD_CERTIFICATION_EXPECTED_DIGEST
@@ -144,7 +144,7 @@ export function certifyField(
   const officialSamples: FieldPoint[] = [
     { x: 0, y: 0 },
     { x: pack.dimensions.lengthM, y: pack.dimensions.widthM },
-    ...pack.crossingBarriers.flatMap((barrier) => barrier.portals.map((portal) => rotateBlueOriginPoint(portal.point))),
+    ...pack.crossingBarriers.flatMap((barrier) => barrier.portals.map((portal) => centerAndyMarkPoint(portal.point))),
   ];
   let roundtrip = true;
   try {
@@ -154,7 +154,7 @@ export function certifyField(
       return finitePoint(restored) && close(restored.x, point.x) && close(restored.y, point.y);
     });
   } catch { roundtrip = false; }
-  check("transform.roundtrip", roundtrip, "Official-to-app and app-to-official transforms round-trip corners and every portal center.");
+  check("transform.roundtrip", roundtrip, "AndyMark blue-origin and centered transforms round-trip corners and every portal center.");
 
   let orientation = true;
   try {
@@ -175,6 +175,22 @@ export function certifyField(
       && close(redView.x, redOpposite.x) && close(redView.y, redOpposite.y);
   } catch { orientation = false; }
   check("transform.alliance-orientation", orientation, "Authored coordinates use centered meters; the opposite alliance is a 180-degree rotation within the same fixed frame.");
+
+  const find = (id: string) => pack.landmarks.find((landmark) => landmark.id === id);
+  const wall = find("blue-alliance-wall")?.line;
+  const rail = find("scoring-table-guardrail")?.line;
+  const wallTag = find("apriltag-29")?.point;
+  const blueBarrier = pack.crossingBarriers.find((barrier) => barrier.allianceOwner === "blue");
+  check("andymark.perimeter-and-wall-tags",
+    !!wall && !!rail && !!wallTag && [wall.start.x, wall.end.x].every((x) => close(x, 8.259))
+    && [rail.start.y, rail.end.y].every((y) => close(y, 4.0215))
+    && close(wallTag.x, 8.2453094) && close(wallTag.y, 3.3707266),
+    "Perimeter and wall tags use WPILib v2026.2.1 AndyMark measurements.");
+  check("andymark.interior-registration", !!blueBarrier
+    && close(blueBarrier.x, 4.24206)
+    && blueBarrier.portals.filter((portal) => portal.side === "table").every(({ point }) => point.y > 0)
+    && blueBarrier.portals.filter((portal) => portal.side === "away").every(({ point }) => point.y < 0),
+    "Interior features retain the welded center-relative geometry; the perimeter limits the wall-side trench clear span.");
 
   check("landmark.unique-finite-in-bounds", landmarkGeometryIsValid(pack), "Landmarks have unique IDs and all declared coordinates, lines, and regions are finite and in bounds.");
 

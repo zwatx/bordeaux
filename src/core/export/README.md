@@ -3,19 +3,21 @@
 ## BDX field coordinates
 
 Every standalone BDX and every BDX embedded in a BDR carries the exact field reference
-`2026-rebuilt · 2026-manual-tu19-welded-4 · wpilib-center-origin/2026-welded/1`.
+`2026-rebuilt · 2026-manual-tu19-andymark-1 · wpilib-center-origin/2026-andymark/1`.
 The robot must validate all three fields against its supported odometry frame
 before executing any sample or command. Reject older pins, missing pins, and unknown
 pins during preload. A successful push or binary decode confirms delivery or
 readability only.
 
 Positions are in meters from the field center in the NWU convention. Positive X
-points toward the blue wall at +8.2705 m. Positive Y points toward the scoring-table
-guardrail at +4.0345 m. Robot heading and travel heading are radians, with zero along
+points toward the blue wall at +8.259 m. Positive Y points toward the scoring-table
+guardrail at +4.0215 m. Robot heading and travel heading are radians, with zero along
 +X and counterclockwise positive. Timing stays in seconds. Robot-local force
 components keep their existing axes and units.
 
-For example, the historical blue-origin pose (2 m, 1 m, 30°) describes the same
+Historical projects rotate around the welded field center to preserve positions relative to the interior structures. The center-origin AndyMark perimeter is smaller. Opening a historical project reports authored positions outside the new limits.
+
+For example, the historical welded blue-origin pose (2 m, 1 m, 30°) describes the same
 physical pose as (6.2705 m, 3.0345 m, 210°) in the centered frame. Both heading
 angles rotate by π modulo 2π. Angular velocity is unchanged.
 

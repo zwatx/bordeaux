@@ -22,7 +22,7 @@ type AcceptedTrajectory = NonNullable<NonNullable<PathDoc["optimization"]>["acce
 
 export function getAcceptedTrajectory(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): PlannerResult | null {
   const accepted = path.optimization?.accepted;
-  if (!accepted) return null;
+  if (!accepted || accepted.requiresFieldReview) return null;
   try {
     if (accepted.version === 2) {
       if (accepted.inputKey !== routeIntentKey(path, robot, field)) return null;
@@ -48,6 +48,9 @@ export function getAcceptedTrajectory(path: PathDoc, robot: RobotConfig, field: 
 
 /** The trajectory export and analysis drive: the applied optimization for current inputs, otherwise normal planning. */
 export function selectPathTrajectory(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): PlannerResult {
+  if (path.optimization?.accepted?.requiresFieldReview) {
+    throw new Error(`${path.name}: The applied optimization uses the previous field frame. Choose Use normal or optimize and apply again before exporting.`);
+  }
   const accepted = getAcceptedTrajectory(path, robot, field);
   if (accepted) return accepted;
   if (path.optimization?.accepted && !isOptimizationOutdated(path, robot, field)) {

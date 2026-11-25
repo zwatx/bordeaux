@@ -2,7 +2,7 @@ import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./type
 import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField } from "./math/fieldBounds";
-import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "./field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
@@ -455,9 +455,13 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
       || project.fieldMigration.assigned.coordinateSchemaId !== project.field.coordinateSchemaId) {
       issues.push(issue("$.fieldMigration.assigned", "Field migration assignment must match the project field reference"));
     } else {
-      const { source, via } = project.fieldMigration;
+      const { source, sourceField, via } = project.fieldMigration;
+      if (source === "legacy-unpinned" ? sourceField !== undefined : (
+        !isRecord(sourceField) || sourceField.id !== ACTIVE_FIELD_REFERENCE.id || sourceField.revision !== WELDED_FIELD_REVISION
+        || sourceField.coordinateSchemaId !== source
+      )) issues.push(issue("$.fieldMigration.sourceField", "Field migration must record the complete historical pin for pinned sources"));
       if (source === BLUE_ORIGIN_FIELD_SCHEMA_ID ? via !== undefined : (
-        !isRecord(via) || via.id !== ACTIVE_FIELD_REFERENCE.id || via.revision !== ACTIVE_FIELD_REFERENCE.revision
+        !isRecord(via) || via.id !== ACTIVE_FIELD_REFERENCE.id || via.revision !== WELDED_FIELD_REVISION
         || via.coordinateSchemaId !== BLUE_ORIGIN_FIELD_SCHEMA_ID
       )) issues.push(issue("$.fieldMigration.via", "Field migration must record the intermediate blue-origin assignment for legacy sources"));
     }

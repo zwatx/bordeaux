@@ -1,6 +1,10 @@
-// 2026 REBUILT welded field in the WPILib center-origin frame.
-export const FIELD_W = 16.541;
-export const FIELD_H = 8.069;
+// 2026 REBUILT AndyMark field in the WPILib center-origin frame.
+export const FIELD_W = 16.518;
+export const FIELD_H = 8.043;
+
+// Historical source and interior measurements are pinned to the welded field.
+export const WELDED_FIELD_W = 16.541;
+export const WELDED_FIELD_H = 8.069;
 
 export interface WorldPoint {
   x: number;
@@ -27,5 +31,10 @@ export function pointInsideField({ x, y }: WorldPoint): boolean {
 
 /** This rigid transform is its own inverse. */
 export function rotateBlueOriginPoint({ x, y }: WorldPoint): WorldPoint {
+  return { x: WELDED_FIELD_W / 2 - x, y: WELDED_FIELD_H / 2 - y };
+}
+
+/** WPILib v2026.2.1 AndyMark layout measurements use the historical axes. */
+export function centerAndyMarkPoint({ x, y }: WorldPoint): WorldPoint {
   return { x: FIELD_X_MAX - x, y: FIELD_Y_MAX - y };
 }

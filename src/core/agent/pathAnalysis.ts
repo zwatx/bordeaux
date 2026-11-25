@@ -1,5 +1,4 @@
-import { REBUILT_2026_FIELD, REBUILT_2026_FIELD_WIDTH_M, officialToAppPoint } from "../field/rebuilt2026";
-import { FIELD_H } from "../math/fieldBounds";
+import { REBUILT_2026_FIELD, officialToAppPoint } from "../field/rebuilt2026";
 import { selectPathTrajectory } from "../planners/acceptedTrajectory";
 import { clone } from "../project/defaults";
 import { effectivePathConstraints } from "../robotLimits";
@@ -30,11 +29,7 @@ const APP_BARRIER_X = new Map(REBUILT_2026_FIELD.crossingBarriers.map((barrier) 
 )));
 
 const APP_PORTAL_BOUNDS = new Map(REBUILT_2026_FIELD.crossingBarriers.flatMap((barrier) => (
-  barrier.portals.map((portal) => {
-    const point = officialToAppPoint(portal.point);
-    const halfWidth = portal.widthM * FIELD_H / REBUILT_2026_FIELD_WIDTH_M / 2;
-    return [portal, { minY: point.y - halfWidth, maxY: point.y + halfWidth }] as const;
-  })
+  barrier.portals.map((portal) => [portal, { minY: portal.bounds.yMin, maxY: portal.bounds.yMax }] as const)
 )));
 
 interface MeasuredValue {

@@ -78,6 +78,7 @@ function flipFieldPath(path: PathDoc, direction: FieldFlipDirection, robot: Robo
 export function flipPath(path: PathDoc, direction: FieldFlipDirection, { robot, field }: PlanningContext,
   qualifyAccepted: (path: PathDoc) => boolean, copy = false): PathDoc {
   const flipped = flipFieldPath(path, direction, robot), accepted = path.optimization?.accepted;
+  if (accepted?.requiresFieldReview && !copy) return flipped;
   const keyFor = accepted?.version === 2 ? routeIntentKey : optimizationInputKey;
   if (direction !== "rotate" || copy || accepted && accepted.inputKey !== keyFor(path, robot, field)) {
     // Replan a reflection with the actual robot. A stale selection cannot reactivate at the transformed geometry.

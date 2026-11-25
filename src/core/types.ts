@@ -526,6 +526,8 @@ export interface PathDoc {
 
 /** Exact selected samples; v1 retains its original corridor contract. */
 export interface AcceptedTrajectory {
+  /** Samples and input key were saved in a historical field frame. */
+  requiresFieldReview?: true;
   version: 1 | 2;
   inputKey: string;
   samplesPerSegment: number;
@@ -722,6 +724,7 @@ export interface FieldReference {
 
 export interface FieldMigrationRecord {
   source: "legacy-unpinned" | "bordeaux-field/1.0" | "wpilib-blue-origin/2026-welded/1";
+  sourceField?: FieldReference;
   via?: FieldReference;
   assigned: FieldReference;
 }

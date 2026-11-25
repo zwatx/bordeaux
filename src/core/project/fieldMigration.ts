@@ -1,11 +1,11 @@
-import { FIELD_H, FIELD_W, rotateBlueOriginPoint } from "../math/fieldBounds";
+import { WELDED_FIELD_H, WELDED_FIELD_W, rotateBlueOriginPoint } from "../math/fieldBounds";
 import { MAX_AUTHORED_ANGLE_DEG } from "../planners/limits";
-import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "../field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "../field/rebuilt2026";
 
 export const LEGACY_FIELD_SCHEMA = "bordeaux-field/1.0";
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-export const BLUE_ORIGIN_FIELD_REFERENCE = { ...ACTIVE_FIELD_REFERENCE, coordinateSchemaId: BLUE_ORIGIN_FIELD_SCHEMA_ID };
+export const BLUE_ORIGIN_FIELD_REFERENCE = { ...ACTIVE_FIELD_REFERENCE, revision: WELDED_FIELD_REVISION, coordinateSchemaId: BLUE_ORIGIN_FIELD_SCHEMA_ID };
 
 /** Convert historical field-space data before normalization. Invalid geometry
  * stays invalid and command arguments remain opaque.
@@ -35,7 +35,7 @@ export function migrateFieldProject(value: unknown): unknown {
   };
   const point = (raw: unknown): unknown => record(raw) && finite(raw.x) && finite(raw.y)
     ? { ...raw, ...rotateBlueOriginPoint(legacy
-      ? { x: (1 - raw.x / 17.548) * FIELD_W, y: (1 - raw.y / 8.052) * FIELD_H }
+      ? { x: (1 - raw.x / 17.548) * WELDED_FIELD_W, y: (1 - raw.y / 8.052) * WELDED_FIELD_H }
       : { x: raw.x, y: raw.y }) } : raw;
   const paths = value.paths.map((raw, pathIndex) => {
     const base = `$.paths[${pathIndex}]`;
@@ -51,7 +51,11 @@ export function migrateFieldProject(value: unknown): unknown {
         };
       }) } : {}),
       ...(Array.isArray(raw.targets) ? { targets: raw.targets.map((target, index) => record(target) ? { ...target, deg: heading(target.deg, `${base}.targets[${index}].deg`) } : target) } : {}),
-      // Accepted samples retain their original provenance/key; the changed field and source invalidate them.
+      // Retain historical samples, geometry and identity together. Export requires
+      // review even though playback can rebuild Normal from the centered source.
+      ...(record(raw.optimization) && record(raw.optimization.accepted) ? { optimization: {
+        ...raw.optimization, accepted: { ...raw.optimization.accepted, requiresFieldReview: true },
+      } } : {}),
     };
   });
   let strategy = value.strategy;
@@ -69,7 +73,10 @@ export function migrateFieldProject(value: unknown): unknown {
     }
     return location;
   }) };
+  const source = previous ?? defaultSource;
+  const sourceField = source === "legacy-unpinned" ? undefined
+    : { ...BLUE_ORIGIN_FIELD_REFERENCE, coordinateSchemaId: source };
   return { ...value, paths, ...(strategy !== undefined ? { strategy } : {}), field: { ...ACTIVE_FIELD_REFERENCE },
-    fieldMigration: { source: previous ?? defaultSource,
+    fieldMigration: { source, ...(sourceField && { sourceField }),
       ...(legacy || previous ? { via: { ...BLUE_ORIGIN_FIELD_REFERENCE } } : {}), assigned: { ...ACTIVE_FIELD_REFERENCE } } };
 }

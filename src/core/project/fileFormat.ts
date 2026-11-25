@@ -1,5 +1,5 @@
 import type { BordeauxProject } from "../types";
-import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "../field/rebuilt2026";
+import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "../field/rebuilt2026";
 import { validateProjectSource } from "../validation";
 import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
@@ -22,7 +22,8 @@ function assertSupportedFieldReference(value: unknown): void {
   if (value.id !== ACTIVE_FIELD_REFERENCE.id) {
     throw new Error(`Bordeaux field compatibility error: unsupported field ID ${JSON.stringify(value.id)}.`);
   }
-  if (value.revision !== ACTIVE_FIELD_REFERENCE.revision) {
+  const historical = value.coordinateSchemaId === BLUE_ORIGIN_FIELD_SCHEMA_ID || value.coordinateSchemaId === LEGACY_FIELD_SCHEMA;
+  if (value.revision !== (historical ? WELDED_FIELD_REVISION : ACTIVE_FIELD_REFERENCE.revision)) {
     throw new Error(`Bordeaux field compatibility error: unsupported field revision ${JSON.stringify(value.revision)}.`);
   }
   if (value.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId && value.coordinateSchemaId !== BLUE_ORIGIN_FIELD_SCHEMA_ID && value.coordinateSchemaId !== LEGACY_FIELD_SCHEMA) {
