@@ -411,9 +411,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     });
     const toggleFieldFocus = useCallback(() => {
       if (!fieldFocus) retireDeletion();
+      // Hiding from inside the list hands focus to the strip that replaces it, not to the field, which has no ring of
+      // its own and would show the system focus outline around the whole stage.
       if (!fieldFocus && document.activeElement?.closest('.stage-plan .library-rail')) {
-        document.querySelector('.stage-plan .fieldsvg')?.focus();
-        if (document.activeElement?.closest('.library-rail')) document.querySelector('.toolbar .place')?.focus();
+        document.activeElement.blur();
+        requestAnimationFrame(() => (document.querySelector('.library-restore-btn') || document.querySelector('.toolbar .place'))?.focus());
       }
       setFieldFocus(!fieldFocus);
       try {

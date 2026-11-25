@@ -48,7 +48,7 @@ function LibraryRestore({ mode, onRestore, rail }) {
         onRestore();
         requestAnimationFrame(() => (rail.current?.querySelector('.library-pick[aria-current="true"]') || rail.current?.querySelector('button:not(:disabled)'))?.focus());
       } },
-      h(Icon, { name: 'panelopen', size: 18 }), h('span', { 'aria-hidden': true }, mode === 'paths' ? 'Paths' : 'Routines')));
+      h(Icon, { name: 'panelopen', size: 18 })));
 }
 
 // Hiding sits at the library's own edge, beside its other header actions; the restore strip is the single way back.

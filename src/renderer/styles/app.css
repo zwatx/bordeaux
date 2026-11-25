@@ -552,7 +552,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 @media (hover:hover){.vc-btn:not(.active):hover,.vc-pct:hover{background:var(--bg-3);color:var(--txt)}}
 /* Focus leaves this strip where the library was; it is the way back. */
 .library-restore{display:flex;flex:0 0 52px;flex-direction:column;align-items:center;padding:8px 0;background:var(--bg-1);border-right:1px solid var(--line-2)}
-.library-restore-btn{display:flex;flex-direction:column;align-items:center;gap:4px;width:44px;padding:8px 0 7px;border-radius:var(--r-s);color:var(--txt-2);font-size:11px;font-weight:500}
+.library-restore-btn{display:grid;place-items:center;width:36px;height:36px;border-radius:var(--r-s);color:var(--txt-2)}
 .library-restore-btn:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media (hover:hover){.library-restore-btn:hover{background:var(--bg-3);color:var(--txt)}}
 
