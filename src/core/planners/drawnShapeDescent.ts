@@ -25,10 +25,6 @@ const ROUNDS_PER_STEP = 3;
 /** A move must save this much first-pass time to be kept. */
 const MINIMUM_PROBE_GAIN_S = 1e-4;
 const DEVIATION_RESOLUTION = 64;
-/** Curves handed over per yield. `stop` is read between them, so a long path cannot overrun its budget by a whole round. */
-const BATCH_CURVES = 16;
-/** Earlier incumbents returned after the best one, in case it fails qualification. */
-const FALLBACK_CURVES = 2;
 /**
  * The share of a material gain the first sweep must promise for the descent to go on. Over the 22 optimizer
  * eval paths on one robot, the paths with nothing to gain promised at most 0.23 of it and the rest at least 1.09.
@@ -46,15 +42,28 @@ const SEGMENT_MOVES: ReadonlyArray<readonly [number, number]> = [
  * `limitM` of the drawn one; only handle lengths change.
  *
  * The descent ranks curves by first-pass time, which the caller supplies: each
- * `yield` hands over a batch of curves and resumes with their times, in order.
+ * `yield` hands over up to `batchCurves` curves and resumes with their times, in
+ * order. Between batches it reads `pace`. `giveUp` ends the descent with what it
+ * has. `enough` ends it only after the first sweep: that sweep is what finds a
+ * result at all, so a slow machine still finishes it and gets a coarser curve
+ * instead of none.
  * Time them at the plan's own sample density. At half density the corpus slalom
  * ranked curves that were slower than Normal once planned in full, and the
  * search returned nothing where a 9.6% gain exists.
  * A caller may time a batch on several threads; the result is the same either
- * way. Returns the best curve found and then its earlier steps, or nothing when
- * no curve beats the drawn one. The caller plans and qualifies what it is given.
+ * way. Returns the best curve found, or nothing when no curve beats the drawn
+ * one, followed by fallbacks: the curve it held after each smaller move size and
+ * after its first sweep. A first-pass time can be far below what the full plan
+ * of the same curve takes (2.32 s against 3.43 s on the corpus slalom after the
+ * finest moves), so the caller plans and qualifies these in order and keeps the
+ * first that holds up.
  */
-export function* drawnShapeDescent(input: PlannerInput, limitM: number, stop: () => boolean): Generator<RouteGeometry[], RouteGeometry[], number[]> {
+export function* drawnShapeDescent(
+  input: PlannerInput,
+  limitM: number,
+  pace: { enough: () => boolean; giveUp: () => boolean },
+  batchCurves: number,
+): Generator<RouteGeometry[], RouteGeometry[], number[]> {
   const source = input.path;
   const drawn = geometryFromPath(source);
   const distance = (a: ControlPoint, b: ControlPoint) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -115,11 +124,11 @@ export function* drawnShapeDescent(input: PlannerInput, limitM: number, stop: ()
   const timed = new Map<string, number>();
   const timeOf = (lengths: readonly number[]) => timed.get(lengths.join()) ?? Number.POSITIVE_INFINITY;
   /** Times every curve not timed yet. False when `stop` cut it short, which leaves some of them untimed. */
-  function* time(candidates: ReadonlyArray<readonly number[]>): Generator<RouteGeometry[], boolean, number[]> {
+  function* time(candidates: ReadonlyArray<readonly number[]>, stop: () => boolean): Generator<RouteGeometry[], boolean, number[]> {
     const untimed = [...new Map(candidates.filter((lengths) => !timed.has(lengths.join())).map((lengths) => [lengths.join(), lengths])).values()];
-    for (let from = 0; from < untimed.length; from += BATCH_CURVES) {
+    for (let from = 0; from < untimed.length; from += batchCurves) {
       if (stop()) return false;
-      const batch = untimed.slice(from, from + BATCH_CURVES);
+      const batch = untimed.slice(from, from + batchCurves);
       const times = yield batch.map(shaped);
       batch.forEach((lengths, index) => timed.set(lengths.join(), Number.isFinite(times[index]) ? times[index] : Number.POSITIVE_INFINITY));
     }
@@ -128,9 +137,11 @@ export function* drawnShapeDescent(input: PlannerInput, limitM: number, stop: ()
 
   const segments = [...new Set(handles.map((handle) => handle.segment))]
     .map((segment) => ({ segment, indices: handles.flatMap((handle, index) => handle.segment === segment ? [index] : []) }));
-  if (!(yield* time([drawnLengths]))) return [];
+  if (!(yield* time([drawnLengths], pace.giveUp))) return [];
   let best = { lengths: drawnLengths as readonly number[], timeS: timeOf(drawnLengths) };
   const incumbents: Array<readonly number[]> = [];
+  // The incumbent after the first sweep and after each move size, coarsest first.
+  const checkpoints: Array<readonly number[]> = [];
   search: for (const steps of MOVE_STEPS) {
     // A repeat round at the same step revisits only segments whose curve moved, or whose neighbour's did.
     let changed = new Set(segments.map(({ segment }) => segment));
@@ -144,7 +155,8 @@ export function* drawnShapeDescent(input: PlannerInput, limitM: number, stop: ()
           .filter((move) => indices.length > 1 || move[1] === 0)
           .flatMap((move) => { const lengths = reach(best.lengths, indices, move, steps); return lengths ? [lengths] : []; }) }));
       // A round cut short has timed only some segments' moves; choosing among them would favour the early segments.
-      if (!(yield* time(trials.flatMap((trial) => trial.moves)))) break search;
+      const stop = incumbents.length === 0 && steps === MOVE_STEPS[0] && round === 0 ? pace.giveUp : pace.enough;
+      if (!(yield* time(trials.flatMap((trial) => trial.moves), stop))) break search;
       const improving = trials.flatMap(({ segment, indices, moves }) => {
         const lengths = moves.reduce<readonly number[] | null>((leader, candidate) =>
           timeOf(candidate) < (leader ? timeOf(leader) : best.timeS - MINIMUM_PROBE_GAIN_S) ? candidate : leader, null);
@@ -160,14 +172,17 @@ export function* drawnShapeDescent(input: PlannerInput, limitM: number, stop: ()
         // Segments share only their joints, so their best moves usually add up. Time the union to be sure.
         const union = [...best.lengths];
         improving.forEach(({ indices, lengths }) => indices.forEach((index) => { union[index] = lengths[index]; }));
-        if (withinLimit(union) && (yield* time([union]))) {
+        if (withinLimit(union) && (yield* time([union], pace.giveUp))) {
           if (timeOf(union) < next.timeS - MINIMUM_PROBE_GAIN_S) next = { lengths: union, timeS: timeOf(union), segments: improving.map(({ segment }) => segment) };
         }
       }
       best = next;
       incumbents.push(next.lengths);
+      if (incumbents.length === 1) checkpoints.push(next.lengths);
       next.segments.forEach((segment) => changed.add(segment));
     }
+    if (incumbents.length > 0) checkpoints.push(best.lengths);
   }
-  return incumbents.reverse().slice(0, 1 + FALLBACK_CURVES).map(shaped);
+  if (incumbents.length === 0) return [];
+  return [...new Map([best.lengths, ...checkpoints.reverse()].map((lengths) => [lengths.join(), lengths])).values()].map(shaped);
 }

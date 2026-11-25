@@ -20,6 +20,12 @@ export interface RouteFinalOptions {
   budgetTier?: "common" | "stress" | "hard";
   budgetMs?: number;
   maximumEvaluations?: number;
+  /**
+   * Only for the search that keeps the drawn shape: when it gives up, at least `budgetMs`.
+   * It paces itself by `budgetMs` and runs past it only to finish its first sweep and to
+   * plan the curve its descent found.
+   */
+  hardBudgetMs?: number;
   isCancelled?: () => boolean;
   onProgress?: (candidate: PlannerResult) => void;
   onStatistics?: (statistics: CorridorSearchStatistics) => void;
@@ -35,6 +41,9 @@ export interface RouteSearchResult {
   termination: NonNullable<PlannerOptimizationDiagnostics["termination"]>;
   statistics: CorridorSearchStatistics;
 }
+
+/** Curves a sequential shape descent times between reads of its pace. Small, so it overruns a limit by little. */
+const SEQUENTIAL_DESCENT_BATCH = 4;
 
 /** The drawn curve and its three shortened-handle repairs, which routeCandidates yields right after the canonical rescue. */
 const HEAD_START_CANDIDATES = 4;
@@ -59,6 +68,7 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
   const tier = options.budgetTier ?? "common";
   const budget = Math.max(1, Math.min(30_000, Number.isFinite(options.budgetMs) ? options.budgetMs! : ({ common: 5000, stress: 15000, hard: 30000 })[tier]));
   const maximum = Math.max(1, Math.min(72, Math.floor(Number.isFinite(options.maximumEvaluations) ? options.maximumEvaluations! : ({ common: 24, stress: 48, hard: 72 })[tier])));
+  const hardBudget = Math.max(budget, Number.isFinite(options.hardBudgetMs) ? options.hardBudgetMs! : budget);
   let evaluations = 0;
   let validatedCandidates = 0;
   let rejectedCandidates = 0;
@@ -111,8 +121,17 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
   return {
     source,
     stop,
-    /** True once half the time budget is spent: a descent stops here so its curves can still be planned and qualified. */
-    halfSpent: () => stop() || performance.now() - start >= budget / 2,
+    /** How a shape descent paces itself inside this search's budget. */
+    descentPace: {
+      // Half the budget is enough descent: the rest plans and qualifies what it found.
+      enough: () => stop() || performance.now() - start >= budget / 2,
+      giveUp: () => Boolean(options.isCancelled?.()) || performance.now() - start >= hardBudget,
+    },
+    /**
+     * True when no evaluation may start. Unlike `stop` it keeps no margin for a further candidate,
+     * so the curves a descent was run to find are still planned when the descent ran long.
+     */
+    spent: () => Boolean(options.isCancelled?.()) || evaluations >= maximum || performance.now() - start >= hardBudget,
     candidates: routeCandidates(source, stop, () => reject("Visibility graph work budget exhausted; route alternatives remain untested.")),
     limits: (): RouteCandidateLimits => {
       const timeToBeat = best ? best.totalTimeS - 1e-6 : Number.POSITIVE_INFINITY;
@@ -301,12 +320,12 @@ export function optimizeDrawnShapeFinal(input: PlannerInput, limitM: number, opt
   };
   if (!search.stop()) evaluate(geometryFromPath(search.source.path));
   if (!search.stop()) search.recordSeed(qualifyRouteSeed(search.source));
-  const descent = drawnShapeDescent(search.source, limitM, search.halfSpent);
+  const descent = drawnShapeDescent(search.source, limitM, search.descentPace, SEQUENTIAL_DESCENT_BATCH);
   let step = descent.next();
   while (!step.done) step = descent.next(step.value.map((geometry) => probeRouteCandidate(search.source, geometry)));
   // The best curve first; its fallbacks matter only if it is not valid.
   for (const geometry of step.value) {
-    if (search.stop() || evaluate(geometry)) break;
+    if (search.spent() || evaluate(geometry)) break;
   }
   return search.finish();
 }
@@ -336,7 +355,7 @@ export async function optimizeDrawnShapeFinalParallel(
   search.take(drawn);
   const drawnCurve = evaluate(drawn);
   const seed = evaluator.qualifySeed(search.source);
-  const descent = drawnShapeDescent(search.source, limitM, search.halfSpent);
+  const descent = drawnShapeDescent(search.source, limitM, search.descentPace, evaluator.parallelism * 4);
   let step = descent.next();
   while (!step.done) step = descent.next(await Promise.all(step.value.map((geometry) => evaluator.probe(search.source, geometry))));
   const first = await drawnCurve;
@@ -344,7 +363,7 @@ export async function optimizeDrawnShapeFinalParallel(
   search.recordSeed(await seed);
   // The best curve first, against the limits Normal and the drawn curve set; its fallbacks matter only if it is not valid.
   for (const geometry of step.value) {
-    if (search.stop()) break;
+    if (search.spent()) break;
     if (!search.take(geometry)) continue;
     const result = await evaluate(geometry);
     search.recordCandidate(result.outcome, result.elapsedMs);
