@@ -313,7 +313,10 @@ describe("agent route candidates", () => {
   });
 
   it("does not collapse two chronologically separate visits to the same portal", () => {
-    const candidates = generateRouteCandidates(createDemoProject(), {
+    const project = createDemoProject();
+    // Leave room for the narrower AndyMark trench as the chassis rotates on return.
+    project.robot.w = project.robot.l = 0.8;
+    const candidates = generateRouteCandidates(project, {
       intent: "Leave and return through the red left TRENCH",
       alliance: "red",
       start: { term: "red left trench" },

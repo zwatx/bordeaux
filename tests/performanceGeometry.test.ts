@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as geometry from '../src/core/agent/robotFootprint';
 import { measureRobotFieldClearance, observeRobotFieldPortalSequence } from '../src/core/agent/fieldClearance';
-import { REBUILT_2026_FIELD, REBUILT_2026_FIELD_WIDTH_M, officialToAppPoint } from '../src/core/field/rebuilt2026';
+import { REBUILT_2026_FIELD, officialToAppPoint } from '../src/core/field/rebuilt2026';
 import { FIELD_H, FIELD_W } from '../src/core/math/fieldBounds';
 import { createDemoProject } from '../src/core/project/defaults';
 import type { ControlPoint, TrajectorySample } from '../src/core/types';
@@ -47,11 +47,8 @@ function exhaustiveSample(robot: ReturnType<typeof createDemoProject>['robot'], 
     const x = officialToAppPoint({ x: barrier.x, y: 0 }).x;
     const section = geometry.verticalLineSection(footprint, x);
     const occupied = section ?? { minY: bounds.min.y, maxY: bounds.max.y };
-    const lateral = Math.max(...barrier.portals.map(portal => {
-      const y = officialToAppPoint(portal.point).y;
-      const half = portal.widthM * FIELD_H / REBUILT_2026_FIELD_WIDTH_M / 2;
-      return Math.min(occupied.minY - (y - half), y + half - occupied.maxY);
-    }));
+    const lateral = Math.max(...barrier.portals.map(({ bounds }) =>
+      Math.min(occupied.minY - bounds.yMin, bounds.yMax - occupied.maxY)));
     if (section) minimum = Math.min(minimum, lateral);
     else if (lateral < 0) minimum = Math.min(minimum, Math.max(bounds.min.x - x, x - bounds.max.x, 0));
   }
@@ -59,8 +56,8 @@ function exhaustiveSample(robot: ReturnType<typeof createDemoProject>['robot'], 
 }
 
 function samples(count: number): TrajectorySample[] {
-  return Array.from({ length: count }, (_, i) => ({ i, x: 0.1 + ((i * 17) % 173) / 10,
-    y: 0.1 + ((i * 13) % 81) / 10, headingRad: i * 0.17, t: i * 0.02, s: i * 0.1,
+  return Array.from({ length: count }, (_, i) => ({ i, x: -8.6 + ((i * 17) % 173) / 10,
+    y: -4.1 + ((i * 13) % 83) / 10, headingRad: i * 0.17, t: i * 0.02, s: i * 0.1,
     f: i / count, velocityMps: 1, accelerationMps2: 0, angularVelocityRadps: 0, curvatureInvM: 0 }));
 }
 

@@ -22,7 +22,7 @@ const TABLE_RAIL_Y = RAIL_INSET;
 const AWAY_RAIL_Y = WELDED_FIELD_H - RAIL_INSET;
 
 // Keep welded interior measurements exactly relative to their center. WPILib's
-// v2026.2.1 layouts agree within 2.5 mm there. Express the AndyMark perimeter
+// v2026.2.1 layouts agree to about 2.5 mm there. Express the AndyMark perimeter
 // in the same measurement axes so existing geometry can be converted once.
 
 const BLUE_BARRIER_X = 4.02844;

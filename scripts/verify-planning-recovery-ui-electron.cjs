@@ -399,7 +399,7 @@ app.whenReady().then(async () => {
         if (isOpen !== inspector) {
           if (isOpen) await click('[aria-label="Hide inspector"]'); else await click('.pp-more');
         }
-        await snapshot('field-blue-frame-imperial-' + width + '-inspector-' + inspector);
+        await snapshot('field-centered-imperial-' + width + '-inspector-' + inspector);
       }
     }
     const beforePlacement = structuredClone(saved.paths);
@@ -413,7 +413,7 @@ app.whenReady().then(async () => {
     await delay(250); await save();
     assert.equal(saved.paths[0].waypoints.length, beforePlacement[0].waypoints.length + 1);
     const placed = saved.paths[0].waypoints.at(-1);
-    assert.ok(Math.abs(placed.x-3) < .02 && Math.abs(placed.y-1.5) < .02, 'Pointer placement in imperial display stores canonical blue-origin meters');
+    assert.ok(Math.abs(placed.x-3) < .02 && Math.abs(placed.y-1.5) < .02, 'Pointer placement in imperial display stores canonical centered meters');
     await click('[aria-label="Undo"]'); await save();
     assert.deepEqual(saved.paths, beforePlacement, 'Undo restores the paths exactly after inverse-mapped placement');
 

@@ -197,7 +197,7 @@ describe("practical route qualification", () => {
   });
 
   it("keeps inconclusive and untested seed states unknown, including progress", () => {
-    const { path, robot } = fixture([{ x: 1.7705, y: 3.6144995 }, { x: -1.7295, y: 3.6144995 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 3.6014995 }, { x: -1.7295, y: 3.6014995 }]);
     const progress: PlannerResult[] = [];
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 3, onProgress: (p) => progress.push(p) });
     expect(result.seedStatus).toBe("unknown");
