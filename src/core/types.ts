@@ -171,6 +171,8 @@ export interface Waypoint {
   headingTransition?: HeadingTransition;
   /** Stationary angular move performed after arriving at this stopped waypoint. */
   turnInPlace?: TurnInPlace;
+  /** Follow the mirrored direction when an automatic stationary turn is exactly 180 degrees. */
+  implicitHalfTurnClockwise?: true;
   /** Rapid terminal translation action expanded into samples without authored waypoints. */
   jiggle?: JiggleAction;
   prevC: ControlPoint;

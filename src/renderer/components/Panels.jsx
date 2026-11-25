@@ -90,13 +90,13 @@ import { deletionInput } from "./DeletionNotice";
         h(Icon, { name: t.icon, size: 18 }), h('span', { className: 'toolrail-k' }, keyLabel(t.command)))));
   }
 
-  function MetricControl({ metric, setMetric, derived }) {
+  function MetricControl({ metric, setMetric, derived, robot }) {
     const M = derived.metrics || {};
     const grad = PM.metricGradient(metric);
     const def = (PM.METRICS || []).find((m) => m.id === metric) || {};
     let lo = '0', hi = '0';
     const displayUnit = def.unit || '';
-    if (metric === 'velocity') { lo = '0'; hi = UnitPrefs.fromCanonical(M.vMax || 0, displayUnit).toFixed(1); }
+    if (metric === 'velocity') { lo = '0'; hi = UnitPrefs.fromCanonical(Math.max(0.1, robot?.maxSpeed || M.vMax || 0), displayUnit).toFixed(1); }
     else if (metric === 'accel') { const a = UnitPrefs.fromCanonical(M.aMax || 0, displayUnit).toFixed(1); lo = '-' + a; hi = '+' + a; }
     else if (metric === 'angvel') { const w = ((M.wMax || 0) * R2D).toFixed(0); lo = '-' + w; hi = '+' + w; }
     else { lo = '0'; hi = UnitPrefs.fromCanonical(M.kMax || 0, displayUnit).toFixed(2); }
@@ -109,16 +109,12 @@ import { deletionInput } from "./DeletionNotice";
       h('span', { className: 'metric-range', 'aria-hidden': true }, lo + '\u2013' + hi + ' ' + UnitPrefs.label(displayUnit)));
   }
 
-  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, onFlip, fieldFocus, toggleFieldFocus }) {
+  // Hiding the path list lives on the library's own header (and its key); the restore strip brings it back.
+  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, onFlip, flipDisabled }) {
     useKeyRules();
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
-      // One name for both states; the pressed state, icon and title say whether the path list is hidden.
-      toggleFieldFocus && h('button', { className: 'vc-text field-focus', type: 'button', 'aria-pressed': fieldFocus, 'aria-label': 'Focus field',
-        onClick: toggleFieldFocus, title: withKey((fieldFocus ? 'Show' : 'Hide') + ' the path list', 'view.focusField') },
-        h(Icon, { name: fieldFocus ? 'panelopen' : 'panelclose', size: 15 }), h('span', null, 'Focus')),
-      toggleFieldFocus && h('div', { className: 'vc-div' }),
-      onFlip && h('button', { className: 'vc-text field-flip', type: 'button', ...deletionInput(onFlip),
-        title: 'Move all paths to the opposite alliance (180°). Undo restores them.', 'aria-label': 'Flip all paths 180 degrees' }, 'Flip'),
+      onFlip && h('button', { className: 'vc-text field-flip', type: 'button', disabled: flipDisabled, ...deletionInput(onFlip),
+        title: 'Mirror or rotate this path', 'aria-label': 'Flip path', 'aria-haspopup': 'dialog' }, 'Flip'),
       onFlip && h('div', { className: 'vc-div' }),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom out', 'aria-label': 'Zoom out', onClick: () => zoomBy(1.18) }, h(Icon, { name: 'zoomout', size: 16 })),
       h('button', { className: 'vc-pct', type: 'button', title: withKey('Fit field', 'view.fit'), onClick: onFit }, zoomPct + '%'),

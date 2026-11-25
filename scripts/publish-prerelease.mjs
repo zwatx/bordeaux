@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyMacReleaseAssetNames } from "./mac-release-assets.mjs";
 
 function gh(args, input) {
   return new Promise((resolve, reject) => {
@@ -34,10 +35,9 @@ const github = {
 export async function localReleaseAssets(directory, version, unsignedWindows) {
   const names = (await readdir(directory)).sort();
   const prefix = `Bordeaux-${version}`;
+  verifyMacReleaseAssetNames(names, version);
   const required = [
-    ...["arm64", "x64"].flatMap((arch) => [
-      `${prefix}-mac-${arch}.dmg`, `${prefix}-mac-${arch}.zip`, `${prefix}-linux-${arch === "x64" ? "x86_64" : arch}.AppImage`,
-    ]),
+    ...["arm64", "x86_64"].map((arch) => `${prefix}-linux-${arch}.AppImage`),
     `${prefix}-windows-x64-setup.exe`, `${prefix}-windows-x64-portable.exe`, `bordeaux_${version}_all.ipk`,
     "beta.yml", "beta-mac.yml", "beta-linux.yml", "beta-linux-arm64.yml", "signature-evidence-mac.json",
     ...(unsignedWindows ? [] : ["signature-evidence-windows.json"]),

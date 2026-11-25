@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { verifyReleaseSignatures } from "../scripts/verify-release-signatures.mjs";
 
 const temporaryDirectories: string[] = [];
+const { version: releaseVersion } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+type NativeCommand = { command: string; args: string[] };
 
 async function temporaryRelease() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "bordeaux-signature-evidence-"));
@@ -14,16 +17,39 @@ async function temporaryRelease() {
   return directory;
 }
 
-async function writeManifest(directory: string, name: string, artifactName: string, contents: Buffer) {
-  const packageManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+async function writeManifest(directory: string, name: string, artifactName: string, contents: Buffer, legacyPath?: string) {
   await writeFile(path.join(directory, name), JSON.stringify({
-    version: packageManifest.version,
+    version: releaseVersion,
+    path: legacyPath,
     files: [{
       url: artifactName,
       size: contents.length,
       sha512: createHash("sha512").update(contents).digest("base64"),
     }],
   }));
+}
+
+async function macRelease(channel = "beta") {
+  const directory = await temporaryRelease();
+  const zip = Buffer.from("signed zip fixture");
+  const dmgName = `Bordeaux-${releaseVersion}-mac-arm64.dmg`;
+  const zipName = `Bordeaux-${releaseVersion}-mac-arm64.zip`;
+  await writeFile(path.join(directory, dmgName), "signed dmg fixture");
+  await writeFile(path.join(directory, zipName), zip);
+  await writeManifest(directory, `${channel}-mac.yml`, zipName, zip, zipName);
+  return { directory, zip, dmgName, zipName };
+}
+
+function macVerificationCommand(commands: NativeCommand[], architecture = (_executable: string) => "arm64", teamId = "ABCDE12345") {
+  return async (command: string, args: string[]) => {
+    commands.push({ command, args });
+    if (command === "ditto") await mkdir(path.join(args.at(-1)!, "Bordeaux.app"), { recursive: true });
+    if (command === "lipo") return { stdout: architecture(args.at(-1)!), stderr: "" };
+    if (command === "codesign" && args.includes("--display")) {
+      return { stdout: "", stderr: `Authority=Developer ID Application: Bordeaux\nTeamIdentifier=${teamId}\n` };
+    }
+    return { stdout: "", stderr: "ok" };
+  };
 }
 
 afterEach(async () => {
@@ -120,77 +146,87 @@ describe("release signature evidence", () => {
     })).rejects.toThrow(/approved Windows signer/);
   });
 
-  it("verifies macOS code signing, Gatekeeper assessment, and stapled notarization for DMG and ZIP payloads", async () => {
-    const directory = await temporaryRelease();
-    const dmg = Buffer.from("signed dmg fixture");
-    const zip = Buffer.from("signed zip fixture");
-    const dmgName = "Bordeaux-0.2.0-beta.3-mac-arm64.dmg";
-    const zipName = "Bordeaux-0.2.0-beta.3-mac-arm64.zip";
-    await writeFile(path.join(directory, dmgName), dmg);
-    await writeFile(path.join(directory, zipName), zip);
-    await writeManifest(directory, "beta-mac.yml", zipName, zip);
-
-    const commands: Array<{ command: string; args: string[] }> = [];
+  it.each(["beta", "latest"])("verifies %s macOS architecture, signing, Gatekeeper, and notarization for DMG and ZIP", async (channel) => {
+    const { directory, dmgName, zipName } = await macRelease(channel);
+    const commands: NativeCommand[] = [];
     const evidence = await verifyReleaseSignatures({
       platform: "mac",
       releaseDirectory: directory,
-      channel: "beta",
+      channel,
       environment: { APPLE_TEAM_ID: "ABCDE12345" },
       now: () => new Date("2026-08-15T12:00:00.000Z"),
-      runCommand: async (command: string, args: string[]) => {
-        commands.push({ command, args });
-        if (command === "ditto") {
-          await mkdir(path.join(args.at(-1)!, "Bordeaux.app"), { recursive: true });
-          return { stdout: "", stderr: "" };
-        }
-        if (command === "codesign" && args.includes("--display")) {
-          return { stdout: "", stderr: "Authority=Developer ID Application: Bordeaux\nTeamIdentifier=ABCDE12345\n" };
-        }
-        if (command === "spctl") return { stdout: "", stderr: "accepted\nsource=Notarized Developer ID\n" };
-        if (command === "xcrun") return { stdout: "The validate action worked!\n", stderr: "" };
-        return { stdout: "", stderr: "valid on disk\nsatisfies its Designated Requirement\n" };
-      },
+      runCommand: macVerificationCommand(commands),
     });
 
     expect(evidence).toMatchObject({
       platform: "mac",
       result: "passed",
       approvedSigner: { teamId: "ABCDE12345" },
-      updaterManifest: { name: "beta-mac.yml", result: "passed" },
+      updaterManifest: { name: `${channel}-mac.yml`, result: "passed" },
     });
-    expect(evidence.artifacts.map(({ name }: { name: string }) => name)).toEqual([dmgName, zipName]);
-    expect(evidence.artifacts.every(({ signature }: { signature: { teamId: string } }) => signature.teamId === "ABCDE12345")).toBe(true);
+    expect(evidence.artifacts).toMatchObject([dmgName, zipName].map((name) => ({
+      name, architecture: "arm64", signature: { teamId: "ABCDE12345" },
+    })));
     expect(commands.filter(({ command }) => command === "codesign")).toHaveLength(4);
     expect(commands.filter(({ command }) => command === "spctl")).toHaveLength(2);
     expect(commands.filter(({ command }) => command === "xcrun")).toHaveLength(2);
+    expect(commands.filter(({ command }) => command === "lipo")).toHaveLength(2);
+    expect(commands.filter(({ command }) => command === "hdiutil").map(({ args }) => args[0])).toEqual(["attach", "detach"]);
   });
 
   it("rejects a macOS distributable signed by a different team", async () => {
-    const directory = await temporaryRelease();
-    const dmg = Buffer.from("dmg");
-    const zip = Buffer.from("zip");
-    const dmgName = "Bordeaux-0.2.0-beta.3-mac-arm64.dmg";
-    const zipName = "Bordeaux-0.2.0-beta.3-mac-arm64.zip";
-    await writeFile(path.join(directory, dmgName), dmg);
-    await writeFile(path.join(directory, zipName), zip);
-    await writeManifest(directory, "beta-mac.yml", zipName, zip);
-
+    const { directory } = await macRelease();
     await expect(verifyReleaseSignatures({
       platform: "mac",
       releaseDirectory: directory,
       channel: "beta",
       environment: { APPLE_TEAM_ID: "ABCDE12345" },
-      runCommand: async (command: string, args: string[]) => {
-        if (command === "ditto") {
-          await mkdir(path.join(args.at(-1)!, "Bordeaux.app"), { recursive: true });
-          return { stdout: "", stderr: "" };
-        }
-        if (command === "codesign" && args.includes("--display")) {
-          return { stdout: "", stderr: "Authority=Developer ID Application: Other\nTeamIdentifier=ZZZZZ99999\n" };
-        }
-        return { stdout: "", stderr: "ok" };
-      },
+      runCommand: macVerificationCommand([], undefined, "ZZZZZ99999"),
     })).rejects.toThrow(/approved Apple team/);
+  });
+
+  it.each([
+    ["dmg", "x86_64"],
+    ["zip", "x86_64 arm64"],
+  ])("rejects an arm64-named %s containing a %s executable", async (artifact, architecture) => {
+    const { directory } = await macRelease();
+    const commands: NativeCommand[] = [];
+    const runCommand = macVerificationCommand(commands, (executable) => {
+      const isDmg = executable.includes("bordeaux-mac-dmg-");
+      return isDmg === (artifact === "dmg") ? architecture : "arm64";
+    });
+    await expect(verifyReleaseSignatures({
+      platform: "mac",
+      releaseDirectory: directory,
+      environment: { APPLE_TEAM_ID: "ABCDE12345" },
+      runCommand,
+    })).rejects.toThrow(`must contain an arm64-only app, found ${architecture}`);
+    expect(commands.filter(({ command }) => command === "hdiutil").map(({ args }) => args[0])).toEqual(["attach", "detach"]);
+  });
+
+  it.each(["x64", "universal"])("rejects a %s Mac asset from a production package directory", async (architecture) => {
+    const { directory } = await macRelease("latest");
+    const extra = `Bordeaux-${releaseVersion}-mac-${architecture}.zip`;
+    await writeFile(path.join(directory, extra), "unexpected archive");
+    await expect(verifyReleaseSignatures({
+      platform: "mac",
+      releaseDirectory: directory,
+      channel: "latest",
+      environment: { APPLE_TEAM_ID: "ABCDE12345" },
+    })).rejects.toThrow(`Unexpected macOS release asset for Apple Silicon: ${extra}`);
+  });
+
+  it.each(["files", "path"])("rejects a non-arm64 reference in macOS update manifest %s", async (field) => {
+    const { directory, zip, zipName } = await macRelease();
+    const wrongName = `Bordeaux-${releaseVersion}-mac-x64.zip`;
+    await writeFile(path.join(directory, wrongName), zip);
+    await writeManifest(directory, "beta-mac.yml", field === "files" ? wrongName : zipName, zip,
+      field === "path" ? wrongName : zipName);
+    await expect(verifyReleaseSignatures({
+      platform: "mac",
+      releaseDirectory: directory,
+      environment: { APPLE_TEAM_ID: "ABCDE12345" },
+    })).rejects.toThrow(/unexpected macOS update/);
   });
 
   it("retains signing checks and permits only an explicit unsigned beta exception", async () => {

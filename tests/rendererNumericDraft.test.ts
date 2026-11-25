@@ -201,7 +201,7 @@ function contextDraftEditors(): Record<string, (props: Record<string, unknown>) 
     {
       context: { React, AUTO: {}, PM: {}, UnitPrefs: {}, UI: {}, FIELD_DIMS: { FIELD_W: 17.548, FIELD_H: 8.052 } },
       replacements: [[
-        "export { ContextInspector, CommandLoopEditor, CommandParameterEditor, commandArguments, parameterValueError, safeControlId };",
+        "export { ContextInspector, CommandLoopEditor, CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId };",
         "window.ContextDraftEditors = { NumberValueEditor, StringValueEditor };",
       ]],
     },

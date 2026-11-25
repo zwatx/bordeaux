@@ -2,7 +2,7 @@ import { sample as sampleGeometry } from "../math/geometry";
 import { wrapRadians } from "../math/angles";
 import type { PlannerInput, PlannerResult, TrajectorySample, ValidationIssue } from "../types";
 import { canonicalPlanningInput, getPlanner } from "./index";
-import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_TRAJECTORY_SAMPLES } from "./limits";
+import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_AUTHORED_ANGLE_DEG, MAX_TRAJECTORY_SAMPLES } from "./limits";
 import { buildReachabilityInput, insertOptimizationBoundaries } from "./optimizationConstraints";
 import { remapTiming, remapWaypointIndices } from "./optimizedTrajectory";
 import { profiledSplineOptimizationSeed } from "./profiledSpline";
@@ -82,9 +82,6 @@ export interface PlanPathOptions {
 
 const DEG = 180 / Math.PI;
 const MAX_BEST_EFFORT_TIME_S = 3600;
-// Legacy path-state unwrapping subtracts full turns in a loop. Bound authored
-// angles before that code runs, including otherwise finite extreme inputs.
-const MAX_AUTHORED_ANGLE_DEG = 360_000;
 const ACCELERATION_KINDS = new Set<TrajectoryViolationKind>([
   "linear-acceleration",
   "linear-deceleration",

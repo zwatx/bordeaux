@@ -187,24 +187,24 @@ app.whenReady().then(async () => {
       await click('[aria-label="Hide inspector"]');
       await snapshot('inspector-closed-' + width);
 
-      // Focus: pointer on, restore strip by pointer.
-      const focus = '.viewctl .field-focus';
-      assert.equal(await evaluate((s) => document.querySelector(s).getAttribute('aria-pressed'), focus), 'false');
+      // Hide the path list from its own header by pointer; the restore strip is then the only way back.
+      const focus = '.library-find .library-hide';
+      assert.equal(await evaluate(() => document.querySelectorAll('.field-focus,.viewctl [aria-label*="path list"]').length), 0, 'no second hide control on the field');
+      assert.equal(await evaluate((s) => document.querySelector(s)?.getAttribute('aria-label'), focus), 'Hide path list');
       await click(focus);
-      assert.equal(await evaluate((s) => document.querySelector(s).getAttribute('aria-pressed'), focus), 'true');
       assert.equal(await evaluate(() => document.querySelector('.library-rail').hidden), true);
+      assert.equal(await evaluate(() => document.querySelectorAll('.library-restore-btn').length), 1, 'one restore control');
       assert.equal(await evaluate(() => document.querySelector('.library-restore-btn')?.getAttribute('aria-label')), 'Show path list');
       await snapshot('focus-on-' + width);
       await openInspector(); await snapshot('focus-on-inspector-' + width);
       await click('.library-restore-btn');
       await wait(() => evaluate(() => !document.querySelector('.library-rail').hidden && !document.querySelector('.library-restore')), 'restored library');
       await wait(() => evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), 'restore moves focus to the current path');
-      assert.equal(await evaluate((s) => document.querySelector(s).getAttribute('aria-pressed'), focus), 'false');
       await snapshot('focus-restored-' + width);
       await click('[aria-label="Hide inspector"]');
     }
 
-    // Keyboard: \ shortcut, Enter on the restore strip, then Enter on the Focus button (Space belongs to playback here).
+    // Keyboard: \ shortcut, Enter on the restore strip, then Enter on the library's hide button.
     win.setContentSize(1440, 900); await delay(250);
     await click('.fieldsvg').catch(() => {});
     await key('Escape');
@@ -215,10 +215,12 @@ app.whenReady().then(async () => {
     await key('Enter');
     await wait(() => evaluate(() => !document.querySelector('.library-rail').hidden), 'Enter restores the library');
     await wait(() => evaluate(() => document.activeElement?.matches('.library-pick[aria-current="true"]')), 'keyboard restore moves focus to the current path');
-    await evaluate(() => document.querySelector('.viewctl .field-focus').focus());
+    await evaluate(() => document.querySelector('.library-find .library-hide').focus());
     await key('Enter');
-    assert.equal(await evaluate(() => document.querySelector('.library-rail').hidden), true, 'Enter on Focus hides the library');
-    assert.equal(await evaluate(() => document.activeElement?.matches('.viewctl .field-focus')), true, 'focus stays on the toggle');
+    assert.equal(await evaluate(() => document.querySelector('.library-rail').hidden), true, 'Enter on Hide path list hides the library');
+    // The pressed button leaves with the list, so focus moves to the field rather than into a hidden rail.
+    assert.equal(await evaluate(() => Boolean(document.activeElement?.matches('.fieldsvg') || document.activeElement?.closest('.toolbar'))), true, 'focus leaves the hidden rail for the field');
+    assert.equal(await evaluate(() => Boolean(document.activeElement?.closest('[hidden]'))), false, 'focus is never inside the hidden rail');
 
     // Restored state: the Focus preference persists, and the strip is there on the next open.
     await load();

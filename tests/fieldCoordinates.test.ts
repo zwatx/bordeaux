@@ -13,12 +13,14 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
 import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
-import { stationaryTurnDelta } from "../src/core/math/angles";
+import { stationaryTurnDelta, wrapRadians } from "../src/core/math/angles";
+import type { FieldFlipDirection } from "../src/core/project/flipField";
+import type { ConstraintRange } from "../src/core/types";
 
-function flipProjectPaths(project: ReturnType<typeof createDemoProject>) {
-  const result = processPathPreviewJob({ id: 1, mode: 'flip', project });
+function flipSelectedPath(project: ReturnType<typeof createDemoProject>, direction: FieldFlipDirection = "rotate", copy = false) {
+  const result = processPathPreviewJob({ id: 1, mode: "flip", path: project.paths[0], robot: project.robot, field: project.field, direction, copy });
   if (result.error) throw new Error(result.error.message);
-  return result.value as typeof project;
+  return { ...project, paths: [result.value, ...project.paths.slice(1)] } as typeof project;
 }
 
 describe("fixed blue-origin field", () => {
@@ -43,7 +45,7 @@ describe("fixed blue-origin field", () => {
     expect(worldToFieldImage({ x: 0, y: 1 }).y).toBeLessThan(worldToFieldImage({ x: 0, y: 0 }).y);
   });
 
-  it("flips all path-owned field geometry once, retaining local settings, distance anchors and references", () => {
+  it("flips only the selected path, retaining its local settings, distance anchors and references", () => {
     const project = createDemoProject(), path = project.paths[0];
     path.waypoints[0].theta = 25; path.waypoints[0].segmentLookAt = { x: 3, y: 2 };
     path.waypoints[0].turnInPlace = { headingDeg: 290, direction: "clockwise" };
@@ -52,32 +54,135 @@ describe("fixed blue-origin field", () => {
     path.ranges = [{ anchor: "dist", f0: .1, f1: .4, d0: .3, d1: 1.3, maxVel: 1 }];
     path.markers = [{ f: .5, name: "Wait", cmd: "none", anchor: "dist", d: 1 }];
     const other = structuredClone(path); other.id = "other"; other.name = "Other";
-    project.paths.push(other); project.pathLinks = [{ id: "link", fromPathId: path.id, toPathId: other.id }];
-    const before = structuredClone(project), flipped = flipProjectPaths(project);
+    project.paths.push(other);
+    const before = structuredClone(project), flipped = flipSelectedPath(project);
     expect(project).toEqual(before);
-    for (const result of flipped.paths) {
-      expect(result.waypoints[0].x).toBeCloseTo(FIELD_W - path.waypoints[0].x, 12);
-      expect(result.waypoints[0].y).toBeCloseTo(FIELD_H - path.waypoints[0].y, 12);
-      expect(result.waypoints[0].theta).toBe(205);
-      expect(result.waypoints[0].prevC.x).toBeCloseTo(FIELD_W - path.waypoints[0].prevC.x, 12);
-      expect(result.waypoints[0].nextC.y).toBeCloseTo(FIELD_H - path.waypoints[0].nextC.y, 12);
-      expect(result.waypoints[0].segmentLookAt).toEqual({ x: FIELD_W - 3, y: FIELD_H - 2 });
-      expect(result.waypoints[0].turnInPlace).toEqual({ headingDeg: 470, direction: "clockwise" });
-      expect(result.waypoints[0].jiggle).toEqual(path.waypoints[0].jiggle);
-      expect(result.targets).toEqual([{ f: .3, deg: 450, anchor: "dist", d: .8 }]);
-      expect(result.ranges).toEqual(path.ranges); expect(result.markers).toEqual(path.markers);
-    }
+    const result = flipped.paths[0];
+    expect(result.waypoints[0].x).toBeCloseTo(FIELD_W - path.waypoints[0].x, 12);
+    expect(result.waypoints[0].y).toBeCloseTo(FIELD_H - path.waypoints[0].y, 12);
+    expect(result.waypoints[0].theta).toBe(205);
+    expect(result.waypoints[0].prevC.x).toBeCloseTo(FIELD_W - path.waypoints[0].prevC.x, 12);
+    expect(result.waypoints[0].nextC.y).toBeCloseTo(FIELD_H - path.waypoints[0].nextC.y, 12);
+    expect(result.waypoints[0].segmentLookAt).toEqual({ x: FIELD_W - 3, y: FIELD_H - 2 });
+    expect(result.waypoints[0].turnInPlace).toEqual({ headingDeg: 470, direction: "clockwise" });
+    expect(result.waypoints[0].jiggle).toEqual(path.waypoints[0].jiggle);
+    expect(result.targets).toEqual([{ f: .3, deg: 450, anchor: "dist", d: .8 }]);
+    expect(result.ranges).toEqual(path.ranges); expect(result.markers).toEqual(path.markers);
+    expect(flipped.paths[1]).toBe(other);
     expect(flipped.pathLinks).toEqual(project.pathLinks); expect(flipped.routines).toEqual(project.routines);
-    const restored = flipProjectPaths(flipped);
+    const restored = flipSelectedPath(flipped);
     expect(restored.paths[0].waypoints[0].x).toBeCloseTo(path.waypoints[0].x, 12);
     expect(restored.paths[0].waypoints[0].y).toBeCloseTo(path.waypoints[0].y, 12);
     expect(restored.paths[0].waypoints[0].theta).toBe(385);
   });
 
+  it.each(["horizontal", "vertical"] as const)("mirrors the %s field axis, headings, and signed local turns", (direction) => {
+    const project = createDemoProject(), path = project.paths[0];
+    const first = path.waypoints[0];
+    Object.assign(first, { x: 2, y: 3, theta: 35, rotationDirection: "cw",
+      prevC: { x: 1, y: 2 }, nextC: { x: 3, y: 4 }, segmentLookAt: { x: 5, y: 6 },
+      turnInPlace: { headingDeg: 110, direction: "counterclockwise" },
+      jiggle: { distanceM: .1, strokes: 3, startDeg: 20, stepDeg: 90, strokeTimeS: 1 },
+    });
+    path.targets = [{ f: .3, deg: 270, rotationDirection: "ccw", anchor: "dist", d: 1.2 }];
+    const next = flipSelectedPath(project, direction).paths[0];
+    const horizontal = direction === "horizontal";
+    const point = (x: number, y: number) => horizontal ? { x: FIELD_W - x, y } : { x, y: FIELD_H - y };
+    const angle = (value: number) => horizontal ? 180 - value : -value;
+    expect(next.waypoints[0]).toMatchObject({
+      ...point(2, 3), theta: angle(35), prevC: point(1, 2), nextC: point(3, 4), segmentLookAt: point(5, 6),
+      rotationDirection: "ccw", turnInPlace: { headingDeg: angle(110), direction: "clockwise" },
+      jiggle: { ...first.jiggle, startDeg: -20, stepDeg: -90 },
+    });
+    expect(next.targets).toEqual([{ ...path.targets[0], deg: angle(270), rotationDirection: "cw" }]);
+    expect(next.markers).toEqual(path.markers);
+    expect(next.ranges).toEqual(path.ranges);
+    expect(next.constraints).toEqual(path.constraints);
+  });
+
+  it.each(["manual", "tangent"] as const)("mirrors a shortest stationary half-turn with %s arrival heading", (headingMode) => {
+    const project = createDemoProject(), path = project.paths[0];
+    path.headingMode = headingMode;
+    path.waypoints = buildWaypoints([{ x: 1, y: 1, theta: 0, segType: "line" }, { x: 3, y: 1, theta: 0, stop: true }]);
+    path.waypoints[1].turnInPlace = { headingDeg: 180 };
+    const mirrored = flipSelectedPath(project, "vertical").paths[0];
+    expect(mirrored.waypoints[1].turnInPlace?.direction).toBe("clockwise");
+    const original = getPlanner("profiledSpline").generate({ path, robot: project.robot });
+    const result = getPlanner("profiledSpline").generate({ path: mirrored, robot: project.robot });
+    expect(original.stationaryActions?.some(action => action.kind === "turn")).toBe(true);
+    expect(result.totalTimeS).toBeCloseTo(original.totalTimeS, 7);
+    expect(result.samples.some(sample => sample.angularVelocityRadps < -.1)).toBe(true);
+    expect(result.samples.every(sample => sample.angularVelocityRadps < 1e-7)).toBe(true);
+  });
+
+  const uTurnZone: ConstraintRange[] = [{ anchor: "param", f0: 0.501, f1: 0.6, maxVel: 0.5 }];
+  it.each([
+    { direction: "horizontal", segType: "line" }, { direction: "vertical", segType: "line" },
+    { direction: "horizontal", segType: "bezier" }, { direction: "vertical", segType: "bezier" },
+    { direction: "horizontal", segType: "line", ranges: uTurnZone },
+    { direction: "vertical", segType: "line", ranges: uTurnZone },
+    { direction: "rotate", segType: "line", ranges: uTurnZone },
+  ] satisfies Array<{ direction: FieldFlipDirection; segType: "line" | "bezier"; ranges?: ConstraintRange[] }>)(
+    "keeps the automatic $segType U-turn after a $direction transform", ({ direction, segType, ranges }) => {
+    const project = createDemoProject(), path = project.paths[0];
+    path.headingMode = "tangent";
+    path.waypoints = buildWaypoints([
+      { x: 6.5, y: 2, segType }, { x: 8, y: 2, stop: true, segType: "line" }, { x: 6.5, y: 2 },
+    ]);
+    path.waypoints[0].nextC = { x: 7, y: 2.4 };
+    path.waypoints[1].prevC = { x: 7.5, y: 2 };
+    path.ranges = ranges ?? [];
+    const flipped = flipSelectedPath(project, direction);
+    const mirrored = decodeProjectValue(JSON.parse(encodeProjectFile(flipped).contents)).project.paths[0];
+    expect(mirrored.waypoints[1].turnInPlace).toBeUndefined();
+    expect(mirrored.waypoints[1].implicitHalfTurnClockwise).toBe(direction === "rotate" ? undefined : true);
+    expect(flipSelectedPath(flipped, direction).paths[0].waypoints[1].implicitHalfTurnClockwise).toBeUndefined();
+    const planner = getPlanner("profiledSpline");
+    const original = planner.generate({ path, robot: project.robot });
+    const result = planner.generate({ path: mirrored, robot: project.robot });
+    expect(original.stationaryActions?.map(action => action.kind)).toEqual(["turn"]);
+    expect(result.stationaryActions?.map(action => action.kind)).toEqual(["turn"]);
+    expect(result.diagnostics.filter(issue => issue.severity === "error")).toEqual([]);
+    expect(result.totalTimeS).toBeCloseTo(original.totalTimeS, 7);
+    const duringTurn = (plan: typeof result) => {
+      const turn = plan.stationaryActions![0];
+      return plan.samples.filter(sample => sample.t >= turn.startTimeS && sample.t <= turn.endTimeS + 1e-9);
+    };
+    const before = duringTurn(original), after = duringTurn(result);
+    expect(after).toHaveLength(before.length);
+    const angle = direction === "rotate" ? Math.PI + before[0].headingRad
+      : direction === "horizontal" ? Math.PI - before[0].headingRad : -before[0].headingRad;
+    expect(wrapRadians(after[0].headingRad - angle)).toBeCloseTo(0, 7);
+    for (let index = 0; index < before.length; index++) {
+      const omega = before[index].angularVelocityRadps;
+      expect(after[index].angularVelocityRadps).toBeCloseTo(direction === "rotate" ? omega : -omega, 6);
+    }
+  });
+
+  it.each([{ direction: "horizontal", heading: -360_000 }, { direction: "rotate", heading: 360_000 }] as const)(
+    "refuses a $direction transform that would create an unsupported heading", ({ direction, heading }) => {
+      const project = createDemoProject();
+      project.paths[0].waypoints[0].theta = heading;
+      const before = structuredClone(project);
+      expect(() => flipSelectedPath(project, direction)).toThrow(/supported range/);
+      expect(project).toEqual(before);
+    },
+  );
+
+  it("cannot reactivate an outdated applied trajectory when rotating back to its geometry", () => {
+    const project = createDemoProject(), source = project.paths[0];
+    source.waypoints = buildWaypoints([{ x: 1, y: 1, theta: 0, segType: "line" }, { x: 3, y: 1, theta: 0 }]);
+    const destination = flipSelectedPath(project).paths[0];
+    const result = getPlanner("profiledSpline").generate({ path: destination, robot: project.robot });
+    source.optimization = { corridorM: .15, accepted: createAcceptedTrajectory(destination, project.robot, result, project.field) };
+    expect(getAcceptedTrajectory(source, project.robot, project.field)).toBeNull();
+    expect(flipSelectedPath(project).paths[0]).toEqual({ ...destination, optimization: { corridorM: .15 } });
+  });
+
   it("persists and exports the flipped coordinates and heading in the declared blue frame", () => {
     const project = createDemoProject();
     project.paths[0].waypoints = buildWaypoints([{ x: 1, y: 1, theta: 0, segType: "line" }, { x: 3, y: 1, theta: 0 }]);
-    const flipped = flipProjectPaths(project);
+    const flipped = flipSelectedPath(project);
     const reopened = decodeProjectValue(JSON.parse(encodeProjectFile(flipped).contents));
     expect(reopened.migrated).toBe(false); expect(reopened.project.paths).toEqual(flipped.paths);
     const exported = buildBdxExport(reopened.project);
@@ -93,11 +198,15 @@ describe("fixed blue-origin field", () => {
     const result = getPlanner('profiledSpline').generate({ path, robot: project.robot });
     path.optimization = { accepted: createAcceptedTrajectory(path, project.robot, result, project.field) };
     expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
-    const flipped = flipProjectPaths(project), accepted = getAcceptedTrajectory(flipped.paths[0], project.robot, project.field);
+    const flipped = flipSelectedPath(project), accepted = getAcceptedTrajectory(flipped.paths[0], project.robot, project.field);
     expect(accepted).not.toBeNull(); expect(accepted?.totalTimeS).toBe(result.totalTimeS);
     expect(accepted?.samples.map((sample) => sample.t)).toEqual(result.samples.map((sample) => sample.t));
     expect(accepted?.samples[0].x).toBeCloseTo(FIELD_W - 1, 12);
     expect(accepted?.samples[0].headingRad).toBeCloseTo(Math.PI, 12);
+    path.optimization.corridorM = .15;
+    expect(flipSelectedPath(project, "rotate", true).paths[0].optimization).toEqual({ corridorM: .15 });
+    expect(flipSelectedPath(project, "horizontal").paths[0].optimization).toEqual({ corridorM: .15 });
+    expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
   });
 
   it("keeps generated solver-knot placeholders aligned with reconstructed route semantics", () => {
@@ -110,7 +219,7 @@ describe("fixed blue-origin field", () => {
     const result = routeResultToSource(optimizeFixedGeometryFinal({ path: planning, robot: project.robot }), geometry, planning);
     path.optimization = { accepted: createAcceptedRouteTrajectory(path, project.robot, result, project.field) };
     expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
-    const flipped = flipProjectPaths(project);
+    const flipped = flipSelectedPath(project);
     expect(flipped.paths[0].optimization?.accepted?.result.optimizedPath?.waypoints[1].theta).toBe(0);
     expect(getAcceptedTrajectory(flipped.paths[0], project.robot, project.field)).not.toBeNull();
     expect(buildBdxExport(flipped).paths[0].samples[0].x).toBeCloseTo(FIELD_W - 6.5, 12);
@@ -120,7 +229,7 @@ describe("fixed blue-origin field", () => {
     expect(getAcceptedTrajectory(path, project.robot, project.field)).toBeNull();
     expect(() => buildBdxExport(project)).toThrow(/applied optimization is invalid/);
     const rejected = structuredClone(project);
-    expect(() => flipProjectPaths(project)).toThrow(/applied optimization is invalid or unverified/);
+    expect(() => flipSelectedPath(project)).toThrow(/applied optimization is invalid or unverified/);
     expect(project).toEqual(rejected);
   });
 
@@ -130,7 +239,7 @@ describe("fixed blue-origin field", () => {
     path.headingMode = 'manual';
     const original = getPlanner('profiledSpline').generate({ path, robot: project.robot });
     path.optimization = { accepted: createAcceptedTrajectory(path, project.robot, original, project.field) };
-    const flipped = flipProjectPaths(project), next = flipped.paths[0];
+    const flipped = flipSelectedPath(project), next = flipped.paths[0];
     expect(next.waypoints.map((waypoint) => waypoint.theta)).toEqual([offset + 180, offset + 360]);
     const normal = getPlanner('profiledSpline').generate({ path: next, robot: project.robot });
     const accepted = getAcceptedTrajectory(next, project.robot, project.field);
@@ -155,7 +264,7 @@ describe("fixed blue-origin field", () => {
       const result = routeResultToSource(optimizeFixedGeometryFinal({ path: planning, robot: project.robot }), geometry, planning);
       path.optimization = { accepted: createAcceptedRouteTrajectory(path, project.robot, result, project.field) };
     }
-    const flipped = flipProjectPaths(project), next = flipped.paths[0];
+    const flipped = flipSelectedPath(project), next = flipped.paths[0];
     const normal = getPlanner('profiledSpline').generate({ path: next, robot: project.robot });
     expect(getAcceptedTrajectory(next, project.robot, project.field)).not.toBeNull();
     for (let i = 0; i < normal.samples.length; i++) {
@@ -177,7 +286,7 @@ describe("fixed blue-origin field", () => {
     path.waypoints[1].turnInPlace = { headingDeg: 200, direction };
     const original = getPlanner('profiledSpline').generate({ path, robot: project.robot });
     path.optimization = { corridorM: .15, accepted: createAcceptedTrajectory(path, project.robot, original, project.field) };
-    const flipped = flipProjectPaths(project);
+    const flipped = flipSelectedPath(project);
     expect(getAcceptedTrajectory(flipped.paths[0], project.robot, project.field)).not.toBeNull();
     delete flipped.paths[0].optimization; // The user's Use normal action must keep the same zero-turn behavior.
     const normal = getPlanner('profiledSpline').generate({ path: flipped.paths[0], robot: project.robot });

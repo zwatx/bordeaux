@@ -24,7 +24,7 @@ npm ci
 npm run package:mac
 ```
 
-This produces arm64 and x64 DMG/ZIP artifacts in `release/`. The local macOS packages are intentionally unsigned until a `Developer ID Application` identity and notarization credentials are configured.
+This produces Apple Silicon (arm64) DMG and ZIP artifacts in `release/`. The local macOS packages are intentionally unsigned until a `Developer ID Application` identity and notarization credentials are configured.
 
 `package:mac` requires Icon Composer (included with current Xcode releases) to compile `build/Bordeaux.icon`. CI uses `package:mac:ci` and the checked-in ICNS fallback when Icon Composer is unavailable.
 
@@ -53,7 +53,7 @@ An installed macOS 0.2.0-beta.12 was observed unable to complete its own restart
 
 To verify a macOS update end to end without publishing, package two Developer ID–signed arm64 ZIPs with consecutive prerelease versions from a scratch copy whose feed points at a local generic server, install the older one outside `/Applications`, and confirm `~/Library/Caches/org.frc2468.bordeaux.ShipIt/ShipIt_stderr.log` shows `Beginning installation`, `Installation completed successfully`, and the relaunch. Launch with `ELECTRON_RUN_AS_NODE` unset; `open` passes the caller's environment to the app.
 
-electron-builder writes a small platform manifest containing the version, installer URL, size, and SHA-512 digest. The release workflow recalculates that digest before publishing; electron-updater verifies it again while downloading and when reusing its cache. The update payload is the signed ZIP on macOS, the NSIS setup executable on Windows, and the matching-architecture AppImage on Linux.
+electron-builder writes a small platform manifest containing the version, installer URL, size, and SHA-512 digest. The release workflow recalculates that digest before publishing; electron-updater verifies it again while downloading and when reusing its cache. The update payload is the signed arm64 ZIP on macOS, the NSIS setup executable on Windows, and the matching-architecture AppImage on Linux.
 
 Automatic updates are available from macOS installs, Windows NSIS setup installs, and writable Linux AppImages. Microsoft Store builds update through the Store. Windows portable executables require a manual replacement because running the NSIS updater would change them into an installed app.
 
@@ -95,6 +95,8 @@ Configure these GitHub Actions repository secrets before the first run:
 - Windows: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, and `WIN_SIGNER_SHA1` (the approved certificate's 40-digit SHA-1 thumbprint)
 
 The macOS workflows sign DMGs explicitly, then submit and staple each image with `scripts/notarize-release-dmgs.mjs`. Stapling changes the image bytes, so the script regenerates DMG blockmaps and manifest hashes before verification. ZIPs retain the already notarized app and their original hashes.
+
+Both release workflows require one arm64 DMG and one arm64 ZIP. Verification checks that each contains an arm64-only Bordeaux executable and that the macOS update manifest references the arm64 artifacts.
 
 The temporary macOS release runners block outbound UDP port 443 before packaging, following [GitHub's ticket-delivery workaround](https://github.com/actions/runner-images/issues/14924). This makes Apple's stapler fall back from HTTP/3 to HTTPS over TCP after repeated CloudKit connection-loss failures (error 68). It changes only the disposable runner's network rules; signing, notarization, stapling and Gatekeeper verification remain required. Remove the workaround when the upstream runner issue is resolved.
 

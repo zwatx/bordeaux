@@ -651,6 +651,9 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
             }
           }
           if (waypoint.segmentHeadingMode === "lookAt" && !isRecord(waypoint.segmentLookAt)) issues.push(issue(`${wpBase}.segmentLookAt`, "Track point heading requires a field point"));
+          if (waypoint.implicitHalfTurnClockwise !== undefined && waypoint.implicitHalfTurnClockwise !== true) {
+            issues.push(issue(`${wpBase}.implicitHalfTurnClockwise`, "Clockwise automatic half-turn flag must be true when set"));
+          }
           if (waypoint.turnInPlace !== undefined) {
             if (!isRecord(waypoint.turnInPlace)) issues.push(issue(`${wpBase}.turnInPlace`, "Turn in place must be an object"));
             else {

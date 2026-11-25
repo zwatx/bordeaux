@@ -192,6 +192,7 @@ export function reversePath(path: PathDoc): PathDoc {
     const p = x.prevC; x.prevC = x.nextC; x.nextC = p;
     if (x.turnInPlace && x.turnInPlace.direction === 'clockwise') x.turnInPlace.direction = 'counterclockwise';
     else if (x.turnInPlace && x.turnInPlace.direction === 'counterclockwise') x.turnInPlace.direction = 'clockwise';
+    delete x.implicitHalfTurnClockwise;
   });
   for (let j = 0; j < n; j++) {
     if (j < n - 1) {

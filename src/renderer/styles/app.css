@@ -28,7 +28,6 @@
     border-bottom: 1px solid var(--line);
   }
   .fieldcol .cbar-chip:nth-of-type(even) { border-right: 1px solid var(--line); }
-  .fieldcol .stage-hint { top: 88px; width: calc(100% - 32px); white-space: normal; text-align: center; }
   .fieldcol .viewctl { bottom: 272px; }
   .fieldcol .transport-meta,
   .fieldcol .timeline-summary,
@@ -140,6 +139,8 @@
   --ctl:oklch(.2 .003 286);--ctl-hover:oklch(.232 .003 286);--ctl-line:oklch(1 0 0/.1);
   --focus:oklch(.94 0 0/.82);
   --r-s:4px;--r:6px;--r-l:10px;
+  /* Sidebar shell: every rail's header row and footer strip share these, so neighboring rules line up. */
+  --side-head:48px;--side-foot:40px;
   scrollbar-color:oklch(.3 .003 286) transparent;
 }
 *{box-sizing:border-box}
@@ -349,21 +350,18 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .editor-startup-field{flex:1}
 .editor-startup-inspector{width:320px;background:var(--bg-1);border-left:1px solid var(--line)}
 .fieldsvg{width:100%;height:100%;display:block;touch-action:none}
-.stage-hint{position:absolute;left:50%;top:57px;transform:translateX(-50%);font-size:11px;color:var(--txt-2);background:transparent;padding:5px 10px;pointer-events:none;white-space:nowrap;z-index:22;text-shadow:0 1px 8px #000}
-.stage-hint b{color:var(--accent-2);font-weight:600}
+.stage-hint{font-size:11px;color:var(--txt-2);padding:5px 10px;text-align:center;line-height:1.4;text-shadow:0 1px 8px #000}
 .insert-preview{position:absolute;left:50%;top:62px;transform:translateX(-50%);display:flex;align-items:center;gap:16px;max-width:calc(100% - 32px);padding:8px 8px 8px 14px;border-radius:var(--r-l);background:var(--panel);box-shadow:var(--elevation);z-index:27}
 .insert-preview-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
 .insert-preview-copy b{font-size:13px;font-weight:600;color:var(--txt)}
 .insert-preview-copy span{font-size:11px;color:var(--txt-3);white-space:nowrap}
 .insert-preview-actions{display:flex;gap:6px;flex-shrink:0}
 .insert-preview-actions button{min-height:30px;padding:0 12px;border:1px solid transparent;border-radius:var(--r);font-size:12px;font-weight:500}
-.field-notices{position:absolute;left:16px;right:16px;top:57px;z-index:27;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
-.field-notices>.stage-hint,.field-notices>.insert-preview{position:relative;inset:auto;transform:none;max-width:100%;margin:0;flex-shrink:0}
-.field-notices>.stage-hint{white-space:normal;text-align:center;line-height:1.4}
+.field-notices{position:absolute;left:12px;right:12px;top:8px;z-index:27;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+.field-notices>.insert-preview{position:relative;inset:auto;transform:none;max-width:100%;margin:0;flex-shrink:0}
 .field-notices>.insert-preview,.field-notices button{pointer-events:auto}
 .field-notices .insert-preview-copy span{white-space:normal;overflow-wrap:anywhere}
 .field-notices>.insert-preview{flex-wrap:wrap}
-@container (max-width:420px){.fieldcol .field-notices{top:88px}.fieldcol .field-notices>.stage-hint{top:auto;width:auto}}
 .agent-proposal{top:68px;max-width:min(860px,calc(100% - 32px));align-items:flex-end}
 .agent-proposal .insert-preview-copy{gap:4px;max-width:690px}
 .agent-proposal .agent-proposal-status{color:var(--txt-2);white-space:normal;line-height:1.35}
@@ -426,14 +424,25 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 /* ============ contextual inspector (docked right rail) ============ */
 .ctxinsp{position:relative;display:flex;flex-direction:column;width:320px;min-width:280px;height:100%;overflow:hidden;background:var(--bg-1);border-left:1px solid var(--line-2)}
 @media (max-width:1200px){.ctxinsp{width:290px}}
-.ctxinsp-hd{display:flex;align-items:center;gap:10px;min-height:52px;padding:10px 10px 10px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
+.ctxinsp-hd{display:flex;align-items:center;gap:4px;min-height:var(--side-head,48px);padding:4px 8px 4px 16px;border-bottom:1px solid var(--line);flex-shrink:0}
+/* The object's name, then a muted line for what kind of thing it is and where it sits. */
+.ctxinsp-heading{display:flex;flex:1;flex-direction:column;justify-content:center;min-width:0}
 /* Names stay complete; after five lines the title scrolls so the close button and body stay in view. */
-.ctxinsp-t{flex:1;min-width:0;max-height:7em;overflow:hidden auto;overscroll-behavior:contain;scrollbar-width:thin;font-size:14px;font-weight:600;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
-.ctxinsp-tag{flex-shrink:0;max-width:100px;overflow:hidden;padding:2px 6px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-3);font:11px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.ctxinsp-t{min-width:0;max-height:7em;overflow:hidden auto;overscroll-behavior:contain;scrollbar-width:thin;font-size:14px;font-weight:600;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+.ctxinsp-kind{min-width:0;overflow:hidden;color:var(--txt-3);font-size:11px;line-height:15px;font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap}
 .ctxinsp-x,.ctxinsp-act{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
 .ctxinsp-x:hover:not(:disabled),.ctxinsp-act:hover:not(:disabled){background:var(--bg-3);color:var(--txt)}
 .ctxinsp-act:disabled{opacity:.4}
-.ctxinsp-body{padding:16px;overflow:hidden auto;scrollbar-gutter:stable;scrollbar-width:thin}
+.ctxinsp-body{flex:1 1 auto;min-height:0;padding:16px;overflow:hidden auto;scrollbar-gutter:stable;scrollbar-width:thin}
+.ctxinsp-body>.cmd-command-editor:first-child{margin-top:0}
+/* One footer strip for every sidebar (library feedback, docked properties, inspectors): same height, same rule. */
+.ctxinsp-foot{display:flex;flex:0 0 var(--side-foot,40px);align-items:center;gap:8px;height:var(--side-foot,40px);padding:0 8px;border-top:1px solid var(--line)}
+:is(.ctxinsp-foot,.pp-foot) .delbtn{margin:0;min-height:30px}
+/* A collapsed group of rarer settings reads as a section heading that still states its values. */
+.morebtn.insp-disclosure{justify-content:flex-start;gap:10px;margin-top:22px;padding:13px 0 3px;border-top:1px solid var(--line)}
+.insp-disclosure-label{flex:none;color:var(--txt);font-size:13px;font-weight:600}
+.insp-disclosure-summary{flex:1;min-width:0;overflow:hidden;color:var(--txt-3);font-size:11px;font-weight:400;text-align:right;text-overflow:ellipsis;white-space:nowrap}
+.insp-disclosure-body{padding-top:8px}
 .ctxinsp-body .numrow{margin:10px 0}
 .ctxinsp-body .seg{margin-bottom:6px}
 .seg+.numrow{margin-top:12px}
@@ -453,7 +462,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .morebtn svg{color:var(--txt-3);transform:rotate(-90deg);transition:transform .14s}
 .morebtn.on svg{transform:none}
 .endpoint-speed,.endpoint-speed .numrow{min-width:0}
-.marker-position-group{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.marker-position-group{margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
 .marker-position-group>.fieldlabel{margin-top:0}
 .linkable-name{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;color:var(--txt-2);font-size:12px;font-weight:500}
 .shared-waypoint-position{margin-block:14px;padding-bottom:12px;border-block:1px solid var(--line)}
@@ -541,7 +550,6 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .vc-text:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media (hover:hover){.vc-text:hover{background:var(--bg-3);color:var(--txt)}}
 @media (hover:hover){.vc-btn:not(.active):hover,.vc-pct:hover{background:var(--bg-3);color:var(--txt)}}
-.vc-text.field-focus{display:flex;align-items:center;gap:6px;padding-left:7px}
 /* Focus leaves this strip where the library was; it is the way back. */
 .library-restore{display:flex;flex:0 0 52px;flex-direction:column;align-items:center;padding:8px 0;background:var(--bg-1);border-right:1px solid var(--line-2)}
 .library-restore-btn{display:flex;flex-direction:column;align-items:center;gap:4px;width:44px;padding:8px 0 7px;border-radius:var(--r-s);color:var(--txt-2);font-size:11px;font-weight:500}

@@ -103,6 +103,9 @@ describe("renderer utilities", () => {
     expect(values.get("bordeaux.unitSystem")).toBe("imperial");
     expect(prefs.fromCanonical(1, "m")).toBeCloseTo(3.280839895, 9);
     expect(prefs.toCanonical(prefs.fromCanonical(2.4, "m/s"), "m/s")).toBeCloseTo(2.4, 12);
+    expect(prefs.toCanonical(prefs.fromCanonical(2.4, "m/s³"), "m/s³")).toBeCloseTo(2.4, 12);
+    expect(prefs.label("m/s³")).toBe("ft/s³");
+    expect(prefs.label("°/s³")).toBe("°/s³");
     expect(prefs.fromCanonical(1, "m", "in")).toBeCloseTo(39.37007874, 8);
     expect(prefs.label("kg·m²")).toBe("lb·ft²");
   });

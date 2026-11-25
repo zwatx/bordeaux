@@ -5,6 +5,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyMacReleaseAssetNames } from "./mac-release-assets.mjs";
 import { verifyUpdateManifest } from "./verify-update-manifest.mjs";
 
 const EVIDENCE_SCHEMA_VERSION = "bordeaux-release-signature-evidence/1.0";
@@ -164,36 +165,59 @@ async function verifyMacTarget(target, kind, approvedTeamId, runCommand) {
   };
 }
 
-async function verifyMac(directory, environment, runCommand) {
-  const approvedTeamId = appleTeamId(environment.APPLE_TEAM_ID);
-  const dmgs = await artifactsWithExtension(directory, ".dmg");
-  const zips = await artifactsWithExtension(directory, ".zip");
-  if (dmgs.length === 0 || zips.length === 0) throw new Error("macOS release evidence requires at least one DMG and one ZIP");
-  const verified = [];
-  for (const artifact of dmgs) {
-    verified.push({
-      name: artifact.name,
-      size: (await fsp.stat(artifact.path)).size,
-      sha256: await sha256(artifact.path),
-      signature: await verifyMacTarget(artifact.path, "dmg", approvedTeamId, runCommand),
+async function verifyMacArchitecture(app, artifact, runCommand) {
+  const executable = path.join(app, "Contents", "MacOS", "Bordeaux");
+  const architecture = (await runCommand("lipo", ["-archs", executable])).stdout.trim();
+  if (architecture !== "arm64") {
+    throw new Error(`${path.basename(artifact)} must contain an arm64-only app, found ${architecture || "no architecture"}`);
+  }
+  return architecture;
+}
+
+async function verifyMacDmg(artifact, approvedTeamId, runCommand) {
+  const signature = await verifyMacTarget(artifact, "dmg", approvedTeamId, runCommand);
+  const mountPoint = await fsp.mkdtemp(path.join(os.tmpdir(), "bordeaux-mac-dmg-"));
+  let mounted = false;
+  try {
+    await runCommand("hdiutil", ["attach", "-readonly", "-nobrowse", "-mountpoint", mountPoint, artifact]);
+    mounted = true;
+    const architecture = await verifyMacArchitecture(path.join(mountPoint, "Bordeaux.app"), artifact, runCommand);
+    return { architecture, signature };
+  } finally {
+    if (mounted) await runCommand("hdiutil", ["detach", mountPoint]);
+    await fsp.rmdir(mountPoint).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
     });
   }
-  for (const artifact of zips) {
-    const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), "bordeaux-mac-signature-"));
-    try {
-      await runCommand("ditto", ["-x", "-k", artifact.path, temporaryDirectory]);
-      const app = await onlyExtractedApp(temporaryDirectory);
-      verified.push({
-        name: artifact.name,
-        size: (await fsp.stat(artifact.path)).size,
-        sha256: await sha256(artifact.path),
-        signature: await verifyMacTarget(app, "app", approvedTeamId, runCommand),
-      });
-    } finally {
-      await fsp.rm(temporaryDirectory, { recursive: true, force: true });
-    }
+}
+
+async function verifyMacZip(artifact, approvedTeamId, runCommand) {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), "bordeaux-mac-signature-"));
+  try {
+    await runCommand("ditto", ["-x", "-k", artifact, temporaryDirectory]);
+    const app = await onlyExtractedApp(temporaryDirectory);
+    const architecture = await verifyMacArchitecture(app, artifact, runCommand);
+    const signature = await verifyMacTarget(app, "app", approvedTeamId, runCommand);
+    return { architecture, signature };
+  } finally {
+    await fsp.rm(temporaryDirectory, { recursive: true, force: true });
   }
-  verified.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+}
+
+async function verifyMac(directory, version, environment, runCommand) {
+  const approvedTeamId = appleTeamId(environment.APPLE_TEAM_ID);
+  const names = verifyMacReleaseAssetNames(await fsp.readdir(directory), version);
+  const verified = [];
+  for (const name of names) {
+    const artifact = path.join(directory, name);
+    const verifyArtifact = name.endsWith(".dmg") ? verifyMacDmg : verifyMacZip;
+    verified.push({
+      name,
+      size: (await fsp.stat(artifact)).size,
+      sha256: await sha256(artifact),
+      ...await verifyArtifact(artifact, approvedTeamId, runCommand),
+    });
+  }
   return { approvedSigner: { teamId: approvedTeamId }, artifacts: verified };
 }
 
@@ -209,7 +233,7 @@ export async function verifyReleaseSignatures({
   const resolvedDirectory = path.resolve(releaseDirectory);
   const updaterManifest = await verifyUpdateManifest({ platform, outputDirectory: resolvedDirectory, channel });
   const result = platform === "mac"
-    ? await verifyMac(resolvedDirectory, environment, runCommand)
+    ? await verifyMac(resolvedDirectory, updaterManifest.version, environment, runCommand)
     : await verifyWindows(resolvedDirectory, environment, runCommand);
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,

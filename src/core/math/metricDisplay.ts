@@ -1,9 +1,8 @@
-// Dark cyan (low) through teal to bright mint (high), close hues no other field meaning uses (alliance red/blue,
-// zone amber, command violet, problem red). OKLCH lightness carries most of the value and the small hue turn adds to
-// it, so slowdowns on the thin field line read as clearly darker, bluer stretches in every metric. The low end is
-// where every path starts and stops (and full deceleration on the signed metrics), so it stays at least 3:1 against
-// the dark surfaces and path casing; every stop and the ramp between them stay inside sRGB.
-const HEATMAP = [[0.50, 0.090, 232], [0.70, 0.115, 192], [0.95, 0.075, 152]] as const;
+// Deep crimson (low) through signal red to bright coral (high). Lightness rises and the hue warms a little, so faster
+// stretches read brighter and more orange while every value stays clearly red, never a pale near-white. The low end is
+// where every path starts and stops and where slow, capped paths sit, so it stays above 3:1 on the dark path casing.
+// Each stop sits just inside the sRGB gamut edge for its lightness, and so does the ramp between them.
+const HEATMAP = [[0.52, 0.190, 12], [0.64, 0.222, 24], [0.76, 0.140, 35]] as const;
 
 export function metricColor(_mode: string, value: number) {
   const t = Math.max(0, Math.min(1, Number.isNaN(value) ? 0 : value)) * 2;

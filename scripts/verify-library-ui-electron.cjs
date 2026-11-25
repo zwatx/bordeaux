@@ -181,6 +181,9 @@ const activePathId = () => evaluate(() => document.querySelector('.library-pick[
 const editorReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.pt-wp').length > 1), label);
 // Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
+  // The fixture starts hidden. Show it before asserting native keyboard focus.
+  win.show(); win.focus(); win.webContents.focus();
+  await wait(() => evaluate(() => document.hasFocus()), 'library window owns native keyboard input');
   await pointerClick('.pt-wp[data-selection="wp:1"]');
   for (const end = Date.now() + 2000; (await evaluate(() => document.activeElement?.dataset.selection)) !== 'wp:1' && Date.now() < end;) await delay(25);
   assert.equal(await evaluate(() => document.activeElement?.dataset.selection), 'wp:1', 'The waypoint owns native keyboard input');
@@ -1385,7 +1388,13 @@ app.whenReady().then(async () => {
     assert.ok(saved.paths.slice(0, 2).every((path) => path.waypoints[0].x === newX && path.waypoints[0].positionLink === linkId));
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'unlink ready');
     await fs.writeFile(path.join(output, 'linked-position-inspector.png'), (await win.webContents.capturePage()).toPNG());
-    await click('.shared-waypoint-position button', 'Unlink'); await saveCurrent();
+    const unlinkInspectedPoint = async () => {
+      await click('#inspector-waypoint-link', 'Manage…');
+      await click('[data-link-unlink]', 'Unlink this point');
+      await key('Escape');
+      await saveCurrent();
+    };
+    await unlinkInspectedPoint();
     assert.equal(saved.paths[0].waypoints[0].positionLink, undefined);
     const independentX = Math.round((newX + .2) * 100) / 100;
     await editNumber('X', independentX);
@@ -1457,7 +1466,7 @@ app.whenReady().then(async () => {
     const endpointStart = structuredClone(savedPath('linked-b').waypoints[0]);
     assert.deepEqual([endpointStart.x, endpointStart.y], [savedPath('linked-a').waypoints[endpointLast].x, savedPath('linked-a').waypoints[endpointLast].y]);
     await inspectWaypoint(endpointLast);
-    await click('.shared-waypoint-position button', 'Unlink'); await saveCurrent();
+    await unlinkInspectedPoint();
     assert.deepEqual(saved.pathLinks, [], 'Unlink removes only the endpoint link');
     await showPath('linked-b'); await inspectWaypoint(0);
     const unlinkedX = Math.round((endpointStart.x + .3) * 100) / 100;

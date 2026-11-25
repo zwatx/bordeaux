@@ -32,25 +32,26 @@ describe('Mac editor linked waypoint identity', () => {
   });
 });
 describe('metric heatmap display', () => {
-  it('shares a continuous, high-contrast teal palette between all field metrics and their legends', () => {
+  it('shares a continuous, high-contrast red palette between all field metrics and their legends', () => {
     const metrics = ['velocity', 'accel', 'angvel', 'curvature'];
     const reference = Array.from({ length: 101 }, (_, i) => metricColor('velocity', i / 100));
     const channels = reference.map(color => color.match(/oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/).slice(1).map(Number));
     for (let i = 1; i < channels.length; i++) {
-      // Lightness rises and hue turns from cyan toward mint, with no jumps.
+      // Lightness rises and the hue warms from crimson toward coral, with no jumps.
       expect(channels[i][0]).toBeGreaterThan(channels[i - 1][0]);
       expect(channels[i][0] - channels[i - 1][0]).toBeLessThan(0.01);
-      expect(channels[i][2]).toBeLessThan(channels[i - 1][2]);
+      expect(channels[i][2]).toBeGreaterThan(channels[i - 1][2]);
     }
-    // Slow and fast stretches must read clearly apart on a thin line, not as two close shades (the earlier
-    // single-teal ramp spanned 0.36).
-    expect(channels[100][0] - channels[0][0]).toBeGreaterThanOrEqual(0.44);
-    // The slow end (every path's start and stop) stays visible, at least 3:1, on the dark surfaces and path casing.
+    // Slow and fast stretches read clearly apart on a thin line.
+    expect(channels[100][0] - channels[0][0]).toBeGreaterThanOrEqual(0.22);
+    // The slow end (every path's start and stop, and capped slow paths) stays above 3:1 on the dark path casing.
     expect(channels[0][0]).toBeGreaterThanOrEqual(0.5);
-    // Hues stay near teal, clear of alliance blue and zone amber.
-    for (const [, , hue] of channels) {
-      expect(hue).toBeGreaterThanOrEqual(150);
-      expect(hue).toBeLessThanOrEqual(235);
+    // Every value stays a saturated red to coral, never fading toward white, alliance blue, or zone amber.
+    for (const [lightness, chroma, hue] of channels) {
+      expect(lightness).toBeLessThanOrEqual(0.8);
+      expect(chroma).toBeGreaterThanOrEqual(0.13);
+      expect(hue).toBeGreaterThanOrEqual(5);
+      expect(hue).toBeLessThanOrEqual(40);
     }
     for (const metric of metrics) {
       expect(Array.from({ length: 101 }, (_, i) => metricColor(metric, i / 100))).toEqual(reference);

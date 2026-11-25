@@ -200,10 +200,18 @@ app.whenReady().then(async () => {
       await snapshot('angular-small-' + width + '-' + system);
       const viewChecks = [];
       if (width === 1100 && system === 'metric') {
-        for (const [selector, state] of [['[aria-label="Zoom in"]', 'zoom'], ['[aria-label="Flip all paths 180 degrees"]', 'zoom-flip'], ['.viewctl .field-focus', 'zoom-flip-focus']]) {
-          await click(selector); const inspection = await inspect(); assertCaptionsClear(inspection, state); viewChecks.push({ state, inspection });
-        }
-        await click('.viewctl .field-focus'); await click('[aria-label="Flip all paths 180 degrees"]'); await click('[aria-label="Fit field to view"]');
+        const record = async state => { const inspection = await inspect(); assertCaptionsClear(inspection, state); viewChecks.push({ state, inspection }); };
+        const halfTurn = async () => {
+          await click('.field-flip');
+          await click('.path-flip label:has(input[name="pf-direction"][value="rotate"])');
+          await click('.path-flip label:has(input[name="pf-target"][value="replace"])');
+          await click('.pf-commit');
+          await wait(() => evaluate(() => !document.querySelector('.path-flip[open]')), 'half-turn committed');
+        };
+        await click('[aria-label="Zoom in"]'); await record('zoom');
+        await halfTurn(); await record('zoom-flip');
+        await click('[aria-label="Hide path list"]'); await record('zoom-flip-focus');
+        await click('[aria-label="Show path list"]'); await halfTurn(); await click('[aria-label="Fit field to view"]');
         assertCaptionsClear(await inspect(), 'restored fit');
       }
       await click(angularInput); assert.equal(await evaluate(() => document.activeElement.value), '0.004');
@@ -247,8 +255,10 @@ app.whenReady().then(async () => {
     }
     await fs.writeFile(path.join(output, 'angular-limits-results.json'), JSON.stringify({ passed: true, checks: angularChecks }, null, 2));
     saved = beforeAngular; await load();
-    await click('.pp-delete', 'Delete zone');
+    await click('.pp-delete[aria-label="Delete zone"]');
     await click('button[aria-label="Zone"]');
+    const toolPressed = (label) => evaluate(label => document.querySelector('.toolrail [aria-label="' + label + '"]').getAttribute('aria-pressed'), label);
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.stage-hint'))), false, 'Zone placement adds no instruction overlay');
     const drag = await evaluate(() => {
       const path = document.querySelector('path[data-role="seg"][data-idx="1"]');
       const matrix = path.getScreenCTM();
@@ -256,11 +266,16 @@ app.whenReady().then(async () => {
       if (points.length < 2) throw Error('No unobscured path points for region drag');
       return [points[0], points.at(-1)];
     });
+    for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, modifiers: [], ...drag[0] });
+    await delay(100);
+    assert.equal(await toolPressed('Zone'), 'true', 'A click without a span keeps the zone tool armed');
     win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, modifiers: [], ...drag[0] });
     await delay(100);
     win.webContents.sendInputEvent({ type: 'mouseMove', button: 'left', modifiers: [], ...drag[1] });
     await delay(200);
+    assert.equal(await toolPressed('Zone'), 'true', 'The zone tool stays active while drawing');
     win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, modifiers: [], ...drag[1] });
+    await wait(() => toolPressed('Select / move').then(pressed => pressed === 'true'), 'successful zone returns to Select / move');
     await delay(500); await save();
     assert.equal(saved.paths[0].ranges.length, 1);
     assert.deepEqual(Object.keys(saved.paths[0].ranges[0]).filter((key) => key.startsWith('max')), []);
@@ -381,6 +396,35 @@ app.whenReady().then(async () => {
       assert.deepEqual(savedNames(kind), [names[0] + ' renamed', names[1] + ' renamed'], kind + ': timeline deletion has one Undo');
     }
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
+
+    for (const [width, height, system] of [[1440, 900, 'metric'], [1100, 720, 'imperial']]) {
+      saved = { ...corpus, paths: [structuredClone(first)], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: system } };
+      win.setContentSize(width, height);
+      const openJerk = async () => {
+        await win.loadFile(path.resolve('dist-renderer/index.html'));
+        await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'path limits restored');
+        await click('.pp-more');
+        await click('.ctxinsp .morebtn', 'Advanced limits');
+        return evaluate(() => ['Linear jerk check', 'Angular jerk'].map(name => {
+          const label = [...document.querySelectorAll('.ctxinsp .numlbl')].find(label => label.textContent === name);
+          return { selector: '#' + CSS.escape(label.htmlFor), unit: label.parentElement.querySelector('.numunit').textContent };
+        }));
+      };
+      const [linear, angular] = await openJerk();
+      assert.equal(linear.unit, system === 'metric' ? 'm/s³' : 'ft/s³');
+      assert.equal(angular.unit, '°/s³');
+      await typeName(linear.selector, '1200'); await key('Enter');
+      await typeName(angular.selector, '6000'); await key('Enter'); await save();
+      const linearSi = system === 'metric' ? 1200 : 1200 / 3.280839895013123;
+      assert.ok(Math.abs(saved.paths[0].constraints.maxJerk - linearSi) < 1e-10);
+      assert.equal(saved.paths[0].constraints.maxAngJerk, 6000);
+      const [reopenedLinear, reopenedAngular] = await openJerk();
+      await typeName(reopenedAngular.selector, '0'); await key('Escape');
+      assert.equal(await evaluate(selector => document.querySelector(selector).value, reopenedAngular.selector), '6000');
+      assert.equal(await evaluate(selector => document.querySelector(selector).value, reopenedLinear.selector), '1200');
+      await snapshot('jerk-limits-' + width + '-' + system);
+    }
+    console.log('PASS Advanced jerk inputs save in canonical units, restore correctly, and keep their value on Escape');
     assert.deepEqual(errors, []);
     console.log(process.env.BORDEAUX_RANGE_LIMITS_REMAINDER_ONLY ? 'PASS Native Tab/Enter removal, cleared save/reload, all enabled layouts and native empty region creation' : 'PASS Independent acceleration add/remove, native pointer/arrow/Enter/Space/Tab, menu and numeric Escape, canonical values, save/reload, both units, open/closed inspector at 1440x900 and 1100x720');
   } catch (error) { console.error(error, errors); if (win) await snapshot('failure'); process.exitCode = 1; }

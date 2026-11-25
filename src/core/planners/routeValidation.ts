@@ -1,6 +1,6 @@
 import { physicalPlannerInput } from "../robotLimits";
 import { waypointHeadingSemantics } from "../math/waypointHeading";
-import { activeAngularLimits, directedDelta } from "./stationaryActions";
+import { activeAngularLimits, waypointTurnDelta } from "./stationaryActions";
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import type { FieldReference, PlannerInput, PlannerResult } from "../types";
 import { markersMatch, stationaryActionsMatch } from "./acceptedTrajectoryChecks";
@@ -39,7 +39,7 @@ function stationaryFailure(input: PlannerInput, result: PlannerResult, reference
     const expectedEnd = reference.samples.find((s) => Math.abs(s.t - expected[i].endTimeS) < 1e-6);
     if (!expectedEnd) return issue("Stationary turn target is missing.");
     const target = w.turnInPlace ? w.turnInPlace.headingDeg * Math.PI / 180 + (input.path.driveBackward ? Math.PI : 0) : expectedEnd.headingRad;
-    const delta = directedDelta(first.headingRad, target, w.turnInPlace?.direction);
+    const delta = waypointTurnDelta(w, first.headingRad, target);
     const limits = activeAngularLimits(physical.path, action.fraction, action.waypointIndex, result.totalDistanceM);
     const minimum = Math.max(Math.abs(delta) * 1.875 / limits.velocity, Math.sqrt(Math.abs(delta) * 5.77351 / limits.acceleration),
       limits.jerk > 0 ? Math.cbrt(Math.abs(delta) * 60 / limits.jerk) : 0);

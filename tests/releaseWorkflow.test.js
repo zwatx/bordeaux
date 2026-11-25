@@ -5,6 +5,18 @@ import { expect, it } from "vitest";
 
 const workflow = (name) => yaml.load(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
 
+it("packages macOS DMG and ZIP targets only for Apple Silicon", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  expect(manifest.build.mac.target).toEqual([
+    { target: "dmg", arch: ["arm64"] },
+    { target: "zip", arch: ["arm64"] },
+  ]);
+  for (const name of ["package:mac", "package:mac:ci"]) {
+    const macFlags = manifest.scripts[name].split(" ").filter((argument) => ["--arm64", "--x64", "--universal"].includes(argument));
+    expect(macFlags).toEqual(["--arm64"]);
+  }
+});
+
 it("publishes only after validation, every package, and one complete CI route succeed", () => {
   const beta = workflow("prerelease");
   expect(beta.jobs.build.needs).toBe("validate");

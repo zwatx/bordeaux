@@ -81,8 +81,11 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     if (!project || !actions.setWaypointPositionLink) return null;
     const members = PathLinks.positionMembers(project, doc.id, i);
     linkedNow = members.length > 0;
-    if (actions.openPointLinks) return h(Row, { label: 'Linked' }, h('button', { type: 'button', id: 'band-waypoint-link', className: 'pp-text-btn',
-      onClick: () => actions.openPointLinks(doc.id, i) }, linkedNow ? 'Manage links…' : 'Link points…'));
+    if (actions.openPointLinks) {
+      const count = members.length + (members.length === 1 ? ' point' : ' points');
+      return h(Row, { label: 'Linked' }, h('button', { type: 'button', id: 'band-waypoint-link', className: 'pp-text-btn',
+        'aria-label': linkedNow ? 'Linked with ' + count + '. Manage links' : undefined, onClick: () => actions.openPointLinks(doc.id, i) }, linkedNow ? 'With ' + count + '…' : 'Link to a point…'));
+    }
     const link = (target) => {
       const cancel = focusOwned(target ? '[data-link-unlink]' : '#band-waypoint-link', Boolean(target));
       const status = actions.setWaypointPositionLink(i, target);
@@ -177,7 +180,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
       inactive && h(Row, { label: 'Inactive here', className: 'warn' }, h('button', { type: 'button', className: 'pp-text-btn', onClick: () => actions.setSegmentHeadingMode(segment, 'targets') }, 'Use targets')),
       h(Num, { label: 'Heading', value: target.deg, unit: '°', step: 1, precision: 1, onChange: (v) => actions.setTarget(i, { deg: v }) }),
       t != null && h(Num, { label: 'At', value: t, unit: 's', step: 0.05, precision: 2, min: 0, max: maxTime, onChange: (v) => moveTo(target, v, (patch) => actions.setTarget(i, patch)) }));
-    remove = () => actions.delTarget(i); removeLabel = 'Delete target';
+    remove = () => actions.delTarget(i); removeLabel = 'Delete rotation target';
   } else if (sel.kind === 'em' && doc.markers?.[sel.idx]) {
     const i = sel.idx, marker = doc.markers[i];
     const catalog = robotProject?.catalog;
@@ -277,5 +280,6 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     problems && h(ProblemsMenu, { problems, waypointCount: n, heading }),
     // Keyed by the edited object, so a draft never carries over to another item or path.
     h('div', { ref: bodyRef, className: 'pp-body', key: doc.id + ':' + (issue ? 'issue' : (sel.kind || 'path') + ':' + sel.idx) }, body),
-    remove && h('div', { className: 'pp-foot' }, h('button', { type: 'button', className: 'delbtn pp-delete', onClick: remove }, h(Icon, { name: 'trash', size: 14 }), removeLabel)));
+    // The footer shares its height with the library and inspector footers, so their top rules form one line.
+    remove && h('div', { className: 'pp-foot' }, h('button', { type: 'button', className: 'delbtn pp-delete', 'aria-label': removeLabel, title: removeLabel, onClick: remove }, h(Icon, { name: 'trash', size: 14 }), 'Delete')));
 }

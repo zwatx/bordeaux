@@ -26,7 +26,7 @@ export const COMMAND_LABELS = {
   'tool.zone': 'Create zone',
   'view.fit': 'Fit field',
   'view.grid': 'Toggle grid',
-  'view.focusField': 'Focus field',
+  'view.focusField': 'Toggle path list',
   'visit.next': 'Next pass through a point',
   'visit.previous': 'Previous pass through a point',
   'playback.toggle': 'Play / pause',

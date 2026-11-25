@@ -15,7 +15,8 @@ import { keyLabel, useKeyRules } from '../lib/keyBindings';
 
 const h = React.createElement;
 const { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
-const GUTTER = 78, RIGHT = 14, HEAD_ROW = 42, RULER = 20, WPROW = 28, CHIP_H = 21, CHIP_ROW = CHIP_H + 2;
+const GUTTER = 104, RIGHT = 14, HEAD_ROW = 42, RULER = 20, WPROW = 28, CHIP_H = 21, CHIP_ROW = CHIP_H + 2;
+const LANE_GHOST_SIZE = 18;
 // Chip widths around the name: padding, diamond and gap; a group's mode glyph and a loop's glyph add their own.
 const CHIP_FRAME = 28, CHIP_GLYPH = 15, CHIP_MAX = 168;
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
@@ -127,15 +128,23 @@ export function PathHoverReadout({ store, context, tl, metric }) {
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
-function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneH, laneGhost = true }) {
+function HoverMarks({ store, context, tl, x, HEAD, graphBottom, laneTop, laneH, chips }) {
   const hover = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   if (!context.eligible || hover?.context !== context) return null;
   const times = hover.source === 'timeline' ? [hover.t] : hover.f.map(f => tAtF(tl, f));
   const primary = hover.source === 'field' ? hover.primary : 0;
+  const ghostX = hover.source === 'timeline' ? x(hover.t) : null;
+  const ghostY = laneH / 2;
+  const clearance = LANE_GHOST_SIZE / 2 + 4; // Include the chip's keyboard focus outline.
+  const hasRoom = ghostX != null && !chips.some((chip) => {
+    const top = 1 + chip.row * CHIP_ROW;
+    return ghostX + clearance > chip.left && ghostX - clearance < Math.max(chip.left + chip.w, chip.endX ?? 0)
+      && ghostY + clearance > top && ghostY - clearance < top + CHIP_H;
+  });
   return h('div', { className: 'pt-hover-overlay', 'aria-hidden': true },
     h('svg', { className: 'pt-svg', width: '100%', height: '100%' }, times.map((t, i) =>
       h('line', { key: i, x1: x(t), x2: x(t), y1: HEAD + RULER, y2: graphBottom, className: 'pt-hoverline', opacity: i === primary ? 1 : .55 }))),
-    hover.source === 'timeline' && laneGhost && h('span', { className: 'pt-lane-ghost', style: { left: x(hover.t), top: laneTop + laneH / 2 } }, '+'));
+    hasRoom && h('span', { className: 'pt-lane-ghost', style: { left: ghostX, top: laneTop + ghostY, width: LANE_GHOST_SIZE, height: LANE_GHOST_SIZE } }, '+'));
 }
 
 /** Why a waypoint cannot be added at a time, in the panel's words. */
@@ -200,7 +209,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const at = (t) => timed ? ', ' + fmt(t) + ' s' : '';
   const { w: W, h: H } = size;
   // A narrow timeline (the full inspector open at the minimum window) stacks its header in two rows.
-  const compact = W < 600, narrow = W < 340;
+  const compact = W < 600, narrow = W < 360;
   const HEAD = narrow ? 112 : compact ? 78 : HEAD_ROW;
   const plotW = Math.max(50, W - GUTTER - RIGHT);
   const graphTop = HEAD + RULER + 4;
@@ -609,6 +618,6 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       style: { left: clamp(shownStack.left, 4, Math.max(4, W - 244)), bottom: H - (laneTop + 1 + shownStack.row * CHIP_ROW) + 4,
         maxHeight: Math.max(60, Math.min(260, laneTop + 1 + shownStack.row * CHIP_ROW - 12)) },
       onChoose: (index) => { closeStack(true); select('em', index); } }),
-    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneH, laneGhost: !pointsHover }),
+    hoverStore && h(HoverMarks, { store: hoverStore, context: hoverContext, tl, x, HEAD, graphBottom, laneTop, laneH, chips }),
     h(Playhead, { store: playbackStore, x, top: HEAD + RULER, bottom: laneTop + laneH - 2 }));
 }

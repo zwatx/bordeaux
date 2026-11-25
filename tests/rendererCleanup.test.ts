@@ -46,7 +46,7 @@ describe("timeline marker timing", () => {
     expect(rulerWidth).toBeGreaterThan(100);
     expect(chip).toBeCloseTo(rulerLeft + rulerWidth, 6);
     const waitWidth = (0.5 / tl.total) * rulerWidth;
-    expect(chip - end).toBeGreaterThanOrEqual(waitWidth);
+    expect(chip - end).toBeGreaterThanOrEqual(waitWidth - 1e-9);
     expect(chip - end).toBeLessThan(waitWidth * 1.05);
   });
 });

@@ -1,18 +1,42 @@
-.point-links{width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 64px);padding:0;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1);color:var(--txt);overflow:auto}
-.point-links::backdrop{background:rgb(0 0 0/.45)}
-.point-links header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:20px}
-.point-links h2{font-size:16px;margin:0 0 6px}.point-links h3{font-size:13px;margin:0 0 12px;overflow-wrap:anywhere}
-.point-links p{margin:6px 0 16px;color:var(--txt-3);font-size:12px;line-height:1.5}
-.point-links-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:24px;padding:0 20px}
-.point-links label{display:block;margin-bottom:8px;font-size:12px;color:var(--txt-2)}
-.point-links select,.point-links input{width:100%;height:34px;padding:0 8px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);color:var(--txt)}
-.point-links ul{padding:0;list-style:none;max-height:150px;overflow:auto}.point-links li{display:flex;flex-direction:column;gap:3px;margin-bottom:10px;font-size:12px;overflow-wrap:anywhere}
-.point-links li span{color:var(--txt-3)}
-.point-links-choices{height:240px;overflow:auto;margin:8px 0}
-.point-links-choices h3{margin:12px 8px 6px;color:var(--txt-2);font-weight:500}
-.point-links :is(input,select,button):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-.point-links-choices button{display:flex;flex-direction:column;gap:4px;width:100%;padding:10px;text-align:left;border:1px solid transparent;border-radius:var(--r);overflow-wrap:anywhere}
-.point-links-choices button:hover{background:var(--bg-2)}.point-links-choices button[aria-pressed="true"]{background:var(--bg-3);border-color:var(--line-2)}
-.point-links-choices strong{font-size:13px}.point-links-choices span{font-size:12px;color:var(--txt-3)}
-.point-links-review{display:flex;flex-direction:column;gap:6px;margin:12px 20px 0;padding-top:14px;border-top:1px solid var(--line);font-size:12px;line-height:1.5}.point-links-review span{color:var(--txt-3)}
-.point-links footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px}
+/* Link points: the Projects sheet's search, list and footer, with the fixed source above and a
+   review line that keeps its height so choosing a point never moves the list. */
+.pj-sheet.point-links{width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 72px));margin-top:max(36px,10vh)}
+.pl-source{padding:14px 14px 12px;border-bottom:1px solid var(--line)}
+.pl-source h2{margin:0;color:var(--txt);font-size:15px;font-weight:600;line-height:1.35}
+.pl-source p{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 16px;margin:3px 0 0;color:var(--txt-2);font-size:12px;line-height:1.45}
+.pl-source-path{display:-webkit-box;min-width:0;overflow:hidden;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.point-links .num{color:var(--txt-3);font:11px/1.45 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pl-members{padding:8px 8px 10px 14px;border-bottom:1px solid var(--line)}
+.pl-members-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pl-members h3{min-width:0;margin:0;color:var(--txt);font-size:13px;font-weight:500;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-members .qbtn{flex:none;min-height:28px;padding:0 10px}
+.pl-members ul{max-height:84px;margin:2px 0 0;padding:0;overflow:auto;list-style:none}
+.pl-members li{padding:2px 0;color:var(--txt-2);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.point-links .pl-list{min-height:120px;padding:4px 6px 6px}
+.pl-path{display:-webkit-box;margin:10px 8px 4px 32px;overflow:hidden;color:var(--txt-2);font-size:12px;font-weight:500;line-height:1.4;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+.pl-list>li:first-child .pl-path{margin-top:6px}
+.pl-points{margin:0;padding:0;list-style:none}
+.pl-option{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:42px;padding:5px 10px 5px 6px;border-radius:var(--r);color:var(--txt);text-align:left}
+.pl-option[aria-selected="true"]{background:var(--bg-3)}
+.pl-option:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+@media (hover:hover){.pl-option:hover:not([aria-selected="true"]){background:var(--bg-2)}}
+.pl-check{display:flex;justify-content:center;color:var(--accent)}
+.pl-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pl-name{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:13px;font-weight:500;line-height:1.35;overflow-wrap:anywhere}
+.pl-meta{display:flex;flex-wrap:wrap;column-gap:10px;color:var(--txt-3);font-size:11px;line-height:1.45}
+.pl-move{display:inline-flex;align-items:center;gap:5px;color:var(--txt-2);font-size:11px;white-space:nowrap}
+.pl-move svg{flex:none;color:var(--txt-3)}
+.pl-move .num{color:inherit}
+.pl-move[data-none]{color:var(--txt-3)}
+.pl-option .pl-move{justify-content:flex-end;min-width:72px}
+.pl-review{display:flex;flex:none;flex-direction:column;justify-content:center;gap:3px;min-height:82px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;line-height:1.45}
+.pl-review-lead{display:flex;flex-wrap:wrap;align-items:center;column-gap:5px;color:var(--txt);font-size:13px;font-weight:500}
+.pl-review-lead .pl-move{color:var(--txt);font-size:12px}
+.pl-review-lead .num{color:var(--txt);font-size:12px}
+.pl-review-destination{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-review-detail{color:var(--txt-3)}
+.pl-review-idle{color:var(--txt-3)}
+.pl-keys{display:flex;align-items:center;gap:5px;padding-left:4px;color:var(--txt-3);font-size:11px;white-space:nowrap}
+.point-links .pl-keys kbd:not(:first-child){margin-left:8px}
+.point-links .pl-keys kbd{min-width:18px;padding:1px 4px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:500 10px/1.4 var(--ui);text-align:center}
+.point-links .pj-foot .qbtn{min-width:72px}
