@@ -60,7 +60,7 @@ describe('optimization job ownership', () => {
   it('preserves an explicit current-path Apply while another path is searching', () => {
     const markup = render({ ...background, candidate: { finalTrajectory: { totalTimeS: 3, optimization: { fallback: false } } } });
     expect(markup).toContain('1.00 s faster, 25.0%');
-    expect(markup).toMatch(/class="optimizer-main primary">Apply optimized<\/button>/);
+    expect(markup).toMatch(/class="optimizer-main primary">Apply new route<\/button>/);
     expect(markup).toContain('Cancel optimization for Scoring approach');
   });
   it('labels batch cancellation honestly and keeps it available if current-path planning fails', () => {
@@ -77,7 +77,7 @@ describe('waypoint-route outcomes', () => {
     const markup = render({ candidate, error: new Error('Seed cannot be timed'), baselineTime: null });
     expect(markup).toContain('Route found');
     expect(markup).toContain('3.00 s');
-    expect(markup).toContain('Apply optimized');
+    expect(markup).toContain('Apply new route');
     expect(markup).not.toContain('faster,');
     expect(markup).not.toContain('%');
   });
@@ -89,7 +89,7 @@ describe('waypoint-route outcomes', () => {
     expect(markup).not.toContain('optimizer-outcome gain');
     expect(markup).toContain('The drawn curve runs the robot into a wall or field obstacle.');
     expect(markup).toContain('Normal timing is shown for comparison only.');
-    expect(markup).toContain('Apply optimized');
+    expect(markup).toContain('Apply new route');
     expect(markup).not.toContain('No faster route found');
   });
   it('never calls a repaired route with a sub-threshold gain slower', () => {
@@ -102,12 +102,12 @@ describe('waypoint-route outcomes', () => {
     expect(markup).toContain('1.00 s faster, 25.0%');
     expect(markup).toContain('optimizer-outcome gain');
     expect(markup).toContain('The drawn curve doesn’t meet the path’s requirements.');
-    expect(markup).toContain('Apply optimized');
+    expect(markup).toContain('Apply new route');
   });
   it('does not promote a slower route just because seed qualification is unknown', () => {
     const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'unknown' } }, baselineTime: 2 });
     expect(markup).not.toContain('Route found');
-    expect(markup).not.toContain('Apply optimized');
+    expect(markup).not.toContain('Apply new route');
     expect(markup).toContain('No faster route found');
   });
   it.each([
@@ -116,7 +116,7 @@ describe('waypoint-route outcomes', () => {
     { optimization: { fallback: false, termination: 'unsupported' } },
   ])('never offers invalid or fallback output for Apply: %j', (patch) => {
     const markup = render({ candidate: { finalTrajectory: { ...candidate.finalTrajectory, ...patch } }, error: new Error('Seed failed') });
-    expect(markup).not.toContain('Apply optimized');
+    expect(markup).not.toContain('Apply new route');
     expect(markup).not.toContain('Route found');
   });
   it('shows bounded exhaustion and unsupported reasons without claiming infeasibility', () => {

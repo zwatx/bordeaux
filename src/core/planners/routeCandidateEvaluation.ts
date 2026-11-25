@@ -72,6 +72,18 @@ export function evaluateRouteCandidate(
   }
 }
 
+/**
+ * The first-pass time of one candidate curve, or infinity when it cannot be
+ * timed. Ranks curves for a descent that has not chosen which to plan in full.
+ */
+export function probeRouteCandidate(source: PlannerInput, geometry: RouteGeometry): number {
+  try {
+    return fixedGeometryFirstPassTime({ ...source, path: routePlanningPath(source.path, geometry) }) ?? Number.POSITIVE_INFINITY;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 /** Plans the drawn curve with the Normal planner and qualifies it as a route. */
 export function qualifyRouteSeed(source: PlannerInput): RouteSeedOutcome {
   try {

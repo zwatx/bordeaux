@@ -75,6 +75,8 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 910 * 1024;
 // Preserve mirrored stationary turns when a constraint boundary inserts a heading sample (244,970 B).
 // The planner reads the field pack, which now carries the vendored WPILib AprilTag layout (5,070 B): 248,696 B
 // (2026-11-25); 245 KiB keeps about 2 KiB of headroom.
+// The search that keeps the drawn shape (handle-length descent, its two drivers and pool probes) measures 249,682 B;
+// 245 KiB keeps ~1.2 KiB headroom.
 const WORKER_JAVASCRIPT_BUDGET_BYTES = 245 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
