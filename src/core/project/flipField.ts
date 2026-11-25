@@ -1,5 +1,5 @@
 import { FIELD_H, FIELD_W } from "../math/fieldBounds";
-import type { BordeauxProject, ControlPoint, PathDoc, RobotConfig, RotationDirection, TurnInPlace } from "../types";
+import type { BordeauxProject, ControlPoint, PathDoc, RobotConfig, RotationDirection, TurnInPlace, Waypoint } from "../types";
 import { wrapRadians } from "../math/angles";
 import { deriveHeadingGeometry } from "../math/pm";
 import { acceptedTrajectoryShapeError, optimizationInputKey } from "../planners/acceptedTrajectoryIdentity";
@@ -16,15 +16,19 @@ const mirrorStationary = (direction: NonNullable<TurnInPlace["direction"]>): Non
   direction === "clockwise" ? "counterclockwise" : direction === "counterclockwise" ? "clockwise" : direction;
 
 function mirroredStationaryTies(path: PathDoc, robot: RobotConfig): Set<number> {
-  const canTie = (turn?: TurnInPlace) => turn && (!turn.direction || turn.direction === "shortest");
+  const canTie = ({ turnInPlace, stop }: Waypoint, index: number) => turnInPlace
+    ? !turnInPlace.direction || turnInPlace.direction === "shortest"
+    : stop && index > 0 && index < path.waypoints.length - 1;
   const ties = new Set<number>();
-  if (!path.waypoints.some((waypoint) => canTie(waypoint.turnInPlace))) return ties;
+  if (!path.waypoints.some(canTie)) return ties;
   const { head, wpIdx } = deriveHeadingGeometry(path, robot);
-  path.waypoints.forEach(({ turnInPlace }, index) => {
-    if (!turnInPlace || !canTie(turnInPlace)) return;
-    const incoming = head[index === 0 ? 0 : Math.max(0, wpIdx[index] - 1)];
-    const delta = wrapRadians(turnInPlace.headingDeg * Math.PI / 180 - incoming);
-    // The planner's shortest stationary half-turn is CCW, so its reflection must explicitly turn clockwise.
+  path.waypoints.forEach((waypoint, index) => {
+    if (!canTie(waypoint, index)) return;
+    const { turnInPlace } = waypoint;
+    const boundary = wpIdx[index];
+    const incoming = head[turnInPlace && index > 0 ? Math.max(0, boundary - 1) : boundary];
+    const target = turnInPlace ? turnInPlace.headingDeg * Math.PI / 180 : head[boundary + 1];
+    const delta = wrapRadians(target - incoming);
     if (Math.abs(Math.abs(delta) - Math.PI) < 1e-12) ties.add(index);
   });
   return ties;
@@ -45,16 +49,26 @@ function flipFieldPath(path: PathDoc, direction: FieldFlipDirection, robot: Robo
     return next;
   };
   return { ...path,
-    waypoints: path.waypoints.map((waypoint, index) => ({ ...waypoint, ...point(waypoint),
-      theta: heading(waypoint.theta), prevC: point(waypoint.prevC), nextC: point(waypoint.nextC),
-      ...(waypoint.segmentLookAt ? { segmentLookAt: point(waypoint.segmentLookAt) } : {}),
-      ...(mirrored && waypoint.rotationDirection ? { rotationDirection: mirrorMoving(waypoint.rotationDirection) } : {}),
-      ...(waypoint.turnInPlace ? { turnInPlace: { ...waypoint.turnInPlace, headingDeg: heading(waypoint.turnInPlace.headingDeg),
-        ...(stationaryTies?.has(index) ? { direction: "clockwise" as const }
-          : mirrored && waypoint.turnInPlace.direction ? { direction: mirrorStationary(waypoint.turnInPlace.direction) } : {}),
-      } } : {}),
-      ...(mirrored && waypoint.jiggle ? { jiggle: { ...waypoint.jiggle, startDeg: -waypoint.jiggle.startDeg, stepDeg: -waypoint.jiggle.stepDeg } } : {}),
-    })),
+    waypoints: path.waypoints.map((waypoint, index) => {
+      const tie = stationaryTies?.has(index);
+      const turn = waypoint.turnInPlace;
+      const transformed: Waypoint = { ...waypoint, ...point(waypoint),
+        theta: heading(waypoint.theta), prevC: point(waypoint.prevC), nextC: point(waypoint.nextC),
+        ...(waypoint.segmentLookAt ? { segmentLookAt: point(waypoint.segmentLookAt) } : {}),
+        ...(mirrored && waypoint.rotationDirection ? { rotationDirection: mirrorMoving(waypoint.rotationDirection) } : {}),
+        ...(turn ? { turnInPlace: { ...turn, headingDeg: heading(turn.headingDeg),
+          ...(tie ? { direction: "clockwise" as const }
+            : mirrored && turn.direction ? { direction: mirrorStationary(turn.direction) } : {}),
+        } } : {}),
+        ...(mirrored && waypoint.jiggle ? { jiggle: { ...waypoint.jiggle, startDeg: -waypoint.jiggle.startDeg, stepDeg: -waypoint.jiggle.stepDeg } } : {}),
+      };
+      // Keep an automatic turn anchored to the actual arrival heading.
+      if (mirrored && !turn) {
+        if (waypoint.implicitHalfTurnClockwise) delete transformed.implicitHalfTurnClockwise;
+        else if (tie) transformed.implicitHalfTurnClockwise = true;
+      }
+      return transformed;
+    }),
     targets: path.targets.map((target) => ({ ...target, deg: heading(target.deg),
       ...(mirrored && target.rotationDirection ? { rotationDirection: mirrorMoving(target.rotationDirection) } : {}),
     })),

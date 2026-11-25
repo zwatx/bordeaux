@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
 import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
-import { stationaryTurnDelta } from "../src/core/math/angles";
+import { stationaryTurnDelta, wrapRadians } from "../src/core/math/angles";
 import type { FieldFlipDirection } from "../src/core/project/flipField";
 
 function flipSelectedPath(project: ReturnType<typeof createDemoProject>, direction: FieldFlipDirection = "rotate", copy = false) {
@@ -112,6 +112,45 @@ describe("fixed blue-origin field", () => {
     expect(result.totalTimeS).toBeCloseTo(original.totalTimeS, 7);
     expect(result.samples.some(sample => sample.angularVelocityRadps < -.1)).toBe(true);
     expect(result.samples.every(sample => sample.angularVelocityRadps < 1e-7)).toBe(true);
+  });
+
+  it.each([
+    { direction: "horizontal", segType: "line" }, { direction: "vertical", segType: "line" },
+    { direction: "horizontal", segType: "bezier" }, { direction: "vertical", segType: "bezier" },
+    { direction: "vertical", segType: "line", ranges: [{ anchor: "param", f0: 0.501, f1: 0.6, maxVel: 0.5 }] },
+  ] satisfies Array<{ direction: FieldFlipDirection; segType: "line" | "bezier"; ranges?: ReturnType<typeof createDemoProject>["paths"][number]["ranges"] }>)(
+    "keeps the automatic $segType U-turn and reverses its direction after a $direction mirror", ({ direction, segType, ranges }) => {
+    const project = createDemoProject(), path = project.paths[0];
+    path.headingMode = "tangent";
+    path.waypoints = buildWaypoints([
+      { x: 6.5, y: 2, segType }, { x: 8, y: 2, stop: true, segType: "line" }, { x: 6.5, y: 2 },
+    ]);
+    path.waypoints[0].nextC = { x: 7, y: 2.4 };
+    path.waypoints[1].prevC = { x: 7.5, y: 2 };
+    path.ranges = ranges ?? [];
+    const flipped = flipSelectedPath(project, direction);
+    const mirrored = decodeProjectValue(JSON.parse(encodeProjectFile(flipped).contents)).project.paths[0];
+    expect(mirrored.waypoints[1].turnInPlace).toBeUndefined();
+    expect(mirrored.waypoints[1].implicitHalfTurnClockwise).toBe(true);
+    expect(flipSelectedPath(flipped, direction).paths[0].waypoints[1].implicitHalfTurnClockwise).toBeUndefined();
+    const planner = getPlanner("profiledSpline");
+    const original = planner.generate({ path, robot: project.robot });
+    const result = planner.generate({ path: mirrored, robot: project.robot });
+    expect(original.stationaryActions?.map(action => action.kind)).toEqual(["turn"]);
+    expect(result.stationaryActions?.map(action => action.kind)).toEqual(["turn"]);
+    expect(result.diagnostics.filter(issue => issue.severity === "error")).toEqual([]);
+    expect(result.totalTimeS).toBeCloseTo(original.totalTimeS, 7);
+    const duringTurn = (plan: typeof result) => {
+      const turn = plan.stationaryActions![0];
+      return plan.samples.filter(sample => sample.t >= turn.startTimeS && sample.t <= turn.endTimeS + 1e-9);
+    };
+    const before = duringTurn(original), after = duringTurn(result);
+    expect(after).toHaveLength(before.length);
+    const angle = direction === "horizontal" ? Math.PI - before[0].headingRad : -before[0].headingRad;
+    expect(wrapRadians(after[0].headingRad - angle)).toBeCloseTo(0, 7);
+    for (let index = 0; index < before.length; index++) {
+      expect(after[index].angularVelocityRadps).toBeCloseTo(-before[index].angularVelocityRadps, 6);
+    }
   });
 
   it.each([{ direction: "horizontal", heading: -360_000 }, { direction: "rotate", heading: 360_000 }] as const)(

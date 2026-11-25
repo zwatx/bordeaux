@@ -70,14 +70,15 @@ function intervalRanges(ranges: readonly EffectiveRange[], before: number, after
   return ranges.filter((range) => Math.min(end, range.end) - Math.max(start, range.start) > EPSILON);
 }
 
-function interpolateSample(before: TrajectorySample, after: TrajectorySample, fraction: number): TrajectorySample {
+function interpolateSample(before: TrajectorySample, after: TrajectorySample, fraction: number, clockwiseHalfTurn: boolean): TrajectorySample {
   const span = Math.max(EPSILON, after.f - before.f);
   const ratio = Math.max(0, Math.min(1, (fraction - before.f) / span));
   const mix = (first: number, second: number) => first + (second - first) * ratio;
-  const headingDelta = Math.atan2(
+  let headingDelta = Math.atan2(
     Math.sin(after.headingRad - before.headingRad),
     Math.cos(after.headingRad - before.headingRad),
   );
+  if (clockwiseHalfTurn && Math.abs(Math.abs(headingDelta) - Math.PI) < 1e-12) headingDelta = -Math.PI;
   return {
     i: 0,
     t: mix(before.t, after.t),
@@ -151,11 +152,18 @@ export function insertOptimizationBoundaries(
     throw new Error(`Optimization boundaries require more than ${MAX_TRAJECTORY_SAMPLES} trajectory samples`);
   }
 
+  // A zone edge inside a mirrored automatic half-turn must sample the same
+  // direction as the stationary action, including when it becomes the first outgoing sample.
+  const clockwiseArrivals = new Set(state.waypointSampleIndices.filter((_, index) => {
+    const point = input.path.waypoints[index];
+    return point.stop && point.implicitHalfTurnClockwise && !point.turnInPlace;
+  }).map(index => samples[index]));
   const result = [...samples];
   for (const fraction of missing) {
     const afterIndex = result.findIndex((sample) => sample.f > fraction);
     if (afterIndex <= 0) continue;
-    result.splice(afterIndex, 0, interpolateSample(result[afterIndex - 1], result[afterIndex], fraction));
+    const before = result[afterIndex - 1];
+    result.splice(afterIndex, 0, interpolateSample(before, result[afterIndex], fraction, clockwiseArrivals.has(before)));
   }
   const adjusted = result.map((sample, index) => {
     const target = targetBoundaries.find((candidate) => Math.abs(candidate.fraction - sample.f) <= EPSILON);

@@ -1,6 +1,6 @@
 import { buildCanonicalPathState, isStationaryHeadingTransition } from "./pathState";
 import { stationaryTurnDelta, wrapRadians } from "../math/angles";
-import type { ConstraintRange, PathDoc, PlannerResult, PlannerStationaryAction, RobotConfig, TrajectorySample } from "../types";
+import type { ConstraintRange, PathDoc, PlannerResult, PlannerStationaryAction, RobotConfig, TrajectorySample, Waypoint } from "../types";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
 import { jigglePositions } from "./jiggle";
 import { orderedWaypointSampleIndices } from "./waypointSamples";
@@ -12,6 +12,11 @@ export function directedDelta(start: number, end: number, direction = "shortest"
   const delta = stationaryTurnDelta(start, end, direction);
   if (Math.abs(delta) < EPSILON) return 0;
   return delta;
+}
+
+export function waypointTurnDelta(waypoint: Waypoint, start: number, end: number): number {
+  const delta = directedDelta(start, end, waypoint.turnInPlace?.direction);
+  return !waypoint.turnInPlace && waypoint.implicitHalfTurnClockwise && delta === Math.PI ? -delta : delta;
 }
 
 export function activeAngularLimits(path: PathDoc, fraction: number, waypointIndex: number, totalDistance: number): { velocity: number; acceleration: number; jerk: number } {
@@ -222,7 +227,7 @@ export function applyStationaryActions(path: PathDoc, result: PlannerResult, rob
       ? waypoint.turnInPlace.headingDeg * DEG + (path.driveBackward ? Math.PI : 0)
       : implicitTurnHeading ?? arrival.headingRad;
     const delta = waypoint.turnInPlace || implicitTurnHeading !== undefined
-      ? directedDelta(startHeading, targetHeading, waypoint.turnInPlace?.direction)
+      ? waypointTurnDelta(waypoint, startHeading, targetHeading)
       : 0;
     const turnDuration = (waypoint.turnInPlace || implicitTurnHeading !== undefined) && Math.abs(delta) >= EPSILON
       ? rotationDuration(delta, activeAngularLimits(path, arrival.f, waypointIndex, result.totalDistanceM))
@@ -286,7 +291,7 @@ export function applyStationaryActions(path: PathDoc, result: PlannerResult, rob
       const startHeading = waypoint.turnInPlace && waypointIndex > 0 ? previous.headingRad : arrival.headingRad;
       const hasTurn = Boolean(turn) || implicitTurnHeading !== undefined;
       const targetHeading = turn ? turn.headingDeg * DEG + (path.driveBackward ? Math.PI : 0) : implicitTurnHeading ?? arrival.headingRad;
-      const delta = hasTurn ? directedDelta(startHeading, targetHeading, turn?.direction) : 0;
+      const delta = hasTurn ? waypointTurnDelta(waypoint, startHeading, targetHeading) : 0;
       const ticks = plannedTicks.get(waypointIndex)!;
       const turnTicks = ticks.turn;
       const turnDuration = turnTicks * period;

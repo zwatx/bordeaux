@@ -64,7 +64,8 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 889 * 1024;
 // 234 KiB keeps ~1.4 KiB headroom.
 // The parallel route search (candidate pool, warm-up and a persistent optimizer worker) measures 243,763 B;
 // 239 KiB keeps ~1 KiB headroom.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 239 * 1024;
+// Preserve mirrored stationary turns when a constraint boundary inserts a heading sample (244,970 B).
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 240 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.

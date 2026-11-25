@@ -87,7 +87,7 @@ async function defaultChecks(first) {
   await key('1');
   console.log('PASS tool keys 1-5, V W R M C, Shift+W');
 
-  // Grid, fit and focus field.
+  // Grid, fit and the path list.
   const grid = await pressed('Toggle field grid');
   await key('g'); assert.notEqual(await pressed('Toggle field grid'), grid, 'G toggles the grid');
   await key('g'); assert.equal(await pressed('Toggle field grid'), grid);
@@ -95,10 +95,10 @@ async function defaultChecks(first) {
   await click('[aria-label="Zoom in"]'); await click('[aria-label="Zoom in"]');
   assert.notEqual(await evaluate(() => document.querySelector('.vc-pct').textContent), fit);
   await key('f'); assert.equal(await evaluate(() => document.querySelector('.vc-pct').textContent), fit, 'F fits the field');
-  const focusTitle = () => evaluate(() => [...document.querySelectorAll('button[title]')].find(b => b.title.includes('the path list'))?.title);
-  assert.equal(await focusTitle(), 'Hide the path list  (\\)');
-  await key('\\'); await wait(async () => (await focusTitle()) === 'Show the path list  (\\)', '\\ hides the path list');
-  await key('\\'); await wait(async () => (await focusTitle()) === 'Hide the path list  (\\)', '\\ shows the path list');
+  const pathListTitle = () => evaluate(() => document.querySelector('.library-hide, .library-restore-btn')?.title);
+  assert.equal(await pathListTitle(), 'Hide path list  (\\)');
+  await key('\\'); await wait(async () => (await pathListTitle()) === 'Show path list  (\\)', '\\ hides the path list');
+  await key('\\'); await wait(async () => (await pathListTitle()) === 'Hide path list  (\\)', '\\ shows the path list');
   console.log('PASS G, F and \\');
 
   // Typing keeps its keys: G in the library search does not toggle the grid.
