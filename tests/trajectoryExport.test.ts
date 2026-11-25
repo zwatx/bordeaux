@@ -63,28 +63,19 @@ describe("project files", () => {
     expect(project.editor?.activePathId).toBe(project.paths[0].id);
   });
 
-  it.each(["metric", "imperial"] as const)("round-trips %s display units without changing path measurements", (unitSystem) => {
+  // Display units are a per-machine preference. Older files stored them under editor; opening drops them, any value,
+  // and saving never writes them back, so a teammate's units can't change this machine's display.
+  it.each(["metric", "imperial", "feet", null])("drops stored display units %s from older files", (unitSystem) => {
     const project = createDemoProject();
-    project.editor = { ...project.editor, unitSystem };
+    const legacy = { ...project, editor: { ...project.editor, unitSystem } };
 
-    const opened = decodeProjectValue(JSON.parse(encodeProjectFile(project).contents)).project;
+    const opened = decodeProjectValue(legacy).project;
+    const saved = JSON.parse(encodeProjectFile(legacy).contents);
 
-    expect(opened.editor?.unitSystem).toBe(unitSystem);
+    expect(opened.editor).toEqual(project.editor);
+    expect(saved.editor).toEqual(project.editor);
     expect(opened.paths).toEqual(project.paths);
-    expect(opened.robot).toEqual(project.robot);
-  });
-
-  it("accepts older projects without display units", () => {
-    const project = createDemoProject();
-    const opened = decodeProjectValue(project).project;
-    expect(opened.editor?.unitSystem).toBeUndefined();
     expect(validateProject(opened).ok).toBe(true);
-  });
-
-  it.each(["feet", "Metric", null, 1])("rejects invalid display units %s at the file boundary", (unitSystem) => {
-    const project = createDemoProject();
-    expect(() => decodeProjectValue({ ...project, editor: { ...project.editor, unitSystem } }))
-      .toThrow("$.editor.unitSystem: Display units must be metric or imperial");
   });
 
   it("migrates old planner IDs to the maintained planner", () => {

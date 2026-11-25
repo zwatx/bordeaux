@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, reorderWaypoint, reversePath, setTangentDirection, tangentDirectionDeg, tangentHandleUse } from "../src/renderer/lib/pathEditing";
 import { sample } from "../src/core/math/geometry";
-import { blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../src/renderer/lib/editorProject";
+import { blankRoutine, routineState, uniqueItemName, withRoutineState } from "../src/renderer/lib/editorProject";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { normalizeProject } from "../src/core/project/normalize";
 import type { JiggleAction } from "../src/core/types";
@@ -162,16 +162,8 @@ describe("waypoint tangent editing", () => {
 });
 
 describe("editor project defaults and routine identity", () => {
-  it("uses the shared initial robot/path defaults and selects the generated identities", () => {
-    const actual = freshProject(), expected = createDemoProject();
-    expect(actual.robot).toEqual(expected.robot);
-    expect({ ...actual.paths[0], id: "same" }).toEqual({ ...expected.paths[0], id: "same" });
-    expect(actual.editor).toMatchObject({ activePathId: actual.paths[0].id, unitSystem: "metric" });
-    expect(actual.activeRoutineId).toBe(actual.routines[0].id);
-  });
-
   it("normalizes routine selection without changing valid routine identity", () => {
-    const project = freshProject(), other = blankRoutine("Other");
+    const project = createDemoProject(), other = blankRoutine("Other");
     const state = routineState({ routines: [project.routines[0], other], activeRoutineId: "missing" });
     expect(state.activeRoutineId).toBe(project.activeRoutineId);
     expect(withRoutineState(project, { ...state, activeRoutineId: other.id }).activeRoutineId).toBe(other.id);

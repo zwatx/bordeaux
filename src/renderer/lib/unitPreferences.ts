@@ -11,7 +11,7 @@ export function formatAngularLimit(value: number): string {
   return String(Number(value !== 0 && Number(text) === 0 ? value.toPrecision(2) : text));
 }
 
-// The document selects display units; local storage supplies the default for older files.
+// Display units are a per-machine app preference kept in local storage; project files never carry them.
 // Project geometry, planning, validation, and export remain SI.
 export function createUnitPreferences(storage: UnitStorage = localStorage, root: UnitRoot = document.documentElement) {
   const STORAGE_KEY = 'bordeaux.unitSystem';
