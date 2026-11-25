@@ -70,20 +70,33 @@
 .library-clear{height:26px;padding:0 8px;border-radius:var(--r-s);color:var(--txt-2);font-size:12px;font-weight:500}
 .library-clear:focus-visible,.library-icon-button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 
-/* Dragging paths and folders: the moved rows dim, a line marks the insertion point, a folder that would take the
-   paths gets a neutral surface, and a label follows the pointer. */
+/* Dragging works like a card list: the row lifts into a card, its slot becomes a well and closes once there is
+   somewhere else to go, and a matching well opens at the target. Transitions run only while dragging. */
 body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-select:none}
 .library-item,.library-group{position:relative}
-.library-item.dragging,.library-group.dragging{opacity:.4}
-.library-item:is(.drop-before,.drop-after)::after,.library-group:is(.drop-before,.drop-after)::after{content:'';position:absolute;z-index:2;left:6px;right:4px;height:2px;border-radius:1px;background:var(--txt);pointer-events:none}
-.library-item.drop-before::after,.library-group.drop-before::after{top:-1px}
-.library-item.drop-after::after,.library-group.drop-after::after{bottom:-1px}
+.editor-library{--settle:cubic-bezier(.2,.8,.2,1)}
+.editor-library.dragging :is(.library-item,.library-group){interpolate-size:allow-keywords;transition:height .18s var(--settle),padding .18s var(--settle)}
+:is(.library-item,.library-group).dragging{border-radius:var(--r);background:oklch(0 0 0/.16);box-shadow:inset 0 0 0 1px var(--line-2)}
+:is(.library-item,.library-group).dragging>*{visibility:hidden}
+:is(.library-item,.library-group).away{height:0;overflow:hidden;box-shadow:none}
+:is(.library-item,.library-group).drop-before{padding-top:var(--drag-gap)}
+:is(.library-item,.library-group).drop-after{padding-bottom:var(--drag-gap)}
+:is(.library-item,.library-group):is(.drop-before,.drop-after)::after{content:'';position:absolute;z-index:2;left:6px;right:4px;height:calc(var(--drag-gap) - 4px);border-radius:var(--r);background:oklch(1 0 0/.04);box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
+:is(.library-item,.library-group).drop-before::after{top:2px}
+:is(.library-item,.library-group).drop-after::after{bottom:2px}
 .library-group .library-item:is(.drop-before,.drop-after)::after{left:20px}
 .library-folder.drop-into>button:first-child{background:var(--bg-3);color:var(--txt);box-shadow:inset 0 0 0 1px var(--line-3)}
 .library-drop-unfiled{display:grid;place-items:center;height:34px;margin:6px 4px 0;border:1px dashed var(--line-3);border-radius:var(--r);color:var(--txt-3);font-size:12px}
 .library-drop-unfiled.over{border-style:solid;background:var(--bg-3);color:var(--txt)}
-.library-drag-ghost{position:fixed;z-index:1000;max-width:220px;padding:4px 9px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow);color:var(--txt);font-size:12px;line-height:16px;white-space:nowrap;text-overflow:ellipsis;pointer-events:none}
-.library-drag-ghost.idle{color:var(--txt-3)}
+.settling{position:relative;z-index:3}
+.library-drag-ghost{position:fixed;z-index:1000;display:flex;align-items:center;box-sizing:border-box;padding-right:10px;border-radius:var(--r);background:var(--bg-3);box-shadow:var(--elevation),0 12px 28px #0006;color:var(--txt);font-size:13px;white-space:nowrap;pointer-events:none;transform:scale(1.02);animation:lift .14s var(--settle)}
+.library-drag-ghost[data-meta]::after{content:attr(data-meta);margin-left:auto;padding-left:8px;color:var(--txt-3);font:11px var(--mono)}
+.library-drag-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.library-drag-ghost.folder{color:var(--txt-2);font-size:12px;font-weight:500}
+.library-drag-ghost.stack{box-shadow:var(--elevation),4px 4px 0 -1px var(--bg-2),4px 4px 0 var(--line-2),0 12px 28px #0006}
+.library-drag-ghost.idle{color:var(--txt-2)}
+@keyframes lift{from{transform:none;box-shadow:none}}
+@media (prefers-reduced-motion:reduce){.editor-library.dragging *{transition:none}.library-drag-ghost{animation:none;transform:none}}
 
 /* Save failures: one tone, one explanation, one recovery action. */
 

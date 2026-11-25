@@ -7,7 +7,7 @@ import { moveFolder, movePaths } from '../lib/libraryOrder';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
 
 const h = React.createElement;
-const { useState, useRef, useEffect } = React;
+const { useState, useRef, useEffect, useLayoutEffect } = React;
 const { Icon } = UI;
 const memory = new Map();
 const defaults = () => ({ query: '', collapsed: {}, scroll: 0, structureScroll: 0, ratio: 48, libraryOpen: true, sections: { wp: true, sg: false, rt: false, em: false, cr: false } });
@@ -124,12 +124,22 @@ function LibraryMenu({ menu, close, children, id }) {
     const element = ref.current;
     const onToggle = (event) => { if (event.newState === 'closed') close(false); };
     element.addEventListener('toggle', onToggle);
-    element.showPopover({ source: menu.trigger });
-    const bounds = element.getBoundingClientRect();
-    element.style.top = Math.max(8, Math.min(menu.top, window.innerHeight - bounds.height - 8)) + 'px';
-    element.style.left = Math.max(8, Math.min(menu.left, window.innerWidth - bounds.width - 8)) + 'px';
-    element.querySelector('button:not(:disabled)')?.focus();
-    return () => element.removeEventListener('toggle', onToggle);
+    const show = () => {
+      if (element.isConnected === false) return;
+      element.showPopover({ source: menu.trigger });
+      const bounds = element.getBoundingClientRect();
+      element.style.top = Math.max(8, Math.min(menu.top, window.innerHeight - bounds.height - 8)) + 'px';
+      element.style.left = Math.max(8, Math.min(menu.left, window.innerWidth - bounds.width - 8)) + 'px';
+      element.querySelector('button:not(:disabled)')?.focus();
+    };
+    // macOS opens context menus on press; the release would light-dismiss the popover, so show it after the release.
+    let timer = 0;
+    const release = () => { timer = setTimeout(show); };
+    if (menu.held) window.addEventListener('pointerup', release, { capture: true, once: true }); else show();
+    return () => {
+      element.removeEventListener('toggle', onToggle);
+      if (menu.held) { window.removeEventListener('pointerup', release, true); clearTimeout(timer); }
+    };
   }, []);
   return h('div', { ref, id, popover: 'auto', className: 'library-menu', role: 'menu', 'aria-label': menu.name + ' actions',
     style: { left: Math.min(menu.left, window.innerWidth - 216), top: Math.max(8, Math.min(menu.top, window.innerHeight - 250)) },
@@ -147,17 +157,40 @@ function LibraryMenu({ menu, close, children, id }) {
 // A press on a path row or folder header becomes a drag once it moves a few pixels, so clicks still click.
 // Release drops on the last valid target; Escape, blur or a cancelled pointer drop nothing. Near the list's top or
 // bottom edge the list scrolls. `locate` turns a point into a target; `drop` applies it.
-const DRAG_THRESHOLD = 5, DRAG_EDGE = 32;
+// The row lifts into a card held where it was grabbed. Its slot closes once it has somewhere else to go and stays
+// closed for the rest of the drag, so the list cannot flicker between the two layouts; a gap opens at the target.
+// On release the card settles into its new place, or back home when nothing moved.
+const DRAG_THRESHOLD = 5, DRAG_EDGE = 32, SETTLE_MS = 200;
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function useLibraryDrag({ scroll, locate, drop }) {
   const [drag, setDrag] = useState(null);
-  const active = useRef(null);
+  const active = useRef(null), settle = useRef(null);
   useEffect(() => () => active.current?.(), []);
+  // After the drop renders, the moved row starts where the card was and eases into its slot.
+  useLayoutEffect(() => {
+    const card = settle.current;
+    if (!card || drag) return;
+    settle.current = null;
+    const list = scroll.current;
+    const element = card.kind === 'folder' ? list?.querySelector('[data-folder-group="' + CSS.escape(card.id) + '"] > .library-folder')
+      : list?.querySelector('[data-library-item="' + CSS.escape(card.id) + '"]')?.closest('.library-row');
+    if (!element || reducedMotion()) return;
+    const box = element.getBoundingClientRect(), dx = card.x - box.left, dy = card.y - box.top;
+    if (Math.hypot(dx, dy) < 1) return;
+    element.classList.add('settling');
+    element.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], { duration: SETTLE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' })
+      .finished.catch(() => {}).finally(() => element.classList.remove('settling'));
+  });
   const begin = (event, source) => {
     if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.target.closest?.('.library-more')) return;
     active.current?.();
     const element = event.currentTarget, pointerId = event.pointerId, origin = { x: event.clientX, y: event.clientY };
-    let dragging = false, point = origin, target = null, frame = 0;
-    const show = () => { target = locate(source, point.x, point.y); setDrag({ ...source, x: point.x, y: point.y, target }); };
+    const bounds = element.getBoundingClientRect(), text = element.querySelector('.library-name, button > span');
+    const inset = text ? text.getBoundingClientRect().left - bounds.left : 10;
+    source = { ...source, box: { width: bounds.width, height: bounds.height, inset, dx: origin.x - bounds.left, dy: origin.y - bounds.top } };
+    let dragging = false, point = origin, target = null, frame = 0, away = false;
+    const show = () => { target = locate(source, point.x, point.y); away = away || !!target?.valid; setDrag({ ...source, x: point.x, y: point.y, target, away }); };
+    const home = () => { settle.current = { kind: source.kind, id: source.id, x: point.x - source.box.dx, y: point.y - source.box.dy }; };
     const tick = () => {
       frame = 0;
       if (!dragging) return;
@@ -196,6 +229,7 @@ function useLibraryDrag({ scroll, locate, drop }) {
       const dropped = dragging;
       if (dropped) { point = { x: next.clientX, y: next.clientY }; show(); }
       const final = target;
+      if (dropped) home();
       stop();
       if (!dropped) return;
       // The release would otherwise click the row or folder the drag started on.
@@ -204,7 +238,7 @@ function useLibraryDrag({ scroll, locate, drop }) {
       setTimeout(() => window.removeEventListener('click', swallow, true), 0);
       if (final?.valid) drop(source, final);
     };
-    const key = (next) => { if (next.key === 'Escape') { next.preventDefault(); next.stopPropagation(); stop(); } };
+    const key = (next) => { if (next.key === 'Escape') { next.preventDefault(); next.stopPropagation(); home(); stop(); } };
     window.addEventListener('pointermove', move, true); window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', stop, true); window.addEventListener('blur', stop);
     active.current = stop;
@@ -292,12 +326,14 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   useEffect(() => { if (scroll.current) scroll.current.scrollTop = prefs.scroll; }, []);
   useEffect(() => { if (editing) { edit.current?.focus(); edit.current?.select(); } }, [editing]);
   useEffect(() => { if (blocked) root.current?.querySelector('.library-blocked button')?.focus(); }, [blocked]);
+  // A context menu raised while the secondary button is still down (macOS) waits for its release.
+  const heldPress = (event) => event.type === 'contextmenu' && (event.buttons & 2) !== 0;
   const closeMenu = (restore) => { if (restore) menu?.trigger?.focus(); setMenu(null); };
   const openMenu = (event, kind, item) => {
     event.preventDefault(); event.stopPropagation();
     if (actions.preflight?.() === false) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    setMenu({ id: item.id, name: item.name, kind, trigger: event.currentTarget, left: event.type === 'contextmenu' ? event.clientX : bounds.left, top: event.type === 'contextmenu' ? event.clientY : bounds.bottom + 3 });
+    setMenu({ id: item.id, name: item.name, kind, trigger: event.currentTarget, held: heldPress(event), left: event.type === 'contextmenu' ? event.clientX : bounds.left, top: event.type === 'contextmenu' ? event.clientY : bounds.bottom + 3 });
   };
   // Click opens a path; Ctrl/Cmd-click toggles it in the selection; Shift-click (or Shift+Arrow) selects the listed
   // range from the last plain or Ctrl/Cmd choice, and Ctrl/Cmd+Shift adds that range. Routines open on any click.
@@ -375,10 +411,10 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
     const durationText = unfinished ? '—' : duration?.status === 'ready' ? duration.seconds.toFixed(2) + ' s' : duration?.status === 'error' ? '—' : '…';
     const durationTitle = unfinished ? 'Not timed yet · place at least two waypoints' : duration?.status === 'ready' ? 'Trajectory time' : duration?.status === 'error' ? 'Trajectory time unavailable: ' + duration.message : 'Computing trajectory time';
     const dragged = drag?.kind === 'path' && drag.ids.includes(item.id), markHere = drag?.kind === 'path' && mark?.rowId === item.id;
-    return h('div', { key: item.id, className: 'library-item' + (dragged ? ' dragging' : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') : ''),
+    return h('div', { key: item.id, className: 'library-item' + (dragged ? ' dragging' + (drag.away ? ' away' : '') : '') + (markHere ? (mark.before ? ' drop-before' : ' drop-after') : ''),
       'data-drop-path': pathsMode ? item.id : undefined, 'data-drop-folder': pathsMode && item.folderId || undefined }, editing?.id === item.id ? editForm() :
       h('div', { className: 'library-row' + (selected.includes(item.id) ? ' selected' : ''),
-        onPointerDown: (event) => { if (!secondaryPress(event) && canDrag) { const ids = targetsFor(item); dnd.begin(event, { kind: 'path', id: item.id, ids, label: ids.length > 1 ? ids.length + ' paths' : item.name }); } },
+        onPointerDown: (event) => { if (!secondaryPress(event) && canDrag) { const ids = targetsFor(item); dnd.begin(event, { kind: 'path', id: item.id, ids, label: ids.length > 1 ? ids.length + ' paths' : item.name, meta: ids.length > 1 ? '' : durationText }); } },
         onContextMenu: (event) => openMenu(event, kind, item) },
         h('button', { className: 'library-pick', type: 'button', 'data-library-item': item.id, 'aria-current': item.id === activeId ? 'true' : undefined, 'aria-pressed': selected.includes(item.id), title: item.name + '\n' + status.detail,
           'aria-keyshortcuts': pathsMode ? 'Shift+ArrowUp Shift+ArrowDown Alt+ArrowUp Alt+ArrowDown F2 Delete' : 'F2 Delete',
@@ -398,7 +434,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   const group = (folder) => {
     const id = folder.id, members = items.filter((item) => item.folderId === id), collapsed = prefs.collapsed[id];
     const folderMark = drag?.kind === 'folder' && mark?.folderId === id, into = drag?.kind === 'path' && mark?.folderId === id && !mark.rowId;
-    return h('section', { key: id, className: 'library-group' + (drag?.kind === 'folder' && drag.id === id ? ' dragging' : '') + (folderMark ? (mark.before ? ' drop-before' : ' drop-after') : ''), 'data-folder-group': id },
+    return h('section', { key: id, className: 'library-group' + (drag?.kind === 'folder' && drag.id === id ? ' dragging' + (drag.away ? ' away' : '') : '') + (folderMark ? (mark.before ? ' drop-before' : ' drop-after') : ''), 'data-folder-group': id },
       editing?.kind === 'folder' && editing.id === id ? editForm() : h('div', { className: 'library-folder' + (into ? ' drop-into' : ''), 'data-drop-folder': id,
         onPointerDown: (event) => { if (!secondaryPress(event) && canDrag) dnd.begin(event, { kind: 'folder', id, ids: [id], label: folder.name }); },
         onContextMenu: (event) => openMenu(event, 'folder', folder) },
@@ -407,7 +443,23 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
         more('Actions for folder ' + folder.name, 'folder', folder)),
       !collapsed && (members.length ? members.map(row) : h('div', { className: 'library-empty', 'data-drop-folder': id }, 'Empty folder')));
   };
-  const menuItem = menu?.kind === 'folder' ? folders.find((item) => item.id === menu.id) : items.find((item) => item.id === menu?.id);
+  // Right-clicking empty list space offers what the header buttons do, plus folder-wide collapse.
+  const openListMenu = (event) => {
+    if (event.defaultPrevented || event.target.closest('input, textarea, .library-blocked')) return;
+    event.preventDefault();
+    if (actions.preflight?.() === false) return;
+    const trigger = root.current?.querySelector('.library-pick[aria-current="true"]') || search.current;
+    setMenu({ id: '_list', name: pathsMode ? 'Path list' : 'Routine list', kind: 'list', trigger, held: heldPress(event), left: event.clientX, top: event.clientY });
+  };
+  const setAllCollapsed = (value) => { closeMenu(true); update({ collapsed: { ...prefs.collapsed, ...Object.fromEntries(folders.map((folder) => [folder.id, value])) } }); };
+  const listMenu = () => [
+    menuButton(pathsMode ? 'New path' : 'New routine', () => create(pathsMode ? 'path' : 'routine', () => pathsMode ? actions.addPath() : actions.addRoutine()), { key: 'new' }),
+    pathsMode && menuButton('New folder', () => create('folder', actions.addFolder), { key: 'folder' }),
+    pathsMode && folders.length > 0 && h('hr', { key: 'hr' }),
+    pathsMode && folders.some((folder) => !prefs.collapsed[folder.id]) && menuButton('Collapse all folders', () => setAllCollapsed(true), { key: 'collapse' }),
+    pathsMode && folders.some((folder) => prefs.collapsed[folder.id]) && menuButton('Expand all folders', () => setAllCollapsed(false), { key: 'expand' }),
+  ];
+  const menuItem = menu?.kind === 'list' ? { id: menu.id, name: menu.name } : menu?.kind === 'folder' ? folders.find((item) => item.id === menu.id) : items.find((item) => item.id === menu?.id);
   const menuButton = (label, onClick, props = {}) => h('button', { type: 'button', role: 'menuitem', ...(props.className === 'danger' ? deletionInput(onClick) : { onClick }), ...props }, label);
   // Push, Move to and Delete act on the whole selection when the menu's path is part of it; the rest act on that path.
   const menuTargets = menu?.kind === 'path' && menuItem ? targetsFor(menuItem) : [];
@@ -421,7 +473,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
     focusRow(origin);
   };
   const moveLabel = several ? 'Move ' + menuTargets.length + ' paths to' : 'Move to';
-  return h('div', { ref: root, className: 'editor-library' + (drag ? ' dragging' : ''), onKeyDown: (event) => {
+  return h('div', { ref: root, className: 'editor-library' + (drag ? ' dragging' : ''), style: drag ? { '--drag-gap': drag.box.height + 'px' } : undefined, onKeyDown: (event) => {
     if (event.target.closest('dialog')) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && pathsMode && !event.target.matches('input')) { event.preventDefault(); selection.set(displayed.map((item) => item.id)); }
     if (event.key !== 'Escape') return;
@@ -435,7 +487,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
       h('button', { type: 'button', className: 'library-icon-button', title: pathsMode ? 'New path' : 'New routine', 'aria-label': pathsMode ? 'New path' : 'New routine',
         onClick: () => create(pathsMode ? 'path' : 'routine', () => pathsMode ? actions.addPath(active?.folderId) : actions.addRoutine()) }, h(Icon, { name: 'plus', size: 15 })),
       pathsMode && onHide && h(LibraryHide, { onHide })),
-    h('div', { ref: scroll, className: 'library-scroll', onScroll: (event) => update({ scroll: event.currentTarget.scrollTop }) },
+    h('div', { ref: scroll, className: 'library-scroll', onContextMenu: openListMenu, onScroll: (event) => update({ scroll: event.currentTarget.scrollTop }) },
       blocked && h('div', { className: 'library-blocked', role: 'alert' }, h('strong', null, 'Cannot delete ' + blocked.name), h('p', null, (blocked.several ? 'Remove their steps' : 'Remove its steps') + ' from these routines first:'), blocked.routines.map((routine) => h('button', { key: routine.id, type: 'button', onClick: () => onRoutine(routine.id) }, 'Open ' + routine.name))),
       // An empty collection offers its first item directly; an empty search offers to clear itself.
       !visible.length ? h('div', { className: 'library-empty' }, query ? 'No matching names.' : pathsMode ? 'No paths yet.' : 'No routines yet.',
@@ -449,8 +501,11 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
       h('span', null, selected.length + ' selected' + (hidden ? ' · ' + hidden + ' hidden' : '')),
       h('button', { type: 'button', className: 'library-clear', onClick: () => { selection.clear(); focusRow(activeId); } }, 'Clear')),
     deletionNotice,
-    drag && h('div', { className: 'library-drag-ghost' + (drag.target?.valid ? '' : ' idle'), 'aria-hidden': true, style: { left: drag.x + 14, top: drag.y + 10 } }, drag.label),
-    menu && menuItem && h(LibraryMenu, { key: menu.id, id: menuId, menu, close: closeMenu },
+    // The meta (time) is drawn by CSS from data-meta, so the card's text stays the plain label.
+    drag && h('div', { className: 'library-drag-ghost' + (drag.target?.valid ? '' : ' idle') + (drag.kind === 'folder' ? ' folder' : '') + (drag.ids.length > 1 ? ' stack' : ''), 'aria-hidden': true, 'data-meta': drag.meta || undefined,
+      style: { left: drag.x - drag.box.dx, top: drag.y - drag.box.dy, width: drag.box.width, height: drag.box.height, paddingLeft: drag.box.inset } }, h('span', { className: 'library-drag-label' }, drag.label)),
+    menu?.kind === 'list' && h(LibraryMenu, { key: menu.id, id: menuId, menu, close: closeMenu }, ...listMenu()),
+    menu && menu.kind !== 'list' && menuItem && h(LibraryMenu, { key: menu.id, id: menuId, menu, close: closeMenu },
       menu.kind !== 'folder' && !pushUnavailable && menuButton(pathsMode ? (several ? 'Push ' + menuTargets.length + ' paths…' : 'Push path…') : 'Push routine…', () => {
         // The review returns focus to its origin: the menu's trigger, or the row when the menu came from a right-click.
         closeMenu(true);
