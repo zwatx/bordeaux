@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { rotateBlueOriginPoint } from "../src/core/math/fieldBounds";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -347,7 +349,7 @@ it("keeps golden header, CRC and non-planner metadata comparisons exact", () => 
 
 // Deliberate regeneration: BORDEAUX_UPDATE_BDX_FIXTURES=1 npx vitest run tests/robotBinary.test.ts
 it("matches frozen 1.1 force binary files and independent decoded fixture evidence", () => {
-  const directory = path.resolve("labview/tests/fixtures/binary/forces-v1.1");
+  const directory = path.resolve("labview/tests/fixtures/binary/forces-v1.1-centered");
   if (process.env.BORDEAUX_UPDATE_BDX_FIXTURES === "1") fs.mkdirSync(directory, { recursive: true });
   const manifest: unknown[] = [];
   for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
@@ -372,6 +374,24 @@ it("matches frozen 1.1 force binary files and independent decoded fixture eviden
   }
 });
 
+it("keeps historical 1.1 bytes and robot-local force components across the frame switch", () => {
+  const directory = path.resolve("labview/tests/fixtures/binary/forces-v1.1");
+  const manifest = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
+  for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
+    const historical = fs.readFileSync(path.join(directory, name + ".bdx"));
+    expect(createHash("sha256").update(historical).digest("hex")).toBe(manifest.fixtures.find((entry: { name: string }) => entry.name === name).sha256);
+    const original = inspect(historical), centered = inspect(build(binaryWriterFixture(curved, events)).bytes);
+    expect(original.strings[5]).toBe("wpilib-blue-origin/2026-welded/1");
+    expect(centered.strings[5]).toBe("wpilib-center-origin/2026-andymark/1");
+    expect(centered.samples).toHaveLength(original.samples.length);
+    original.samples.forEach((sample, index) => {
+      for (const column of [0, 9, 11, 12, 13, 14]) {
+        expect(centered.samples[index][column]).toBeCloseTo(sample[column], 7);
+      }
+    });
+  }
+});
+
 it("retains the historical 1.0 fixture layout and trajectory values for reader migration", () => {
   const directory = path.resolve("labview/tests/fixtures/binary/blue-origin");
   for (const [name, curved, events] of [["straight-empty", false, false], ["straight-events", false, true], ["curve-events", true, true]] as const) {
@@ -390,7 +410,16 @@ it("retains the historical 1.0 fixture layout and trajectory values for reader m
       const expected = [sample.t, sample.s, sample.f, sample.x, sample.y, sample.headingRad, dense.travelHeadings[index],
         sample.velocityMps, sample.accelerationMps2, sample.angularVelocityRadps, sample.curvatureInvM];
       expect(values).toHaveLength(11);
-      values.forEach((value, column) => expect(value).toBeCloseTo(expected[column], 12));
+      const point = rotateBlueOriginPoint({ x: values[3], y: values[4] });
+      expected[3] -= point.x;
+      expected[4] -= point.y;
+      for (const column of [5, 6]) {
+        const delta = expected[column] - values[column] - Math.PI;
+        expect(Math.atan2(Math.sin(delta), Math.cos(delta))).toBeCloseTo(0, 10);
+      }
+      for (const column of [0, 1, 2, 7, 8, 9, 10]) expect(values[column]).toBeCloseTo(expected[column], 9);
+      expect(expected[3]).toBeCloseTo(0, 10);
+      expect(expected[4]).toBeCloseTo(0, 10);
     });
   }
 });

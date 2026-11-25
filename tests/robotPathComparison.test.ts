@@ -17,7 +17,7 @@ import { ACTIVE_FIELD_REFERENCE } from "../src/core/field/rebuilt2026";
 
 const fixture = (version: string) => fs.readFile(path.join("labview/tests/fixtures/binary", version, "straight-events.bdx"));
 const compiled = async () => {
-  const bytes = await fixture("forces-v1.1");
+  const bytes = await fixture("forces-v1.1-centered");
   const binary = inspectRobotPath(bytes);
   return { bytes, binary, path: { id: binary.id, name: binary.name } };
 };
@@ -68,6 +68,14 @@ describe("robot path differences", () => {
     expect(diff.routes?.robot?.field.coordinateSchemaId).toBe("bordeaux-field/1.0");
     expect(diff.facts.some(([label]) => label === "Field frame")).toBe(true);
     expect(diff.widestGap).toBeUndefined();
+    expect(diff.notes).not.toContain("Trajectory samples or wheel forces differ.");
+    const blueOrigin = await fixture("forces-v1.1");
+    const mixed = compareRobotPath(binary.id, bytes, blueOrigin);
+    const frame = mixed.facts.find(([label]) => label === "Field frame");
+    expect(frame?.[1]).toContain("wpilib-center-origin/2026-andymark/1");
+    expect(frame?.[2]).toContain("wpilib-blue-origin/2026-welded/1");
+    expect(mixed.widestGap).toBeUndefined();
+    expect(mixed.notes).toContain("Trajectory comparison requires matching field frames.");
     expect(diff.facts.some(([label]) => label === "Approx. route gap" || label === "End X")).toBe(false);
   });
 
