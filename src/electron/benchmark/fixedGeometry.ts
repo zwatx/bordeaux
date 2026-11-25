@@ -23,7 +23,7 @@ export const CANDIDATE_CENTRIPETAL_RELATIVE_TOLERANCE = 0.025;
 export const CANDIDATE_ADJACENT_CENTRIPETAL_RELATIVE_TOLERANCE = 0.27;
 const MAX_ISSUES = 64;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
-export const FIXED_GEOMETRY_V2_SHA256 = "sha256:d7c3e92102a7179bd5947d3d4318bcd04d49ba39b46813ebdb34911a9308273f";
+export const FIXED_GEOMETRY_V3_SHA256 = "sha256:5cb27ba807fef42f54d72952db5c795e2247fd1950879ca5b272c56e81b03e83";
 const CORPUS_AUTHORITY = Symbol("bordeaux-fixed-geometry-corpus");
 
 interface FixedGeometryFixture {
@@ -582,12 +582,12 @@ export class FixedGeometryCorpus {
     this.#fixtures = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
   }
 
-  static loadV2(directory: string): FixedGeometryCorpus {
+  static loadV3(directory: string): FixedGeometryCorpus {
     const fixedContents = readFileSync(join(directory, "fixed-geometry.json"), "utf8");
     const lockDigest = readFileSync(join(directory, "fixed-geometry.sha256"), "utf8").trim();
     const actualFixedDigest = digest(fixedContents);
-    if (actualFixedDigest !== FIXED_GEOMETRY_V2_SHA256 || lockDigest !== FIXED_GEOMETRY_V2_SHA256) {
-      throw new Error("Fixed-geometry manifest digest does not match the pinned v2 corpus.");
+    if (actualFixedDigest !== FIXED_GEOMETRY_V3_SHA256 || lockDigest !== FIXED_GEOMETRY_V3_SHA256) {
+      throw new Error("Fixed-geometry manifest digest does not match the pinned v3 corpus.");
     }
     const frozen = parseFrozenManifest(fixedContents);
     const manifestContents = readFileSync(join(directory, frozen.sourceManifest.file), "utf8");
@@ -604,7 +604,7 @@ export class FixedGeometryCorpus {
     }
     const decoded = decodeProjectFile(projectContents);
     if (decoded.migrated || decoded.project.robot.drive !== "swerve") {
-      throw new Error("Fixed-geometry v2 requires a current, migration-free swerve project.");
+      throw new Error("Fixed-geometry v3 requires a current, migration-free swerve project.");
     }
     const caseIds = new Set<string>();
     const pathIds = new Set<string>();

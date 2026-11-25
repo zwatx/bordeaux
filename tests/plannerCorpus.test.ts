@@ -17,12 +17,26 @@ type FrozenScenario = {
   };
 };
 
-const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
+const corpusDirectory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v3");
 const projectContents = readFileSync(join(corpusDirectory, "corpus.bordeaux.json"), "utf8");
 const manifest = JSON.parse(readFileSync(join(corpusDirectory, "manifest.json"), "utf8"));
 const decoded = decodeProjectFile(projectContents);
 
 describe("frozen Bordeaux-authored planner corpus", () => {
+  it.each([
+    ["v1", "787f068012a9d03247b447fccc9d7f4a12a5c5b8b03dc35bd3b36461dbd93015",
+      "a2ec48576a7c9d4fcc89103ed6b4a139ddb0169fa55b75846c02531c708b8545", "ba619c3d49fd8ad12d0fc0d78fabf772e74774186eeb4bf66d62e78e55236676"],
+    ["v2", "13d691ba733f131d3982c8a17d739114e4ddf4d416a59c521da40be10267d2a8",
+      "d7c3e92102a7179bd5947d3d4318bcd04d49ba39b46813ebdb34911a9308273f", "626ec8af867207729815446bf0257d1ed5993ddcd22b35ad6759ea4e4c20c89b"],
+  ])("preserves the historical %s corpus and benchmark locks", (version, projectHash, fixed, corridor) => {
+    const hash = (file: string) => createHash("sha256").update(readFileSync(join(corpusDirectory, "..", version, file))).digest("hex");
+    expect(hash("corpus.bordeaux.json")).toBe(projectHash);
+    for (const [name, digest] of [["fixed-geometry", fixed], ["corridor", corridor]]) {
+      expect(hash(name + ".json")).toBe(digest);
+      expect(readFileSync(join(corpusDirectory, "..", version, name + ".sha256"), "utf8").trim()).toBe("sha256:" + digest);
+    }
+  });
+
   it("is a canonical current project pinned to the certified field and swerve model", () => {
     expect(decoded.migrated).toBe(false);
     expect(decoded.project.field).toEqual(ACTIVE_FIELD_REFERENCE);
@@ -90,8 +104,8 @@ describe("frozen Bordeaux-authored planner corpus", () => {
       expect(analysis.findings.filter((finding) => finding.severity === "error"), path.id).toEqual([]);
       if (scenario.features.includes("neutral-zone")) {
         expect(analysis.rawSamples.every((sample) => (
-          sample.x > REBUILT_2026_CROSSINGS.blue.trenchTable.x
-          && sample.x < REBUILT_2026_CROSSINGS.red.trenchTable.x
+          sample.x < REBUILT_2026_CROSSINGS.blue.trenchTable.x
+          && sample.x > REBUILT_2026_CROSSINGS.red.trenchTable.x
         )), path.id).toBe(true);
       }
     }

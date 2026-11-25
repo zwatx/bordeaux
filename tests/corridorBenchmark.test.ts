@@ -7,12 +7,12 @@ import { CorridorCorpus } from "../src/electron/benchmark/corridor";
 import { getPlanner } from "../src/core/planners";
 import { decodeProjectFile } from "../src/core/project/fileFormat";
 
-const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v2");
+const directory = join(dirname(fileURLToPath(import.meta.url)), "../benchmarks/planner-corpus/v3");
 const corridorContents = readFileSync(join(directory, "corridor.json"), "utf8");
 const corridorDigest = readFileSync(join(directory, "corridor.sha256"), "utf8").trim();
 const project = decodeProjectFile(readFileSync(join(directory, "corpus.bordeaux.json"), "utf8")).project;
 const manifest = JSON.parse(corridorContents);
-const corpus = CorridorCorpus.loadV2(directory);
+const corpus = CorridorCorpus.loadV3(directory);
 
 function benchmarkCase(pathId: string) {
   return corpus.cases.find((candidate) => candidate.pathId === pathId)!;
