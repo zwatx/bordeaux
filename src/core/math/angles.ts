@@ -15,7 +15,8 @@ export function wrapRadians(value: number): number {
   const wrapped = value % FULL_TURN;
   // Degree-to-radian conversion and subtracting a common rotation can put an
   // exact half-turn a few ULPs on either side of pi. Retain its signed branch.
-  if (Math.abs(Math.abs(wrapped) - Math.PI) < 1e-12) return Math.sign(wrapped) * Math.PI;
+  // Those ULPs grow with the turns in the input, so the tolerance does too.
+  if (Math.abs(Math.abs(wrapped) - Math.PI) < Math.max(1e-12, Math.abs(value) * 8 * Number.EPSILON)) return Math.sign(wrapped) * Math.PI;
   if (wrapped > Math.PI) return wrapped - FULL_TURN;
   if (wrapped < -Math.PI) return wrapped + FULL_TURN;
   return wrapped;

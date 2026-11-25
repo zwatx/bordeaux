@@ -98,6 +98,15 @@ describe("fixed center-origin field", () => {
     expect(project.paths[0].waypoints[0].x).toBe(0);
   });
 
+  it("keeps the direction of an exact half-turn between large authored headings through migration", () => {
+    // Both headings are within the supported range; their difference is an odd number of half-turns.
+    const D2R = Math.PI / 180;
+    const before = wrapRadians(134_668 * D2R - -134_432 * D2R);
+    const after = wrapRadians((134_668 + 180) * D2R - (-134_432 + 180) * D2R);
+    expect(before).toBe(Math.PI);
+    expect(after).toBe(Math.PI);
+  });
+
   it.each([1, 2] as const)("preserves historical accepted v%i as provenance and requires review before export", (version) => {
     const project = createDemoProject(), path = project.paths[0], routine = project.routines[0];
     project.robot = forceExportRobot();
