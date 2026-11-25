@@ -199,6 +199,16 @@ app.whenReady().then(async () => {
     await win.loadFile(rendererIndex); win.focus(); win.webContents.focus();
     await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'long-name project');
     await click('.pt-wp[data-selection="wp:1"]'); await click('#band-waypoint-link');
+    // Several other paths: the dialog lists paths first and opens one in place.
+    assert.equal(await evaluate(() => document.querySelectorAll('[data-link-target]').length), 0, 'Paths come before points');
+    assert.deepEqual(await evaluate(() => [...document.querySelectorAll('[data-link-path]')].map(row => row.dataset.linkPath)), ['link-destination', 'linked-member']);
+    await click('[data-link-path="link-destination"]');
+    await wait(() => evaluate(() => document.activeElement?.dataset.linkTarget === 'link-destination:0'), 'opening a path focuses its first point');
+    assert.ok(await evaluate(() => document.querySelector('.pl-crumb').title.startsWith('Back to all paths')));
+    await key('Left');
+    await wait(() => evaluate(() => document.activeElement?.dataset.linkPath === 'link-destination'), 'Left returns to the path it left');
+    await key('Right');
+    await wait(() => evaluate(() => document.activeElement?.dataset.linkTarget === 'link-destination:0'), 'Right opens the focused path');
     await click('[data-link-target="link-destination:1"]');
     const longReview = await evaluate(() => {
       const sheet = document.querySelector('.point-links'), bounds = sheet.getBoundingClientRect();

@@ -40,3 +40,6 @@
 .point-links .pl-keys kbd:not(:first-child){margin-left:8px}
 .point-links .pl-keys kbd{min-width:18px;padding:1px 4px;border:1px solid var(--line-2);border-radius:var(--r-s);color:var(--txt-2);font:500 10px/1.4 var(--ui);text-align:center}
 .point-links .pj-foot .qbtn{min-width:72px}
+/* A path row opens its points in place; the open path sits in the search as a crumb, as in the command search. */
+.pl-path-option{grid-template-columns:minmax(0,1fr) auto;padding-left:10px}
+.pl-crumb span{min-width:0;overflow:hidden;text-overflow:ellipsis}

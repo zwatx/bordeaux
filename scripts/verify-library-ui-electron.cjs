@@ -1325,7 +1325,10 @@ app.whenReady().then(async () => {
     const independentBefore = structuredClone(saved.paths[2]);
     const linkBaseline = saved.paths.slice(0, 2).map((path) => structuredClone(path.waypoints[0]));
     await click('#band-waypoint-link');
-    assert.ok(await evaluate(() => document.querySelectorAll('[data-link-target]').length > 0), 'Unnamed interior and endpoint waypoints are available');
+    // Several other paths: choose a path, then its points (unnamed interior and endpoint waypoints included).
+    assert.ok(await evaluate(() => document.querySelectorAll('[data-link-path]').length > 1), 'Paths are listed first');
+    await pointerClick('[data-link-path]');
+    await wait(() => evaluate(() => document.querySelectorAll('[data-link-target]').length > 0), 'Unnamed interior and endpoint waypoints are available');
     await key('Escape');
     await evaluate((id) => document.querySelector('[data-library-item="' + id + '"]').click(), saved.paths[1].id);
     await wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'target point ready');
