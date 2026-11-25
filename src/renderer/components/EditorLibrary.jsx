@@ -118,9 +118,6 @@ export function LibraryRail({ preferenceKey, mode, hidden, onRestore, children, 
       h('div', { ref: structureBody, className: 'library-structure-body', onScrollCapture: (event) => { if (event.target.matches('.outline-scroll,.rt-scroll')) update({ structureScroll: event.target.scrollTop }); } }, children(prefs.sections, (sections) => update({ sections: typeof sections === 'function' ? sections(latest.current.sections) : sections }))))));
 }
 
-// A context menu raised while the secondary button is still down (macOS) waits for its release.
-const heldPress = (event) => event.type === 'contextmenu' && (event.buttons & 2) !== 0;
-
 function LibraryMenu({ menu, close, children, id }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -128,7 +125,7 @@ function LibraryMenu({ menu, close, children, id }) {
     const onToggle = (event) => { if (event.newState === 'closed') close(false); };
     element.addEventListener('toggle', onToggle);
     const show = () => {
-      if (!element.isConnected) return;
+      if (element.isConnected === false) return;
       element.showPopover({ source: menu.trigger });
       const bounds = element.getBoundingClientRect();
       element.style.top = Math.max(8, Math.min(menu.top, window.innerHeight - bounds.height - 8)) + 'px';
@@ -139,7 +136,10 @@ function LibraryMenu({ menu, close, children, id }) {
     let timer = 0;
     const release = () => { timer = setTimeout(show); };
     if (menu.held) window.addEventListener('pointerup', release, { capture: true, once: true }); else show();
-    return () => { element.removeEventListener('toggle', onToggle); window.removeEventListener('pointerup', release, true); clearTimeout(timer); };
+    return () => {
+      element.removeEventListener('toggle', onToggle);
+      if (menu.held) { window.removeEventListener('pointerup', release, true); clearTimeout(timer); }
+    };
   }, []);
   return h('div', { ref, id, popover: 'auto', className: 'library-menu', role: 'menu', 'aria-label': menu.name + ' actions',
     style: { left: Math.min(menu.left, window.innerWidth - 216), top: Math.max(8, Math.min(menu.top, window.innerHeight - 250)) },
@@ -326,6 +326,8 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
   useEffect(() => { if (scroll.current) scroll.current.scrollTop = prefs.scroll; }, []);
   useEffect(() => { if (editing) { edit.current?.focus(); edit.current?.select(); } }, [editing]);
   useEffect(() => { if (blocked) root.current?.querySelector('.library-blocked button')?.focus(); }, [blocked]);
+  // A context menu raised while the secondary button is still down (macOS) waits for its release.
+  const heldPress = (event) => event.type === 'contextmenu' && (event.buttons & 2) !== 0;
   const closeMenu = (restore) => { if (restore) menu?.trigger?.focus(); setMenu(null); };
   const openMenu = (event, kind, item) => {
     event.preventDefault(); event.stopPropagation();
