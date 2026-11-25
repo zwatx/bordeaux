@@ -1,7 +1,7 @@
 import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./types";
 import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
-import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField } from "./math/fieldBounds";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField, pointInsideMigratedField } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
@@ -618,7 +618,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
           validateFinite(issues, waypoint.x, `${wpBase}.x`, "Waypoint X");
           validateFinite(issues, waypoint.y, `${wpBase}.y`, "Waypoint Y");
           if (waypoint.positionLink !== undefined && (typeof waypoint.positionLink !== "string" || !waypoint.positionLink.trim())) issues.push(issue(`${wpBase}.positionLink`, "Shared position ID must be a nonempty string"));
-          if (finite(waypoint.x) && finite(waypoint.y) && !pointInsideField({ x: waypoint.x, y: waypoint.y })) {
+          if (finite(waypoint.x) && finite(waypoint.y) && !(allowIncompletePaths ? pointInsideMigratedField : pointInsideField)({ x: waypoint.x, y: waypoint.y })) {
             issues.push(issue(wpBase, "Waypoint must stay inside the FRC field bounds"));
           }
           if (waypoint.positionName !== undefined && (typeof waypoint.positionName !== "string" || !waypoint.positionName.trim() || waypoint.positionName.length > 80)) {

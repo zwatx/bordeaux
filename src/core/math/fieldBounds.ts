@@ -19,7 +19,7 @@ export function clampWorldPoint(point: WorldPoint): WorldPoint {
 }
 
 
-/** Half extents measured from the center of the welded field. */
+/** Half extents of the AndyMark playing area, measured from its center. */
 export const FIELD_X_MAX = FIELD_W / 2;
 export const FIELD_Y_MAX = FIELD_H / 2;
 export const FIELD_X_MIN = -FIELD_X_MAX;
@@ -27,6 +27,12 @@ export const FIELD_Y_MIN = -FIELD_Y_MAX;
 
 export function pointInsideField({ x, y }: WorldPoint): boolean {
   return x >= FIELD_X_MIN && x <= FIELD_X_MAX && y >= FIELD_Y_MIN && y <= FIELD_Y_MAX;
+}
+
+/** Inside the welded perimeter. A migrated project may keep a point in the strip the AndyMark perimeter removes; it
+ * opens and saves as authored, and planning (so export) refuses it until the point is moved onto the field. */
+export function pointInsideMigratedField({ x, y }: WorldPoint): boolean {
+  return Math.abs(x) <= WELDED_FIELD_W / 2 && Math.abs(y) <= WELDED_FIELD_H / 2;
 }
 
 /** This rigid transform is its own inverse. */

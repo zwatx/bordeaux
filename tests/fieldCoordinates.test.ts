@@ -7,6 +7,8 @@ import { processPathPreviewJob } from "../src/renderer/assets/path-preview-worke
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { BLUE_ORIGIN_FIELD_REFERENCE } from "../src/core/project/fieldMigration";
 import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
+import { validateProject } from "../src/core/validation";
+import { planPath } from "../src/core/planners/planPath";
 import { buildBdxExport } from "../src/core/export/bdx";
 import { createAcceptedTrajectory, createAcceptedRouteTrajectory, getAcceptedTrajectory, optimizationInputKey } from "../src/core/planners/acceptedTrajectory";
 import { routeIntentKey } from "../src/core/planners/routeIdentity";
@@ -90,12 +92,24 @@ describe("fixed center-origin field", () => {
     expect(() => decodeProjectValue(project)).toThrow(/paths\[0\]\.waypoints\[0\]\.theta/);
   });
 
-  it("reports historical coordinates outside the smaller AndyMark perimeter at their source path", () => {
+  it("opens a historical point outside the smaller AndyMark perimeter as authored and refuses it only for planning and export", () => {
     const project = createDemoProject();
     project.field = { ...BLUE_ORIGIN_FIELD_REFERENCE };
     project.paths[0].waypoints[0].x = 0;
+    // x = 0 on the welded blue wall migrates 11.5 mm beyond the AndyMark blue wall.
+    const { project: opened } = decodeProjectValue(project);
+    expect(opened.paths[0].waypoints[0].x).toBeCloseTo(16.541 / 2, 9);
+    expect(pointInsideField(opened.paths[0].waypoints[0])).toBe(false);
+    const reopened = decodeProjectValue(JSON.parse(encodeProjectFile(opened).contents));
+    expect(reopened.project.paths[0].waypoints[0].x).toBe(opened.paths[0].waypoints[0].x);
+    const planned = planPath({ path: opened.paths[0], robot: opened.robot });
+    expect(planned.status).not.toBe("ok");
+    expect(planned.issues[0]).toMatchObject({ message: "Waypoint is outside the field", waypoint: 0 });
+    expect(validateProject(opened).issues.some((item) => item.path === "$.paths[0].waypoints[0]" && /field bounds/.test(item.message))).toBe(true);
+    expect(() => buildBdxExport(opened)).toThrow(/field bounds/);
+    // Beyond the welded perimeter a source value is still refused.
+    project.paths[0].waypoints[0].x = -0.1;
     expect(() => decodeProjectValue(project)).toThrow(/paths\[0\]\.waypoints\[0\].*field bounds/);
-    expect(project.paths[0].waypoints[0].x).toBe(0);
   });
 
   it("keeps the direction of an exact half-turn between large authored headings through migration", () => {
@@ -136,6 +150,7 @@ describe("fixed center-origin field", () => {
     expect(buildBdxExport(reopened).field).toEqual(ACTIVE_FIELD_REFERENCE);
     expect(buildRoutineRuntime(reopened, routine.id, bindings).document.paths).toHaveLength(1);
   });
+
 
   it("flips only the selected path, retaining its local settings, distance anchors and references", () => {
     const project = createDemoProject(), path = project.paths[0];
