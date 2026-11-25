@@ -59,7 +59,7 @@ app.whenReady().then(async () => {
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     first.name = 'Path 1'; first.ranges = [];
     const second = structuredClone(first); second.id = 'fixture-second'; second.name = 'Path 2';
-    saved = { ...corpus, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-planning-recovery-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'current trajectory');
@@ -391,7 +391,8 @@ app.whenReady().then(async () => {
     await click('[aria-label="Display units"] button', 'Imperial');
     await click('.places .place', 'Paths');
     await save();
-    assert.equal(saved.editor.unitSystem, 'imperial');
+    assert.equal(saved.editor?.unitSystem, undefined, 'display units stay out of the project');
+    assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
     for (const [width, height] of [[1440,900],[1100,720]]) {
       win.setContentSize(width,height); await delay(150);
       for (const inspector of [false,true]) {

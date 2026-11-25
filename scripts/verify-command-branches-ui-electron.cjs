@@ -9,6 +9,12 @@ const confirms = [], robotCalls = [], checks = [], scenarios = [];
 const errors = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusEditor() {
   const focus = { window: win.isFocused(), webContents: win.webContents.isFocused(), document: await evaluate(() => document.hasFocus()) };
@@ -77,7 +83,7 @@ app.whenReady().then(async () => {
     if (process.env.BORDEAUX_BRANCH_UI_MODE === 'completion') return await runCompletion();
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
-    saved = { ...corpus, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Command output branching', nodes: [{ id: 'inspect-step', type: 'function', cat: 'command', title: catalog.commands[0].label, invocation: { commandId: 'inspect', arguments: {} } }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first], pathLinks: [], routines: [{ id: 'route-test', name: 'Command output branching', nodes: [{ id: 'inspect-step', type: 'function', cat: 'command', title: catalog.commands[0].label, invocation: { commandId: 'inspect', arguments: {} } }] }], activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await loadApp();
@@ -148,7 +154,7 @@ app.whenReady().then(async () => {
     assert.equal(saved.routines[0].nodes[0].outputBranch.routes[0].operator, 'lt');
     assert.equal(saved.routines[0].nodes[0].outputBranch.routes[0].nodes.length, 1);
     const baselineRoutines = structuredClone(saved.routines); await wait(async () => JSON.stringify(await source()) === JSON.stringify(baselineRoutines), 'actual published complete baseline source');
-    saved.editor.unitSystem = 'imperial';
+    await setUnits('imperial');
     await loadApp();
     await wait(() => evaluate(() => document.querySelector('.places .place')), 'reload');
     await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]');
@@ -178,6 +184,7 @@ app.whenReady().then(async () => {
     await wait(async () => JSON.stringify(await source()) === JSON.stringify(baselineRoutines), 'missing output preserves complete baseline source');
     await snapshot('missing-output-1100');
     await isolate(); checks.push('Existing boolean/enum/numeric/nested path/save/reload/metric/imperial/missing-output baseline');
+    await setUnits('metric');
     const { runConsequences } = require('./verify-command-branches-ui-consequences.cjs');
     scenarios.push(...await runConsequences({ win, evaluate, wait, click, key, drain, snapshot, focusEditor, source, isolate, catalog,
       reset: async (project, nextCatalog, width, height) => { saved = structuredClone(project); catalog.commands = structuredClone(nextCatalog.commands); win.setContentSize(width, height); await loadApp(); await click('.places .place', 'Routines'); await click('[data-library-item="route-test"]'); await click('[data-id="inspect-step"] .rt-step-body'); await wait(() => evaluate(() => document.querySelector('#command-branch-output')), 'consequence inspector'); await source(); },
@@ -198,7 +205,7 @@ async function runCompletion() {
   const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
   const nodes = catalog.commands.map((command, index) => ({ id: 'completion-' + index, type: 'function', cat: 'command', title: command.label, invocation: { commandId: command.id, arguments: {} } }));
   saved = { ...corpus, routines: [{ id: 'route-test', name: 'Command completion routes', nodes }], activeRoutineId: 'route-test',
-    editor: { activePathId: corpus.paths[0].id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+    editor: { activePathId: corpus.paths[0].id, robotProjectBookmarkId: 'fixture' } };
   win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
     webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
   for (const [width, height] of [[1440, 900], [1100, 720]]) {
@@ -239,7 +246,7 @@ async function runPlacement() {
   const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
   const pathOf = (id, over = {}) => ({ ...structuredClone(corpus.paths.find((p) => p.id === id)), markers: [], ...over });
   const fixture = ({ bookmark = true, paths = [pathOf('corpus-neutral-stop'), pathOf('corpus-neutral-slalom')] } = {}) => ({ ...corpus, paths, pathLinks: [], routines: [], activeRoutineId: undefined,
-    editor: { activePathId: paths[0].id, ...(bookmark ? { robotProjectBookmarkId: 'fixture' } : {}), unitSystem: 'metric' } });
+    editor: { activePathId: paths[0].id, ...(bookmark ? { robotProjectBookmarkId: 'fixture' } : {}) } });
   const state = () => evaluate(() => {
     const a = document.activeElement, trigger = document.querySelector('#band-command'), panel = document.querySelector('.dropdown-panel');
     const box = panel?.getBoundingClientRect();

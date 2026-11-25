@@ -8,6 +8,12 @@ let win, saved, saves = 0;
 const errors = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusWindow() {
   app.focus({ steal: true }); win.focus(); win.webContents.focus();
@@ -43,7 +49,7 @@ app.whenReady().then(async () => {
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
     first.name = 'Path 1';
     first.ranges = [{ anchor: 'param', f0: 0.15, f1: 0.85 }];
-    saved = { ...corpus, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     // A zone's full limits live behind More: select it on the timeline, then open More (never toggling either off).
@@ -163,7 +169,7 @@ app.whenReady().then(async () => {
     // focus/Tab must preserve an existing value below the editor's typing bounds.
     const beforeAngular = structuredClone(saved), angularChecks = [];
     for (const system of ['metric', 'imperial']) for (const [width, height] of [[1440, 900], [1100, 720]]) {
-      saved = structuredClone(beforeAngular); saved.editor.unitSystem = 'metric';
+      saved = structuredClone(beforeAngular); await setUnits('metric');
       saved.paths[0].constraints.maxAngVel = 0.4;
       saved.paths[0].ranges[0] = { anchor: 'param', f0: 0.15, f1: 0.85, maxAngVel: 0.01, maxAngAccel: 0.004 };
       win.setContentSize(width, height); await load();
@@ -302,7 +308,7 @@ app.whenReady().then(async () => {
     // Shift-clicked command sits farther along the path, clear of waypoint and zone handles.
     featured.markers = [{ id: 'marker-a', f: 0.4, name: 'intake', cmd: 'none', group: 'sequential' }, { id: 'marker-b', f: 0.7, name: 'shoot', cmd: 'none', group: 'sequential' }];
     featured.ranges = [{ anchor: 'param', f0: 0.05, f1: 0.25, name: 'Zone A' }, { anchor: 'param', f0: 0.75, f1: 0.95, name: 'Zone B' }];
-    saved = { ...corpus, paths: [featured], pathLinks: [], routines: [], editor: { activePathId: featured.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [featured], pathLinks: [], routines: [], editor: { activePathId: featured.id } }; await setUnits('metric');
     const loadFeatures = async () => {
       await win.loadFile(path.resolve('dist-renderer/index.html'));
       win.focus(); win.webContents.focus();
@@ -398,7 +404,7 @@ app.whenReady().then(async () => {
     console.log('PASS Field Shift-delete with a focused command or zone name draft: deletion holds, a drafted neighbor commits, one Undo restores, save/reload agree');
 
     for (const [width, height, system] of [[1440, 900, 'metric'], [1100, 720, 'imperial']]) {
-      saved = { ...corpus, paths: [structuredClone(first)], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: system } };
+      saved = { ...corpus, paths: [structuredClone(first)], pathLinks: [], routines: [], editor: { activePathId: first.id } }; await setUnits(system);
       win.setContentSize(width, height);
       const openJerk = async () => {
         await win.loadFile(path.resolve('dist-renderer/index.html'));

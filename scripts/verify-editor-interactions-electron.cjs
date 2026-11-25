@@ -11,6 +11,12 @@ let win, saved, saves = 0;
 const errors = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function click(selector, text) {
   let point;
@@ -44,7 +50,7 @@ app.whenReady().then(async () => {
     const first = structuredClone(corpus.paths.find(p => p.id === 'corpus-neutral-stop'));
     const second = structuredClone(first); second.id = 'link-destination'; second.name = 'A long destination path name with interior pickup and scoring points';
     second.waypoints.forEach(point => { point.y += 0.25; if (point.prevC) point.prevC.y += 0.25; if (point.nextC) point.nextC.y += 0.25; });
-    saved = { ...corpus, paths: [first, second], pathLinks: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first, second], pathLinks: [], editor: { activePathId: first.id } };
     const original = structuredClone(saved);
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', details => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
@@ -81,7 +87,7 @@ app.whenReady().then(async () => {
 
     for (const [width, height] of [[1440,900], [1100,720]]) for (const units of ['metric','imperial']) for (const inspector of [false,true]) {
       const captureKey = width + '-' + units + '-' + (inspector ? 'open' : 'closed');
-      saved.editor.unitSystem = units;
+      await setUnits(units);
       win.setContentSize(width,height);
       await win.loadFile(rendererIndex); win.focus(); win.webContents.focus();
       await wait(() => evaluate(() => document.querySelector('.fieldcol')?.dataset.planningReady === 'true'), 'loaded points');
