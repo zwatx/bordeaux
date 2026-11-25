@@ -15,6 +15,7 @@ import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src
 import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import { stationaryTurnDelta, wrapRadians } from "../src/core/math/angles";
 import type { FieldFlipDirection } from "../src/core/project/flipField";
+import type { ConstraintRange } from "../src/core/types";
 
 function flipSelectedPath(project: ReturnType<typeof createDemoProject>, direction: FieldFlipDirection = "rotate", copy = false) {
   const result = processPathPreviewJob({ id: 1, mode: "flip", path: project.paths[0], robot: project.robot, field: project.field, direction, copy });
@@ -114,12 +115,15 @@ describe("fixed blue-origin field", () => {
     expect(result.samples.every(sample => sample.angularVelocityRadps < 1e-7)).toBe(true);
   });
 
+  const uTurnZone: ConstraintRange[] = [{ anchor: "param", f0: 0.501, f1: 0.6, maxVel: 0.5 }];
   it.each([
     { direction: "horizontal", segType: "line" }, { direction: "vertical", segType: "line" },
     { direction: "horizontal", segType: "bezier" }, { direction: "vertical", segType: "bezier" },
-    { direction: "vertical", segType: "line", ranges: [{ anchor: "param", f0: 0.501, f1: 0.6, maxVel: 0.5 }] },
-  ] satisfies Array<{ direction: FieldFlipDirection; segType: "line" | "bezier"; ranges?: ReturnType<typeof createDemoProject>["paths"][number]["ranges"] }>)(
-    "keeps the automatic $segType U-turn and reverses its direction after a $direction mirror", ({ direction, segType, ranges }) => {
+    { direction: "horizontal", segType: "line", ranges: uTurnZone },
+    { direction: "vertical", segType: "line", ranges: uTurnZone },
+    { direction: "rotate", segType: "line", ranges: uTurnZone },
+  ] satisfies Array<{ direction: FieldFlipDirection; segType: "line" | "bezier"; ranges?: ConstraintRange[] }>)(
+    "keeps the automatic $segType U-turn after a $direction transform", ({ direction, segType, ranges }) => {
     const project = createDemoProject(), path = project.paths[0];
     path.headingMode = "tangent";
     path.waypoints = buildWaypoints([
@@ -131,7 +135,7 @@ describe("fixed blue-origin field", () => {
     const flipped = flipSelectedPath(project, direction);
     const mirrored = decodeProjectValue(JSON.parse(encodeProjectFile(flipped).contents)).project.paths[0];
     expect(mirrored.waypoints[1].turnInPlace).toBeUndefined();
-    expect(mirrored.waypoints[1].implicitHalfTurnClockwise).toBe(true);
+    expect(mirrored.waypoints[1].implicitHalfTurnClockwise).toBe(direction === "rotate" ? undefined : true);
     expect(flipSelectedPath(flipped, direction).paths[0].waypoints[1].implicitHalfTurnClockwise).toBeUndefined();
     const planner = getPlanner("profiledSpline");
     const original = planner.generate({ path, robot: project.robot });
@@ -146,10 +150,12 @@ describe("fixed blue-origin field", () => {
     };
     const before = duringTurn(original), after = duringTurn(result);
     expect(after).toHaveLength(before.length);
-    const angle = direction === "horizontal" ? Math.PI - before[0].headingRad : -before[0].headingRad;
+    const angle = direction === "rotate" ? Math.PI + before[0].headingRad
+      : direction === "horizontal" ? Math.PI - before[0].headingRad : -before[0].headingRad;
     expect(wrapRadians(after[0].headingRad - angle)).toBeCloseTo(0, 7);
     for (let index = 0; index < before.length; index++) {
-      expect(after[index].angularVelocityRadps).toBeCloseTo(-before[index].angularVelocityRadps, 6);
+      const omega = before[index].angularVelocityRadps;
+      expect(after[index].angularVelocityRadps).toBeCloseTo(direction === "rotate" ? omega : -omega, 6);
     }
   });
 

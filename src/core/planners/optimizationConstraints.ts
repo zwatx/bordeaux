@@ -70,15 +70,18 @@ function intervalRanges(ranges: readonly EffectiveRange[], before: number, after
   return ranges.filter((range) => Math.min(end, range.end) - Math.max(start, range.start) > EPSILON);
 }
 
-function interpolateSample(before: TrajectorySample, after: TrajectorySample, fraction: number, clockwiseHalfTurn: boolean): TrajectorySample {
+function interpolateSample(before: TrajectorySample, after: TrajectorySample, fraction: number, followsAutomaticStop: boolean): TrajectorySample {
   const span = Math.max(EPSILON, after.f - before.f);
   const ratio = Math.max(0, Math.min(1, (fraction - before.f) / span));
   const mix = (first: number, second: number) => first + (second - first) * ratio;
-  let headingDelta = Math.atan2(
+  const headingDelta = Math.atan2(
     Math.sin(after.headingRad - before.headingRad),
     Math.cos(after.headingRad - before.headingRad),
   );
-  if (clockwiseHalfTurn && Math.abs(Math.abs(headingDelta) - Math.PI) < 1e-12) headingDelta = -Math.PI;
+  // An automatic half-turn rotates at the stop. A boundary in the outgoing
+  // interval belongs to the moving leg and must use its heading.
+  const headingRad = followsAutomaticStop && Math.abs(Math.abs(headingDelta) - Math.PI) < 1e-12
+    ? after.headingRad : before.headingRad + headingDelta * ratio;
   return {
     i: 0,
     t: mix(before.t, after.t),
@@ -86,7 +89,7 @@ function interpolateSample(before: TrajectorySample, after: TrajectorySample, fr
     f: fraction,
     x: mix(before.x, after.x),
     y: mix(before.y, after.y),
-    headingRad: before.headingRad + headingDelta * ratio,
+    headingRad,
     velocityMps: mix(before.velocityMps, after.velocityMps),
     accelerationMps2: mix(before.accelerationMps2, after.accelerationMps2),
     angularVelocityRadps: mix(before.angularVelocityRadps, after.angularVelocityRadps),
@@ -152,18 +155,16 @@ export function insertOptimizationBoundaries(
     throw new Error(`Optimization boundaries require more than ${MAX_TRAJECTORY_SAMPLES} trajectory samples`);
   }
 
-  // A zone edge inside a mirrored automatic half-turn must sample the same
-  // direction as the stationary action, including when it becomes the first outgoing sample.
-  const clockwiseArrivals = new Set(state.waypointSampleIndices.filter((_, index) => {
+  const automaticStops = new Set(state.waypointSampleIndices.filter((_, index) => {
     const point = input.path.waypoints[index];
-    return point.stop && point.implicitHalfTurnClockwise && !point.turnInPlace;
+    return index > 0 && index < input.path.waypoints.length - 1 && point.stop && !point.turnInPlace;
   }).map(index => samples[index]));
   const result = [...samples];
   for (const fraction of missing) {
     const afterIndex = result.findIndex((sample) => sample.f > fraction);
     if (afterIndex <= 0) continue;
     const before = result[afterIndex - 1];
-    result.splice(afterIndex, 0, interpolateSample(before, result[afterIndex], fraction, clockwiseArrivals.has(before)));
+    result.splice(afterIndex, 0, interpolateSample(before, result[afterIndex], fraction, automaticStops.has(before)));
   }
   const adjusted = result.map((sample, index) => {
     const target = targetBoundaries.find((candidate) => Math.abs(candidate.fraction - sample.f) <= EPSILON);
