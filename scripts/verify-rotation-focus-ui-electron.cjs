@@ -218,8 +218,8 @@ app.whenReady().then(async () => {
     await evaluate(() => document.querySelector('.library-find .library-hide').focus());
     await key('Enter');
     assert.equal(await evaluate(() => document.querySelector('.library-rail').hidden), true, 'Enter on Hide path list hides the library');
-    // The pressed button leaves with the list, so focus moves to the field rather than into a hidden rail.
-    assert.equal(await evaluate(() => Boolean(document.activeElement?.matches('.fieldsvg') || document.activeElement?.closest('.toolbar'))), true, 'focus leaves the hidden rail for the field');
+    // The pressed button leaves with the list, so focus moves to the strip that replaces it, never the field's outline.
+    await wait(() => evaluate(() => document.activeElement?.matches('.library-restore-btn')), 'focus leaves the hidden rail for the restore strip');
     assert.equal(await evaluate(() => Boolean(document.activeElement?.closest('[hidden]'))), false, 'focus is never inside the hidden rail');
 
     // Restored state: the Focus preference persists, and the strip is there on the next open.

@@ -743,11 +743,11 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
       const target = sel.kind === 'rt' && doc.targets?.[sel.idx];
       const marker = sel.kind === 'em' && doc.markers?.[sel.idx];
       title = range ? range.name || 'Zone' : waypoint ? waypointLabel(sel.idx)
-        : target ? 'Rotation target' : marker ? marker.name || 'Command' : doc.name || 'Path';
+        : target ? 'Rotation target' : marker ? marker.name || 'Command' : 'Path';
       const removeAction = range ? () => actions.delRange(sel.idx) : target ? () => actions.delTarget(sel.idx)
         : marker ? () => actions.delMarker(sel.idx) : waypoint ? () => actions.delWp(sel.idx) : null;
       const removeLabel = range ? 'Delete zone' : target ? 'Delete rotation target' : marker ? 'Delete command' : 'Delete waypoint';
-      kind = range ? 'Zone' : waypoint ? 'Waypoint' : target ? null : marker ? 'Command' : 'Path';
+      kind = range ? 'Zone' : waypoint ? 'Waypoint' : marker ? 'Command' : null;
       remove = removeAction && h(DeleteAction, { label: removeLabel, onClick: removeAction });
       body = h(React.Fragment, null,
         h('p', { className: 'rt-callout error', role: 'status' }, 'Planning failed. Edit a value or remove a feature to retry.'),
@@ -761,8 +761,8 @@ import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerC
         }));
     }
     else if (!sel.kind) {
-      title = doc.name || 'Path';
-      kind = kindLine('Path', (derived?.totalDistance || derived?.sample?.length) > 0 && UnitPrefs.format(derived.totalDistance || derived.sample.length, 'm', 2), fmtS(derived?.prof?.totalTime));
+      // The library row and the path panel already show the name, length and time.
+      title = 'Path';
       // Path-level actions live in the header; waypoint placement belongs to the tool rail.
       headerAction = h('button', { className: 'ctxinsp-act', type: 'button', disabled: n < 2 || !actions.canReversePath, 'aria-label': 'Swap start/end',
         title: n < 2 ? 'Place two waypoints to swap start and end' : actions.canReversePath ? 'Swap start/end' : 'Waiting for the current path preview', onClick: () => actions.reversePath() }, h(Icon, { name: 'shuffle', size: 14 }));

@@ -888,8 +888,9 @@ app.whenReady().then(async () => {
       await openInspector();
       const layout = await minimumLayout();
       assert.equal(layout.name.text, longName);
-      const ordinaryTitle = await evaluate(() => { const t = document.querySelector('.ctxinsp .ctxinsp-t'); return t && { text: t.textContent, height: t.clientHeight, content: t.scrollHeight }; });
-      assert.ok(ordinaryTitle && ordinaryTitle.text === longName && ordinaryTitle.content <= ordinaryTitle.height + 1, 'An ordinary long inspector title is shown whole without scrolling at ' + width + ': ' + JSON.stringify(ordinaryTitle));
+      // The library row carries the name; the path inspector header only says what it edits.
+      const ordinaryTitle = await evaluate(() => { const t = document.querySelector('.ctxinsp .ctxinsp-t'); return t && { text: t.textContent, kind: !!document.querySelector('.ctxinsp .ctxinsp-kind') }; });
+      assert.deepEqual(ordinaryTitle, { text: 'Path', kind: false }, 'The path inspector header does not repeat the name, length or time at ' + width);
       assert.ok(layout.clipped <= 1, 'Nothing is clipped at the minimum library height at ' + width + ': ' + JSON.stringify(layout));
       assert.equal(layout.banner, false, 'The library has no save banner; the chip carries the failure');
       for (const control of ['push', 'chip', 'name']) assert.deepEqual([layout[control].inside, layout[control].hit], [true, true], control + ' is visible and hit-testable at ' + width + ': ' + JSON.stringify(layout));
@@ -976,9 +977,8 @@ app.whenReady().then(async () => {
     });
     const assertInspectorUsable = (layout, width) => {
       assert.ok(layout, 'The path inspector is open at ' + width);
-      assert.equal(layout.title.text, hugeName, 'The inspector title keeps the complete name at ' + width);
-      assert.equal(layout.title.label, hugeName);
-      assert.ok(layout.title.height <= layout.title.lineHeight * 5 + 1 && layout.title.content > layout.title.height && !layout.title.wide, 'The title scrolls vertically within five lines at ' + width + ': ' + JSON.stringify(layout.title));
+      assert.equal(layout.title.text, 'Path', 'The path inspector title does not repeat the long name at ' + width);
+      assert.ok(layout.title.content <= layout.title.height + 1 && !layout.title.wide, 'The path inspector title fits on one line at ' + width + ': ' + JSON.stringify(layout.title));
       assert.ok(layout.header <= Math.max(53, layout.title.height + 24), 'The header stays bounded by its title at ' + width + ': ' + layout.header);
       for (const control of ['close', 'swap', 'place']) assert.deepEqual([layout[control]?.inside, layout[control]?.hit], [true, true], control + ' is visible and topmost at ' + width + ': ' + JSON.stringify(layout));
       assert.ok(layout.body.height >= 200, 'The inspector body keeps a usable height at ' + width + ': ' + JSON.stringify(layout.body));
@@ -1025,14 +1025,14 @@ app.whenReady().then(async () => {
       }
       if (!reached(state)) throw fail('200 wheel steps did not reach the end');
     };
-    const titleEnd = (s) => s.top > 0 && s.top + s.height >= s.content - 1, scrollStart = (s) => s.top === 0;
+    const scrollStart = (s) => s.top === 0;
     let inspectorBodyScrolled = false;
     for (const [width, height] of [[1100, 720], [1440, 900]]) {
       win.setContentSize(width, height); await delay(150);
       await openInspector();
       const layout = await hugeLayout();
       assert.equal(layout.name.text, hugeName, 'The selected name is not truncated at ' + width);
-      // Push names its scope on one line; its title and the inspector retain the full path name.
+      // Push names its scope on one line; its title retains the full path name.
       assert.ok(layout.nameScroll.oneLine && layout.nameScroll.label === hugeName + ' · Ctrl+Shift+P', 'The long push-target name stays on one line (Push says its scope) with its full text available: ' + JSON.stringify({ ...layout.nameScroll, label: layout.nameScroll.label.length }));
       assert.equal(layout.nameScroll.scope, 'Push path', 'The visible Push label stays the exact scope even with a 5000-character name');
       assert.ok(layout.clipped <= 1, 'Nothing is clipped at the minimum at ' + width + ': ' + JSON.stringify(layout));
@@ -1051,14 +1051,6 @@ app.whenReady().then(async () => {
       // Inspector: the bounded header keeps the close button and body actions reachable.
       const inspector = await inspectorLayout();
       assertInspectorUsable(inspector, width);
-      // The wheel reads the whole title in place, to its last line, without scrolling the body.
-      wheelAt(inspector.title.point, -100);
-      await wait(() => evaluate(() => document.querySelector('.ctxinsp .ctxinsp-t').scrollTop > 0), 'wheel scrolls the inspector title at ' + width);
-      await wheelUntil('.ctxinsp .ctxinsp-t', inspector.title.point, 1, titleEnd, 'wheel reaches the end of the inspector title at ' + width);
-      await wait(() => evaluate(() => { const t = document.querySelector('.ctxinsp .ctxinsp-t'); return t.scrollTop > 0 && t.scrollTop + t.clientHeight >= t.scrollHeight - 1; }), 'wheel reaches the end of the inspector title at ' + width);
-      assert.equal((await inspectorLayout()).body.top, 0, 'Scrolling the title leaves the body in place at ' + width);
-      await wheelUntil('.ctxinsp .ctxinsp-t', inspector.title.point, -1, scrollStart, 'wheel returns to the start of the inspector title at ' + width);
-      await wait(() => evaluate(() => document.querySelector('.ctxinsp .ctxinsp-t').scrollTop === 0), 'wheel returns to the start of the inspector title at ' + width);
       // Pointer: the tool rail's Place waypoint arms placement; Select clears it before the field is touched.
       await nativeClick(inspector.place);
       await wait(() => evaluate(() => document.querySelector('.toolrail-b[aria-pressed="true"]')?.getAttribute('aria-label') === 'Place waypoint'), 'pointer reaches Place waypoint at ' + width);
@@ -1102,9 +1094,9 @@ app.whenReady().then(async () => {
     await wait(() => evaluate((name) => {
       const title = document.querySelector('.ctxinsp .ctxinsp-t'), body = document.querySelector('.ctxinsp-body');
       const swap = document.querySelector('.ctxinsp-hd [aria-label="Swap start/end"]');
-      return title?.textContent === name && !document.querySelector('.fieldcol[data-planning-ready="false"]')
+      return title?.textContent === 'Path' && document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === name && !document.querySelector('.fieldcol[data-planning-ready="false"]')
         && body && !body.closest('[inert]') && swap && !swap.disabled;
-    }, hugeName), 'reloaded inspector shows the complete name with planning settled');
+    }, hugeName), 'reloaded library shows the complete name and the inspector settles');
     assertInspectorUsable(await inspectorLayout(), 'reload');
     await pointerClick(moreButton); await click('.library-menu button', 'Rename');
     await input('.library-rename input', 'Opening move'); await click('[aria-label="Save name"]');
@@ -1794,14 +1786,14 @@ app.whenReady().then(async () => {
         return { name: title.textContent, fits: title.scrollWidth <= title.clientWidth, separated: !panel.querySelector('.pp-body').scrollWidth || panel.querySelector('.pp-body').scrollWidth <= panel.querySelector('.pp-body').clientWidth, detailsFit: rows.every((row) => row.scrollWidth <= row.clientWidth + 1) }; });
       assert.deepEqual(waypointLayout, { name: 'Waypoint 1', fits: true, separated: true, detailsFit: true });
       assert.equal(await evaluate(() => ['.library-name', '.ctxinsp-t'].every((selector) => { const el = document.querySelector(selector); return el.scrollWidth <= el.clientWidth && getComputedStyle(el).whiteSpace === 'normal'; })), true, 'Primary path names wrap instead of clipping across library and inspector');
-      // Library rows clamp long names to two lines and Push keeps its one-line scope label with the whole name as its title; the inspector title shows the whole name.
+      // Library rows clamp long names to two lines and Push keeps its one-line scope label with the whole name as its title; the selected waypoint's inspector title shows whole.
       assert.deepEqual(await evaluate(() => { const row = document.querySelector('.library-pick[aria-current="true"] .library-name'), footer = document.querySelector('.push-button'), title = document.querySelector('.ctxinsp-t'), line = (el) => parseFloat(getComputedStyle(el).lineHeight);
         const range = document.createRange(); range.selectNodeContents(footer);
         const textBox = range.getBoundingClientRect(), buttonBox = footer.getBoundingClientRect();
         return { row: row.clientHeight <= line(row) * 2 + 1,
           footer: getComputedStyle(footer).whiteSpace === 'nowrap' && textBox.height <= footer.clientHeight
             && textBox.top >= buttonBox.top && textBox.bottom <= buttonBox.bottom && footer.textContent.trim() === 'Push path' && footer.title === row.textContent + ' · Ctrl+Shift+P',
-          title: title.textContent === title.title && title.scrollHeight <= title.clientHeight + 1 }; }), { row: true, footer: true, title: true }, 'Clamped library names keep the complete name in the inspector title');
+          title: title.textContent === title.title && title.scrollHeight <= title.clientHeight + 1 }; }), { row: true, footer: true, title: true }, 'Clamped library names keep Push on one line and the inspector title whole');
       await fs.writeFile(path.join(output, `waypoint-badges-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await click('.place', 'Routines');
       await click('.rt-step-body');
