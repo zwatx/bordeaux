@@ -19,7 +19,8 @@ import { PowerAnalysis } from './PowerAnalysis';
 const h = React.createElement;
 const { Num, DraftText, Toggle, Dropdown, Icon } = UI;
 const fmt = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '–';
-const SHAPES = PM.SEGTYPES.map((type) => ({ value: type.id, label: type.label }));
+// A legacy type (Arc, Clothoid) is listed only on a segment that already uses it.
+const shapesFor = (current) => PM.SEGTYPES.filter((type) => !type.legacy || type.id === current).map((type) => ({ value: type.id, label: type.label }));
 const FACING = [
   { value: 'manual', label: 'Manual' },
   { value: 'tangent', label: 'Tangent' },
@@ -166,7 +167,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
     sub = t0 != null ? fmt(t1 - t0) + ' s' : null;
     const shape = ['line', 'arc', 'clothoid'].includes(wps[i].segType) ? wps[i].segType : 'bezier';
     body = h(React.Fragment, null,
-      h(Row, { label: 'Shape' }, h(Dropdown, { id: 'band-segment-shape', ariaLabel: 'Segment shape', compact: true, value: shape, items: SHAPES, onChange: (v) => actions.setSegMeta(i, { segType: v }) })),
+      h(Row, { label: 'Shape' }, h(Dropdown, { id: 'band-segment-shape', ariaLabel: 'Segment shape', compact: true, value: shape, items: shapesFor(shape), onChange: (v) => actions.setSegMeta(i, { segType: v }) })),
       !isTank && h(Row, { label: 'Facing' }, h(Dropdown, { id: 'band-segment-facing', ariaLabel: 'Facing on this segment', compact: true, value: wps[i].segmentHeadingMode || headingMode, items: FACING, onChange: (v) => actions.setSegmentHeadingMode(i, v) })),
       h('div', { className: 'pp-actions' }, h('button', { type: 'button', className: 'qbtn pp-action', onClick: () => actions.insertWp(i) }, h(Icon, { name: 'plus', size: 13 }), 'Insert waypoint')));
   } else if (sel.kind === 'rt' && doc.targets?.[sel.idx]) {

@@ -27,7 +27,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
 
   const handleLen = (w, key) => Math.hypot(w[key].x - w.x, w[key].y - w.y);
   const segNorm = (t) => (t === 'line' || t === 'arc' || t === 'clothoid') ? t : 'bezier';
-  const segmentTypeOptions = () => PM.SEGTYPES.map((type) => ({ v: type.id, label: type.label, title: type.hint }));
+  // A legacy type (Arc, Clothoid) is listed only on a segment that already uses it.
+  const segmentTypeOptions = (current) => PM.SEGTYPES.filter((type) => !type.legacy || type.id === current).map((type) => ({ v: type.id, label: type.label, title: type.hint }));
   const wpName = (i, n) => i === 0 ? 'Start' : i === n - 1 ? 'End' : 'Waypoint ' + i;
 
   function ConstraintsBody({ c, robot, setC, moreLimits, setMoreLimits }) {
@@ -802,7 +803,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
         const type = segNorm(wps[segment].segType), use = tangentHandleUse(wps, i, key), labelId = 'wp-tangent-' + key;
         return h('div', { key, role: 'group', 'aria-labelledby': labelId },
           h('div', { className: 'fieldlabel', id: labelId }, side + ' segment'),
-          h(Seg, { value: type, options: segmentTypeOptions(), ariaLabel: side + ' segment type', onChange: (v) => { if (v !== type) actions.setSegMeta(segment, { segType: v }); } }),
+          h(Seg, { value: type, options: segmentTypeOptions(type), ariaLabel: side + ' segment type', onChange: (v) => { if (v !== type) actions.setSegMeta(segment, { segType: v }); } }),
           use.direction && h('div', { className: 'grid2' },
             h(Num, { label: 'Direction', value: tangentDirectionDeg(w, key), unit: '\u00b0', step: 1, precision: 1, onChange: (v) => actions.setHandleDir(i, key, v) }),
             use.length && h(Num, { label: 'Length', value: handleLen(w, key), unit: 'm', min: 0.1, onChange: (v) => actions.setHandleLen(i, key, v) })));
@@ -898,7 +899,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
           { v: UnitPrefs.format(dur, 's', 2), k: 'Duration' },
         ]),
         h('div', { className: 'fieldlabel' }, 'Path type'),
-        h(Seg, { value: st, options: segmentTypeOptions(), ariaLabel: 'Path type', onChange: (v) => actions.setSegMeta(i, { segType: v }) }),
+        h(Seg, { value: st, options: segmentTypeOptions(st), ariaLabel: 'Path type', onChange: (v) => actions.setSegMeta(i, { segType: v }) }),
         h('div', { className: 'fieldlabel' }, 'Timing'),
         h(Seg, { value: wps[i].segmentFollowMode || 'inherit', ariaLabel: 'Segment follow mode', options: [
           { v: 'inherit', label: 'Use path', title: 'Use the path timing' },

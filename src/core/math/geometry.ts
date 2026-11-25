@@ -320,9 +320,10 @@ export function autoHandles(waypoints: readonly ControlPoint[], i: number) {
 // Path type belongs to the SEGMENT between two waypoints. The list stays honest:
 // only true geometry types live here, grouped Basic / Spline. Snapping, heading-hold,
 // approach and auto-smooth are tooling/constraint behaviours and live elsewhere.
+// Arc and Clothoid are no longer offered for new segments; saved ones still sample, plan and export unchanged.
 export const SEGTYPES = [
   { id: 'line', label: 'Straight', abbr: 'LIN', group: 'Basic', hint: 'Straight line \u2014 control handles ignored.' },
-  { id: 'arc', label: 'Arc', abbr: 'ARC', group: 'Basic', hint: 'Constant-radius turn, tangent to the out-handle.' },
+  { id: 'arc', label: 'Arc', abbr: 'ARC', group: 'Basic', legacy: true, hint: 'Constant-radius turn, tangent to the out-handle.' },
   { id: 'bezier', label: 'B\u00e9zier', abbr: 'BEZ', group: 'Spline', hint: 'Hand-shaped spline driven by the control handles.' },
-  { id: 'clothoid', label: 'Clothoid', abbr: 'CLO', group: 'Spline', hint: 'Euler spiral \u2014 curvature ramps smoothly (swerve-friendly).' },
+  { id: 'clothoid', label: 'Clothoid', abbr: 'CLO', group: 'Spline', legacy: true, hint: 'Euler spiral \u2014 curvature ramps smoothly (swerve-friendly).' },
 ];
