@@ -27,22 +27,18 @@ export function sharedPositionChoices(project, pathId, index) {
 
 export function SharedWaypointPosition({ project, doc, index, onLink, onName, onOpen }) {
   const waypoint = doc.waypoints[index];
-  const [name, setName] = React.useState(waypoint.positionName || '');
-  React.useEffect(() => setName(waypoint.positionName || ''), [doc.id, index, waypoint.positionName]);
+  // The field always shows the point's name: its own, a linked point's, or its place in the path. Typing a different
+  // name names the point; clearing it returns to the default. As a project draft, Save and selection commit it.
+  const shownName = PathLinks.waypointName(project, doc, index);
   const { candidates, members } = sharedPositionChoices(project, doc.id, index);
-  const saveName = () => {
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== waypoint.positionName) { onName(index, trimmed); setName(trimmed); }
-    else setName(waypoint.positionName || '');
+  const saveName = (raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) { if (waypoint.positionName) onName(index, undefined); }
+    else if (trimmed !== shownName) onName(index, trimmed);
   };
   return h('div', { className: 'shared-waypoint-position' },
-    h('div', { className: 'inrow first' },
-      h('span', { className: 'inrow-l' }, 'Name this point'),
-      h(UI.Toggle, { on: !!waypoint.positionName, ariaLabel: 'Name this point', onChange: (on) => onName(index, on ? waypointName(index, doc.waypoints.length) : undefined) })),
-    waypoint.positionName && h('label', { className: 'linkable-name' }, 'Point name',
-      h('input', { className: 'textinput', 'aria-label': 'Linkable point name', maxLength: 80, value: name,
-        onChange: (event) => setName(event.target.value), onBlur: saveName,
-        onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { event.stopPropagation(); setName(waypoint.positionName); } } })),
+    h('label', { className: 'linkable-name' }, 'Point name',
+      h(UI.DraftText, { className: 'textinput', maxLength: 80, spellCheck: false, value: shownName, owner: doc.id + ':' + index, onCommit: saveName })),
 
     onOpen ? h('div', { className: 'inrow' },
       h('span', { className: 'inrow-l' }, 'Linked position',
