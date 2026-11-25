@@ -1921,17 +1921,33 @@ app.whenReady().then(async () => {
         const el = document.querySelector(selector); if (!el) throw new Error('Missing drag point: ' + selector);
         const r = el.getBoundingClientRect(); return { x: Math.round(r.x + Math.min(r.width / 2, 60)), y: Math.round(r.y + r.height * fraction) };
       }, selector, fraction);
-      // Presses on `from`, moves past the threshold, then to `to` (a selector, resolved once the drag shows), and calls
-      // `during` before releasing (or not, when `release` is false).
+      // Presses on `from`, moves past the threshold, then to `to`, and calls `during` before releasing (or not, when
+      // `release` is false). Rows slide while a gap opens, so `to` is re-aimed at each step like a person tracking it.
       const dragTo = async (from, to, { fraction = 0.5, during, release = true } = {}) => {
         const start = await pointAt(from);
         win.webContents.sendInputEvent({ type: 'mouseMove', ...start });
         win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 });
         for (const dy of [3, 8, 14]) { win.webContents.sendInputEvent({ type: 'mouseMove', x: start.x + 2, y: start.y + dy, button: 'left' }); await delay(30); }
         await wait(() => evaluate(() => document.body.classList.contains('library-dragging') && !!document.querySelector('.library-drag-ghost')), 'library drag begins');
-        const end = await pointAt(to, fraction);
-        for (let i = 1; i <= 4; i++) { win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(start.x + (end.x - start.x) * i / 4), y: Math.round(start.y + 14 + (end.y - start.y - 14) * i / 4), button: 'left' }); await delay(40); }
-        await delay(120);
+        // The aim follows the target's row or folder wrapper, which slides when other slots close; a gap opening
+        // inside the wrapper itself moves only its content, not where a person is pointing.
+        const anchorTop = () => evaluate((selector) => {
+          const el = document.querySelector(selector), anchor = el?.closest('[data-drop-path],[data-folder-group]') || el;
+          return anchor ? anchor.getBoundingClientRect().top : 0;
+        }, to);
+        const aim = await pointAt(to, fraction), top = await anchorTop();
+        const target = async () => ({ x: aim.x, y: Math.round(aim.y + (await anchorTop()) - top) });
+        let end = aim;
+        for (let i = 1; i <= 4; i++) {
+          end = await target();
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(start.x + (end.x - start.x) * i / 4), y: Math.round(start.y + 14 + (end.y - start.y - 14) * i / 4), button: 'left' }); await delay(40);
+        }
+        for (let i = 0; i < 6; i++) {
+          await delay(220);
+          const next = await target();
+          if (next.x === end.x && next.y === end.y) break;
+          end = next; win.webContents.sendInputEvent({ type: 'mouseMove', ...end, button: 'left' });
+        }
         if (during) await during();
         if (release) { win.webContents.sendInputEvent({ type: 'mouseUp', ...end, button: 'left', clickCount: 1 }); await delay(150); }
         return end;
@@ -2004,7 +2020,15 @@ app.whenReady().then(async () => {
 
       // Reorder within a folder (drop on the upper half of a row), reorder folders, and drag out of all folders.
       await dragTo(pick('p-steal'), pick('p-block'), { fraction: 0.2, during: async () => {
-        assert.equal(await evaluate(() => document.querySelector('.library-item.drop-before [data-library-item]')?.dataset.libraryItem), 'p-block', 'An insertion line marks the drop point');
+        assert.equal(await evaluate(() => document.querySelector('.library-item.drop-before [data-library-item]')?.dataset.libraryItem), 'p-block', 'A gap opens at the drop point');
+        // The grabbed row lifts into a card the size of the row; its own slot closes and a gap of the same height opens.
+        await wait(() => evaluate(() => { const slot = document.querySelector('.library-item.dragging.away'); return slot && slot.getBoundingClientRect().height < 1; }), 'the dragged row\'s slot closes');
+        assert.deepEqual(await evaluate(() => {
+          const card = document.querySelector('.library-drag-ghost').getBoundingClientRect(), row = document.querySelector('.library-item.drop-before .library-row').getBoundingClientRect();
+          const gap = parseFloat(getComputedStyle(document.querySelector('.library-item.drop-before')).paddingTop);
+          return { width: Math.abs(card.width - row.width * 1.02) < 2, gap: Math.abs(gap - card.height / 1.02) < 1 };
+        }), { width: true, gap: true }, 'The card matches the row and the gap matches the card');
+        await fs.writeFile(path.join(output, 'library-drag-reorder-1440.png'), (await win.webContents.capturePage()).toPNG());
       } });
       await expectLayout({ folders: initial.folders, rows: ['p-amp:f-score', 'p-speaker:f-score', 'p-steal:f-defense', 'p-block:f-defense', 'p-test1:f-defense', 'p-source:f-end', 'p-test2:f-end', 'p-test3:f-end'] }, 'Dropping above a row reorders the folder');
       await dragTo(header('f-end'), header('f-score'), { fraction: 0.2, during: async () => {
@@ -2067,6 +2091,39 @@ app.whenReady().then(async () => {
       win.setContentSize(1440, 900); await delay(150);
       await key('Escape');
       check('path and folder menus are short, act on the selection with counted labels, and Move to works inline by keyboard with one Undo step');
+
+      // Right-clicking empty list space offers New path, New folder and folder-wide collapse.
+      const blankPoint = () => evaluate(() => {
+        const list = document.querySelector('.library-scroll'), box = list.getBoundingClientRect(), last = [...list.children].at(-1).getBoundingClientRect();
+        const point = { x: Math.round(box.left + box.width / 2), y: Math.round(Math.min(box.bottom - 6, last.bottom + 20)) };
+        return { ...point, blank: document.elementFromPoint(point.x, point.y) === list };
+      });
+      const rightClick = async (point) => {
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+        win.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'right', clickCount: 1 });
+        win.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'right', clickCount: 1 });
+        await wait(() => evaluate(() => !!document.querySelector('.library-menu:popover-open')), 'right-click opens a menu that stays open after the release');
+        await delay(150);
+        assert.equal(await evaluate(() => !!document.querySelector('.library-menu:popover-open')), true, 'The released right button does not dismiss the menu');
+      };
+      const folderStates = () => evaluate(() => [...document.querySelectorAll('.library-folder > button:first-child')].map((button) => button.getAttribute('aria-expanded')));
+      let blank = await blankPoint();
+      assert.equal(blank.blank, true, 'The fixture leaves empty list space: ' + JSON.stringify(blank));
+      await rightClick(blank);
+      assert.deepEqual((await menuState()).items, ['New path', 'New folder', 'Collapse all folders'], 'The empty-space menu offers creation and collapse');
+      await fs.writeFile(path.join(output, 'library-list-menu-1440.png'), (await win.webContents.capturePage()).toPNG());
+      await click('.library-menu button', 'Collapse all folders');
+      assert.deepEqual(await folderStates(), ['false', 'false', 'false'], 'Collapse all folders collapses every folder');
+      blank = await blankPoint(); await rightClick(blank);
+      assert.deepEqual((await menuState()).items, ['New path', 'New folder', 'Expand all folders']);
+      await key('Escape');
+      assert.equal(await evaluate(() => !document.querySelector('.library-menu')), true, 'Escape closes the empty-space menu');
+      await rightClick(blank); await click('.library-menu button', 'Expand all folders');
+      assert.deepEqual(await folderStates(), ['true', 'true', 'true'], 'Expand all folders opens every folder');
+      await rightClick(await pointAt(pick('p-amp')));
+      assert.equal((await menuState()).items[0], 'Push path…', 'Right-clicking a row opens that row\'s menu');
+      await key('Escape');
+      check('right-click menus stay open after release; empty list space offers New path, New folder and collapsing or expanding every folder');
 
       // Deleting a selected row deletes the selection as one undoable change; a routine's path blocks all of it.
       await pointerClick(pick('p-block'), [modifier]);
