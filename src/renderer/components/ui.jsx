@@ -574,8 +574,8 @@ import { filterPickerItems } from "../lib/pickerSearch";
     return chosen ? { text: chosen.text(chosen.value), ariaLabel: chosen.aria(chosen.value), key: chosen.key } : null;
   }
 
-  // floating context menu — items: [{label,icon,onClick,danger,sep}]
-  function ContextMenu({ x, y, items, onClose, returnFocus }) {
+  // floating context menu — items: [{label,icon,onClick,danger,sep,hint,checked}]; `checked` makes a checkbox item
+  function ContextMenu({ x, y, items, onClose, returnFocus, label = 'Heading actions' }) {
     const ref = useRef(null);
     const origin = useRef(returnFocus || null);
     const [pos, setPos] = useState({ x, y });
@@ -616,16 +616,17 @@ import { filterPickerItems } from "../lib/pickerSearch";
       window.addEventListener('pointerdown', away, true); window.addEventListener('keydown', key, true);
       return () => { window.removeEventListener('pointerdown', away, true); window.removeEventListener('keydown', key, true); };
     }, [onClose]);
-    return h('div', { ref, role: 'menu', 'aria-label': 'Heading actions', className: 'ctxmenu', style: { left: pos.x + 'px', top: pos.y + 'px' } },
+    return h('div', { ref, role: 'menu', 'aria-label': label, className: 'ctxmenu', style: { left: pos.x + 'px', top: pos.y + 'px' } },
       items.map((it, i) => it.sep
         ? h('div', { key: 'sep' + i, role: 'separator', className: 'ctxmenu-sep' })
-        : h('button', { key: i, type: 'button', role: 'menuitem', tabIndex: -1, disabled: it.disabled, className: 'ctxmenu-i' + (it.danger ? ' danger' : ''), onClick: () => {
+        : h('button', { key: i, type: 'button', role: it.checked == null ? 'menuitem' : 'menuitemcheckbox', 'aria-checked': it.checked == null ? undefined : Boolean(it.checked), tabIndex: -1, disabled: it.disabled, className: 'ctxmenu-i' + (it.danger ? ' danger' : ''), onClick: () => {
             if (origin.current?.isConnected) origin.current.focus();
             onClose(); it.onClick();
           } },
             it.icon && h('span', { className: 'ctxmenu-ic' }, h(Icon, { name: it.icon, size: 14 })),
             h('span', null, it.label),
-            it.hint && h('span', { className: 'ctxmenu-k' }, it.hint))));
+            it.hint && h('span', { className: 'ctxmenu-k' }, it.hint),
+            it.checked && h('span', { className: 'ctxmenu-k', 'aria-hidden': true }, h(Icon, { name: 'check', size: 14 })))));
   }
 
 export const UI = { Icon, IconBtn, Dropdown, ChoiceBrowser, Num, DraftText, Section, Toggle, Seg, TurnDirection, ContextMenu, constraintRangeSummary };

@@ -1,7 +1,8 @@
 // The path timeline's Commands lane in the built App: chips at both ends stay inside the lane with their diamond on
 // the command's time, crowds stack into rows and a "+N" menu, long names shorten with the full name in the title,
 // groups show as one chip and loops/repeats draw their extent. Both supported sizes, inspector open and closed,
-// pointer selection and drag, keyboard selection and the "+N" menu with focus return. Local fixtures only.
+// pointer selection and drag, keyboard selection and the "+N" menu with focus return, and item menus by right-click
+// and Shift+F10 on waypoints, command chips and the bare lane. Local fixtures only.
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -40,6 +41,21 @@ async function key(keyCode, modifiers = []) {
   if (keyCode === 'Enter' || keyCode === 'Space') win.webContents.sendInputEvent({ type: 'char', keyCode: keyCode === 'Enter' ? String.fromCharCode(13) : ' ', modifiers });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); await delay(90);
 }
+async function rightClick(point) {
+  await focusWindow();
+  for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'right', clickCount: 1, ...point });
+  await delay(200);
+}
+// The open item menu: its name, items, focus and bounds against the window.
+const menuState = () => evaluate(() => {
+  const menu = document.querySelector('.ctxmenu[role="menu"]');
+  if (!menu) return null;
+  const r = menu.getBoundingClientRect();
+  return { label: menu.getAttribute('aria-label'), items: [...menu.querySelectorAll('[role^="menuitem"]')].map((el) => el.textContent),
+    checked: [...menu.querySelectorAll('[role="menuitemcheckbox"]')].map((el) => el.getAttribute('aria-checked')),
+    focused: menu.contains(document.activeElement) ? document.activeElement.textContent : null,
+    inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight };
+});
 async function snapshot(name) { await drain(); await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
 
 const catalog = { runtime: 'labview', projectName: 'Timeline fixture', sourceFileCount: 1, scannedAt: '', warnings: [],
@@ -190,6 +206,104 @@ app.whenReady().then(async () => {
     await snapshot('mixed-1440-after-drag');
     await key('z', ['control']);
     await delay(300);
+
+    // Item menus at both sizes: right-click and Shift+F10 open the same short menu, select the item, leave the
+    // playhead and the item where they were, stay in the window, and return focus on Escape. One Undo per action.
+    for (const size of [[1440, 900], [1100, 720]]) {
+      const w = size[0];
+      await load('ends', 'metric', size);
+      await inspector(false);
+      await evaluate(() => { window.__ctx = []; addEventListener('contextmenu', (event) => window.__ctx.push(event.defaultPrevented)); });
+      const clock = () => evaluate(() => document.querySelector('.pt-clock-now').textContent);
+      const now = await clock();
+      const wp = '.pt-wp[data-selection="wp:1"]';
+      const wpPoint = await center(wp);
+      await rightClick(wpPoint);
+      await wait(() => menuState(), w + ': right-click opens the waypoint menu');
+      let menu = await menuState();
+      assert.deepEqual(menu.items, ['Open in inspector', 'Stop here', 'Duplicate waypoint', 'Delete waypoint'], w + ': waypoint menu items');
+      assert.match(menu.label, / actions$/);
+      assert.deepEqual(menu.checked, ['false'], w + ': Stop here shows its state');
+      assert.equal(menu.focused, 'Open in inspector', w + ': the first item takes focus');
+      assert.ok(menu.inside, w + ': waypoint menu inside the window');
+      assert.equal(await evaluate((wp) => document.querySelector(wp).getAttribute('aria-pressed'), wp), 'true', w + ': right-click selects the waypoint');
+      assert.equal(await clock(), now, w + ': right-click leaves the playhead');
+      assert.equal(await evaluate(() => window.__ctx.at(-1)), true, w + ': the native menu gives way to the item menu');
+      await snapshot('menu-waypoint-' + w);
+      await key('Escape');
+      await wait(() => evaluate((wp) => !document.querySelector('.ctxmenu') && document.activeElement?.matches(wp), wp), w + ': Escape returns focus to the waypoint');
+
+      // Shift+F10 on the focused waypoint opens the same menu below it; Stop here is one Undo step.
+      await key('F10', ['shift']);
+      await wait(() => menuState(), w + ': Shift+F10 opens the waypoint menu');
+      assert.deepEqual((await menuState()).items, menu.items, w + ': keyboard and pointer menus match');
+      await key('Down'); await key('Enter');
+      await wait(() => evaluate((wp) => !document.querySelector('.ctxmenu') && document.querySelector(wp)?.classList.contains('stop') && document.activeElement?.matches(wp), wp), w + ': Stop here stops the waypoint and returns focus');
+      await key('F10', ['shift']);
+      await wait(() => menuState(), w + ': menu reopens');
+      assert.deepEqual((await menuState()).checked, ['true'], w + ': Stop here is checked');
+      await key('Escape');
+      await key('z', ['control']);
+      await wait(() => evaluate((wp) => !document.querySelector(wp)?.classList.contains('stop'), wp), w + ': one Undo clears the stop');
+
+      // A command chip: right-click selects it without dragging; Delete command is one Undo step.
+      const chip = '.pt-chip[data-selection="em:0"]';
+      const chipBefore = await evaluate((chip) => document.querySelector(chip).getAttribute('aria-label'), chip);
+      await rightClick(await center(chip));
+      await wait(() => menuState(), w + ': right-click opens the command menu');
+      menu = await menuState();
+      assert.deepEqual(menu.items, ['Open in inspector', 'Delete command'], w + ': command menu items');
+      assert.ok(menu.inside, w + ': command menu inside the window');
+      assert.equal(await evaluate((chip) => document.querySelector(chip).getAttribute('aria-pressed'), chip), 'true', w + ': right-click selects the command');
+      assert.equal(await evaluate((chip) => document.querySelector(chip).getAttribute('aria-label'), chip), chipBefore, w + ': right-click does not move the command');
+      assert.equal(await clock(), now, w + ': right-click on a chip leaves the playhead');
+      await snapshot('menu-command-' + w);
+      await click('.ctxmenu [role="menuitem"].danger');
+      await wait(() => evaluate(() => document.querySelectorAll('.pt-chip').length === 1 && !document.querySelector('.ctxmenu')), w + ': Delete command removes the chip');
+      await key('z', ['control']);
+      await wait(() => evaluate(() => document.querySelectorAll('.pt-chip').length === 2), w + ': one Undo restores the command');
+
+      // The end chip near the right edge keeps its menu in the window.
+      await rightClick(await center('.pt-chip[data-selection="em:1"]'));
+      await wait(() => menuState(), w + ': end chip menu');
+      assert.ok((await menuState()).inside, w + ': end chip menu inside the window');
+      // Open in inspector opens the inspector on the chosen command, and the menu then leaves it out.
+      await click('.ctxmenu [role="menuitem"]:first-child');
+      await wait(() => evaluate(() => !document.querySelector('.rail-r').classList.contains('collapsed')), w + ': Open in inspector opens the inspector');
+      await delay(250);
+      await rightClick(await center('.pt-chip[data-selection="em:1"]'));
+      await wait(() => menuState(), w + ': command menu with the inspector open');
+      assert.deepEqual((await menuState()).items, ['Delete command'], w + ': no Open in inspector while it is open');
+      await key('Escape');
+
+      // The bare lane offers its own add at the pressed time; elsewhere the native menu is left alone.
+      const lanePoint = await evaluate(() => {
+        const r = document.querySelector('.pt-lane').getBoundingClientRect();
+        for (let x = r.left + r.width * 0.45; x < r.right; x += 6) if (document.elementFromPoint(x, r.top + r.height / 2)?.classList.contains('pt-lane')) return { x: Math.round(x), y: Math.round(r.top + r.height / 2) };
+        throw Error('No bare lane');
+      });
+      await evaluate(() => document.querySelector('.pt-lane').focus());
+      // Shift+F10 on the focused lane offers the add at the playhead. Electron's sendInputEvent cannot produce the
+      // ContextMenu key, so that key is a dispatched event: it checks the handler, not native key delivery.
+      await key('F10', ['shift']);
+      await wait(() => menuState(), w + ': Shift+F10 on the lane');
+      assert.deepEqual((await menuState()).items, ['Add command at the playhead'], w + ': keyboard lane menu');
+      await key('Escape');
+      await evaluate(() => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true })));
+      await wait(() => menuState(), w + ': ContextMenu key on the lane');
+      assert.deepEqual((await menuState()).items, ['Add command at the playhead'], w + ': ContextMenu key lane menu');
+      await key('Escape');
+      await rightClick(lanePoint);
+      await wait(() => menuState(), w + ': right-click on the lane');
+      assert.deepEqual((await menuState()).items, ['Add command here'], w + ': lane menu');
+      await snapshot('menu-lane-' + w);
+      await key('Escape');
+      await wait(() => evaluate(() => !document.querySelector('.ctxmenu') && document.activeElement?.matches('.pt-lane')), w + ': Escape returns focus to the lane');
+      await rightClick(await center('.pt-ruler'));
+      assert.equal(await menuState(), null, w + ': no item menu on the ruler');
+      assert.equal(await evaluate(() => window.__ctx.at(-1)), false, w + ': the ruler keeps the native default');
+      results.push({ label: 'item menus ' + w, passed: true });
+    }
 
     // Imperial units in a distance loop's description.
     await load('mixed', 'imperial');

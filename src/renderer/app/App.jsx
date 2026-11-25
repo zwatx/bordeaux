@@ -321,7 +321,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         onFixIssue: problems.onFix, onClearIssue: problems.onClear }),
       h(PathTimeline, { doc, derived, tl, robot, sel: props.sel, select: actions.select, edit, actions, playbackStore: props.playbackStore,
         catalog: props.robotProject?.catalog, metric: props.metric, stale: props.stale || timingHeld, header: limits,
-        hoverStore: props.hoverStore, hoverContext: props.hoverContext, issues: problems.issues, issuesStale: problems.stale, selectedIssue: problems.selected }));
+        hoverStore: props.hoverStore, hoverContext: props.hoverContext, issues: problems.issues, issuesStale: problems.stale, selectedIssue: problems.selected,
+        inspectorOpen: props.moreOpen }));
   }
   // Fit the path summary, its 32px shared action button, and bottom breathing room.
   const BAND_MIN = 252;
