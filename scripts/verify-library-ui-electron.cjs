@@ -181,6 +181,9 @@ const activePathId = () => evaluate(() => document.querySelector('.library-pick[
 const editorReady = (label) => wait(() => evaluate(() => !document.querySelector('.fieldcol[data-planning-ready="false"]') && document.querySelectorAll('.pt-wp').length > 1), label);
 // Selects the second waypoint on the timeline and nudges it right with a real key press to the editor.
 async function nudgeSecondWaypoint() {
+  // The fixture starts hidden. Show it before asserting native keyboard focus.
+  win.show(); win.focus(); win.webContents.focus();
+  await wait(() => evaluate(() => document.hasFocus()), 'library window owns native keyboard input');
   await pointerClick('.pt-wp[data-selection="wp:1"]');
   for (const end = Date.now() + 2000; (await evaluate(() => document.activeElement?.dataset.selection)) !== 'wp:1' && Date.now() < end;) await delay(25);
   assert.equal(await evaluate(() => document.activeElement?.dataset.selection), 'wp:1', 'The waypoint owns native keyboard input');
