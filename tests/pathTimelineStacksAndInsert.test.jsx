@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import corpus from '../benchmarks/planner-corpus/v2/corpus.bordeaux.json';
+import corpus from '../benchmarks/planner-corpus/v3/corpus.bordeaux.json';
 import { PathTimeline, CommandStackMenu, insertionReason } from '../src/renderer/components/PathTimeline';
 import { buildTimeline, fAtT, MIN_WAYPOINT_GAP, waypointInsertionAt } from '../src/renderer/components/pathTimelineModel';
 import { PM } from '../src/renderer/lib/pathMath';

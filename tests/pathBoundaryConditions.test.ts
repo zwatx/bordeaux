@@ -75,7 +75,7 @@ describe("path entry and exit conditions", () => {
   it.each(["tangent", "lookAt"] as const)("edits initial facing directly while preserving geometry in %s mode", (mode) => {
     const project = movingProject(); const path = project.paths[0]; path.headingMode = "tangent";
     path.waypoints[0].segmentHeadingMode = mode;
-    path.waypoints[0].segmentLookAt = { x: 6, y: 6 };
+    path.waypoints[0].segmentLookAt = { x: 6, y: 2.5 };
     const geometry = path.waypoints.map(({ x, y, prevC, nextC }) => ({ x, y, prevC: { ...prevC }, nextC: { ...nextC } }));
     expect(markup(project)).toContain("Initial robot facing");
     expect(markup(project, { kind: "wp", idx: 0 })).toContain("Initial robot facing");

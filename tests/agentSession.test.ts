@@ -90,7 +90,7 @@ describe("agent session and private bridge", () => {
     const initial = snapshot();
     service.publishSnapshot(initial);
     const pending = service.request({ method: "plan_path", params: {
-      intent: "Plan on the original path", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Plan on the original path", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const switched = structuredClone(initial);
     const otherPath = structuredClone(switched.project.paths[0]);
@@ -181,12 +181,12 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot(snapshot());
 
     const first = service.request({ method: "plan_path", params: {
-      intent: "First preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "First preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const firstRejected = expect(first).rejects.toThrow("planning worker aborted");
     await new Promise((resolve) => setTimeout(resolve, 0));
     const second = service.request({ method: "plan_path", params: {
-      intent: "Second preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Second preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -211,7 +211,7 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot({ ...initial, revision: 1 });
 
     const result: any = await service.request({ method: "plan_path", params: {
-      context, intent: "Stale request", alliance: "blue", goals: [{ x: 3, y: 1 }],
+      context, intent: "Stale request", alliance: "blue", goals: [{ x: 5.2705, y: 3.0345 }],
     } });
 
     expect(result).toMatchObject({ status: "stale_context", code: "STALE_CONTEXT", currentContext: { revision: 1 } });
@@ -294,7 +294,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService((proposal) => { staged.push(proposal); }, () => null);
     const initial = snapshot();
     service.publishSnapshot(initial);
-    const proposal: any = await service.request({ method: "plan_path", params: { intent: "Go forward", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1 } });
+    const proposal: any = await service.request({ method: "plan_path", params: { intent: "Go forward", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1 } });
     expect(staged).toHaveLength(1);
     expect(service.getActiveProposal()?.id).toBe(proposal.proposalId);
     expect(proposal.recommendedCandidate.valid).toBe(true);
@@ -316,7 +316,7 @@ describe("agent session and private bridge", () => {
     const initial = snapshot();
     service.publishSnapshot(initial);
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Stay on the published path", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Stay on the published path", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const switched = structuredClone(initial);
     const otherPath = structuredClone(switched.project.paths[0]);
@@ -342,7 +342,7 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot(snapshot());
 
     const outcome: any = await service.request({ method: "plan_path", params: {
-      intent: "Invalid preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Invalid preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     expect(outcome).toMatchObject({ status: "blocked", code: "NO_VALID_CANDIDATE", proposalId: null });
@@ -355,7 +355,7 @@ describe("agent session and private bridge", () => {
   it("does not retain a ready proposal when the editor cannot receive it", async () => {
     const service = new AgentSessionService(() => { throw new Error("editor closed"); }, () => null);
     service.publishSnapshot(snapshot());
-    await expect(service.request({ method: "plan_path", params: { intent: "Go", alliance: "blue", goals: [{ x: 3, y: 1 }], maximumCandidates: 1 } })).rejects.toThrow("editor closed");
+    await expect(service.request({ method: "plan_path", params: { intent: "Go", alliance: "blue", goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1 } })).rejects.toThrow("editor closed");
     service.clearSnapshot();
     await expect(service.request({ method: "inspect_session" })).rejects.toThrow(/finish loading/);
   });
@@ -365,7 +365,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService((_proposal, requireReceipt) => requireReceipt ? new Promise<void>((resolve) => { acknowledge = resolve; }) : undefined, () => null);
     service.publishSnapshot(snapshot());
     let completed = false;
-    const pending = service.request({ method: "plan_path", params: { intent: "Wait for preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1 } }).then((value) => { completed = true; return value; });
+    const pending = service.request({ method: "plan_path", params: { intent: "Wait for preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1 } }).then((value) => { completed = true; return value; });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(completed).toBe(false);
     acknowledge?.();
@@ -383,11 +383,11 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     const committed: any = await service.request({ method: "plan_path", params: {
-      intent: "Committed preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Committed preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     await expect(service.request({ method: "plan_path", params: {
-      intent: "Stale provisional preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Stale provisional preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } })).rejects.toThrow("changed before it acknowledged");
 
     expect(service.getActiveProposal()?.id).toBe(committed.proposalId);
@@ -402,7 +402,7 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot(snapshot());
 
     await expect(service.request({ method: "plan_path", params: {
-      intent: "Rejected renderer preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Rejected renderer preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } })).rejects.toThrow("changed before it acknowledged");
     expect(service.getActiveProposal()).toBeNull();
   });
@@ -415,7 +415,7 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot(snapshot());
 
     await expect(service.request({ method: "plan_path", params: {
-      intent: "Wrong active path receipt", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Wrong active path receipt", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } })).rejects.toThrow("changed before it acknowledged");
     expect(service.getActiveProposal()).toBeNull();
   });
@@ -432,14 +432,14 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     const first: any = await service.request({ method: "plan_path", params: {
-      intent: "Existing preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Existing preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     waitForReceipt = true;
     const received = new Promise<void>((resolve) => { proposalReceived = resolve; });
     const controller = new AbortController();
     const pending = service.request({ method: "plan_path", params: {
-      intent: "Abandoned preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Abandoned preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } }, controller.signal);
     await received;
     controller.abort();
@@ -471,11 +471,11 @@ describe("agent session and private bridge", () => {
     const initial = snapshot();
     service.publishSnapshot(initial);
     const committed: any = await service.request({ method: "plan_path", params: {
-      intent: "Committed preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Committed preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const controller = new AbortController();
     const pendingRequest = service.request({ method: "plan_path", params: {
-      intent: "Pending preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Pending preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } }, controller.signal).then(
       () => ({ fulfilled: true as const }),
       (error: unknown) => ({ fulfilled: false as const, error }),
@@ -510,17 +510,17 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     const original: any = await service.request({ method: "plan_path", params: {
-      intent: "Original preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Original preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     const received = new Promise<void>((resolve) => { olderReceived = resolve; });
     const older = service.request({ method: "plan_path", params: {
-      intent: "Older pending preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Older pending preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const olderRejected = expect(older).rejects.toThrow("renderer rejected older preview");
     await received;
     const newest: any = await service.request({ method: "plan_path", params: {
-      intent: "Newest preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2.5, y: 1 }], maximumCandidates: 1,
+      intent: "Newest preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.7705, y: 3.0345 }], maximumCandidates: 1,
     } });
     rejectOlder?.(new Error("renderer rejected older preview"));
     await olderRejected;
@@ -558,12 +558,12 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     const original: any = await service.request({ method: "plan_path", params: {
-      intent: "Committed preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Committed preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     const olderController = new AbortController();
     const olderRequest = service.request({ method: "plan_path", params: {
-      intent: "Older provisional path", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Older provisional path", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } }, olderController.signal).then(
       () => ({ fulfilled: true as const }),
       (error: unknown) => ({ fulfilled: false as const, error }),
@@ -621,11 +621,11 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     await service.request({ method: "plan_path", params: {
-      intent: "Committed preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Committed preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     const pending = service.request({ method: "plan_path", params: {
-      intent: "Pending valid preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Pending valid preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     await pendingReceived.promise;
     const controller = new AbortController();
@@ -651,12 +651,12 @@ describe("agent session and private bridge", () => {
     }, () => null);
     service.publishSnapshot(snapshot());
     const committed: any = await service.request({ method: "plan_path", params: {
-      intent: "Committed preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1,
+      intent: "Committed preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
 
     for (let index = 0; index < 30; index += 1) {
       await expect(service.request({ method: "plan_path", params: {
-        intent: `Failed preview ${index}`, alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+        intent: `Failed preview ${index}`, alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       } })).rejects.toThrow("renderer rejected preview");
     }
 
@@ -668,8 +668,8 @@ describe("agent session and private bridge", () => {
   it("keeps only the newest proposal ready for the single preview surface", async () => {
     const service = new AgentSessionService(() => {}, () => null);
     service.publishSnapshot(snapshot());
-    const first: any = await service.request({ method: "plan_path", params: { intent: "First", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 2, y: 1 }], maximumCandidates: 1 } });
-    const second: any = await service.request({ method: "plan_path", params: { intent: "Second", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1 } });
+    const first: any = await service.request({ method: "plan_path", params: { intent: "First", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 6.2705, y: 3.0345 }], maximumCandidates: 1 } });
+    const second: any = await service.request({ method: "plan_path", params: { intent: "Second", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1 } });
     expect(second.status).toBe("ready");
     expect(second.supersededProposalId).toBe(first.proposalId);
     expect((await service.request({ method: "get_proposal", params: { proposalId: first.proposalId } }) as any).status).toBe("stale");
@@ -710,7 +710,7 @@ describe("agent session and private bridge", () => {
     service.publishSnapshot(snapshot());
 
     const olderPath = service.request({ method: "plan_path", params: {
-      intent: "Older path preview", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Older path preview", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
     } });
     const olderRejected = expect(olderPath).rejects.toThrow("Agent planning was canceled");
     await started;
@@ -757,19 +757,19 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService(() => {}, () => catalog);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
     const fullProposal: any = await service.request({ method: "get_proposal", params: { proposalId: proposal.proposalId, detail: "full" } });
     expect(fullProposal.candidates[0].path.markers[0].invocation.commandId).toBe("robot.shoot");
     await expect(service.request({ method: "plan_path", params: {
-      intent: "Drive and intake", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and intake", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "intake-fuel" },
     } })).rejects.toThrow(/must match exactly one runtime-ready command/);
 
     catalog.commands.push({ ...catalog.commands[0], id: "robot.shootAlternate" });
     await expect(service.request({ method: "plan_path", params: {
-      intent: "Ambiguous shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Ambiguous shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } })).rejects.toThrow(/found 2/);
 
@@ -777,7 +777,7 @@ describe("agent session and private bridge", () => {
     bound.project.strategy = { actionBindings: [{ semanticTag: "shoot-fuel", commandId: "robot.shootAlternate" }] };
     service.publishSnapshot(bound);
     const boundProposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Bound shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Bound shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shootAlternate", semanticTag: "shoot-fuel" },
     } });
     const fullBoundProposal: any = await service.request({ method: "get_proposal", params: { proposalId: boundProposal.proposalId, detail: "full" } });
@@ -790,7 +790,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService((item) => { notifications.push({ id: item.id, status: item.status }); }, () => catalog);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
 
@@ -808,7 +808,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService(() => {}, () => catalog);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
 
@@ -827,7 +827,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService(() => {}, () => catalog);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot at speed", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot at speed", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
 
@@ -843,7 +843,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService(() => {}, () => catalog);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
 
@@ -867,7 +867,7 @@ describe("agent session and private bridge", () => {
     }, () => catalog);
     service.publishSnapshot(snapshot());
     const pending = service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endAction: { commandId: "robot.shoot", semanticTag: "shoot-fuel" },
     } });
     await vi.waitFor(() => expect(received).toBe(true));
@@ -883,7 +883,7 @@ describe("agent session and private bridge", () => {
     const service = new AgentSessionService(() => {}, () => null);
     service.publishSnapshot(snapshot());
     const proposal: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endActionIntent: { semanticTag: "shoot-fuel", description: "shoot into the HUB" },
     } });
     expect(proposal.blockingIssues).toBeUndefined();
@@ -902,7 +902,7 @@ describe("agent session and private bridge", () => {
     initial.project.robot.planning = { shooter: { directionDeg: 0, requiresTargetFacing: true } };
     service.publishSnapshot(initial);
     const outcome: any = await service.request({ method: "plan_path", params: {
-      intent: "Drive and shoot", alliance: "blue", start: { x: 1, y: 1 }, goals: [{ x: 3, y: 1 }], maximumCandidates: 1,
+      intent: "Drive and shoot", alliance: "blue", start: { x: 7.2705, y: 3.0345 }, goals: [{ x: 5.2705, y: 3.0345 }], maximumCandidates: 1,
       endActionIntent: { semanticTag: "shoot-fuel", description: "shoot into the HUB" },
     } });
     expect(outcome).toMatchObject({ status: "needs_input", code: "TARGET_FACING_REQUIRED" });

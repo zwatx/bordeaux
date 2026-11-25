@@ -17,8 +17,8 @@ describe("exact waypoint wait timing", () => {
     project.robot = forceExportRobot();
     path.constraints.maxVel = 0.2;
     path.waypoints = buildWaypoints([
-      { x: 7, y: 1, theta: 0, nextC: { x: 7, y: 2 } },
-      { x: 9, y: 1, theta: 0, prevC: { x: 9, y: 2 }, stop: true, wait: 0.11 },
+      { x: -1, y: 1, theta: 0, nextC: { x: -1, y: 2 } },
+      { x: 1, y: 1, theta: 0, prevC: { x: 1, y: 2 }, stop: true, wait: 0.11 },
     ]);
     const response = processPathPreviewJob({ id: 1, quality: "final", optimize: true, path,
       robot: project.robot, field: project.field, perSegment: 56, deadline: "common", deadlineMs: 5000 });
@@ -43,9 +43,9 @@ describe("exact waypoint wait timing", () => {
     const project = createDemoProject(), path = project.paths[0];
     path.constraints.maxVel = 0.2;
     path.waypoints = buildWaypoints([
-      { x: 7, y: 1, theta: 0, segType: "line", stop: true, wait: 0.003 },
-      { x: 8, y: 1, theta: 0, segType: "line", stop: true, wait: 0.11 },
-      { x: 9, y: 1, theta: 0, stop: true, wait: 0.127 },
+      { x: -1, y: 1, theta: 0, segType: "line", stop: true, wait: 0.003 },
+      { x: 0, y: 1, theta: 0, segType: "line", stop: true, wait: 0.11 },
+      { x: 1, y: 1, theta: 0, stop: true, wait: 0.127 },
     ]);
     path.markers = [0, 0.5, 0.75, 1].map((f, i) => ({ id: `wait-event-${i}`, name: `Event ${i}`, f }));
     const baseline = getPlanner("profiledSpline").generate({ path: { ...path,

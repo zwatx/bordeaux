@@ -27,11 +27,11 @@ describe("practical route qualification", () => {
   // Review did not supply E/F coordinates. These reconstruct 3/4 required
   // points at the 0..1.276 m trench, including off-centre travel outside the old circumscribed-disk band.
   it.each([
-    ["straight default", [{ x: 2.7, y: 0.638 }, { x: 6.6, y: 0.638 }], 0.84],
-    ["straight one metre", [{ x: 2.7, y: 0.638 }, { x: 6.6, y: 0.638 }], 1],
-    ["three points", [{ x: 2.7, y: 0.55 }, { x: 4.5, y: 0.819 }, { x: 6.6, y: 0.6 }], 0.84],
-    ["four points off-centre", [{ x: 2.7, y: 0.638 }, { x: 3.5, y: 0.8 }, { x: 5.5, y: 0.8 }, { x: 6.6, y: 0.638 }], 0.84],
-    ["four points", [{ x: 2.7, y: 0.638 }, { x: 3.5, y: 0.638 }, { x: 5.5, y: 0.638 }, { x: 6.6, y: 0.638 }], 0.84],
+    ["straight default", [{ x: 5.5705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }], 0.84],
+    ["straight one metre", [{ x: 5.5705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }], 1],
+    ["three points", [{ x: 5.5705, y: 3.4845 }, { x: 3.7705, y: 3.2155 }, { x: 1.6705, y: 3.4345 }], 0.84],
+    ["four points off-centre", [{ x: 5.5705, y: 3.3965 }, { x: 4.7705, y: 3.2345 }, { x: 2.7705, y: 3.2345 }, { x: 1.6705, y: 3.3965 }], 0.84],
+    ["four points", [{ x: 5.5705, y: 3.3965 }, { x: 4.7705, y: 3.3965 }, { x: 2.7705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }], 0.84],
   ] as const)("qualifies %s trench with actual footprint", (_name, points, size) => {
     const { path, robot } = fixture([...points], size);
     const progress: PlannerResult[] = [];
@@ -50,7 +50,7 @@ describe("practical route qualification", () => {
   });
 
   it("rescues the actual default robot HUB-crossing seed with a legal slower detour and no fake gain", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 4.1 }, { x: 6.6, y: 4.1 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
     const progress: PlannerResult[] = [];
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 16, onProgress: (p) => progress.push(p) });
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
@@ -66,7 +66,7 @@ describe("practical route qualification", () => {
   });
 
   it("finds a qualified HUB detour with unequal generated legs within the common budget", () => {
-    const { path, robot } = fixture([{ x: 2.2, y: 4 }, { x: 6.36, y: 4.99 }]);
+    const { path, robot } = fixture([{ x: 6.0705, y: 0.0345 }, { x: 1.9105, y: -0.9555 }]);
     path.headingMode = "targets";
     const original = structuredClone(path);
     const progress: PlannerResult[] = [];
@@ -87,7 +87,7 @@ describe("practical route qualification", () => {
   });
 
   it("surfaces the real fixed-planner fallback for an inconsistent interior turn", () => {
-    const { path, robot } = fixture([{ x: 2.7, y: 0.638 }, { x: 6.6, y: 0.638 }, { x: 6.6, y: 3 }]);
+    const { path, robot } = fixture([{ x: 5.5705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }, { x: 1.6705, y: 1.0345 }]);
     path.waypoints[1].stop = true;
     path.waypoints[1].turnInPlace = { headingDeg: 90, direction: "counterclockwise" };
     const result = optimizeRouteFinal({ path, robot });
@@ -98,7 +98,7 @@ describe("practical route qualification", () => {
   });
 
   it("retains aligned cubic graph handles alongside the overshooting smoothed variant", () => {
-    const { path, robot } = fixture([{ x: (1-2.2/17.548)*16.541, y: 4/8.052*8.069 }, { x: (1-6.36/17.548)*16.541, y: 4.99/8.052*8.069 }]);
+    const { path, robot } = fixture([{ x: (2.2/17.548-0.5)*16.541, y: (0.5-4/8.052)*8.069 }, { x: (6.36/17.548-0.5)*16.541, y: (0.5-4.99/8.052)*8.069 }]);
     path.headingMode = "targets";
     const candidates = routeCandidates({ path, robot }, () => false);
     let smooth: RouteGeometry = candidates.next().value!;
@@ -119,7 +119,7 @@ describe("practical route qualification", () => {
   });
 
   it("classifies observed requirements separately from malformed or inferred profiles", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints[0].thetaOn = true;
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 1 }).candidate!;
     expect(routeCandidateIssue({ path, robot }, result)).toBeUndefined();
@@ -147,30 +147,30 @@ describe("practical route qualification", () => {
   });
 
   it("treats manual 90 degree facing as a pose while traveling forward", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints.forEach((w) => { w.thetaOn = true; w.theta = 90; });
     const canonical = routeCandidates({ path, robot }, () => false).next().value!;
-    expect(canonical.knots[1].prevC.y).toBe(2);
-    expect(canonical.knots[1].nextC.y).toBe(2);
+    expect(canonical.knots[1].prevC.y).toBeCloseTo(2.0345);
+    expect(canonical.knots[1].nextC.y).toBeCloseTo(2.0345);
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 3 });
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
     expect(result.candidate!.samples.every((s) => Math.abs(s.headingRad - Math.PI / 2) < 1e-6)).toBe(true);
   });
 
   it("keeps stopped travel tangents independent of the outgoing manual chassis heading", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 3 }, { x: 10, y: 3 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 1.0345 }, { x: -1.7295, y: 1.0345 }]);
     path.waypoints.forEach((w) => { w.thetaOn = true; w.theta = 90; });
     path.waypoints[1] = { ...path.waypoints[1], stop: true, turnInPlace: { headingDeg: 90, direction: "counterclockwise" } };
     const geometry = routeCandidates({ path, robot }, () => false).next().value!;
-    expect(geometry.knots[1].prevC.y).toBeLessThan(3);
-    expect(geometry.knots[1].nextC.y).toBe(3);
+    expect(geometry.knots[1].prevC.y).toBeGreaterThan(1.0345);
+    expect(geometry.knots[1].nextC.y).toBeCloseTo(1.0345);
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 3 });
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
     expect(routeCandidateFailure({ path, robot }, result.candidate!)).toBeUndefined();
   });
 
   it("keeps handle linkage and corner mode out of accepted task intent, but retires seed jobs", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 2 });
     const selected = applyAcceptedRouteTrajectory(path, robot, result.candidate!);
     for (const flag of ["linked", "corner"] as const) {
@@ -189,15 +189,15 @@ describe("practical route qualification", () => {
   it("catches collisions between safe endpoint poses and rotating corners, including polygon footprints", () => {
     const { robot } = fixture([]);
     const model = routeFieldModel(robot);
-    expect(routeSweepStatus({ x: 2.7, y: 4.1, headingRad: 0 }, { x: 6.6, y: 4.1, headingRad: 0 }, model)).toBe("collision");
+    expect(routeSweepStatus({ x: 5.5705, y: -0.0655, headingRad: 0 }, { x: 1.6705, y: -0.0655, headingRad: 0 }, model)).toBe("collision");
     const rectangular = { ...robot, w: 0.2, l: 1.2 };
-    expect(routeSweepStatus({ x: 8, y: 0.4, headingRad: 0 }, { x: 8, y: 0.4, headingRad: Math.PI }, routeFieldModel(rectangular))).toBe("collision");
+    expect(routeSweepStatus({ x: 0.2705, y: 3.6345, headingRad: 0 }, { x: 0.2705, y: 3.6345, headingRad: Math.PI }, routeFieldModel(rectangular))).toBe("collision");
     const polygon = { ...robot, footprint: { kind: "polygon" as const, verticesM: [{ x: -0.5, y: -0.5 }, { x: 0.5, y: -0.5 }, { x: 0.5, y: 0.5 }, { x: -0.5, y: 0.5 }] } };
-    expect(routeSweepStatus({ x: 2.7, y: 0.638, headingRad: 0 }, { x: 6.6, y: 0.638, headingRad: 0 }, routeFieldModel(polygon))).toBe("clear");
+    expect(routeSweepStatus({ x: 5.5705, y: 3.3965, headingRad: 0 }, { x: 1.6705, y: 3.3965, headingRad: 0 }, routeFieldModel(polygon))).toBe("clear");
   });
 
   it("keeps inconclusive and untested seed states unknown, including progress", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 0.4200005 }, { x: 10, y: 0.4200005 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 3.6144995 }, { x: -1.7295, y: 3.6144995 }]);
     const progress: PlannerResult[] = [];
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 3, onProgress: (p) => progress.push(p) });
     expect(result.seedStatus).toBe("unknown");
@@ -213,8 +213,8 @@ describe("practical route qualification", () => {
   });
 
   it("reserves a canonical rescue evaluation before spending work on a bad seed", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 10, y: 2 }]);
-    path.waypoints[0].nextC.y = path.waypoints[1].prevC.y = 20;
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
+    path.waypoints[0].nextC.y = path.waypoints[1].prevC.y = -15.9655;
     const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 1 });
     expect(result.candidate).toBeDefined();
     expect(result.seedStatus).toBe("unknown");
@@ -224,7 +224,7 @@ describe("practical route qualification", () => {
   });
 
   it.each(["numerical", "diagnostic"] as const)("keeps a %s Normal failure unknown without concrete task evidence", (kind) => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     const getPlanner = planners.getPlanner;
     let injected = 0;
     const spy = vi.spyOn(planners, "getPlanner").mockImplementation((id) => {
@@ -254,7 +254,7 @@ describe("practical route qualification", () => {
   });
 
   it("evaluates strict drawn-geometry timing separately from Normal and compares its meaningful gain", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 7.5, y: 2 }, { x: 8.5, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.7705, y: 2.0345 }, { x: -0.2295, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints.forEach((w) => { w.stop = true; });
     path.constraints.maxVel = 0.5;
     const original = structuredClone(path);
@@ -276,9 +276,9 @@ describe("practical route qualification", () => {
   });
 
   it("permits strictly valid nonstopped seed corners while newly generated handles are smooth", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 2.5 }, { x: 10, y: 2 }]);
-    path.waypoints[1].prevC = { x: 7.5, y: 2.5 };
-    path.waypoints[1].nextC = { x: 8.5, y: 2.4 };
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 1.5345 }, { x: -1.7295, y: 2.0345 }]);
+    path.waypoints[1].prevC = { x: 0.7705, y: 1.5345 };
+    path.waypoints[1].nextC = { x: -0.2295, y: 1.6345 };
     path.waypoints[1].linked = false;
     path.waypoints[1].corner = true;
     path.constraints.maxVel = 0.5;
@@ -291,7 +291,7 @@ describe("practical route qualification", () => {
   });
 
   it("qualifies actual implicit stopped turns and rejects a shortened angular profile", () => {
-    const { path, robot } = fixture([{ x: 6.5, y: 2 }, { x: 8, y: 2 }, { x: 10, y: 2 }]);
+    const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints[1] = { ...path.waypoints[1], stop: true, thetaOn: true, theta: 30 };
     let qualifiedTurns = 0;
     for (const geometry of [...routeCandidates({ path, robot }, () => false)].slice(0, 9)) {

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import corpus from '../benchmarks/planner-corpus/v2/corpus.bordeaux.json';
+import corpus from '../benchmarks/planner-corpus/v3/corpus.bordeaux.json';
 import { PathTimeline } from '../src/renderer/components/PathTimeline';
 import { buildTimeline } from '../src/renderer/components/pathTimelineModel';
 import { PM } from '../src/renderer/lib/pathMath';

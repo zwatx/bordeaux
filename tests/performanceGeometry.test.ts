@@ -77,7 +77,7 @@ describe('field geometry performance and equivalence', () => {
 
   it('does not run exact polygon distance for obstacles farther away than the field edge', () => {
     const robot = createDemoProject().robot;
-    const far = samples(256).map(s => ({ ...s, x: 0.5, y: 1, headingRad: 0 }));
+    const far = samples(256).map(s => ({ ...s, x: 7.77, y: 3.0345, headingRad: 0 }));
     const spy = vi.spyOn(geometry, 'convexPolygonClearance');
     const result = measureRobotFieldClearance(robot, far);
     expect(result.minimum).toBeCloseTo(exhaustiveSample(robot, far[0]), 12);
@@ -86,7 +86,7 @@ describe('field geometry performance and equivalence', () => {
   });
 
   it('transforms each sampled footprint once when checking multiple barriers', () => {
-    const input = samples(256).map(s => ({ ...s, x: 0.5, y: 1 }));
+    const input = samples(256).map(s => ({ ...s, x: 7.77, y: 3.0345 }));
     const spy = vi.spyOn(geometry, 'transformFootprint');
     expect(observeRobotFieldPortalSequence(createDemoProject().robot, input)).toEqual({ valid: true, visits: [] });
     expect(spy.mock.calls.length).toBeLessThanOrEqual(input.length + REBUILT_2026_FIELD.crossingBarriers.length * 2);

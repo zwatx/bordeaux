@@ -243,9 +243,9 @@ describe("shared path indices", () => {
     const path = project.paths[0];
     path.headingMode = "tangent";
     path.waypoints = buildWaypoints([
-      { x: 1, y: 1, segType: "line" },
-      { x: 5, y: 1, segType: "line", stop: true },
-      { x: 9, y: 1, segType: "line" },
+      { x: -4, y: 1, segType: "line" },
+      { x: 0, y: 1, segType: "line", stop: true },
+      { x: 4, y: 1, segType: "line" },
     ]);
     path.ranges = [{ anchor: "param", f0: 0.123, f1: 0.127, maxVel: 0.7,
       maxAccel: 2, maxDecel: 2, maxAngVel: 360, maxAngAccel: 720 }];

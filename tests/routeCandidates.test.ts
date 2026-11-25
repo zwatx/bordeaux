@@ -5,8 +5,8 @@ import { createDemoProject } from "../src/core/project/defaults";
 // Preserve these older scenario sketches' named alliance structures and guardrail lanes.
 // Only fixture field locations are converted; robot-local mechanism geometry stays physical.
 const sketchPoint = (point: any): any => point && typeof point.x === 'number' && typeof point.y === 'number'
-  ? { ...point, x: (1-point.x/17.548)*16.541, y: point.y/8.052*8.069,
-    ...(point.headingDeg === undefined ? {} : { headingDeg: 180-point.headingDeg }) } : point;
+  ? { ...point, x: (point.x/17.548 - 0.5)*16.541, y: (0.5 - point.y/8.052)*8.069,
+    ...(point.headingDeg === undefined ? {} : { headingDeg: -point.headingDeg }) } : point;
 const generateRouteCandidates: typeof generateBlueRouteCandidates = (project, request) => generateBlueRouteCandidates(project, { ...request,
   ...(request.start ? { start: sketchPoint(request.start) } : {}),
   ...(request.goals ? { goals: request.goals.map(sketchPoint) } : {}),
@@ -208,7 +208,7 @@ describe("agent route candidates", () => {
     const request = { intent: "Collect with a side intake", alliance: "red" as const, start: { x: 6, y: 2.5 }, goals: [{ x: 11, y: 2.5 }], maximumCandidates: 1 };
     const aligned = generateRouteCandidates(project, { ...request, collectFuel: {} })[0];
     expect(aligned.valid, aligned.rejectionReason).toBe(true);
-    expect(Math.abs(aligned.analysis.rawSamples[Math.floor(aligned.analysis.rawSamples.length / 2)].headingRad - Math.PI / 2)).toBeLessThan(0.02);
+    expect(Math.abs(aligned.analysis.rawSamples[Math.floor(aligned.analysis.rawSamples.length / 2)].headingRad + Math.PI / 2)).toBeLessThan(0.02);
     expect(generateRouteCandidates(project, { ...request, collectFuel: { allowCrosswiseHeading: true } })[0].analysis.sampleCount).toBeGreaterThan(0);
   });
 
@@ -227,8 +227,8 @@ describe("agent route candidates", () => {
     expect(candidate.path.waypoints.at(-1)?.turnInPlace).toBeUndefined();
     const final = candidate.analysis.rawSamples.at(-1)!;
     const hub = { x: (11.31876 + 12.51256) / 2, y: (3.4376 + 4.6314) / 2 };
-    const hubAppX = hub.x;
-    const hubAppY = hub.y;
+    const hubAppX = 8.2705 - hub.x;
+    const hubAppY = 4.0345 - hub.y;
     const targetHeading = Math.atan2(hubAppY - final.y, hubAppX - final.x);
     expect(Math.abs(Math.atan2(Math.sin(final.headingRad - targetHeading), Math.cos(final.headingRad - targetHeading)))).toBeLessThan(0.01);
   });
@@ -282,7 +282,7 @@ describe("agent route candidates", () => {
     })[0];
     expect(candidate.valid, candidate.rejectionReason).toBe(true);
     expect(candidate.analysis.findings.some((finding) => finding.id.startsWith("geometry:trench-height-unverified") && finding.severity === "warning")).toBe(true);
-    expect(Math.min(...candidate.path.waypoints.map((waypoint) => waypoint.x))).toBeCloseTo(7.3561, 3);
+    expect(Math.max(...candidate.path.waypoints.map((waypoint) => waypoint.x))).toBeCloseTo(0.9144, 3);
   });
 
   it("preserves the annotated mixed route as an exact ordered topology", () => {
@@ -302,13 +302,13 @@ describe("agent route candidates", () => {
     expect(candidates[0].requiredPortalIds).toEqual(["red-trench-table", "red-bump-table"]);
     expect(candidates[0].valid, candidates[0].rejectionReason).toBe(true);
     const waypoints = candidates[0].path.waypoints;
-    expect(waypoints[0].x).toBeGreaterThan(waypoints[1].x);
-    expect(Math.min(...waypoints.map((waypoint) => waypoint.x))).toBeLessThan(6);
-    const farthestIndex = waypoints.reduce((best, waypoint, index) => waypoint.x < waypoints[best].x ? index : best, 0);
-    expect(waypoints[farthestIndex].y).toBeGreaterThan(waypoints[0].y);
+    expect(waypoints[0].x).toBeLessThan(waypoints[1].x);
+    expect(Math.max(...waypoints.map((waypoint) => waypoint.x))).toBeGreaterThan(2.2705);
+    const farthestIndex = waypoints.reduce((best, waypoint, index) => waypoint.x > waypoints[best].x ? index : best, 0);
+    expect(waypoints[farthestIndex].y).toBeLessThan(waypoints[0].y);
     expect(farthestIndex).toBeLessThan(waypoints.length - 1);
-    expect(waypoints[farthestIndex + 1].x).toBeGreaterThan(waypoints[farthestIndex].x);
-    expect(waypoints.at(-1)!.x).toBeGreaterThan(waypoints[0].x);
+    expect(waypoints[farthestIndex + 1].x).toBeLessThan(waypoints[farthestIndex].x);
+    expect(waypoints.at(-1)!.x).toBeLessThan(waypoints[0].x);
     expect(candidates[0].analysis.findings.some((finding) => finding.id === "geometry:ordered-traversal-mismatch")).toBe(false);
   });
 

@@ -17,7 +17,7 @@ import type { BordeauxProject, CommandArgumentValue, PlannerResult, PathDoc } fr
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 import { forceExportRobot } from "./fixtures/forceExportRobot";
 
-const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v2/corpus.bordeaux.json", "utf8")).project;
+const project = decodeProjectFile(readFileSync("benchmarks/planner-corpus/v3/corpus.bordeaux.json", "utf8")).project;
 let path: PathDoc;
 let result: PlannerResult;
 let selected: PathDoc;

@@ -68,9 +68,9 @@ describe("BDX rolling-direction module forces", () => {
     const fixture = binaryWriterFixture(true, false);
     const original = buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
     for (const waypoint of fixture.path.waypoints) {
-      waypoint.y = 8 - waypoint.y;
+      waypoint.y = -waypoint.y;
       waypoint.theta = -waypoint.theta;
-      for (const handle of [waypoint.prevC, waypoint.nextC]) if (handle) handle.y = 8 - handle.y;
+      for (const handle of [waypoint.prevC, waypoint.nextC]) if (handle) handle.y = -handle.y;
     }
     const mirrored = buildRobotBinary(fixture.project, { kind: "path", id: fixture.path.id }, fixture.bindings);
     expect(mirrored.moduleForcesN).toHaveLength(original.moduleForcesN.length);

@@ -155,7 +155,7 @@ it("adopts a modeled Link selection before the queued departure saves and grants
     }
   }
   try {
-    renderer.projectRef.current.paths[0].waypoints[0].x = 11.17;
+    renderer.projectRef.current.paths[0].waypoints[0].x = -1.17;
     const linking = renderer.linkRobotProject(); await began;
     const request = coordinator.request("close")!;
     expect(coordinator.respond(sender, { ...request, outcome: "draining" })).toBe(true);
@@ -172,7 +172,7 @@ it("adopts a modeled Link selection before the queued departure saves and grants
     expect(renderer.choose).not.toHaveBeenCalled(); expect(renderer.release).not.toHaveBeenCalled();
     expect(deps.current.sourceFailed).not.toHaveBeenCalled(); expect(permits).toHaveLength(1);
     const permit = permits[0], disk = (await openProjectFolder(f.folder)).project!;
-    expect(disk.paths[0].waypoints[0].x).toBe(11.17); expect(disk.editor).toEqual({ labviewProjectPath: "Robot.lvproj" });
+    expect(disk.paths[0].waypoints[0].x).toBe(-1.17); expect(disk.editor).toEqual({ labviewProjectPath: "Robot.lvproj" });
     expect(permit.basis).toBe("source"); expect(permit.request.requestId).toBe(request.requestId);
     expect(permit.receipt.digest).toBe(canonicalProjectDigest(disk));
     expect(permit.receipt.context).toEqual(f.context);

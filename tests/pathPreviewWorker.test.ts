@@ -107,8 +107,8 @@ describe("path preview worker final optimization", () => {
     const path = project.paths[0];
     path.headingMode = "targets";
     path.waypoints = buildWaypoints([
-      { x: 7.6, y: 3.5, theta: 0, nextC: { x: 8.38, y: 3.5 } },
-      { x: 9.11, y: 6.85, theta: 0, prevC: { x: 8.33, y: 6.85 } },
+      { x: 0.6705, y: 0.5345, theta: 180, nextC: { x: -0.1095, y: 0.5345 } },
+      { x: -0.8395, y: -2.8155, theta: 180, prevC: { x: -0.0595, y: -2.8155 } },
     ]);
 
     const result = processPathPreviewJob({
@@ -601,7 +601,7 @@ describe("path preview worker final optimization", () => {
   });
 
   it("renders and plays implicit stop rotations from the real neutral-stop corpus path", () => {
-    const project = JSON.parse(readFileSync(new URL('../benchmarks/planner-corpus/v2/corpus.bordeaux.json', import.meta.url), 'utf8'));
+    const project = JSON.parse(readFileSync(new URL('../benchmarks/planner-corpus/v3/corpus.bordeaux.json', import.meta.url), 'utf8'));
     const path = project.paths.find((item: any) => item.id === 'corpus-neutral-stop');
     expect(path.waypoints.every((waypoint: any) => !waypoint.turnInPlace)).toBe(true);
     for (const optimize of [false, true]) {

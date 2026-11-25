@@ -388,16 +388,16 @@ describe("motion features", () => {
     path.constraints.maxAngAccel = 180;
     path.constraints.maxAngDecel = 180;
     path.waypoints = buildWaypoints([
-      { x: 5.1, y: 7.6, theta: 0, thetaOn: true, segmentHeadingMode: "tangent" },
-      { x: 9.3, y: 5.4, theta: -91, thetaOn: true, segmentHeadingMode: "targets" },
-      { x: 6, y: 5.5, theta: 0, thetaOn: true },
+      { x: 3.1705, y: -3.5655, theta: 180, thetaOn: true, segmentHeadingMode: "tangent" },
+      { x: -1.0295, y: -1.3655, theta: 89, thetaOn: true, segmentHeadingMode: "targets" },
+      { x: 2.2705, y: -1.4655, theta: 180, thetaOn: true },
     ]);
 
     (["before", "split", "after"] as const).forEach((placement) => {
       path.waypoints[1].headingTransition = { placement, rotationPriority: "translation", distanceM: 0.75 };
       const result = getPlanner(plannerId).generate({ path: structuredClone(path), robot: project.robot });
       const boundary = result.samples.reduce((nearest, sample, index) => (
-        Math.hypot(sample.x - 9.3, sample.y - 5.4) < Math.hypot(result.samples[nearest].x - 9.3, result.samples[nearest].y - 5.4)
+        Math.hypot(sample.x + 1.0295, sample.y + 1.3655) < Math.hypot(result.samples[nearest].x + 1.0295, result.samples[nearest].y + 1.3655)
           ? index : nearest
       ), 0);
       const arrival = result.samples.findIndex((sample) => sample.s >= result.totalDistanceM - 1e-6);
@@ -1004,12 +1004,12 @@ describe("motion features", () => {
     const project = createDemoProject();
     const path = project.paths[0];
     path.waypoints[0].segmentHeadingMode = "lookAt";
-    path.waypoints[0].segmentLookAt = { x: 3.6, y: 6 };
+    path.waypoints[0].segmentLookAt = { x: 4.6705, y: -1.9655 };
     const result = getPlanner(plannerId).generate({ path, robot: project.robot });
     const first = result.samples[0], last = result.samples.at(-1)!;
 
-    expect(first.headingRad).toBeCloseTo(Math.atan2(2, 1.4), 3);
-    expect(last.headingRad).toBeCloseTo(Math.atan2(2, -1.4), 3);
+    expect(first.headingRad).toBeCloseTo(Math.atan2(-2, -1.4), 3);
+    expect(last.headingRad).toBeCloseTo(Math.atan2(-2, 1.4), 3);
     expect(result.samples.every((sample) => Number.isFinite(sample.headingRad))).toBe(true);
   });
 
@@ -1094,7 +1094,7 @@ describe("motion features", () => {
     const project = createDemoProject();
     const path = project.paths[0];
     path.waypoints[0].segmentHeadingMode = "lookAt";
-    path.waypoints[0].segmentLookAt = { x: 3.6, y: 4 };
+    path.waypoints[0].segmentLookAt = { x: 4.6705, y: 4.0345 - 4 };
     const result = getPlanner(plannerId).generate({ path, robot: project.robot });
     expect(result.diagnostics.some((issue) => issue.severity === "error" && issue.message.includes("lies on the driven segment"))).toBe(true);
   });
@@ -1103,7 +1103,7 @@ describe("motion features", () => {
     const project = createDemoProject();
     const path = project.paths[0];
     path.waypoints[0].segmentHeadingMode = "lookAt";
-    path.waypoints[0].segmentLookAt = { x: 3.6, y: 6 };
+    path.waypoints[0].segmentLookAt = { x: 4.6705, y: -1.9655 };
     const forward = getPlanner("profiledSpline").generate({ path, robot: project.robot });
     path.driveBackward = true;
     const reverse = getPlanner("profiledSpline").generate({ path, robot: project.robot });
@@ -1147,7 +1147,7 @@ describe("motion features", () => {
 
     expect(terminal.length).toBeGreaterThan(2);
     expect(terminal.every((sample) => Math.abs(sample.velocityMps) < 1e-8 && Math.abs(sample.accelerationMps2) < 1e-8)).toBe(true);
-    expect(terminal.at(-1)!.headingRad).toBeCloseTo(Math.PI / 2, 6);
+    expect(terminal.at(-1)!.headingRad).toBeCloseTo(5 * Math.PI / 2, 6);
     const firstAtTarget = terminal.findIndex((sample) => Math.abs(PM.angWrap(sample.headingRad - Math.PI / 2)) < 1e-6);
     expect(firstAtTarget).toBeGreaterThanOrEqual(0);
     expect(terminal.at(-1)!.t - terminal[firstAtTarget].t).toBeGreaterThanOrEqual(end.wait - 1e-6);
@@ -1246,18 +1246,18 @@ describe("motion features", () => {
     const segment = project.paths[0].waypoints[0];
     segment.segmentHeadingMode = "lookAt";
     expect(validateProject(project).issues.some((issue) => issue.path.endsWith("segmentLookAt"))).toBe(true);
-    segment.segmentLookAt = { x: 3, y: 6 };
+    segment.segmentLookAt = { x: 3, y: -2 };
     project.paths[0].waypoints[1].turnInPlace = { headingDeg: 90 };
     expect(validateProject(project).issues.some((issue) => issue.message.includes("requires a stopped waypoint"))).toBe(true);
     project.paths[0].waypoints[1].stop = true;
     expect(validateProject(project).ok).toBe(true);
     const decoded = decodeProjectFile(JSON.stringify(project)).project.paths[0];
-    expect(decoded.waypoints[0].segmentLookAt).toEqual({ x: 3, y: 6 });
+    expect(decoded.waypoints[0].segmentLookAt).toEqual({ x: 3, y: -2 });
     expect(decoded.waypoints[1].turnInPlace).toEqual({ headingDeg: 90 });
   });
 
   it("builds a deterministic multi-direction jiggle and rejects repeated directions", () => {
-    const anchor = { x: 5, y: 4 };
+    const anchor = { x: -3.5, y: -2.5 };
     const positions = PM.jigglePositions(anchor, 0, { distanceM: 0.2, strokes: 4, startDeg: 90, stepDeg: -90 });
 
     expect(positions).toHaveLength(8);
@@ -1266,7 +1266,7 @@ describe("motion features", () => {
       else expect(Math.hypot(point.x - anchor.x, point.y - anchor.y)).toBeCloseTo(0.2, 10);
     });
     expect(PM.jigglePositions(anchor, 0, { distanceM: 0.2, strokes: 4, startDeg: 0, stepDeg: 180 })).toBeNull();
-    expect(PM.jigglePositions({ x: 0.05, y: 0.05 }, 0, { distanceM: 0.2, strokes: 2, startDeg: 180, stepDeg: 90 })).toBeNull();
+    expect(PM.jigglePositions({ x: -8.22, y: -3.98 }, 0, { distanceM: 0.2, strokes: 2, startDeg: 180, stepDeg: 90 })).toBeNull();
   });
 
   it.each(PLANNERS)("expands a fast endpoint jiggle into samples without adding %s waypoints", (plannerId) => {
