@@ -109,7 +109,7 @@ function publicSession(snapshot: AgentSessionSnapshot, catalog: RobotCommandCata
     plannerId: snapshot.project.plannerId,
     allianceView: snapshot.allianceView,
     coordinateContext: {
-      authoredFrame: "Bordeaux overhead-image coordinates: red is low-X/left, blue is high-X/right, +Y is screen-up.",
+      authoredFrame: "WPILib center origin in meters: +X toward blue (right), +Y toward the scoring table (up).",
       displayFrame: snapshot.allianceView === "red" ? "Red view rotates authored points 180 degrees for display only." : "Blue view displays authored points without rotation.",
       ownershipRule: "An explicit red/blue term selects that physical field structure; allianceView never changes ownership.",
     },

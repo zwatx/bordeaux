@@ -1,3 +1,4 @@
+import { pointInsideField } from "../math/fieldBounds";
 import type { JiggleAction, Waypoint } from "../types";
 
 const DEG = Math.PI / 180;
@@ -5,8 +6,7 @@ const DEG = Math.PI / 180;
 export function jigglePositions(
   anchor: Pick<Waypoint, "x" | "y">,
   baseRad: number,
-  options: JiggleAction & { distance?: number },
-  bounds = { w: 16.541, h: 8.069 },
+  options: Omit<JiggleAction, "distanceM"> & { distanceM?: number; distance?: number },
 ): Array<{ x: number; y: number }> | null {
   const distance = Number(options.distanceM ?? options.distance);
   const strokes = Math.round(Number(options.strokes));
@@ -22,7 +22,7 @@ export function jigglePositions(
     directions.add(key);
     const angle = baseRad + relativeDeg * DEG;
     const point = { x: anchor.x + Math.cos(angle) * distance, y: anchor.y + Math.sin(angle) * distance };
-    if (point.x < 0 || point.x > bounds.w || point.y < 0 || point.y > bounds.h) return null;
+    if (!pointInsideField(point)) return null;
     positions.push(point, { x: anchor.x, y: anchor.y });
   }
   return positions;

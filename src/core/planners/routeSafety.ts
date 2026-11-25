@@ -1,7 +1,7 @@
 import { minimumRobotFieldClearance, observeRobotFieldPortalSequence } from "../agent/fieldClearance";
 import { boundsPolygon, convexPolygonClearance, footprintBoundsClearance, interpolateHeading, robotFootprintRadius, robotFootprintVertices, transformFootprint, type FootprintPose } from "../agent/robotFootprint";
 import { ACTIVE_FIELD_REFERENCE, REBUILT_2026_FIELD, officialToAppRect } from "../field/rebuilt2026";
-import { FIELD_H, FIELD_W } from "../math/fieldBounds";
+import { FIELD_H, FIELD_W, FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../math/fieldBounds";
 import type { ControlPoint, FieldReference, PlannerResult, RobotConfig } from "../types";
 import { stable } from "./acceptedTrajectoryIdentity";
 
@@ -16,13 +16,13 @@ export function routeFieldModel(robot: RobotConfig): RouteFieldModel {
     const portals = barrier.portals.map((p) => ({ ...p, app: officialToAppRect(p.bounds) })).sort((a, b) => a.app.yMin - b.app.yMin);
     const xMin = Math.min(...portals.map((p) => p.app.xMin));
     const xMax = Math.max(...portals.map((p) => p.app.xMax));
-    let y = 0;
+    let y = FIELD_Y_MIN;
     for (const portal of portals) {
       if (portal.app.yMin > y) obstacles.push({ xMin, xMax, yMin: y, yMax: portal.app.yMin });
       if (portal.traversal === "trench" && (robot.heightM === undefined || robot.heightM > portal.clearanceHeightM!)) obstacles.push(portal.app);
       y = Math.max(y, portal.app.yMax);
     }
-    if (y < FIELD_H) obstacles.push({ xMin, xMax, yMin: y, yMax: FIELD_H });
+    if (y < FIELD_Y_MAX) obstacles.push({ xMin, xMax, yMin: y, yMax: FIELD_Y_MAX });
   }
   return { obstacles, radius: robotFootprintRadius(robot), vertices: robotFootprintVertices(robot) };
 }
@@ -36,7 +36,7 @@ function boxGap(a: Box, b: Box): number {
 }
 function clearBox(bounds: Box, model: RouteFieldModel): boolean {
   const r = model.radius + EPS;
-  return bounds.xMin > r && bounds.yMin > r && bounds.xMax < FIELD_W - r && bounds.yMax < FIELD_H - r
+  return bounds.xMin > FIELD_X_MIN + r && bounds.yMin > FIELD_Y_MIN + r && bounds.xMax < FIELD_X_MAX - r && bounds.yMax < FIELD_Y_MAX - r
     && model.obstacles.every((o) => boxGap(bounds, o) > r);
 }
 const mid = (a: ControlPoint, b: ControlPoint): ControlPoint => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });

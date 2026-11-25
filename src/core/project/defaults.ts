@@ -1,5 +1,5 @@
 import { autoHandles } from "../math/geometry";
-import { FIELD_H, FIELD_W, clampWorldPoint } from "../math/fieldBounds";
+import { FIELD_H, FIELD_W, clampWorldPoint, rotateBlueOriginPoint } from "../math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { createPathId, createRoutineId } from "./ids";
 import { robotDefaultConstraints } from "../robotLimits";
@@ -71,8 +71,8 @@ export function blankPath(name = "NewPath", robot?: RobotConfig): PathDoc {
     id: createPathId(),
     name,
     waypoints: buildWaypoints([
-      { x: 2.2, y: 4.0, theta: 0, segType: "bezier" },
-      { x: 5.0, y: 4.0, theta: 0 },
+      { ...rotateBlueOriginPoint({ x: 2.2, y: 4.0 }), theta: 180, segType: "bezier" },
+      { ...rotateBlueOriginPoint({ x: 5.0, y: 4.0 }), theta: 180 },
     ]),
     targets: [],
     markers: [],

@@ -1,7 +1,7 @@
 import type { RobotValueSchema, ValidationIssue, ValidationResult } from "./types";
 import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
-import { FIELD_H, FIELD_W } from "./math/fieldBounds";
+import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID } from "./field/rebuilt2026";
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
@@ -614,7 +614,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
           validateFinite(issues, waypoint.x, `${wpBase}.x`, "Waypoint X");
           validateFinite(issues, waypoint.y, `${wpBase}.y`, "Waypoint Y");
           if (waypoint.positionLink !== undefined && (typeof waypoint.positionLink !== "string" || !waypoint.positionLink.trim())) issues.push(issue(`${wpBase}.positionLink`, "Shared position ID must be a nonempty string"));
-          if (finite(waypoint.x) && finite(waypoint.y) && (waypoint.x < 0 || waypoint.x > FIELD_W || waypoint.y < 0 || waypoint.y > FIELD_H)) {
+          if (finite(waypoint.x) && finite(waypoint.y) && !pointInsideField({ x: waypoint.x, y: waypoint.y })) {
             issues.push(issue(wpBase, "Waypoint must stay inside the FRC field bounds"));
           }
           if (waypoint.positionName !== undefined && (typeof waypoint.positionName !== "string" || !waypoint.positionName.trim() || waypoint.positionName.length > 80)) {
@@ -652,7 +652,7 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
           if (waypoint.segmentLookAt !== undefined) {
             validatePoint(issues, waypoint.segmentLookAt, `${wpBase}.segmentLookAt`, "Tracked field point");
             if (isRecord(waypoint.segmentLookAt) && finite(waypoint.segmentLookAt.x) && finite(waypoint.segmentLookAt.y)
-              && (waypoint.segmentLookAt.x < 0 || waypoint.segmentLookAt.x > FIELD_W || waypoint.segmentLookAt.y < 0 || waypoint.segmentLookAt.y > FIELD_H)) {
+              && !pointInsideField({ x: waypoint.segmentLookAt.x, y: waypoint.segmentLookAt.y })) {
               issues.push(issue(`${wpBase}.segmentLookAt`, "Tracked field point must stay inside the FRC field bounds"));
             }
           }
@@ -872,14 +872,14 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         if (location.kind === "pose") {
           validateFinite(issues, location.x, `${base}.x`, "Strategy pose X");
           validateFinite(issues, location.y, `${base}.y`, "Strategy pose Y");
-          if (finite(location.x) && finite(location.y) && (location.x < 0 || location.x > FIELD_W || location.y < 0 || location.y > FIELD_H)) issues.push(issue(base, "Strategy pose must stay inside the FRC field bounds"));
+          if (finite(location.x) && finite(location.y) && !pointInsideField({ x: location.x, y: location.y })) issues.push(issue(base, "Strategy pose must stay inside the FRC field bounds"));
         } else if (location.kind === "region") {
           if (!isRecord(location.bounds)) issues.push(issue(`${base}.bounds`, "Strategy region bounds are required"));
           else {
             const bounds = location.bounds;
             ["xMin", "xMax", "yMin", "yMax"].forEach((key) => validateFinite(issues, bounds[key], `${base}.bounds.${key}`, `Strategy region ${key}`));
             if (finite(bounds.xMin) && finite(bounds.xMax) && finite(bounds.yMin) && finite(bounds.yMax)
-              && (bounds.xMin < 0 || bounds.xMax > FIELD_W || bounds.yMin < 0 || bounds.yMax > FIELD_H || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax)) {
+              && (bounds.xMin < FIELD_X_MIN || bounds.xMax > FIELD_X_MAX || bounds.yMin < FIELD_Y_MIN || bounds.yMax > FIELD_Y_MAX || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax)) {
               issues.push(issue(`${base}.bounds`, "Strategy region bounds must be ordered inside the FRC field"));
             }
           }

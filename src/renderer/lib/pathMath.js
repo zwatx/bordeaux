@@ -1,3 +1,4 @@
+import { jigglePositions } from "../../core/planners/jiggle";
 import { indexIntervalPolicies } from "../../core/planners/intervalPolicies";
 import { robotHardLimits as sharedRobotHardLimits } from "../../core/robotLimits";
 import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../core/math/geometry";
@@ -665,24 +666,6 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
       check.seg = Math.max(0, Math.min(doc.waypoints.length - 2, seg));
     });
     return { sample: smp, prof, totalDistance: smp.length + (prof.actionDistance || 0), anchors, metrics: mtr, checks, wpFrac, wpIdx, mode, effRanges, headingMode, rev: !!doc.driveBackward, markers: [], planner: 'profiledSpline' };
-  }
-
-  function jigglePositions(anchor, baseRad, options, bounds = { w: 16.541, h: 8.069 }) {
-    const distance = Number(options.distanceM != null ? options.distanceM : options.distance), strokes = Math.round(Number(options.strokes)), startDeg = Number(options.startDeg), stepDeg = Number(options.stepDeg);
-    if (!(distance >= 0.03) || strokes < 2 || strokes > 12 || !Number.isFinite(startDeg + stepDeg)) return null;
-    const directions = new Set(), positions = [];
-    for (let stroke = 0; stroke < strokes; stroke++) {
-      const relativeDeg = startDeg + stepDeg * stroke;
-      const key = ((relativeDeg % 360) + 360) % 360;
-      const roundedKey = Math.round(key * 1000) / 1000;
-      if (directions.has(roundedKey)) return null;
-      directions.add(roundedKey);
-      const angle = baseRad + relativeDeg * D2R;
-      const point = { x: anchor.x + Math.cos(angle) * distance, y: anchor.y + Math.sin(angle) * distance };
-      if (point.x < 0 || point.x > bounds.w || point.y < 0 || point.y > bounds.h) return null;
-      positions.push(point, { x: anchor.x, y: anchor.y });
-    }
-    return positions;
   }
 
   function pathLength(waypoints, perSegment = 56) { return sample(waypoints, perSegment).length; }

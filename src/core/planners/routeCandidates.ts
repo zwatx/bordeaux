@@ -99,7 +99,7 @@ function graphRoute(source: PathDoc, model: RouteFieldModel, side: number, stop:
       for (let next = 0; next < nodes.length; next++) {
         if (next === current || visited.has(next) || (next < fixed.length && next !== leg + 1)) continue;
         const length = dist(nodes[current], nodes[next]);
-        const y = (nodes[current].y + nodes[next].y) / (2 * FIELD_H);
+        const y = 0.5 - (nodes[current].y + nodes[next].y) / (2 * FIELD_H);
         const cost = costs[current] + length * (1 + (side > 0 ? y : side < 0 ? 1 - y : 0) * Math.abs(side));
         if (cost < costs[next] && visible(current, next)) {
           costs[next] = cost;
