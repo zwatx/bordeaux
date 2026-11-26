@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { agentProposalMatchesPublishedContext } from "../src/renderer/lib/agentProposalContext";
-import { freshProject } from "../src/renderer/lib/editorProject";
 import { buildBdxExport } from "../src/core/export/bdx";
 import { createDemoProject } from "../src/core/project/defaults";
 import { validateProject } from "../src/core/validation";
 
 describe("renderer agent proposal context", () => {
   it("creates an immediately exportable project with the active field reference", () => {
-    const project = freshProject();
+    const project = createDemoProject();
 
     expect(validateProject(project)).toEqual({ ok: true, issues: [] });
     expect(project.field).toEqual(createDemoProject().field);

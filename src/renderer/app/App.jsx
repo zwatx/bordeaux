@@ -62,8 +62,8 @@ import { normalizeProject as normalizeProjectData } from "../../core/project/nor
 import { promoteRoutineProjectSchema } from "../../core/project/routineSchema";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { markerInvocations } from "../../core/markerCommands";
-import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone } from "../../core/project/defaults";
-import { blankProject, blankRoutine, freshProject, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
+import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createDemoProject } from "../../core/project/defaults";
+import { blankProject, blankRoutine, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setTangentDirection, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";
 import { createPathHoverStore } from "../lib/pathHoverStore";
@@ -382,7 +382,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
 
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
-    const [project, setProject] = useState(() => initialProject || freshProject());
+    const [project, setProject] = useState(() => initialProject || createDemoProject());
     const appUpdates = useAppUpdates();
     const plannerId = 'profiledSpline';
     const [activeIdx, setActiveIdx] = useState(0);
@@ -583,15 +583,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const [projectsDialog, setProjectsDialog] = useState(null);
     const [pointLinks, setPointLinks] = useState(null);
     useEffect(() => setPointLinks(null), [projectKey]);
+    // Display units are an app preference stored on this machine; projects never carry or change them.
     const [unitSystem, setUnitSystemState] = useState(() => UnitPrefs.current());
-    const setUnitSystem = useCallback((next) => {
-      const units = UnitPrefs.set(next);
-      setUnitSystemState(units);
-      setProject((current) => ({ ...current, editor: { ...current.editor, unitSystem: units } }));
-    }, []);
-    React.useLayoutEffect(() => {
-      if (project.editor?.unitSystem) setUnitSystemState(UnitPrefs.set(project.editor.unitSystem));
-    }, [project.editor?.unitSystem]);
+    const setUnitSystem = useCallback((next) => setUnitSystemState(UnitPrefs.set(next)), []);
     const robotRestoreGeneration = useRef(0);
     const skipDirty = useRef(true);
     const editStore = useMemo(() => PathEdit.create(), []);

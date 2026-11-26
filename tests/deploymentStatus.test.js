@@ -3,10 +3,10 @@ import { createDemoProject, blankPath } from '../src/core/project/defaults';
 import { deploymentInputKey, deploymentItemStatus } from '../src/renderer/lib/deploymentStatus';
 
 describe('verified library comparison invalidation', () => {
-  it('ignores folders, editor state, display units, and planning notes but invalidates motion edits', () => {
+  it('ignores folders, editor state, and planning notes but invalidates motion edits', () => {
     const project = createDemoProject(); const id = project.paths[0].id;
     const key = deploymentInputKey(project, 'path', id, 'catalog');
-    project.paths[0].folderId = 'folder'; project.editor = { activePathId: 'another', unitSystem: 'imperial' };
+    project.paths[0].folderId = 'folder'; project.editor = { activePathId: 'another' };
     project.robot.planning = { ...project.robot.planning, notes: 'Pit note' };
     expect(deploymentInputKey(project, 'path', id, 'catalog')).toBe(key);
     project.paths[0].constraints.maxVel *= 0.8;

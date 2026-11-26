@@ -12,7 +12,7 @@ import { openKeyboardShortcuts } from './KeyboardHelp';
 import { canEditKeys, currentUserKeyRules, useKeyRules } from "../lib/keyBindings";
 import "../styles/settings.css";
 
-// Bordeaux Robot config page (project-global).
+// Bordeaux Settings page. General holds this machine's app preferences; every other section edits the project's robot.
   const { useRef, useState, useEffect } = React;
   const h = React.createElement;
   const { Dropdown, Icon, Seg } = UI;

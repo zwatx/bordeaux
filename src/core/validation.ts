@@ -808,9 +808,6 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         try { normalizeLabviewProjectPath(project.editor.labviewProjectPath); }
         catch { issues.push(issue("$.editor.labviewProjectPath", "LabVIEW link must be a local relative .lvproj path")); }
       }
-      if (project.editor.unitSystem !== undefined && project.editor.unitSystem !== "metric" && project.editor.unitSystem !== "imperial") {
-        issues.push(issue("$.editor.unitSystem", "Display units must be metric or imperial"));
-      }
     }
   }
 

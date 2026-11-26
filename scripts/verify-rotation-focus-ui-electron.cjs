@@ -10,6 +10,12 @@ let win, saved, saves = 0;
 const errors = [], robotCalls = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusWindow() {
   app.focus({ steal: true }); win.focus(); win.webContents.focus();
@@ -61,7 +67,7 @@ app.whenReady().then(async () => {
     Object.assign(first.waypoints[1], { thetaOn: true, theta: 90 });
     first.targets = [{ anchor: 'param', f: 0.25, deg: 180 }];
     const second = { ...structuredClone(first), id: 'second-path', name: 'Second path', targets: [] };
-    saved = { ...corpus, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id, unitSystem: 'metric' } };
+    saved = { ...corpus, paths: [first, second], pathLinks: [], routines: [], editor: { activePathId: first.id } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     const load = async () => {
@@ -91,7 +97,7 @@ app.whenReady().then(async () => {
     const outgoing = '[role="group"][aria-label="Outgoing segment type"]';
     const tangent = '[role="group"][aria-labelledby="wp-tangent-nextC"]';
     for (const [width, height] of [[1440, 900], [1100, 720]]) for (const units of ['metric', 'imperial']) {
-      saved = structuredClone(original); saved.editor.unitSystem = units;
+      saved = structuredClone(original); await setUnits(units);
       saved.paths[0].waypoints[0].segType = 'bezier';
       win.setContentSize(width, height);
       await load(); await selectWaypoint(0);

@@ -13,6 +13,12 @@ let win, saved;
 const errors = [], results = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusWindow() {
   app.focus({ steal: true }); win.focus(); win.webContents.focus();
@@ -121,9 +127,9 @@ app.whenReady().then(async () => {
     const base = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-slalom'));
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
-    const load = async (scene, unitSystem = 'metric', [width, height] = [1440, 900]) => {
+    const load = async (scene, units = 'metric', [width, height] = [1440, 900]) => {
       const doc = { ...base, name: 'Timeline ' + scene, markers: structuredClone(scenes[scene]) };
-      saved = { ...corpus, paths: [doc], pathLinks: [], routines: [], editor: { activePathId: doc.id, robotProjectBookmarkId: 'fixture', unitSystem } };
+      saved = { ...corpus, paths: [doc], pathLinks: [], routines: [], editor: { activePathId: doc.id, robotProjectBookmarkId: 'fixture' } }; await setUnits(units);
       win.setContentSize(width, height);
       await win.loadFile(path.resolve('dist-renderer/index.html'));
       await wait(() => evaluate((count) => document.querySelectorAll('.pt-chip').length > 0 && !document.querySelector('.fieldcol[data-planning-ready="false"]')

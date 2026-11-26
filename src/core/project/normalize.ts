@@ -140,6 +140,12 @@ export function normalizeProject(value: unknown): unknown {
   const plannerId = source.plannerId === "optimizedTrajectory" ? "optimizedTrajectory" : "profiledSpline";
   const canonicalSource = { ...source };
   delete canonicalSource.routine;
+  // Display units are a per-machine preference. Older files stored them here; dropping them keeps a teammate's
+  // choice out of this machine's display, and the next save removes them from the file.
+  if (isRecord(canonicalSource.editor) && "unitSystem" in canonicalSource.editor) {
+    const { unitSystem: _unitSystem, ...editor } = canonicalSource.editor;
+    canonicalSource.editor = editor;
+  }
   if (isRecord(canonicalSource.editor) && typeof canonicalSource.editor.labviewProjectPath === "string") {
     try { canonicalSource.editor = { ...canonicalSource.editor, labviewProjectPath: normalizeLabviewProjectPath(canonicalSource.editor.labviewProjectPath) }; }
     catch { /* Preserve invalid input for validation; never erase it and enable bookmark fallback. */ }

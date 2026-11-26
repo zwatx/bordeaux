@@ -1,19 +1,12 @@
 import { createDemoProject } from "../../core/project/defaults";
 import { createRoutineId } from "../../core/project/ids";
 import type { AutonomousRoutine, BordeauxProject } from "../../core/types";
-import { UnitPrefs } from "./unitPreferences";
-
-export function freshProject(): BordeauxProject {
-  const project = createDemoProject();
-  return { ...project, editor: { ...project.editor, unitSystem: UnitPrefs.current() } };
-}
-
 /**
  * The protected empty document for every non-opened startup: the usual robot, routine and field defaults with one
  * path that has no waypoints yet, so the first click draws. The shared demo/template fixtures are unchanged.
  */
 export function blankProject(): BordeauxProject {
-  const project = freshProject();
+  const project = createDemoProject();
   return { ...project, paths: project.paths.slice(0, 1).map((path) => ({ ...path, waypoints: [], markers: [], ranges: [], targets: [] })) };
 }
 

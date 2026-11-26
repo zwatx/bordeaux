@@ -80,7 +80,7 @@ app.whenReady().then(async () => {
     };
     saved = { ...corpus, robot: { ...corpus.robot, w: 0.84, l: 0.84, maxSpeed: 4.92, driveModel }, paths: [first], pathLinks: [], routines: [{ id: 'power-routine', name: 'Power routine with repeated driving and a cooling wait', nodes: [
       { id: 'power-path-1', type: 'path', ref: first.id }, { id: 'power-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } }, { id: 'power-path-2', type: 'path', ref: first.id },
-    ] }], activeRoutineId: 'power-routine', editor: { activePathId: first.id, unitSystem: 'metric' } };
+    ] }], activeRoutineId: 'power-routine', editor: { activePathId: first.id } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
@@ -124,6 +124,9 @@ app.whenReady().then(async () => {
     await typeInto('CG height', '12');
     await save();
     assert.ok(Math.abs(saved.robot.driveModel.cgHeightM - 0.3048) < 1e-12);
+    assert.equal(saved.editor?.unitSystem, undefined, 'display units stay out of the project');
+    // Reopen as an older file from a teammate whose project stored metric: this machine's imperial choice still wins.
+    saved = { ...saved, editor: { ...saved.editor, unitSystem: 'metric' } };
     await win.reload();
     await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'restored places');
     await click('.places .place', 'Settings');
@@ -147,7 +150,7 @@ app.whenReady().then(async () => {
     await click('input[aria-label="CG height"]'); await key('Tab');
     await fs.writeFile(path.join(output, 'cg-reset-1100.png'), (await capture()).toPNG());
     win.setContentSize(1440, 900);
-    console.log('PASS CG height default, Escape, metric/imperial edits, restore, zero, and reset');
+    console.log('PASS CG height default, Escape, metric/imperial edits, app-level units over a project that stored metric, restore, zero, and reset');
     console.log('PASS A preset robot shows its electrical model with marked defaults and electrical limits');
 
     await typeInto('Drive current limit', '55');

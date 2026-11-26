@@ -304,13 +304,12 @@ app.whenReady().then(async () => {
     await capture('routine-toolbar.png');
     await click('.places .place', 'Paths');
     const imperialProject = await save();
-    assert.equal(imperialProject.editor.unitSystem, 'imperial');
+    assert.equal(imperialProject.editor?.unitSystem, undefined, 'display units stay out of the project');
     assert.deepEqual(imperialProject.paths[0].waypoints, fixture.paths[0].waypoints);
-    await evaluate(() => localStorage.setItem('bordeaux.unitSystem', 'metric'));
     await loadApp();
     await ready();
     assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
-    check('document units save and reopen over a different machine preference without changing geometry');
+    check('display units reopen from this machine, stay out of the saved project, and leave geometry unchanged');
     await click('.places .place', 'Settings');
     await click('.settings-general .seg-i', 'Metric');
     await click('.places .place', 'Paths');

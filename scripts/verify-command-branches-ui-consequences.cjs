@@ -32,7 +32,7 @@ function fixture(corpus, catalog, integer = false) {
       invocation: { commandId: 'inspect', arguments: { ticket: '9007199254740993', note: 'Authored argument: keep exactly' } },
       ends: { timeoutS: 2, onTimeout: 'endRoutine' }, outputBranch: { output: 'distance', schema, routes } }, wait('outer-tail')] },
       { id: 'routine-neighbor', name: 'Keep neighboring routine', nodes: [wait('neighbor-wait')] }],
-    activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+    activeRoutineId: 'route-test', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture' } };
 }
 exports.runConsequences = async h => {
   const { evaluate, wait, click, key, drain, source, isolate, reset, save, reload, snapshot } = h;

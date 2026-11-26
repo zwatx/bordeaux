@@ -713,7 +713,6 @@ export interface ProjectEditorState {
   robotProjectBookmarkId?: string;
   /** Relative to this project folder. null means unresolved: explicitly relink, never use the legacy bookmark. */
   labviewProjectPath?: string | null;
-  unitSystem?: "metric" | "imperial";
 }
 
 export interface FieldReference {

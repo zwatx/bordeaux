@@ -93,7 +93,7 @@ try {
       assert.ok(pathSource, 'Real canonical corpus fixture must exist');
       pathSource.id = 'departure-path'; pathSource.name = 'Departure path';
       const project = { ...corpus, name: 'Departure project', paths: [pathSource], routines: [], pathLinks: [],
-        editor: { ...corpus.editor, activePathId: pathSource.id, unitSystem: 'metric' } };
+        editor: { ...corpus.editor, activePathId: pathSource.id } };
       await autosaveProjectFolder(folder, project, null, { createProject: true });
       const workspace = projectWorkspacePath(folder);
       const before = (await readProject(workspace, { recordOpened: false })).project;

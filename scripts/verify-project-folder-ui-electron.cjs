@@ -203,7 +203,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => window.discardPrompts), 0);
     assert.ok(await evaluate(() => document.querySelector('.project-chip').textContent.includes('My saved project')));
     check('Retry saves the current project without quitting or discarding it and names it after the folder');
-    nextOpen = { project: { ...project, name: 'Autonomous paths and competition routines with a long project name', editor: { ...project.editor, unitSystem: 'imperial' } }, location: { folderPath: '/fixture/Autonomous paths and competition routines', projectPath: '/fixture/Autonomous paths and competition routines/.bordeaux-workspace.json' } };
+    nextOpen = { project: { ...project, name: 'Autonomous paths and competition routines with a long project name' }, location: { folderPath: '/fixture/Autonomous paths and competition routines', projectPath: '/fixture/Autonomous paths and competition routines/.bordeaux-workspace.json' } };
     await openProjects();
     await pointer('[data-action="open-folder"]');
     await wait(async () => !(await sheetOpen()) && !(await status()), 'folder opened');

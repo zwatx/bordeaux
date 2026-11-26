@@ -8,6 +8,12 @@ let win, saved, published, saves = 0, nativeHandoff = false;
 const errors = [], confirms = [], robotCalls = [], scenarios = [];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) {
   for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); }
   throw Error('Timed out: ' + label);
@@ -104,14 +110,14 @@ app.whenReady().then(async () => {
       { id: 'return', type: 'path', ref: route.id },
     ] };
     saved = { ...corpus, schemaVersion: '1.1', paths: [route, spare], pathFolders: [{ id: 'collection', name: 'Collection' }], pathLinks: [], routines: [routine], activeRoutineId: routine.id,
-      editor: { activePathId: route.id, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+      editor: { activePathId: route.id, robotProjectBookmarkId: 'fixture' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
       webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true } });
     win.on('focus', () => fs.appendFile(path.join(output, 'focus.jsonl'), JSON.stringify({ at: Date.now(), event: 'focus' }) + '\n').catch(() => {}));
     win.on('blur', () => fs.appendFile(path.join(output, 'focus.jsonl'), JSON.stringify({ at: Date.now(), event: 'blur' }) + '\n').catch(() => {}));
     win.webContents.on('console-message', details => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     for (const [width, height, units] of [[1440, 900, 'metric'], [1100, 720, 'imperial']]) {
-      win.setContentSize(width, height); saved.editor.unitSystem = units;
+      win.setContentSize(width, height); await setUnits(units);
       await load();
       const baseline = await source();
       await planned();

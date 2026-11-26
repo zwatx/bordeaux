@@ -12,6 +12,12 @@ const errors = [], robotCalls = [], updateCalls = [], passed = [];
 const location = { folderPath: 'C:\\fixtures\\Notice project', projectPath: 'C:\\fixtures\\Notice project\\.bordeaux-workspace.json' };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label, tries = 200) { for (let i = 0; i < tries; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusWindow() {
   app.focus({ steal: true }); win.focus(); win.webContents.focus();
@@ -93,7 +99,7 @@ function within(promise, ms, label) {
 }
 // Each size gets a fresh window: the previous page holds unsaved edits, and navigating it away is not what this checks.
 async function load(width, height, units) {
-  saved.editor.unitSystem = units;
+  await setUnits(units);
   const previous = win;
   win = new BrowserWindow({ show: true, width, height, useContentSize: true,
     webPreferences: { preload: path.join(__dirname, 'verify-notification-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
@@ -144,7 +150,7 @@ app.whenReady().then(async () => {
     wall.ranges = []; // Keeps the whole-path speed edit the only limit.
     saved = { ...corpus, paths: [wall, slalom, spare], pathLinks: [], pathFolders: [],
       routines: [{ id: 'two-piece', name: 'Two piece', nodes: [{ id: 'first', type: 'path', ref: wall.id }, { id: 'second', type: 'path', ref: slalom.id }] }],
-      activeRoutineId: 'two-piece', editor: { activePathId: wall.id, unitSystem: 'metric' } };
+      activeRoutineId: 'two-piece', editor: { activePathId: wall.id } };
     updateState = { phase: 'idle', visible: false, currentVersion: '0.2.0-beta.27', version: null, releaseNotes: '' };
     const sizes = [[1440, 900, 'metric'], [1100, 720, 'imperial']].filter(([width]) => !process.env.BORDEAUX_NOTIFICATION_UI_WIDTH || String(width) === process.env.BORDEAUX_NOTIFICATION_UI_WIDTH);
     for (const [width, height, units] of sizes) {

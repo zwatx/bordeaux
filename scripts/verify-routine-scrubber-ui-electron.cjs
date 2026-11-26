@@ -11,6 +11,12 @@ let win, saved, published, saves = 0;
 const errors = [], robotCalls = [], passed = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const evaluate = (fn, ...args) => win.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+// Display units are this machine's app preference in local storage; the next page load applies them.
+// Before the first load there is no app page to write to, and a fresh profile is already metric.
+async function setUnits(units) {
+  if (!win?.webContents.getURL().startsWith('file:')) return assert.equal(units, 'metric', 'a fresh profile starts metric');
+  await evaluate((units) => localStorage.setItem('bordeaux.unitSystem', units), units);
+}
 async function wait(fn, label) { for (let i = 0; i < 200; i++) { if (await fn()) return; await delay(75); } throw Error('Timed out: ' + label); }
 async function focusWindow() {
   app.focus({ steal: true }); win.focus(); win.webContents.focus();
@@ -125,7 +131,7 @@ app.whenReady().then(async () => {
       ] },
     ];
     saved = { ...corpus, schemaVersion: '1.1', paths, pathFolders: [{ id: 'f-collect', name: 'Collection' }, { id: 'f-score', name: 'Scoring' }], pathLinks: [], routines, activeRoutineId: ROUTINE,
-      editor: { activePathId: wall, robotProjectBookmarkId: 'fixture', unitSystem: 'metric' } };
+      editor: { activePathId: wall, robotProjectBookmarkId: 'fixture' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
       webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
@@ -161,7 +167,7 @@ app.whenReady().then(async () => {
     const row = (id) => '#rt-source [data-row="path:' + id + '"]';
 
     for (const [width, height, units] of [[1440, 900, 'metric'], [1100, 720, 'imperial']]) {
-      win.setContentSize(width, height); saved.editor.unitSystem = units;
+      win.setContentSize(width, height); await setUnits(units);
       await load(); await planned();
       await snapshot('flow-closed-' + width);
 
@@ -282,7 +288,7 @@ app.whenReady().then(async () => {
     pass('Scrubber scale, handle, press/hover/drag, keyboard (Arrow, Shift, Page, Home/End, Space), path card/search/choose/Undo and Add context at 1440x900 metric and 1100x720 imperial');
 
     // Save and reopen a chosen path.
-    win.setContentSize(1440, 900); saved.editor.unitSystem = 'metric';
+    win.setContentSize(1440, 900); await setUnits('metric');
     await load(); await planned();
     await click('[data-id="leave"] .rt-step-body');
     await click('.routine-change-path', 'Change path'); await type('trench'); await key('Down'); await key('Enter');
