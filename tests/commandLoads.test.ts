@@ -109,6 +109,11 @@ describe('command load windows', () => {
     const windows = commandLoadWindows(r, { markers: [group] }, { samples, markers: [{ timeS: 0 }] });
     expect(commandLoadCurrent(windows, 2)).toBe(5);
     expect(commandLoadCurrent(windows, 5.1)).toBe(85);
+    // With a 5.1 s limit, the last 1 s run starts at 5 s and finishes at 6 s at the earliest.
+    const late = marker('g', { commandGroup: { mode: 'sequential', commands: [run('intake'), run('spin', { loop: { until: { kind: 'time', seconds: 5.1 } } }), run('winch')] } });
+    const lateWindows = commandLoadWindows(r, { markers: [late] }, { samples, markers: [{ timeS: 0 }] });
+    expect(commandLoadCurrent(lateWindows, 5.5)).toBe(5);
+    expect(commandLoadCurrent(lateWindows, 6.1)).toBe(85);
   });
 
   it('runs a repeat due exactly at its expiry', () => {

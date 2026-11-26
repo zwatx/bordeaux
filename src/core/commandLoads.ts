@@ -106,8 +106,11 @@ function invocationRange(model: DriveModel, invocation: CommandInvocation, earli
   let latestEndS = Math.max(first.endS, last.endS);
   // A distance the latest start never reaches is reached by earlier starts no later than the path end.
   if (invocation.loop && last.runTimeS !== undefined) latestEndS = Math.max(latestEndS, cap((last.limitS ?? pathEndS) + last.runTimeS));
-  // A run lasts its run time, and a loop's last run cannot end before its limit (which only moves later with the start).
-  const earliestEndS = exact && first.runTimeS !== undefined ? cap(Math.max(earliestS + first.runTimeS, first.limitS ?? earliestS)) : earliestS;
+  // A plain run or a time loop lasts the same however late it starts, so its earliest finish is the earliest start's.
+  // A distance or path-end loop's last run cannot end before its limit, which only moves later with the start.
+  const fixedLength = !invocation.loop || invocation.loop.until.kind === "time";
+  const earliestEndS = !exact || first.runTimeS === undefined ? earliestS
+    : fixedLength ? first.endS : cap(Math.max(earliestS + first.runTimeS, first.limitS ?? earliestS));
   return { earliestEndS, latestEndS, exact };
 }
 
