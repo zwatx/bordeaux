@@ -57,7 +57,20 @@ try {
     ranges: [{ anchor: 'wp', w0: 0, t0: 0.6, w1: 1, f0: 0, f1: 1, maxVel: 1.5, name: 'Slow' }] });
   // Under the TRENCH, which a taller robot no longer fits.
   const trench = line({ x: 5.5705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }, { id: 'optimizer-verification-trench', name: 'Optimizer verification trench' });
-  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner, detour, trench], pathLinks: [],
+  // A straight line between two waypoints. Normal already drives it as fast as the robot can, so neither search
+  // has anything to offer and both result rows are listed greyed with their reason.
+  const straight = { ...structuredClone(corner), id: 'optimizer-verification-straight', name: 'Optimizer verification straight',
+    waypoints: [
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 3.8805, y: -3.5155, segType: 'bezier',
+        prevC: { x: 4.8805, y: -3.5155 }, nextC: { x: 2.6305, y: -3.5155 } },
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -3.5155, segType: 'bezier',
+        prevC: { x: 1.4055, y: -3.5155 }, nextC: { x: -0.8445, y: -3.5155 } },
+    ] };
+  // A drawn curve that fails the field check under the trench. A route that clears it is offered although it is not faster.
+  const clearance = structuredClone(corpus.paths.find((item) => item.id === 'corpus-red-away-trench'));
+  if (!clearance) throw new Error('Trench clearance fixture was not found');
+  clearance.name = 'Optimizer verification trench clearance';
+  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner, detour, trench, straight, clearance], pathLinks: [],
     routines: [{ id: 'optimizer-verification-routine', name: 'Verification', nodes: [{ id: 'optimizer-drive', type: 'path', ref: primary.id }] }],
     activeRoutineId: 'optimizer-verification-routine', plannerId: 'profiledSpline', editor: { activePathId: primary.id } };
   const html = path.join(root, 'dist-renderer/index.html');
@@ -86,8 +99,8 @@ try {
   assert.equal(result.passed, true);
   assert.deepEqual(result.errors, []);
   assert.ok(Array.isArray(result.checks));
-  assert.equal(result.checks.length, 35, 'Every check of the flow, six of them request evidence');
-  assert.equal(new Set(result.checks).size, 35);
+  assert.equal(result.checks.length, 39, 'Every check of the flow, six of them request evidence');
+  assert.equal(new Set(result.checks).size, 39);
   assert.ok(result.checks.every(name => typeof name === 'string' && name.length));
   const evidence = result.workerEvidence;
   assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and applied-path reload documents');

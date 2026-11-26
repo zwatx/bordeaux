@@ -7,11 +7,13 @@ const seconds = (value) => Number.isFinite(value) ? `${value.toFixed(2)} s` : '�
 const terminationLabels = { completed: 'Finished', 'work-budget': 'Effort limit reached', 'time-budget': 'Time limit reached',
   cancelled: 'Canceled', unsupported: 'Unsupported path', 'invalid-baseline': 'Drawn curve couldn’t be timed' };
 const batchLabels = { success: 'Searched', searching: 'Searching', failure: 'Failed', timeout: 'Time limit', canceled: 'Canceled', stale: 'Outdated' };
+const unfinishedLabels = { timeout: 'Ran out of time', canceled: 'Search canceled', failure: 'Search failed' };
 const routeLabels = { 'no-candidate': 'No route found', unsupported: 'Unsupported', cancelled: 'Canceled' };
 // Validator wording is precise but internal; say what the drawn curve does wrong.
-const seedIssueCopy = (issue) => !issue ? 'The current curve doesn’t meet the path’s requirements.'
-  : /footprint|clearance/i.test(issue) ? 'The current curve runs the robot into a wall or field obstacle.'
-  : issue;
+const seedProblem = (issue) => {
+  if (issue && /footprint|clearance/i.test(issue)) return { text: 'Your path hits the field.', field: true };
+  return { text: issue || 'The current curve doesn’t meet the path’s requirements.', field: false };
+};
 
 // One Optimize runs two searches, and `candidate` carries both results. Its own trajectory is the route search's:
 // the task is the required waypoints, set headings, stops, and field, and the current curve only seeds it.
@@ -51,12 +53,13 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
   // A new route that is not materially faster than the same-shape result has nothing to offer over it.
   const routeAddsNothing = (shapeOffer.improved || shapeOffer.madeFeasible) && routeOffer.newCandidate
     && routeOffer.result.totalTimeS > shapeOffer.result.totalTimeS - materialGain(shapeOffer.result.totalTimeS);
-  const offers = [
-    shapeOffer.newCandidate && { ...shapeOffer, value: 'shape', label: 'Same shape',
+  const results = [
+    { ...shapeOffer, value: 'shape', label: 'Same shape', offered: shapeOffer.newCandidate,
       hint: `Keeps the tangent direction at every waypoint and stays within ${distance(DRAWN_SHAPE_LIMIT_M)} of your curve.` },
-    routeOffer.newCandidate && !routeAddsNothing && { ...routeOffer, value: 'candidate', label: 'New route',
+    { ...routeOffer, value: 'candidate', label: 'New route', offered: routeOffer.newCandidate && !routeAddsNothing,
       hint: 'May take any path through your waypoints, around obstacles.' },
-  ].filter(Boolean);
+  ];
+  const offers = results.filter((item) => item.offered);
   // Apply and the headline follow the result being previewed, otherwise the first result offered.
   const chosen = offers.find((offer) => offer.value === mode) || offers[0] || null;
   const { details, route } = routeOffer;
@@ -75,12 +78,24 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
   const rejection = details?.rejectionReasons?.reduce((top, item) => !top || item.count > top.count ? item : top, null);
   const reason = !searchingCurrentPath && (unsupported || noRoute)
     ? rejection?.reason || searchReason : '';
+  // A terminal job can have no candidate at all. The current search entry
+  // still owns its outcome, even when cancellation preceded any result.
+  const finished = !searchingCurrentPath && (entry?.status === 'success' || Boolean(unfinishedLabels[entry?.status]) || Boolean(candidate));
+  const unavailable = (item) => {
+    if (!finished) return null;
+    if (item.newCandidate) return 'Not faster than same shape';
+    if (item.route) return normalReady ? 'No faster path found' : 'Waiting for timing';
+    return unfinishedLabels[entry?.status]
+      || (search?.termination === 'time-budget' ? unfinishedLabels.timeout : null)
+      || (unsupported ? 'Not supported' : normalFailed || invalidSeed ? 'No path found' : normalReady ? 'No faster path found' : 'Waiting for timing');
+  };
+  const problem = seedProblem(search?.seedIssue);
+  const fixes = madeFeasible && !searchingCurrentPath;
   const idle = normalFailed ? 'Find a route' : 'Find a faster route';
   // A repaired route is never labeled as a plain success: say how it compares to the drawn timing.
   const outcome = searchingCurrentPath || comparing ? idle
     : improved ? `${seconds(gain)} faster, ${(gain / baselineTime * 100).toFixed(1)}%`
-    : madeFeasible && normalReady ? (gain > -0.005 ? 'Clear route, same time' : `Clear route, ${seconds(-gain)} slower`)
-    : madeFeasible ? 'Route found'
+    : madeFeasible ? `Fixes your path${!normalReady ? '' : gain > -0.005 ? ', same time' : `, ${seconds(-gain)} slower`}`
     : unsupported ? 'Not supported for this path'
     : entry?.status === 'canceled' ? 'Search canceled'
     : entry?.status === 'failure' ? 'Couldn’t optimize'
@@ -89,7 +104,7 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
     : applied ? 'Applied to the path' : idle;
   const row = (label, time, value, disabled = false, note = null, hint = undefined) => h('button', {
     key: value, type: 'button', className: 'optimizer-choice', disabled, title: hint,
-    'aria-label': `Preview ${label.toLowerCase()} trajectory`,
+    'aria-label': `Preview ${label.toLowerCase()} trajectory${note ? `, ${note.toLowerCase()}` : ''}`,
     'aria-pressed': !disabled && (mode === value || (mode === 'selected' && value === 'normal')),
     onClick: () => onCompare(value),
   }, h('span', { className: 'optimizer-choice-name' }, label),
@@ -113,15 +128,21 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
         h('button', { type: 'button', className: 'qbtn optimizer-recovery', onClick: onUseDrawnPath }, 'Use drawn path')),
       reason && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' }, reason),
       invalidSeed && !searchingCurrentPath && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' },
-        seedIssueCopy(search?.seedIssue), normalReady ? ' Its timing is shown for comparison only.' : ''),
+        problem.text, fixes ? ` ${lead.label} ${problem.field ? 'clears' : 'fixes'} it.` : '',
+        normalReady ? ' Current path timing is shown for comparison only.' : ''),
       normalFailed && h('div', { className: 'optimizer-failure', role: 'status' },
         h('p', null, 'Timing isn’t available for the current curve. ', error.message || String(error)),
         !searchingCurrentPath && !newCandidate && !unsupported && !noRoute && h('p', null, 'Optimize can still look for a route through your waypoints.'),
+        fixes && !invalidSeed && h('p', null, `${lead.label} can be driven.`),
         recovery && h('button', { type: 'button', className: 'qbtn optimizer-recovery', onClick: recovery.onClick }, recovery.label)),
       h('div', { className: 'optimizer-comparison', 'aria-label': 'Trajectory comparison' },
         h('div', { className: 'optimizer-label' }, 'Preview'),
         row('Current path', baselineTime, 'normal', !normalReady, normalFailed ? 'Unavailable' : null),
-        offers.map((offer) => row(offer.label, offer.result.totalTimeS, offer.value, false, null, offer.hint))),
+        results.map((item) => {
+          const why = unavailable(item);
+          return item.offered ? row(item.label, item.result.totalTimeS, item.value, false, null, item.hint)
+            : why && row(item.label, null, item.value, true, why, item.hint);
+        })),
       applied && !newCandidate && !searchingCurrentPath && h('p', { className: 'optimizer-note', role: 'status' },
         'Undo restores the earlier curve. Optimize again may move or remove the waypoints it added.'),
       searchingCurrentPath ? h('button', { type: 'button', className: 'optimizer-main', onClick: onCancel }, 'Cancel')

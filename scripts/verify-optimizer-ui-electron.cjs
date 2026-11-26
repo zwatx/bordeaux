@@ -232,8 +232,41 @@ async function assertCompactResult() {
   assert.equal(state.freedomPresent, false, 'Route optimization must not expose a seed-deviation setting');
   assert.ok(state.text.trim().split(/\s+/).length <= 45, `Result panel must stay concise: ${state.text}`);
   assert.ok(!state.text.includes('Limited by'), 'Detailed physics must be hidden by default');
-  assert.deepEqual(state.rows, ['Preview current path trajectory', 'Preview same shape trajectory']);
+  assert.deepEqual(state.rows, ['Preview current path trajectory', 'Preview same shape trajectory', 'Preview new route trajectory, not faster than same shape']);
   assert.equal(state.width, 320, 'The result inspector must match the fixed inspector width');
+}
+
+/** One result row ('same shape' or 'new route') as rendered, whether it is a choice or greyed with a reason. */
+async function resultRow(name) {
+  return evaluate((name) => {
+    const row = document.querySelector(`.optimizer-choice[aria-label^="Preview ${name} trajectory"]`);
+    if (!row) return null;
+    row.scrollIntoView({ block: 'nearest' });
+    const box = row.getBoundingClientRect(), panel = document.querySelector('.optimizer-panel').getBoundingClientRect();
+    const note = row.querySelector(':scope > small'), noteBox = note?.getBoundingClientRect();
+    return { label: row.getAttribute('aria-label'), disabled: row.disabled, pressed: row.getAttribute('aria-pressed'), title: row.title,
+      note: note?.textContent ?? null, time: row.querySelector(':scope > b')?.textContent ?? null,
+      opacity: getComputedStyle(row.querySelector('.optimizer-choice-name')).opacity, noteOpacity: note && getComputedStyle(note).opacity,
+      focused: document.activeElement === row,
+      inside: box.left >= panel.left && box.right <= panel.right && box.top >= 0 && box.bottom <= innerHeight,
+      noteInside: !noteBox || (noteBox.left >= box.left && noteBox.right <= box.right && note.scrollWidth <= note.clientWidth + 1),
+      x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  }, name);
+}
+const shapeRow = () => resultRow('same shape');
+/** The styled tooltip's text once it is open, or null. */
+const tooltipText = () => evaluate(() => { const tip = document.querySelector('#app-tooltip'); return tip?.matches(':popover-open') ? tip.textContent : null; });
+/** Rests the pointer away from any titled control, which closes a hover tooltip and puts its title back. */
+async function restPointer() {
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: 700, y: 400 });
+  await delay(80);
+}
+async function pressKey(keyCode, modifiers = []) {
+  await focusEditor();
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+  if (keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: '\r', modifiers });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+  await delay(60);
 }
 
 function check(name) { checks.push(name); console.log(`PASS ${name}`); }
@@ -644,6 +677,31 @@ app.whenReady().then(async () => {
     assert.ok(turned(tangent(sameShape.geometry), tangent(cornerNormal.geometry)) < 3, 'The same-shape result leaves the start along the drawn tangent');
     await capture('optimizer-two-results.png');
     await captureMinimum('optimizer-two-results-1100x720.png');
+    // The offered Same shape row is a choice by keyboard as well as by pointer, at both supported sizes.
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      window.setContentSize(width, height);
+      await delay(250);
+      await click('button[aria-label="Preview current path trajectory"]');
+      await stable(cornerNormal, 200, 'Normal preview before choosing Same shape from the keyboard');
+      await pressKey('Tab');
+      let offeredRow = await shapeRow();
+      assert.ok(offeredRow.focused, 'Tab moves from Normal to the offered Same shape row');
+      assert.deepEqual({ label: offeredRow.label, disabled: offeredRow.disabled, pressed: offeredRow.pressed, note: offeredRow.note, opacity: offeredRow.opacity },
+        { label: 'Preview same shape trajectory', disabled: false, pressed: 'false', note: null, opacity: '1' });
+      assert.match(offeredRow.time, /^\d+\.\d\d s$/);
+      assert.ok(offeredRow.inside, 'The offered row stays inside the panel');
+      // Space belongs to playback on plain buttons (src/renderer/lib/shortcuts.js); Enter presses the focused row.
+      await pressKey('Enter');
+      await waitFor(async () => (await shapeRow()).pressed === 'true', 'Enter to choose the Same shape preview');
+      await stable(sameShape, 200, 'Same shape chosen from the keyboard');
+      assert.equal((await offered()).apply, 'Apply same shape');
+      await capture(`optimizer-same-shape-offered-${width}x${height}.png`);
+    }
+    window.setContentSize(1440, 900);
+    await delay(250);
+    await click('button[aria-label="Preview new route trajectory"]');
+    await stable(newRoute, 200, 'New route preview restored');
+    check('an offered Same shape row is chosen with Tab and Enter at both supported sizes');
     await click('.optimizer-panel button', 'Apply new route');
     await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the applied new route');
     await ready();
@@ -658,6 +716,128 @@ app.whenReady().then(async () => {
     project = await save();
     assert.equal(project.paths[2].waypoints.length, 2);
     check('one search offers a same-shape result and a new route; Apply follows the previewed one, and Undo brings the offer back');
+    // A straight line has nothing to gain. The batch above searched it; both result rows are listed greyed with their reason.
+    await switchPath(fixture.paths[5].name);
+    const straightNormal = await snapshot();
+    await waitFor(async () => (await snapshot()).status === 'No faster route found', 'the finished search of the straight path');
+    const hints = { 'same shape': 'Keeps the tangent direction at every waypoint and stays within 0.15 m of your curve.',
+      'new route': 'May take any path through your waypoints, around obstacles.' };
+    const pressAt = async ({ x, y }) => {
+      await focusEditor();
+      window.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+      window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, x, y });
+      window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, x, y });
+    };
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      window.setContentSize(width, height);
+      await delay(250);
+      await restPointer();
+      // Captured before the assertions, so a build without the rows still leaves its screenshot.
+      await capture(`optimizer-no-faster-path-${width}x${height}.png`);
+      const panelState = await evaluate(() => ({
+        rows: [...document.querySelectorAll('.optimizer-choice')].map((row) => row.getAttribute('aria-label')),
+        apply: [...document.querySelectorAll('.optimizer-panel button')].some((item) => item.textContent.startsWith('Apply')),
+        task: document.querySelector('.optimizer-task').textContent,
+      }));
+      assert.deepEqual(panelState, { rows: ['Preview current path trajectory', 'Preview same shape trajectory, no faster path found',
+        'Preview new route trajectory, no faster path found'], apply: false, task: 'Avoids obstacles. Keeps waypoints, headings and stops.' });
+      for (const name of ['same shape', 'new route']) {
+        await restPointer();
+        const greyed = await resultRow(name);
+        // The name is greyed; the reason is not, so it stays readable.
+        assert.deepEqual({ label: greyed.label, disabled: greyed.disabled, pressed: greyed.pressed, note: greyed.note, time: greyed.time, opacity: greyed.opacity, noteOpacity: greyed.noteOpacity },
+          { label: `Preview ${name} trajectory, no faster path found`, disabled: true, pressed: 'false', note: 'No faster path found', time: null, opacity: '0.45', noteOpacity: '1' });
+        assert.equal(greyed.title, hints[name], `The greyed ${name} row keeps its hint`);
+        assert.ok(greyed.inside && greyed.noteInside, `The greyed ${name} row and its reason are fully visible`);
+        // Resting the pointer on the greyed row still opens its hint.
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: greyed.x - 4, y: greyed.y });
+        window.webContents.sendInputEvent({ type: 'mouseMove', x: greyed.x, y: greyed.y });
+        await waitFor(async () => (await tooltipText()) === hints[name], `the hover hint of the greyed ${name} row`, 3000);
+        if (name === 'same shape') await capture(`optimizer-no-faster-path-hint-${width}x${height}.png`);
+        // A real press on the greyed row chooses nothing.
+        await pressAt(greyed);
+        await stable(straightNormal, 300, `Pressing the greyed ${name} row`);
+        assert.equal((await resultRow(name)).pressed, 'false');
+      }
+      // Tab from Normal passes over both rows in both directions, and no stop in the panel lands on either.
+      await click('button[aria-label="Preview current path trajectory"]');
+      const stops = [];
+      for (let index = 0; index < 8; index += 1) {
+        await pressKey('Tab');
+        stops.push(await evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent || document.activeElement?.tagName));
+        assert.ok(!(await resultRow('same shape')).focused && !(await resultRow('new route')).focused, `Tab stop ${index + 1} must not be a greyed row`);
+      }
+      assert.equal(stops[0], 'Try again', `Tab from Normal skips the greyed rows to the next control: ${JSON.stringify(stops)}`);
+      await click('button[aria-label="Preview current path trajectory"]');
+      await pressKey('Tab');
+      await pressKey('Tab', ['shift']);
+      assert.equal(await evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Preview current path trajectory', 'Shift+Tab returns to Normal without stopping on a greyed row');
+      await pressKey('Enter');
+      await stable(straightNormal, 200, 'Keyboard input around the greyed rows');
+      assert.equal(await evaluate(() => document.querySelector('button[aria-label="Preview current path trajectory"]').getAttribute('aria-pressed')), 'true');
+      check(`a path with nothing to gain lists both results greyed with "No faster path found", unreachable by pointer or keyboard, at ${width}×${height}`);
+    }
+    window.setContentSize(1440, 900);
+    await delay(250);
+    // The trench path's drawn curve fails the field check. Its route stays a choice although it is not faster.
+    await switchPath(fixture.paths[6].name);
+    await restPointer();
+    const trenchNormal = await snapshot();
+    const clearNote = 'Your path hits the field. New route clears it. Current path timing is shown for comparison only.';
+    let clearRoute;
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      window.setContentSize(width, height);
+      await delay(250);
+      await click('button[aria-label="Preview current path trajectory"]');
+      await stable(trenchNormal, 200, 'Normal preview of the trench path');
+      const message = await evaluate(() => ({
+        status: document.querySelector('.optimizer-outcome[role="status"]').textContent,
+        gain: document.querySelector('.optimizer-outcome').classList.contains('gain'),
+        note: document.querySelector('.optimizer-reason')?.textContent,
+        rows: [...document.querySelectorAll('.optimizer-choice')].map((row) => row.getAttribute('aria-label')),
+        times: [...document.querySelectorAll('.optimizer-choice')].map((row) => Number.parseFloat(row.querySelector('b')?.textContent)),
+        apply: document.querySelector('.optimizer-main.primary')?.textContent,
+        noteInside: (() => { const note = document.querySelector('.optimizer-reason')?.getBoundingClientRect(), panel = document.querySelector('.optimizer-panel').getBoundingClientRect();
+          return Boolean(note) && note.left >= panel.left && note.right <= panel.right && note.bottom <= innerHeight; })(),
+      }));
+      // The same-shape search cannot leave the drawn curve far enough to clear the field, and says so without "faster".
+      assert.deepEqual(message.rows, ['Preview current path trajectory', 'Preview same shape trajectory, no path found', 'Preview new route trajectory']);
+      const slower = /^Fixes your path, (\d+\.\d\d) s slower$/.exec(message.status);
+      assert.ok(slower, `The headline says the route fixes the path and what it costs: ${message.status}`);
+      assert.ok(Math.abs(Number(slower[1]) - (message.times[2] - message.times[0])) < 0.011, `The slower figure matches the listed times: ${JSON.stringify(message)}`);
+      assert.equal(message.gain, false, 'A slower fix is not coloured as a gain');
+      assert.equal(message.note, clearNote);
+      assert.ok(message.noteInside, 'The reason is fully visible');
+      assert.equal(message.apply, 'Apply new route');
+      // Tab from Normal passes the greyed Same shape row and lands on the route; Enter previews it.
+      await pressKey('Tab');
+      let routeRow = await resultRow('new route');
+      assert.ok(routeRow.focused, 'Tab moves from Normal past the greyed Same shape row to the clearing route');
+      assert.deepEqual({ disabled: routeRow.disabled, opacity: routeRow.opacity, note: routeRow.note, inside: routeRow.inside },
+        { disabled: false, opacity: '1', note: null, inside: true });
+      await pressKey('Enter');
+      await waitFor(async () => (await resultRow('new route')).pressed === 'true', 'Enter to preview the clearing route');
+      clearRoute = await snapshot();
+      assert.ok(Number(clearRoute.time) > Number(trenchNormal.time), 'The clearing route is slower than Normal');
+      assert.notEqual(clearRoute.geometry, trenchNormal.geometry, 'The clearing route is a different curve');
+      // The pointer chooses it as well.
+      await click('button[aria-label="Preview current path trajectory"]');
+      await stable(trenchNormal, 200, 'Normal preview before choosing the clearing route by pointer');
+      await click('button[aria-label="Preview new route trajectory"]');
+      await stable(clearRoute, 200, 'The clearing route chosen by pointer');
+      assert.equal((await resultRow('new route')).pressed, 'true');
+      await restPointer();
+      await capture(`optimizer-clear-route-${width}x${height}.png`);
+    }
+    window.setContentSize(1440, 900);
+    await delay(250);
+    await click('.optimizer-panel button', 'Apply new route');
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the clearing route written into the path');
+    await ready();
+    assert.equal((await snapshot()).time, clearRoute.time);
+    project = await save();
+    assert.notDeepEqual(project.paths[6].waypoints, fixture.paths[6].waypoints, 'Apply saves the clearing curve');
+    check('a slower route that clears the field stays selectable by pointer and keyboard, says why it is offered, and applies');
     // A drawn line through the HUB. Only a route around it is valid, so Apply adds waypoints.
     const detourIndex = 3, detour = fixture.paths[detourIndex];
     await switchPath(detour.name);

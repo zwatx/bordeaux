@@ -778,7 +778,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .optimizer-choice::before{content:'';flex-shrink:0;width:10px;height:10px;border:1px solid var(--txt-3);border-radius:50%}
 .optimizer-choice[aria-pressed=true]{background:var(--bg-3)}
 .optimizer-choice[aria-pressed=true]::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2px var(--bg-3)}
-.optimizer-choice:disabled{opacity:.45}
+.optimizer-choice:disabled::before,.optimizer-choice:disabled>:not(small){opacity:.45}
 .optimizer-choice-name{display:flex;flex:1;align-items:center;gap:8px}
 .optimizer-choice small{color:var(--txt-3);font-size:11px;white-space:nowrap}
 .optimizer-choice b{font:600 13px var(--mono);font-variant-numeric:tabular-nums}
