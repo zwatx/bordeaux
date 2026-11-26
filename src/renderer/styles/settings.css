@@ -39,8 +39,8 @@
 .rp-check{justify-content:flex-start;gap:10px;color:var(--txt-2)}
 .power-load .rp-big{width:96px}
 .power-load .rp-big+.rp-big{width:136px}
-.power-remove{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
-@media(hover:hover){.power-remove:hover{background:var(--bg-3);color:var(--txt)}}
+:is(.power-remove,.rp-cam-remove){display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
+@media(hover:hover){:is(.power-remove,.rp-cam-remove):hover{background:var(--bg-3);color:var(--txt)}}
 
 .rp-big{display:flex;align-items:center;gap:8px;min-width:0;height:32px;padding:0 10px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);transition:border-color .12s,box-shadow .12s}
 .rp-big:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
@@ -79,6 +79,45 @@
 :is(.robot-connection,.robot-cards~.rp-note){margin-top:10px}
 :is(.robot-card-pick,.robot-card-action,.robot-card-new):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(hover:hover){.robot-card:hover{background:var(--bg-2);color:var(--txt)}.robot-card-action:not(:disabled):hover{background:var(--bg-3);color:var(--txt)}}
+
+/* Cameras: a 3D view with the camera picker and view angles in its corners, over one band of boxes for the picked camera. */
+.rp-cam-stage{position:relative;overflow:hidden;border-bottom:1px solid var(--line);border-radius:var(--r-l) var(--r-l) 0 0;background:radial-gradient(120% 90% at 50% 40%,var(--bg-1),var(--bg) 70%)}
+.rp-cam-stage svg{display:block;width:100%;height:auto;cursor:grab;touch-action:none;user-select:none}
+.rp-cam-stage svg:active{cursor:grabbing}
+.rp-cam-stage svg:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.rp-cam-picks,.rp-cam-views,.rp-cam-tip{position:absolute}
+.rp-cam-picks{top:10px;left:10px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 210px)}
+.rp-cam-pick{max-width:160px;height:28px;padding:0 10px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--txt-2);font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.rp-cam-pick.on{border-color:var(--accent-line);background:var(--bg-3);color:var(--txt)}
+.rp-cam-pick.new{border-style:dashed;color:var(--txt-3)}
+.rp-cam-pick:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.seg.rp-cam-views{top:10px;right:10px;grid-template-columns:repeat(4,auto);min-height:28px;background:var(--panel)}
+.rp-cam-views .seg-i{min-height:22px;padding:0 9px}
+.rp-cam-tip{bottom:9px;left:12px;color:var(--txt-3);font-size:11px;pointer-events:none}
+.rp-cam-grid{stroke:var(--line-2)}
+:is(.rp-cam-body,.rp-cam-bodyTop){fill:oklch(.3 .003 286/.85);stroke:var(--line-3);stroke-width:1.5;stroke-linejoin:round}
+.rp-cam-bodyTop{fill:oklch(.36 .003 286/.9)}
+.rp-cam-arrow{fill:#fff}
+:is(.rp-cam-view,.rp-cam-viewEnd){fill:oklch(1 0 0/.03);stroke:var(--txt-3);stroke-linejoin:round;stroke-dasharray:3 4}
+:is(.rp-cam-view,.rp-cam-viewEnd).on{fill:oklch(1 0 0/.09);stroke:var(--accent);stroke-dasharray:none}
+.rp-cam-viewEnd.on{fill:oklch(1 0 0/.16)}
+.rp-cam-drop{stroke:var(--txt-3);stroke-dasharray:2 3}
+.rp-cam-lens{fill:var(--bg-1);stroke:var(--txt-3);stroke-width:2}
+.rp-cam-lens.on{fill:var(--accent);stroke:#fff}
+.rp-cam-name{fill:var(--txt-3);font:11px var(--ui);pointer-events:none}
+.rp-cam-name.on{fill:var(--txt);font-weight:600}
+.rp-cam-detail{padding:10px 12px 12px 14px}
+.rp-cam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px;margin-bottom:8px;font-size:13px}
+.rp-cam-head strong{min-width:0;overflow-wrap:anywhere;font-weight:600}
+.rp-cam-head .robot-card-name{padding:0}
+.rp-cam-actions{display:flex;flex-shrink:0;align-items:center;gap:4px}
+.rp-cam-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+.rp-cam-fields label{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--txt-3);font-size:11px}
+.rp-cam-fields .rp-big{gap:4px;padding:0 8px}
+/* An error under a box needs room below the band. */
+.rp-cam-fields:has(.cmd-param-error){padding-bottom:18px}
+.rp-cam-fields .rp-big .cmd-param-error{right:auto;left:0}
+@media(max-width:700px){.rp-cam-picks{max-width:calc(100% - 20px)}.seg.rp-cam-views{top:auto;bottom:8px}.rp-cam-tip{display:none}}
 
 /* The footprint preview sits beside the dimensions that draw it. */
 .rp-robot{display:grid;grid-template-columns:minmax(0,1fr) auto}

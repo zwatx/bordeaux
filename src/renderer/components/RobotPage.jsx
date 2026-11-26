@@ -9,6 +9,7 @@ import { resolveElectricalDriveInputs, startingDriveModel } from "../../core/rob
 import { resolveCgHeightM } from "../../core/loadTransfer";
 import { PowerSettings } from './PowerSettings';
 import { RobotCards } from './RobotCards';
+import { RobotCameras } from './RobotCameras';
 import "../styles/settings.css";
 
 // The Robot page: the project's robots, saved in the project file. Robots picks one; the sections below edit it.
@@ -26,7 +27,7 @@ import "../styles/settings.css";
   ];
   // Electrical values a project may leave to the shared planning defaults.
   const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve', 'minimumBusVoltageV'];
-  const SECTIONS = [['push', 'Push folder'], ['robots', 'Robots'], ['robot', 'Dimensions'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
+  const SECTIONS = [['push', 'Push folder'], ['robots', 'Robots'], ['robot', 'Dimensions'], ['cameras', 'Cameras'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
   const SHAPES = ['Rectangle', 'Round', 'Trapezoid', 'Custom'].map((label) => ({ v: label.toLowerCase(), label }));
 
   // Explanations are a hover tooltip on an info mark, and screen-reader text beside the name.
@@ -408,6 +409,9 @@ import "../styles/settings.css";
                       }))))),
                 h('small', null, UnitPrefs.fromCanonical(footprintArea, 'm²').toFixed(2) + ' ' + UnitPrefs.label('m²') + ' footprint')),
               customVerticesEditor)),
+
+          h(Section, { id: 'cameras', title: 'Cameras', hint: 'What each camera sees from where it is mounted. Cameras never change a plan.' },
+            h(RobotCameras, { robot, setRobot, footprint, BigNum })),
 
           h(Section, { id: 'drive', title: 'Drivetrain' },
             h('div', { className: 'settings-card' },

@@ -3,7 +3,7 @@ import { pathPlanningKey } from "../src/core/planners/planningKey";
 import { blankPath, createDemoProject } from "../src/core/project/defaults";
 import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
 import { duplicateRobot, projectRobots, selectRobot } from "../src/core/project/robots";
-import { CAMERA_LIMIT, CAMERA_NAME_MAX, addCamera, removeCamera, updateCamera } from "../src/core/robotCameras";
+import { CAMERA_LIMIT, CAMERA_NAME_MAX, addCamera, cameraAxes, removeCamera, updateCamera } from "../src/core/robotCameras";
 import type { BordeauxProject, RobotCamera, RobotConfig } from "../src/core/types";
 import { validateProject } from "../src/core/validation";
 
@@ -22,6 +22,7 @@ import { validateProject } from "../src/core/validation";
  * 11. Editing a camera changes the planning key, which discards optimize results that cameras cannot affect.
  * 12. Saving and reopening drops or alters cameras, on the selected robot or another one.
  * 13. A duplicated robot shares camera objects with the original, or switching robots mixes their cameras.
+ * 14. Positive yaw turns the lens right, positive pitch looks down, or the lens axes are not at right angles.
  */
 const robot = (): RobotConfig => createDemoProject().robot;
 const withCameras = (count: number): RobotConfig => Array.from({ length: count }).reduce<RobotConfig>((current) => addCamera(current), robot());
@@ -147,5 +148,23 @@ describe("robot cameras", () => {
     const back = selectRobot(reopened, original.id);
     expect(back.robot.cameras).toEqual(start.robot.cameras);
     expect(selectRobot(back, edited.activeRobotId!).robot.cameras).toEqual(edited.robot.cameras);
+  });
+
+  it("faces the robot front at zero, turns left with yaw and looks up with pitch", () => {
+    const near = (actual: { x: number; y: number; z: number }, expected: [number, number, number]) =>
+      [actual.x, actual.y, actual.z].forEach((value, index) => expect(value).toBeCloseTo(expected[index], 9));
+    const level = cameraAxes({ yawDeg: 0, pitchDeg: 0 });
+    near(level.forward, [1, 0, 0]); near(level.left, [0, 1, 0]); near(level.up, [0, 0, 1]);
+    near(cameraAxes({ yawDeg: 90, pitchDeg: 0 }).forward, [0, 1, 0]);
+    near(cameraAxes({ yawDeg: 0, pitchDeg: 90 }).forward, [0, 0, 1]);
+    near(cameraAxes({ yawDeg: 180, pitchDeg: 30 }).forward, [-Math.cos(Math.PI / 6), 0, 0.5]);
+    const tilted = cameraAxes({ yawDeg: 150, pitchDeg: -20 });
+    const dot = (a: typeof tilted.up, b: typeof tilted.up) => a.x * b.x + a.y * b.y + a.z * b.z;
+    for (const axis of [tilted.forward, tilted.left, tilted.up]) expect(dot(axis, axis)).toBeCloseTo(1, 9);
+    expect(dot(tilted.forward, tilted.left)).toBeCloseTo(0, 9);
+    expect(dot(tilted.forward, tilted.up)).toBeCloseTo(0, 9);
+    // Right-handed: left x up points along the lens.
+    expect(tilted.left.x * tilted.up.y - tilted.left.y * tilted.up.x).toBeCloseTo(tilted.forward.z, 9);
+    expect(tilted.up.z).toBeGreaterThan(0);
   });
 });

@@ -8,19 +8,20 @@ const h = React.createElement;
  * computer's current connection. */
 const address = (robot, currentHost) => robot.connection?.host ?? currentHost ?? 'No address';
 
-/** A card's name while it is being edited. Enter or leaving the field commits; Escape keeps the old name. */
-function NameInput({ robot, taken, onDone }) {
+/** A name while it is being edited: a robot card's, or a camera's with its own `label`, `maxLength` and
+ * `takenMessage`. Enter or leaving the field commits; Escape keeps the old name. */
+export function NameInput({ robot, taken, onDone, label = 'Robot name', maxLength = ROBOT_NAME_MAX, takenMessage = 'Another robot has this name.' }) {
   const [value, setValue] = React.useState(robot.name);
   const [error, setError] = React.useState('');
   const errorId = React.useId();
   const commit = (raw) => {
     const name = raw.trim();
     if (!name || name === robot.name) return onDone(null);
-    if (taken(name)) { setError('Another robot has this name.'); return false; }
+    if (taken(name)) { setError(takenMessage); return false; }
     return onDone(name);
   };
   return h('div', { className: 'robot-card-name' },
-    h('input', { className: 'rp-text', value, maxLength: ROBOT_NAME_MAX, 'aria-label': 'Robot name', 'aria-invalid': Boolean(error), 'aria-describedby': error ? errorId : undefined,
+    h('input', { className: 'rp-text', value, maxLength, 'aria-label': label, 'aria-invalid': Boolean(error), 'aria-describedby': error ? errorId : undefined,
       ref: (input) => { if (input && !input.dataset.ready) { input.dataset.ready = '1'; input.focus(); input.select(); } },
       onChange: (event) => { setValue(event.target.value); setError(''); },
       onBlur: (event) => { if (commit(event.target.value) === false) onDone(null); },

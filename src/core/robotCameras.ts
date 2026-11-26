@@ -68,3 +68,16 @@ export function updateCamera(robot: RobotConfig, id: string, patch: Partial<Omit
   }
   return { ...robot, cameras: cameras.map((camera) => camera.id === id ? { ...camera, ...change, id } : camera) };
 }
+
+type Axis = { x: number; y: number; z: number };
+
+/**
+ * The lens's unit axes in the robot frame (+X forward, +Y left, +Z up): where it looks, and its own left and up.
+ * At yaw 0 and pitch 0 they are the robot's axes. A camera sees a point when the point's direction from the lens,
+ * measured against `forward`, is within half the horizontal field of view along `left` and half the vertical along `up`.
+ */
+export function cameraAxes({ yawDeg, pitchDeg }: Pick<RobotCamera, "yawDeg" | "pitchDeg">): { forward: Axis; left: Axis; up: Axis } {
+  const yaw = yawDeg * Math.PI / 180, pitch = pitchDeg * Math.PI / 180;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  return { forward: { x: cp * cy, y: cp * sy, z: sp }, left: { x: -sy, y: cy, z: 0 }, up: { x: -sp * cy, y: -sp * sy, z: cp } };
+}

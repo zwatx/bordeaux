@@ -62,7 +62,9 @@ import path from "node:path";
 // 930,996 B before them (2026-11-26); 914 KiB keeps about 2 KiB of headroom.
 // The project's robot list, its cards, each robot's connection, the robot-hosted push folder and the marks on path
 // limits above the robot's measure 938,040 B against 928,105 B before them (2026-11-26); 918 KiB keeps about 2 KiB.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 918 * 1024;
+// Robot cameras (their validation, the Robot page's Cameras section and its 3D drawing) measure 947,675 B against
+// 938,040 B before them (2026-11-26); 928 KiB keeps about 2.5 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 928 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -99,7 +101,9 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 254 * 1024;
 // Routine step drag cards, wells and transport-height footers measure 188,882 B against 187,080 B before them (2026-11-25).
 // Robot cards with hover quick actions and the mark on capped limits measure 189,631 B against 189,047 B before them
 // (2026-11-26), after removing the unused constraint bar styles; 186 KiB keeps about 0.8 KiB of headroom.
-const CSS_BUDGET_BYTES = 186 * 1024;
+// The Cameras section and its 3D drawing measure 192,719 B against 189,631 B before them (2026-11-26); 189 KiB keeps
+// about 0.8 KiB of headroom.
+const CSS_BUDGET_BYTES = 189 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

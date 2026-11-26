@@ -78,6 +78,7 @@ jobs:
               scripts/verify-interface-workflows.mjs
               scripts/verify-robot-electrical-ui.mjs
               scripts/verify-robot-list-ui.mjs
+              scripts/verify-robot-cameras-ui.mjs
               scripts/verify-key-bindings.mjs
           - group: workflows
             checks: |
@@ -101,6 +102,7 @@ jobs:
       BORDEAUX_EDITOR_INTERACTIONS_OUTPUT: .ui-artifacts/editor-interactions
       BORDEAUX_ROBOT_ELECTRICAL_UI_OUTPUT: .ui-artifacts/robot-electrical
       BORDEAUX_ROBOT_LIST_UI_OUTPUT: .ui-artifacts/robot-list
+      BORDEAUX_ROBOT_CAMERAS_UI_OUTPUT: .ui-artifacts/robot-cameras
       BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
       BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer
