@@ -114,6 +114,12 @@ describe('command load windows', () => {
     const lateWindows = commandLoadWindows(r, { markers: [late] }, { samples, markers: [{ timeS: 0 }] });
     expect(commandLoadCurrent(lateWindows, 5.5)).toBe(5);
     expect(commandLoadCurrent(lateWindows, 6.1)).toBe(85);
+    // A limit within rounding of a whole number of runs keeps the same run count for every possible start.
+    const tight = robot([{ commandId: 'intake', currentA: 0 }, { commandId: 'spin', currentA: 5, runTimeS: 0.01999999998 }, { commandId: 'tap', currentA: 80, runTimeS: 0.01 }]);
+    const tightGroup = marker('g', { commandGroup: { mode: 'sequential', commands: [run('intake'), run('spin', { loop: { until: { kind: 'time', seconds: 0.02 } } }), run('tap')] } });
+    const tightWindows = commandLoadWindows(tight, { markers: [tightGroup] }, { samples, markers: [{ timeS: 0.98 }] });
+    // If intake finishes at 0.981 s, spin's single run ends by about 1.001 s and tap runs until about 1.011 s.
+    expect(commandLoadCurrent(tightWindows, 1.005)).toBe(85);
   });
 
   it('runs a repeat due exactly at its expiry', () => {

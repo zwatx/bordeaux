@@ -82,8 +82,12 @@ function invocationSpan(model: DriveModel, invocation: CommandInvocation, startS
   let endS = pathEndS, exact = false;
   if (!until && runTimeS !== undefined) { endS = startS + runTimeS; exact = true; }
   else if (until && limitS !== null) {
-    // Runs start at startS + k·runTime while before the limit; the last one finishes.
-    if (runTimeS !== undefined) { endS = startS + Math.max(1, Math.ceil((limitS - startS) / runTimeS - 1e-9)) * runTimeS; exact = true; }
+    // Runs start at startS + k·runTime while before the limit; the last one finishes. A time limit is counted from
+    // its own seconds, so the run count does not drift with the start through floating-point rounding.
+    if (runTimeS !== undefined) {
+      const spanS = until.kind === "time" ? until.seconds : limitS - startS;
+      endS = startS + Math.max(1, Math.ceil(spanS / runTimeS - 1e-9)) * runTimeS; exact = true;
+    }
     else endS = limitS;
   }
   // A known finish past the path end becomes the path end; an unknown one stays unknown, as it may come sooner.
