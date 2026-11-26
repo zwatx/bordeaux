@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { UI } from './ui';
-import { ROBOT_NAME_MAX } from '../../core/project/robots';
+import { ROBOT_LIMIT, ROBOT_NAME_MAX } from '../../core/project/robots';
 
 const h = React.createElement;
 
@@ -37,6 +37,7 @@ function NameInput({ robot, taken, onDone }) {
  * actions: rename, duplicate (a copy, selected), and delete, which asks first; the last robot cannot be deleted.
  */
 export function RobotCards({ robots, currentHost, onSelect, onAdd, onDuplicate, onRename, onRemove }) {
+  const full = robots.length >= ROBOT_LIMIT;
   const [editing, setEditing] = React.useState(null);
   const [removing, setRemoving] = React.useState(null);
   const focusCard = (id) => requestAnimationFrame(() => document.querySelector(`.robot-card[data-robot="${CSS.escape(id)}"] .robot-card-pick`)?.focus());
@@ -62,11 +63,11 @@ export function RobotCards({ robots, currentHost, onSelect, onAdd, onDuplicate, 
             h('strong', null, robot.name), h('small', null, address(robot, currentHost))),
       !asking && editing !== robot.id && h('div', { className: 'robot-card-actions' },
         action('edit', 'Rename ' + robot.name, () => setEditing(robot.id)),
-        action('copy', 'Duplicate ' + robot.name, () => { const id = onDuplicate(robot.id); if (id) focusCard(id); }),
+        action('copy', full ? 'This project has the most robots it can hold' : 'Duplicate ' + robot.name, () => { const id = onDuplicate(robot.id); if (id) focusCard(id); }, full),
         action('trash', robots.length < 2 ? 'The last robot cannot be deleted' : 'Delete ' + robot.name, () => setRemoving(robot.id), robots.length < 2)));
   };
 
   return h('div', { className: 'robot-cards', role: 'list', 'aria-label': 'Robots' },
     robots.map(card),
-    h('button', { type: 'button', className: 'robot-card robot-card-new', onClick: () => { const id = onAdd(); if (id) setEditing(id); } }, '+ New robot'));
+    !full && h('button', { type: 'button', className: 'robot-card robot-card-new', onClick: () => { const id = onAdd(); if (id) setEditing(id); } }, '+ New robot'));
 }

@@ -873,10 +873,18 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onAccessChange: (enabled) => { setMcpEnabled(enabled); markAgentProposalStale(); },
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
-    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+    // A Push review holds files built for the robot selected at the time, so selecting another robot counts as a
+    // changed project there. The first robot getting its id, when an older project gains its list, is not a switch.
+    const robotEpoch = useRef({ id: project.activeRobotId, count: 0 });
+    if (robotEpoch.current.id !== project.activeRobotId) {
+      if (robotEpoch.current.id || project.robots?.length > 1) robotEpoch.current.count += 1;
+      robotEpoch.current.id = project.activeRobotId;
+    }
+    const pushController = useRobotPushController({ getProject: materializeProject, projectKey: projectKey + ':' + robotEpoch.current.count, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
       // An address set up in the connection dialog belongs to the robot selected at the time. An editor served by the
       // robot pushes only to that robot, so project robot addresses play no part there.
-      onEndpointChosen: (endpoint) => { if (!SERVED_BY_ROBOT) setProject((current) => setRobotConnection(current, endpoint)); },
+      // The ref changes at once: a Push that waited for this address checks it against the project straight after.
+      onEndpointChosen: (endpoint) => { if (SERVED_BY_ROBOT) return; const next = setRobotConnection(projectRef.current, endpoint); projectRef.current = next; setProject(next); },
       ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
@@ -1663,8 +1671,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const withList = (current) => {
       const endpoint = pairingRef.current?.endpoint;
       const next = !current.robots && endpoint && !SERVED_BY_ROBOT ? setRobotConnection(current, endpoint) : current;
-      // The single robot's card id stands in for the id the list just gave it.
-      return { project: next, idOf: (id) => current.robots ? id : next.activeRobotId };
+      // The single robot's card id stands in for the id the list just gave it. Without a list, the card id still works.
+      return { project: next, idOf: (id) => !current.robots && next.robots ? next.activeRobotId : id };
     };
     const robotActions = useMemo(() => ({
       onSelectRobot: (id) => setProject((pr) => selectRobot(pr, id)),

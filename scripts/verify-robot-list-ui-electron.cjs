@@ -320,6 +320,18 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.robots.map((robot) => [robot.name, robot.connection]), [['Robot', practiceAddress], ['New robot', undefined]]);
     pass('An older project\'s robot keeps this computer\'s connection as its own address once a second robot exists');
 
+    // With no list and no connection on this computer, the single robot's card id is all Duplicate has to go on.
+    computerConnection = null;
+    saved = { ...saved, robots: undefined, activeRobotId: undefined };
+    await win.reload();
+    await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0), 'reloaded project without a list or connection');
+    await robotPage();
+    await hover('Robot');
+    await click('.robot-card-action[aria-label="Duplicate Robot"]');
+    await wait(async () => (await selectedName()) === 'Robot 2', 'duplicated the only robot');
+    assert.deepEqual((await cards()).map((card) => [card.name, card.selected]), [['Robot', false], ['Robot 2', true]]);
+    pass('Duplicate works on the only robot of an older project that has no connection');
+
     assert.deepEqual(errors, [], 'No renderer errors, confirm dialogs or robot calls');
     app.exit(0);
   } catch (error) {

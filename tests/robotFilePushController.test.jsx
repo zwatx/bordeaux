@@ -212,6 +212,29 @@ describe('SFTP file push controller', () => {
     expect(bridge.useRobotFileEndpoint).toHaveBeenLastCalledWith(null);
     expect(render()).toMatchObject({ connection: null, pairing: null, host: '', port: '22', directory: DEFAULT_ROBOT_PATH_DIRECTORY, connectionLabel: 'Not set up' });
   });
+  it('shows what is really active after a failed switch, and stays busy while a switch runs', async () => {
+    const switching = deferred(); bridge.useRobotFileEndpoint = vi.fn(() => switching.promise);
+    await ready();
+    const first = render().useEndpoint({ ...connection.endpoint, host: 'practice.local' });
+    expect(render().busy).toBe(true);
+    // A second selection made meanwhile waits: the caller asks again once busy clears.
+    await render().useEndpoint({ ...connection.endpoint, host: 'third.local' });
+    expect(bridge.useRobotFileEndpoint).toHaveBeenCalledTimes(1);
+    bridge.getRobotFileConnection.mockResolvedValueOnce(null);
+    switching.reject(new Error('Robot path directory is outside the allowed folders')); await first;
+    expect(render()).toMatchObject({ busy: false, connection: null, pairing: null, error: 'Robot path directory is outside the allowed folders' });
+  });
+  it('refuses a push when the selected robot has another address than the active connection', async () => {
+    const listed = (robotConnection) => ({ ...project, activeRobotId: 'practice', robots: [{ id: 'practice', name: 'Practice bot', ...(robotConnection ? { connection: robotConnection } : {}) }] });
+    project = listed({ ...connection.endpoint, host: 'practice.local' });
+    await ready(); await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    expect(bridge.prepareRobotFiles).not.toHaveBeenCalled();
+    expect(render()).toMatchObject({ phase: 'failed', preview: null });
+    expect(render().error).toMatch(/Practice bot/);
+    project = listed(connection.endpoint);
+    await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    expect(render().preview).toMatchObject(preview);
+  });
   it('waits for a running upload before switching robot addresses', async () => {
     bridge.useRobotFileEndpoint = vi.fn(async (endpoint) => ({ endpoint }));
     const upload = deferred(); bridge.confirmRobotFiles = vi.fn(() => upload.promise);

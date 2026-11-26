@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDemoProject, newRobot } from "../src/core/project/defaults";
 import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
-import { addRobot, duplicateRobot, projectRobots, removeRobot, renameRobot, selectRobot, setRobotConnection } from "../src/core/project/robots";
+import { ROBOT_LIMIT, addRobot, duplicateRobot, projectRobots, pushConnectionProblem, removeRobot, renameRobot, selectRobot, setRobotConnection } from "../src/core/project/robots";
 import { validateProject } from "../src/core/validation";
 import type { BordeauxProject } from "../src/core/types";
-import { captureProjectChange, restoreProjectChange } from "../src/renderer/lib/undoHistory";
+import { applyProjectEntry, captureProjectChange, restoreProjectChange } from "../src/renderer/lib/undoHistory";
 
 /*
  * Ways a project's robot list can fail, written before the code:
@@ -27,6 +27,11 @@ import { captureProjectChange, restoreProjectChange } from "../src/renderer/lib/
  * 17. A new robot starts at the address of the robot it was made from, so the two look linked.
  * 18. Validation accepts a malformed address, or refuses two robots sharing one.
  * 19. Duplicating a robot that is not selected copies the selected robot instead, or drops its address.
+ * 20. Duplicating the only robot of a project without a list does nothing.
+ * 21. A numbered name passes the length limit, or a robot past the count limit is added, so the project cannot save.
+ * 22. Push prepares the selected robot's files for a connection that belongs to another robot, or to none.
+ * 23. A password or host key placed inside a robot's address is written back to the project file.
+ * 24. Undo after a switch leaves the planning change on the robot it was made on, or loses its redo.
  */
 const comp = { target: "systemcore", host: "10.24.68.2", port: 22, directory: "/home/systemcore/bordeaux/paths" } as const;
 const practice = { ...comp, host: "10.24.68.3" };
@@ -152,9 +157,16 @@ describe("project robots", () => {
     const after = { ...before, robot: { ...before.robot, planning: { notes: "agent notes" } } };
     const { change } = captureProjectChange(before, after, null);
     expect(restoreProjectChange(after, change).robot.planning).toBeUndefined();
-    const switched = selectRobot(addRobot(after, "Third"), idOf(after, "Robot"));
-    const other = { ...switched, robot: { ...switched.robot, planning: { notes: "agent notes" } } };
-    expect(restoreProjectChange(other, change).robot.planning).toEqual({ notes: "agent notes" });
+    // After a switch, undo restores the planning of the robot the change was made on, wherever its details now are,
+    // and leaves the selected robot's own planning alone. The entry it returns redoes the same robot.
+    const switched = selectRobot(after, idOf(after, "Robot"));
+    const other = { ...switched, robot: { ...switched.robot, planning: { notes: "other robot" } } };
+    const undone = applyProjectEntry(other, { kind: "project", ...captureProjectChange(before, after, null) } as never, null)!;
+    expect(undone.project.robot.planning).toEqual({ notes: "other robot" });
+    expect(undone.project.robots!.find((robot) => robot.name === "Practice bot")!.robot!.planning).toBeUndefined();
+    const redone = applyProjectEntry(undone.project, undone.inverse, null)!;
+    expect(redone.project.robots!.find((robot) => robot.name === "Practice bot")!.robot!.planning).toEqual({ notes: "agent notes" });
+    expect(redone.project.robot.planning).toEqual({ notes: "other robot" });
   });
 
   it("keeps each robot's address with that robot through switching, and lets robots share one", () => {
@@ -191,6 +203,51 @@ describe("project robots", () => {
     expect(again.robot.driveModel!.gearRatio).toBe(5.5);
     expect(validateProject(again).ok).toBe(true);
     expect(duplicateRobot(project, "missing")).toBe(project);
+  });
+
+  it("duplicates the only robot of a project without a list", () => {
+    const single = base();
+    const copied = duplicateRobot(single, projectRobots(single)[0].id);
+    expect(names(copied)).toEqual(["Robot", "Robot 2*"]);
+    expect(copied.robot).toEqual(single.robot);
+    expect(validateProject(copied).ok).toBe(true);
+  });
+
+  it("keeps numbered names within the length limit and stops at the robot limit", () => {
+    const long = "x".repeat(80);
+    const named = renameRobot(base(), projectRobots(base())[0].id, long);
+    const copied = duplicateRobot(named, named.activeRobotId!);
+    expect(projectRobots(copied).map((robot) => robot.name.length)).toEqual([80, 80]);
+    expect(projectRobots(copied)[1].name.endsWith(" 2")).toBe(true);
+    expect(validateProject(copied).ok).toBe(true);
+    let full = base();
+    while (projectRobots(full).length < ROBOT_LIMIT) full = addRobot(full, "Robot");
+    expect(validateProject(full).ok).toBe(true);
+    expect(addRobot(full, "One more")).toBe(full);
+    expect(duplicateRobot(full, full.activeRobotId!)).toBe(full);
+  });
+
+  it("lets Push use only the selected robot's own connection", () => {
+    const unlisted = base();
+    expect(pushConnectionProblem(unlisted, comp)).toBeNull();
+    expect(pushConnectionProblem(unlisted, null)).toBeNull();
+    const listed = setRobotConnection(twoRobots(), practice);
+    expect(pushConnectionProblem(listed, practice)).toBeNull();
+    expect(pushConnectionProblem(listed, { ...practice })).toBeNull();
+    expect(pushConnectionProblem(listed, comp)).toMatch(/Practice bot/);
+    expect(pushConnectionProblem(listed, { ...practice, directory: "/home/systemcore/other" })).toMatch(/Practice bot/);
+    expect(pushConnectionProblem(listed, null)).toMatch(/Practice bot/);
+    const noAddress = selectRobot(listed, idOf(listed, "Robot"));
+    expect(pushConnectionProblem(noAddress, practice)).toMatch(/Set up/);
+    expect(pushConnectionProblem(noAddress, null)).toMatch(/Set up/);
+  });
+
+  it("writes only the four address fields of a robot's connection", () => {
+    const project = setRobotConnection(twoRobots(), practice);
+    const tainted = { ...project, robots: project.robots!.map((robot) => robot.connection ? { ...robot, connection: { ...robot.connection, password: "secret", hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvwxyz" } } : robot) };
+    const saved = JSON.parse(encodeProjectFile(tainted).contents);
+    expect(saved.robots.find((robot: { name: string }) => robot.name === "Practice bot").connection).toEqual(practice);
+    expect(JSON.stringify(saved)).not.toMatch(/secret|hostKeyFingerprint/);
   });
 
   it.each<[string, (project: BordeauxProject) => unknown, string]>([

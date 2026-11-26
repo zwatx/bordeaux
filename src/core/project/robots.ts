@@ -5,6 +5,8 @@ import type { BordeauxProject, ProjectRobot, RobotConfig } from "../types";
 
 /** Longest robot name the editor accepts. */
 export const ROBOT_NAME_MAX = 80;
+/** Most robots a project holds. Adding or duplicating past it leaves the project as it is. */
+export const ROBOT_LIMIT = 32;
 const DEFAULT_NAME = "Robot";
 
 export interface RobotSummary { id: string; name: string; selected: boolean; robot: RobotConfig; connection?: RobotFileEndpoint }
@@ -37,7 +39,11 @@ function uniqueName(robots: readonly ProjectRobot[], wanted: string): string {
   const base = wanted.trim().slice(0, ROBOT_NAME_MAX) || DEFAULT_NAME;
   const used = new Set(robots.map((robot) => robot.name.toLowerCase()));
   if (!used.has(base.toLowerCase())) return base;
-  for (let suffix = 2; ; suffix++) if (!used.has(`${base} ${suffix}`.toLowerCase())) return `${base} ${suffix}`;
+  // The number takes its room from the end of a long name, so the result stays within the limit.
+  for (let suffix = 2; ; suffix++) {
+    const name = `${base.slice(0, ROBOT_NAME_MAX - ` ${suffix}`.length).trimEnd()} ${suffix}`;
+    if (!used.has(name.toLowerCase())) return name;
+  }
 }
 
 /**
@@ -46,6 +52,7 @@ function uniqueName(robots: readonly ProjectRobot[], wanted: string): string {
  */
 export function addRobot(project: BordeauxProject, name: string, copyOf?: { robot: RobotConfig; connection?: RobotFileEndpoint }): BordeauxProject {
   const { robots, activeRobotId } = entries(project);
+  if (robots.length >= ROBOT_LIMIT) return project;
   const id = `robot_${randomUuid()}`;
   const connection = copyOf?.connection;
   return {
@@ -65,6 +72,19 @@ export function duplicateRobot(project: BordeauxProject, id: string): BordeauxPr
 
 const sameEndpoint = (a: RobotFileEndpoint | undefined, b: RobotFileEndpoint) =>
   a?.target === b.target && a.host === b.host && a.port === b.port && a.directory === b.directory;
+
+/**
+ * Why Push must not use `active`, this computer's current robot connection, for the selected robot, or null when it
+ * may. A listed robot pushes only through its own address, so a switch that failed cannot send its files to the robot
+ * selected before. A project without a list uses whatever connection this computer has.
+ */
+export function pushConnectionProblem(project: BordeauxProject, active: RobotFileEndpoint | null): string | null {
+  if (!project.robots?.length) return null;
+  const selected = project.robots.find((robot) => robot.id === project.activeRobotId);
+  if (!selected?.connection) return `Set up ${selected?.name ?? "this robot"}’s connection before pushing.`;
+  return active && sameEndpoint(selected.connection, active) ? null
+    : `${selected.name}’s connection is not the active one. Open its connection on the Robot page and save it again.`;
+}
 
 /** Sets where Push sends the selected robot's files. An older project gets its robot list here. */
 export function setRobotConnection(project: BordeauxProject, endpoint: RobotFileEndpoint): BordeauxProject {

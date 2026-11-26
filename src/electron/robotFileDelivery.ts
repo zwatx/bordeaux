@@ -210,7 +210,8 @@ export class RobotFileDelivery {
    * Makes `rawEndpoint` the active robot, as when a project's selected robot changes. It never contacts the robot. A
    * host key reviewed on this computer for the same robot type, host and port is trusted again; any other address waits
    * for a review before Push. A custom password stays only while the robot type, host and port stay the same.
-   * Null is a selected robot without an address: nothing is active, so Push asks for that robot's address first.
+   * Null is a selected robot without an address: nothing is active, so Push asks for that robot's address first. An
+   * invalid address also leaves nothing active, then throws.
    */
   async use(rawEndpoint: unknown): Promise<RobotFileSettings | null> {
     if (rawEndpoint === null && !this.saved) return null;
@@ -227,7 +228,10 @@ export class RobotFileDelivery {
         return null;
       } finally { this.trusting = false; }
     }
-    const endpoint = validateRobotFileEndpoint(rawEndpoint);
+    let endpoint: RobotFileEndpoint;
+    // An address this computer cannot use must not leave the robot selected before as the active one.
+    try { endpoint = validateRobotFileEndpoint(rawEndpoint); }
+    catch (error) { await this.use(null); throw error; }
     if (this.saved && JSON.stringify(this.saved.endpoint) === JSON.stringify(endpoint)) return structuredClone(this.saved);
     const key = knownHostKey(endpoint);
     const fingerprint = this.trusted && knownHostKey(this.trusted.endpoint) === key ? this.trusted.hostKeyFingerprint : this.known.get(key);

@@ -483,6 +483,18 @@ describe("project robot addresses", () => {
     expect(passwords.current()).toBeNull();
   });
 
+  // A project address this computer cannot use (a push folder outside the robot type's folders) must not leave the
+  // robot selected before as the one Push reaches.
+  it("leaves no robot active when a project robot's address is refused", async () => {
+    const { delivery, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    const review = delivery.prepare([file()], async () => undefined);
+    await expect(delivery.use({ ...systemcore, host: "practice.local", directory: "/etc" })).rejects.toThrow();
+    expect(delivery.current()).toBeNull();
+    expect(delivery.settings()).toBeNull();
+    expect(persist).toHaveBeenLastCalledWith(null);
+    await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
+  });
+
   it("clears the active robot for a project robot without an address, remembering the key it had", async () => {
     const { delivery, persist, passwords, transport } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
     await passwords.replace("team-secret");

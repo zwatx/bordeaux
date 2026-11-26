@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { pushConnectionProblem } from '../../core/project/robots';
 import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 import { focusIfAvailable } from '../lib/focusReturn';
 import { linkedPathIds } from '../lib/undoHistory';
@@ -87,6 +88,10 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       }
       return;
     }
+    // A listed robot pushes only through its own address. The live project is read because the address may have been
+    // set after this push was captured.
+    const problem = api.robotDeliveryCapabilities?.servedByRobot ? null : pushConnectionProblem(source.current(), state.current.connection?.endpoint ?? null);
+    if (problem) { update({ phase: 'failed', ...emptyReview, error: problem }); return; }
     update({ phase: 'preparing', ...emptyReview, error: '' });
     try {
       const preview = captured.scope.kind === 'routine'
@@ -270,12 +275,14 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); return false; }
   };
   // Makes a project robot's address active when the selected robot changes, or clears it (null) for a robot without
-  // one. It never contacts the robot, and it waits for running work: the caller asks again once `busy` clears. It also
-  // cancels a review that was waiting.
+  // one. It never contacts the robot, and it waits for running work, its own switches included: it is busy while it
+  // runs, and the caller asks again with the latest robot once `busy` clears. It also cancels a review that was
+  // waiting. After a failed switch it shows what this computer really has active.
   const useEndpoint = async (endpoint) => {
     if (!api.useRobotFileEndpoint || working(state.current.phase)) return;
     const request = ++generation.current;
     intent.current = null;
+    update({ ...emptyReview, phase: 'saving', error: '' });
     try {
       const settings = await api.useRobotFileEndpoint(endpoint);
       if (request !== generation.current) return;
@@ -286,7 +293,13 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       else { setHost(''); setPort('22'); setDirectory(ROBOT_TARGETS[state.current.settings?.endpoint.target ?? target].defaultDirectory); }
       update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected });
       void refreshPassword();
-    } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
+    } catch (error) {
+      const settings = await api.getRobotFileConnection().catch(() => null);
+      if (request !== generation.current) return;
+      const connection = settings?.hostKeyFingerprint ? settings : null;
+      trusted.current = connection;
+      update({ settings, connection, editing: false, probe: null, phase: 'idle', error: message(error), ...disconnected });
+    }
   };
   const acceptPairing = async (probe, request) => {
     update({ phase: 'trusting', error: '' });
