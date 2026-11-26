@@ -3134,10 +3134,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, showTags, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
-              unfinishedPath && !waypointPreview && h('div', { className: 'stage-hint' },
-                tool === 'waypoint'
-                  ? 'Click the field to place the ' + (doc.waypoints.length ? 'next waypoint.' : 'first waypoint.')
-                  : 'Choose Place waypoint to ' + (doc.waypoints.length ? 'continue this path.' : 'start this path.')),
+              unfinishedPath && !waypointPreview && tool === 'waypoint' && h('div', { className: 'stage-hint' },
+                'Click the field to place the ' + (doc.waypoints.length ? 'next waypoint.' : 'first waypoint.')),
               waypointPreview && h('div', { className: 'insert-preview', inert: derivationCurrent ? undefined : '', role: 'region', 'aria-label': 'Preview waypoint insertion' },
                 h('div', { className: 'insert-preview-copy' },
                   h('b', null, waypointPreview.pending ? 'Preparing waypoint preview' : waypointPreview.error ? 'Waypoint preview unavailable' : 'Preview waypoint'),
