@@ -366,14 +366,20 @@ function optimizeJob(job, path, derive, emitProgress, startedAt) {
      */
     wantsShape: (reply) => job.keepShape === true && Boolean(reply.value)
       && job.deadlineMs - (performance.now() - startedAt) >= job.deadlineMs * SHAPE_BUDGET_SHARE,
-    /** Options for the shape search that follows the route search answered by `reply`. */
+    /**
+     * Options for the shape search that follows the route search answered by `reply`. Publishes `reply` first,
+     * so a job that runs out of time during the shape search still ends with the route search's full result.
+     */
     shapeOptions(reply) {
+      progress(reply.value);
       // The drawn curve's own retimed plan can lead until Normal is qualified and then stop being an offer.
       let offered = false;
+      const hardBudgetMs = (job.deadlineMs - (performance.now() - startedAt)) * SHAPE_HARD_SHARE;
       return {
         budgetTier: job.deadline,
-        budgetMs: job.deadlineMs * SHAPE_BUDGET_SHARE,
-        hardBudgetMs: (job.deadlineMs - (performance.now() - startedAt)) * SHAPE_HARD_SHARE,
+        // Never above the hard budget, which would otherwise rise to the budget and leave no time for the last plan.
+        budgetMs: Math.min(job.deadlineMs * SHAPE_BUDGET_SHARE, hardBudgetMs),
+        hardBudgetMs,
         // Kept as the incumbent, so a job that times out still offers both results found so far.
         onProgress: (trajectory) => {
           if (!isOffer(trajectory) && !offered) return;

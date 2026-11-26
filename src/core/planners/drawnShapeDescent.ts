@@ -148,14 +148,18 @@ export function* drawnShapeDescent(
     for (let round = 0; round < ROUNDS_PER_STEP && changed.size > 0; round += 1) {
       const revisit = changed;
       changed = new Set();
-      // Every segment's moves start from the same curve, so one batch times them all.
-      const trials = segments
-        .filter(({ segment }) => revisit.has(segment) || revisit.has(segment - 1) || revisit.has(segment + 1))
-        .map(({ segment, indices }) => ({ segment, indices, moves: SEGMENT_MOVES
-          .filter((move) => indices.length > 1 || move[1] === 0)
-          .flatMap((move) => { const lengths = reach(best.lengths, indices, move, steps); return lengths ? [lengths] : []; }) }));
       // A round cut short has timed only some segments' moves; choosing among them would favour the early segments.
       const stop = incumbents.length === 0 && steps === MOVE_STEPS[0] && round === 0 ? pace.giveUp : pace.enough;
+      // Every segment's moves start from the same curve, so one batch times them all. Finding how far each move
+      // stays within the limit costs more the more waypoints there are, so the pace is read between segments too.
+      const trials: Array<{ segment: number; indices: number[]; moves: number[][] }> = [];
+      for (const { segment, indices } of segments) {
+        if (!revisit.has(segment) && !revisit.has(segment - 1) && !revisit.has(segment + 1)) continue;
+        if (stop()) break search;
+        trials.push({ segment, indices, moves: SEGMENT_MOVES
+          .filter((move) => indices.length > 1 || move[1] === 0)
+          .flatMap((move) => { const lengths = reach(best.lengths, indices, move, steps); return lengths ? [lengths] : []; }) });
+      }
       if (!(yield* time(trials.flatMap((trial) => trial.moves), stop))) break search;
       const improving = trials.flatMap(({ segment, indices, moves }) => {
         const lengths = moves.reduce<readonly number[] | null>((leader, candidate) =>
