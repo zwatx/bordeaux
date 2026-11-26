@@ -3,6 +3,7 @@ import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVIS
 import { validateProjectSource } from "../validation";
 import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
+import { migrateLegacyOptimizations } from "./legacyOptimization";
 import { LEGACY_FIELD_SCHEMA, migrateFieldProject } from "./fieldMigration";
 
 const CURRENT_PROJECT_SCHEMA_VERSION = "1.0" as const;
@@ -80,7 +81,8 @@ function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile
     const message = validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n");
     throw new Error(`Invalid Bordeaux project:\n${message}`);
   }
-  return { project: project as BordeauxProject, migrated: migrated || needsFieldMigration || routinePromoted !== prepared };
+  const hydrated = migrateLegacyOptimizations(project as BordeauxProject, routinePromoted, needsFieldMigration);
+  return { project: hydrated, migrated: migrated || needsFieldMigration || routinePromoted !== prepared || hydrated !== project };
 }
 
 export function decodeProjectValue(value: unknown): DecodedProjectFile {

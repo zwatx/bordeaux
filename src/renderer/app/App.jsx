@@ -1161,11 +1161,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const cancelEdit = useCallback(() => {
       return editStore.cancel();
     }, [editStore]);
-    const commit = useCallback((fn) => {
+    const commit = useCallback((fn, { wholePathTransform = false } = {}) => {
       cancelEdit();
       beginHistory();
-      writeEdit(fn(editablePath(docRef.current)));
-    }, [beginHistory, cancelEdit, writeEdit]);
+      const path = fn(editablePath(docRef.current));
+      if (wholePathTransform) writeDoc(path);
+      else writeEdit(path);
+    }, [beginHistory, cancelEdit, writeDoc, writeEdit]);
     useEffect(() => {
       const draft = editStore.getSnapshot();
       if (draft && doc && draft.id !== doc.id) cancelEdit();
@@ -1438,13 +1440,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     // Shared-position edits belong to the active path; deletions, library links, and applied
     // proposals are project-wide. Both restore only what they changed.
-    const commitProjectChange = (before, edited, scope = PROJECT_SCOPE) => {
+    const commitProjectChange = (before, edited, scope = PROJECT_SCOPE, { wholePathTransform = false } = {}) => {
       if (edited === before) return;
       // A linked or unlinked added waypoint is an edit to it, as in writeEdit.
       // A new path, such as a duplicate, keeps its flags.
       const next = { ...edited, paths: edited.paths.map((path) => {
         const prior = before.paths.find((item) => item.id === path.id);
-        return prior && prior !== path ? settleOptimizerWaypoints(prior, path) : path;
+        return !wholePathTransform && prior && prior !== path ? settleOptimizerWaypoints(prior, path) : path;
       }) };
       const entry = recordUndo({ scope, kind: scope === PROJECT_SCOPE ? 'project' : 'waypoints', ...captureProjectChange(before, next, docRef.current?.id ?? null) });
       projectRef.current = next; setProject(next);
@@ -1493,7 +1495,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (result.status !== 'success') return result.error?.message || result.fallbackReason;
       const paths = before.paths.slice();
       paths.splice(copy ? index + 1 : index, copy ? 0 : 1, result.value);
-      commitProjectChange(before, { ...before, paths }, copy ? PROJECT_SCOPE : pathScope(source.id));
+      commitProjectChange(before, { ...before, paths }, copy ? PROJECT_SCOPE : pathScope(source.id), { wholePathTransform: true });
       closeFlip();
       if (copy) {
         resetForPath(index + 1);
@@ -1737,7 +1739,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       ] });
     }, [faceWaypoint, select]);
     const duplicateWp = useCallback((i) => commit((d) => duplicateWaypoint(d, i)), [commit]);
-    const reversePath = useCallback(() => reverseDistance == null || docRef.current.waypoints.length < 2 ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }), [commit, reverseDistance]);
+    const reversePath = useCallback(() => reverseDistance == null || docRef.current.waypoints.length < 2 ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }, { wholePathTransform: true }), [commit, reverseDistance]);
     const reorderWp = useCallback((from, to) => commit((d) => reorderWaypoint(d, from, to)), [commit]);
     const insertWp = useCallback((i) => {
       const pts = derived.sample.pts;
@@ -2146,6 +2148,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (!currentPath || pathPlanningKey(currentPath, current.robot, current.field) !== planningKey) return;
       try {
         const nextPath = applyRoute(currentPath, geometry);
+        delete nextPath.optimizationNeedsReview;
         beginHistory();
         playbackStore.reset();
         setComparison(null);
@@ -3182,6 +3185,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
                 onCompare: compareTrajectory, onApply: applyOptimization,
+                onUseDrawnPath: () => commit((path) => {
+                  delete path.optimizationNeedsReview;
+                  return path;
+                }),
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
                 onClose: closeOptimization,
               }) : inspectorOpen

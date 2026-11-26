@@ -86,8 +86,8 @@ try {
   assert.equal(result.passed, true);
   assert.deepEqual(result.errors, []);
   assert.ok(Array.isArray(result.checks));
-  assert.equal(result.checks.length, 34, 'Every check of the flow, six of them request evidence');
-  assert.equal(new Set(result.checks).size, 34);
+  assert.equal(result.checks.length, 35, 'Every check of the flow, six of them request evidence');
+  assert.equal(new Set(result.checks).size, 35);
   assert.ok(result.checks.every(name => typeof name === 'string' && name.length));
   const evidence = result.workerEvidence;
   assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and applied-path reload documents');

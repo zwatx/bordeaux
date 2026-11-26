@@ -703,6 +703,19 @@ app.whenReady().then(async () => {
     }
     samePlaces(previewPlaces, await placements(), 'Redone detour');
     check('Undo removes the inserted waypoints and Redo restores them');
+    const beforeFlip = (await save()).paths[detourIndex];
+    await click('.field-flip');
+    await click('.path-flip label:has(input[name="pf-direction"][value="rotate"])');
+    await click('.path-flip label:has(input[name="pf-target"][value="replace"])');
+    await click('.path-flip .pf-commit');
+    await waitFor(() => evaluate(() => !document.querySelector('.path-flip[open]')), 'in-place Flip');
+    const flipped = await save();
+    assert.equal(flipped.paths[detourIndex].waypoints[0].x, -beforeFlip.waypoints[0].x);
+    assert.deepEqual(added(flipped, detourIndex), flags, 'In-place Flip keeps the optimizer-added flags');
+    await history(false);
+    await waitFor(async () => (await snapshot()).geometry === detourApplied.geometry, 'Undo Flip');
+    assert.deepEqual((await save()).paths[detourIndex], beforeFlip, 'Undo restores the path before Flip');
+    check('in-place Flip keeps detour waypoints eligible for later optimization');
     // A slower robot keeps the curve and replans its timing; nothing goes stale.
     await click('.places .place', 'Robot');
     await setRobotNumber('Motor free speed', 1000);

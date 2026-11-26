@@ -29,13 +29,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { buildBdxExport } from "../src/core/export/bdx";
+import { planningRobotForPath } from "../src/core/commandLoads";
 import { PM } from "../src/core/math/pm";
 import { getPlanner } from "../src/core/planners";
 import { DRAWN_SHAPE_LIMIT_M } from "../src/core/planners/limits";
 import { pathTrajectory } from "../src/core/planners/pathTrajectory";
 import { planPath } from "../src/core/planners/planPath";
 import { optimizeDrawnShapeFinal, optimizeRouteFinal } from "../src/core/planners/routeFinal";
-import { applyRoute, routePlanningPath, routeTask, settleOptimizerWaypoints } from "../src/core/planners/routeGeometry";
+import { applyRoute, routePlanningPath, routeTask, settleOptimizerWaypoints, stable } from "../src/core/planners/routeGeometry";
 import { activeAngularLimits } from "../src/core/planners/stationaryActions";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
@@ -356,21 +357,47 @@ describe("a file with a stored optimization (18)", () => {
     return project;
   };
 
+  it("moves a current legacy detour into editable waypoints before exporting", () => {
+    const { project, path, robot } = detour();
+    const candidate = searchRoute(path, robot).candidate!;
+    const { id, name, folderId, exportable, ...physical } = path;
+    const { planning, footprintPreset, ...physicalRobot } = planningRobotForPath(robot, path);
+    const legacyTask = { ...physical, waypoints: path.waypoints.map(({ prevC, nextC, linked, corner, ...waypoint }) => ({ ...waypoint, linked: true })) };
+    const accepted = { version: 2, inputKey: stable({
+      version: "route-selection/5", path: stable(legacyTask), robot: physicalRobot, field: project.field,
+    }), result: { routeGeometry: candidate.routeGeometry } };
+    const source = { ...project, schemaVersion: "1.2", paths: [{ ...path, optimization: { accepted } }] };
+    const decoded = decodeProjectFile(JSON.stringify(source));
+    const next = decoded.project.paths[0];
+    expect(decoded.migrated).toBe(true);
+    expect(next.optimizationNeedsReview).toBeUndefined();
+    expect(next.waypoints).toEqual(applyRoute(path, candidate.routeGeometry!).waypoints);
+    expect(buildBdxExport(decoded.project).paths[0].samples).toEqual(candidate.samples);
+
+    const stale = decodeProjectFile(JSON.stringify({ ...source, robot: { ...robot, maxSpeed: 1.1 } })).project.paths[0];
+    expect(stale.waypoints).toEqual(path.waypoints);
+    expect(stale.optimizationNeedsReview).toBeUndefined();
+  });
+
   it.each([
     ["a route result", { version: 2, inputKey: "k", samplesPerSegment: 56, result: { planner: "profiledSpline", samples: [], routeGeometry: { version: 1, knots: [] } } }],
     ["an earlier corridor result", { version: 1, inputKey: "k", samplesPerSegment: 56, result: { samples: "corrupt" } }],
     ["a result from the previous field frame", { version: 2, requiresFieldReview: true }],
     ["something unreadable", 7],
-  ])("opens with %s, drops it, and plans the drawn curve", (_label, accepted) => {
+  ])("opens with %s and requires review before exporting the drawn curve", (_label, accepted) => {
     const source = stored(accepted);
-    const { project } = decodeProjectFile(JSON.stringify(source));
+    const { project, migrated } = decodeProjectFile(JSON.stringify(source));
+    expect(migrated).toBe(true);
     expect(project.paths[0]).not.toHaveProperty("optimization");
     const drawn = createDemoProject();
     drawn.paths[0].waypoints = project.paths[0].waypoints;
     expect(pathTrajectory(project.paths[0], project.robot).samples).toEqual(pathTrajectory(drawn.paths[0], drawn.robot).samples);
-    expect(buildBdxExport(project).paths[0].samples).toEqual(pathTrajectory(drawn.paths[0], drawn.robot).samples);
+    expect(project.paths[0].optimizationNeedsReview).toBe(true);
+    expect(buildBdxExport.bind(null, project)).toThrow(/saved optimization needs review/i);
     const saved = encodeProjectFile(project).contents;
-    expect(saved).not.toContain("optimization");
+    expect(decodeProjectFile(saved).project.paths[0].optimizationNeedsReview).toBe(true);
+    delete project.paths[0].optimizationNeedsReview;
+    expect(buildBdxExport(project).paths[0].samples).toEqual(pathTrajectory(drawn.paths[0], drawn.robot).samples);
     expect(JSON.parse(projectDocuments(project).find((document) => document.key.startsWith("path:"))!.contents).version).toBe("2.0");
   });
 });

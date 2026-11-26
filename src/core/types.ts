@@ -519,6 +519,8 @@ export interface ConstraintRange {
 }
 
 export interface PathDoc {
+  /** The prior applied curve could not be brought forward. Review before exporting. */
+  optimizationNeedsReview?: true;
   id: string;
   name: string;
   waypoints: Waypoint[];

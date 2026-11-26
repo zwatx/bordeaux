@@ -21,7 +21,7 @@ const seedIssueCopy = (issue) => !issue ? 'The current curve doesn’t meet the 
 // `error` and `pending` describe the current path's own timing, never a search.
 // `searchStatus`/`searchReason` carry the route search envelope when the worker supplies it.
 export function OptimizationPanel({ path, paths, state, entry = null, candidate, applied, baselineTime, pending, error, recovery, mode,
-  searchStatus, searchReason, unitSystem, onStart, onStartAll, onCancel, onCompare, onApply, onSelectPath, onClose }) {
+  searchStatus, searchReason, unitSystem, onStart, onStartAll, onCancel, onCompare, onApply, onUseDrawnPath, onSelectPath, onClose }) {
   // The controller runs one job at a time; only its searching entry owns progress.
   const activePathId = state.running ? Object.keys(state.paths).find((id) => state.paths[id].status === 'searching') : null;
   const searchingCurrentPath = activePathId === path.id;
@@ -108,6 +108,9 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
       h('div', { className: 'optimizer-status', 'aria-busy': pending || searchingCurrentPath },
         h('p', { className: 'optimizer-outcome' + (newCandidate && !searchingCurrentPath && (improved || !normalReady) ? ' gain' : ''), role: 'status' }, outcome),
         (pending || searchingCurrentPath) && h('progress', { className: 'optimizer-progress', 'aria-label': searchingCurrentPath ? 'Optimizing path' : 'Preparing path' })),
+      path.optimizationNeedsReview && h('div', { className: 'optimizer-failure', role: 'status' },
+        h('p', null, 'This saved optimization couldn’t be carried forward. Apply a new result or confirm the drawn path before exporting.'),
+        h('button', { type: 'button', className: 'qbtn optimizer-recovery', onClick: onUseDrawnPath }, 'Use drawn path')),
       reason && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' }, reason),
       invalidSeed && !searchingCurrentPath && h('p', { className: 'optimizer-note optimizer-reason', 'aria-live': 'polite' },
         seedIssueCopy(search?.seedIssue), normalReady ? ' Its timing is shown for comparison only.' : ''),

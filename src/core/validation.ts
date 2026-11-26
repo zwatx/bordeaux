@@ -595,6 +595,9 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
       if (typeof path.name !== "string" || !path.name.trim()) issues.push(issue(`${base}.name`, "Path name is required"));
       if (path.folderId !== undefined && (typeof path.folderId !== "string" || !folderIds.has(path.folderId))) issues.push(issue(`${base}.folderId`, "Path folder does not exist"));
       if (path.driveBackward !== undefined && typeof path.driveBackward !== "boolean") issues.push(issue(`${base}.driveBackward`, "Drive backward must be true or false"));
+      if (path.optimizationNeedsReview !== undefined && path.optimizationNeedsReview !== true) {
+        issues.push(issue(`${base}.optimizationNeedsReview`, "Optimization review flag must be true"));
+      }
       if (path.exportable !== undefined && typeof path.exportable !== "boolean") issues.push(issue(`${base}.exportable`, "Exportable must be true or false"));
       if (path.headingMode !== undefined && !["manual", "tangent", "targets"].includes(String(path.headingMode))) issues.push(issue(`${base}.headingMode`, "Heading mode is invalid"));
       if (path.followMode !== undefined && !["time", "position"].includes(String(path.followMode))) issues.push(issue(`${base}.followMode`, "Follow mode must be time or position"));

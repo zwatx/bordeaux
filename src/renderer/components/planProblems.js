@@ -27,6 +27,7 @@ const BY_CODE = {
 
 // The way forward for a problem no zone or limit can fix.
 const ADVICE = {
+  'optimization-review': 'Open Optimize and apply a new result or choose Use drawn path before exporting.',
   'field-collision': 'Optimize again or edit the path so the robot clears it.',
 };
 

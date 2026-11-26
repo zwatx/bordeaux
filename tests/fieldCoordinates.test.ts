@@ -117,7 +117,7 @@ describe("fixed center-origin field", () => {
     expect(after).toBe(Math.PI);
   });
 
-  it.each([1, 2] as const)("drops a historical stored v%i optimization when it migrates the field frame", (version) => {
+  it.each([1, 2] as const)("requires review of a historical v%i optimization when it migrates the field frame", (version) => {
     const project = createDemoProject(), path = project.paths[0], routine = project.routines[0];
     project.robot = forceExportRobot();
     project.field = { ...BLUE_ORIGIN_FIELD_REFERENCE };
@@ -128,6 +128,9 @@ describe("fixed center-origin field", () => {
     const { project: migrated } = decodeProjectValue(project);
     expect(migrated.paths[0]).not.toHaveProperty("optimization");
     const reopened = decodeProjectValue(encodeProjectFile(migrated).project).project;
+    expect(reopened.paths[0].optimizationNeedsReview).toBe(true);
+    expect(() => buildBdxExport(reopened)).toThrow(/saved optimization needs review/i);
+    delete reopened.paths[0].optimizationNeedsReview;
     expect(buildBdxExport(reopened).field).toEqual(ACTIVE_FIELD_REFERENCE);
     const binary = bdxBindingsFromCatalog(null);
     const bindings = { binary, commands: {}, definitionJson: binary.definitionJson };

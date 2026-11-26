@@ -47,6 +47,7 @@ export type PlanIssueCode =
   | "look-at"
   | "jerk"
   | "field-collision"
+  | "optimization-review"
   | "planner";
 
 export interface PlanIssue {
@@ -848,7 +849,13 @@ function withFieldCollision(input: PlannerInput, result: PlanPathResult): PlanPa
  */
 export function planPath(input: PlannerInput, options: PlanPathOptions = {}): PlanPathResult {
   try {
-    return withFieldCollision(input, planPathUnchecked(input, options ?? {}));
+    const result = withFieldCollision(input, planPathUnchecked(input, options ?? {}));
+    if (!input.path.optimizationNeedsReview) return result;
+    return { ...result, issues: sortIssues([...result.issues, {
+      code: "optimization-review", severity: "warning", f0: 0, f1: 1,
+      message: "Saved optimization needs review",
+      detail: "Open Optimize and apply a new result or choose Use drawn path before exporting.",
+    }]) };
   } catch (error) {
     return {
       status: "infeasible",
