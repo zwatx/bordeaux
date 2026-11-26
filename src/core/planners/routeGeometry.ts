@@ -147,7 +147,6 @@ export function routeTask(path: PathDoc): { task: PathDoc; seed: RouteGeometry }
 export function routePlanningPath(task: PathDoc, geometry: RouteGeometry): PathDoc {
   const error = routeGeometryShapeError(geometry);
   if (error) throw new Error(error);
-  if (task.waypoints.some((waypoint) => waypoint.optimizerAdded)) throw new Error("A route task holds only required waypoints.");
   const indices = geometry.requiredPointIndices;
   if (indices.length !== task.waypoints.length) throw new Error("Route omitted a required point");
   const count = geometry.knots.length;
@@ -168,7 +167,11 @@ export function routePlanningPath(task: PathDoc, geometry: RouteGeometry): PathD
       if (lengths < 1e-12 || Math.abs(a.x * b.y - a.y * b.x) > lengths * 1e-7 || a.x * b.x + a.y * b.y <= 0) throw new Error("Moving route knots require aligned nonzero tangents");
     }
     const geometryOf = { x: knot.x, y: knot.y, prevC: clone(knot.prevC), nextC: clone(knot.nextC) };
-    if (required) return { ...clone(point), ...geometryOf, ...(moving ? { linked: true, corner: false } : {}) };
+    if (required) {
+      // A required waypoint is the user's, even one a malformed file flagged at an end.
+      const { optimizerAdded: _added, ...owned } = clone(point);
+      return { ...owned, ...geometryOf, ...(moving ? { linked: true, corner: false } : {}) };
+    }
     const law = { segmentHeadingMode: point.segmentHeadingMode, segmentFollowMode: point.segmentFollowMode, segmentLookAt: point.segmentLookAt && clone(point.segmentLookAt) };
     return { ...geometryOf, theta: 0, thetaOn: false, linked: true, stop: false, optimizerAdded: true,
       ...Object.fromEntries(Object.entries(law).filter(([, value]) => value !== undefined)) };
