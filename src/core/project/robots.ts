@@ -70,8 +70,10 @@ export function duplicateRobot(project: BordeauxProject, id: string): BordeauxPr
   return source ? addRobot(project, source.name, source) : project;
 }
 
+// This computer stores a push folder without its trailing slash, so the two spellings are one folder.
+const folder = (directory: string) => directory.replace(/\/+$/, "") || "/";
 const sameEndpoint = (a: RobotFileEndpoint | undefined, b: RobotFileEndpoint) =>
-  a?.target === b.target && a.host === b.host && a.port === b.port && a.directory === b.directory;
+  a?.target === b.target && a.host === b.host && a.port === b.port && folder(a.directory) === folder(b.directory);
 
 /**
  * Why Push must not use `active`, this computer's current robot connection, for the selected robot, or null when it

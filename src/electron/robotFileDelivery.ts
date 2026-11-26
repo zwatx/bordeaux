@@ -117,6 +117,8 @@ interface RobotFileTransport {
 export class RobotFileDelivery {
   private trusted: RobotFileConnection | null;
   private saved: RobotFileSettings | null;
+  /** True while the saved file may still name a robot that was cleared in memory. */
+  private unsavedClear = false;
   private observed: RobotFileConnection | null = null;
   private observedPassword: string | null = null;
   private observedNeedsLogin = false;
@@ -214,17 +216,19 @@ export class RobotFileDelivery {
    * invalid address also leaves nothing active, then throws.
    */
   async use(rawEndpoint: unknown): Promise<RobotFileSettings | null> {
-    if (rawEndpoint === null && !this.saved) return null;
+    if (rawEndpoint === null && !this.saved && !this.unsavedClear) return null;
     if (this.busy) throw new Error("Finish the current robot operation before switching robots");
     if (rawEndpoint === null) {
       this.generation++;
       this.observed = null; this.observedPassword = null; this.pending = null; this.compared = null;
       this.trusting = true;
+      // Nothing stays active in memory even when a write below fails; the saved file is cleared on the next try.
+      const trusted = this.trusted;
+      this.saved = null; this.trusted = null; this.unsavedClear = true;
       try {
-        if (this.trusted) await this.known.set(knownHostKey(this.trusted.endpoint), this.trusted.hostKeyFingerprint);
-        await this.commitPassword(null);
-        await this.persist(null);
-        this.saved = null; this.trusted = null;
+        try { if (trusted) await this.known.set(knownHostKey(trusted.endpoint), trusted.hostKeyFingerprint); }
+        finally { try { await this.commitPassword(null); } finally { await this.persist(null); } }
+        this.unsavedClear = false;
         return null;
       } finally { this.trusting = false; }
     }

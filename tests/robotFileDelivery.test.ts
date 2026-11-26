@@ -495,6 +495,16 @@ describe("project robot addresses", () => {
     await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
   });
 
+  it("leaves no robot active when saving the cleared connection fails, and saves it on the next try", async () => {
+    const { delivery, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    persist.mockRejectedValueOnce(new Error("disk full"));
+    await expect(delivery.use(null)).rejects.toThrow("disk full");
+    expect(delivery.current()).toBeNull();
+    expect(delivery.settings()).toBeNull();
+    expect(await delivery.use(null)).toBeNull();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
   it("clears the active robot for a project robot without an address, remembering the key it had", async () => {
     const { delivery, persist, passwords, transport } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
     await passwords.replace("team-secret");

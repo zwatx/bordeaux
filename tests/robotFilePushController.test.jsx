@@ -222,7 +222,7 @@ describe('SFTP file push controller', () => {
     expect(bridge.useRobotFileEndpoint).toHaveBeenCalledTimes(1);
     bridge.getRobotFileConnection.mockResolvedValueOnce(null);
     switching.reject(new Error('Robot path directory is outside the allowed folders')); await first;
-    expect(render()).toMatchObject({ busy: false, connection: null, pairing: null, error: 'Robot path directory is outside the allowed folders' });
+    expect(render()).toMatchObject({ busy: false, connection: null, pairing: null, host: '', port: '22', error: 'Robot path directory is outside the allowed folders' });
   });
   it('refuses a push when the selected robot has another address than the active connection', async () => {
     const listed = (robotConnection) => ({ ...project, activeRobotId: 'practice', robots: [{ id: 'practice', name: 'Practice bot', ...(robotConnection ? { connection: robotConnection } : {}) }] });

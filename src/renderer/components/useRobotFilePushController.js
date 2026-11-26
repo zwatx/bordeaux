@@ -283,23 +283,17 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const request = ++generation.current;
     intent.current = null;
     update({ ...emptyReview, phase: 'saving', error: '' });
-    try {
-      const settings = await api.useRobotFileEndpoint(endpoint);
-      if (request !== generation.current) return;
-      const connection = settings?.hostKeyFingerprint ? settings : null;
-      trusted.current = connection;
-      // A robot without an address starts an empty form for its own address, keeping the robot type last chosen.
-      if (settings) { setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory); }
-      else { setHost(''); setPort('22'); setDirectory(ROBOT_TARGETS[state.current.settings?.endpoint.target ?? target].defaultDirectory); }
-      update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected });
-      void refreshPassword();
-    } catch (error) {
-      const settings = await api.getRobotFileConnection().catch(() => null);
-      if (request !== generation.current) return;
-      const connection = settings?.hostKeyFingerprint ? settings : null;
-      trusted.current = connection;
-      update({ settings, connection, editing: false, probe: null, phase: 'idle', error: message(error), ...disconnected });
-    }
+    let settings, error = '';
+    try { settings = await api.useRobotFileEndpoint(endpoint); }
+    catch (failure) { error = message(failure); settings = await api.getRobotFileConnection().catch(() => null); }
+    if (request !== generation.current) return;
+    const connection = settings?.hostKeyFingerprint ? settings : null;
+    trusted.current = connection;
+    // A robot without an active address starts an empty form for its own address, keeping the robot type last chosen.
+    if (settings) { setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory); }
+    else { setHost(''); setPort('22'); setDirectory(ROBOT_TARGETS[state.current.settings?.endpoint.target ?? target].defaultDirectory); }
+    update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', error, ...disconnected });
+    void refreshPassword();
   };
   const acceptPairing = async (probe, request) => {
     update({ phase: 'trusting', error: '' });

@@ -234,6 +234,7 @@ describe("project robots", () => {
     const listed = setRobotConnection(twoRobots(), practice);
     expect(pushConnectionProblem(listed, practice)).toBeNull();
     expect(pushConnectionProblem(listed, { ...practice })).toBeNull();
+    expect(pushConnectionProblem(setRobotConnection(listed, { ...practice, directory: practice.directory + "/" }), practice)).toBeNull();
     expect(pushConnectionProblem(listed, comp)).toMatch(/Practice bot/);
     expect(pushConnectionProblem(listed, { ...practice, directory: "/home/systemcore/other" })).toMatch(/Practice bot/);
     expect(pushConnectionProblem(listed, null)).toMatch(/Practice bot/);
