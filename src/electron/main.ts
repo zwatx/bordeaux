@@ -388,9 +388,6 @@ function createAppUpdateController(): AppUpdateController {
   const packaged = app.isPackaged;
   if (packaged && supported) {
     updateClient.setFeedURL({ provider: "custom", updateProvider: GitHubReleaseProvider });
-    // API asset URLs do not expose sibling blockmap paths. Full downloads retain
-    // the manifest checksum and native installer signature verification.
-    updateClient.disableDifferentialDownload = true;
   }
   return new AppUpdateController(packaged && supported ? updateClient : null, {
     packaged,

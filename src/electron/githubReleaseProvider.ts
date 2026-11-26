@@ -3,12 +3,13 @@ import { Provider, getFileList, parseUpdateInfo, type ProviderRuntimeOptions } f
 import { valid, prerelease, rcompare } from "semver";
 
 const RELEASES_API = "https://api.github.com/repos/zwatx/bordeaux/releases";
+const RELEASE_DOWNLOADS = "https://github.com/zwatx/bordeaux/releases/download";
 const JSON_HEADERS = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
 const ASSET_HEADERS = { Accept: "application/octet-stream", "X-GitHub-Api-Version": "2022-11-28" };
 type UpdateInfo = ReturnType<typeof parseUpdateInfo>;
 type Asset = { name: string; url: string };
 type Release = { tag_name: string; draft: boolean; prerelease: boolean; assets: Asset[]; body?: string; name?: string };
-type ReleaseUpdateInfo = UpdateInfo & { assets: Asset[] };
+type ReleaseUpdateInfo = UpdateInfo & { tag: string; assets: Asset[] };
 
 function assetUrl(asset: Asset): URL {
   const url = new URL(asset.url);
@@ -19,7 +20,12 @@ function assetUrl(asset: Asset): URL {
   return url;
 }
 
-/** Public GitHub API transport; installation and signature/checksum checks stay in electron-updater. */
+/**
+ * Public GitHub API transport; installation and signature/checksum checks stay in electron-updater.
+ * Installers download from the public release URL, not the API asset URL: electron-updater finds the
+ * previous release's blockmap by swapping the version in that path, and its range requests do not
+ * spend the API rate limit. That lets an update fetch only the changed blocks.
+ */
 export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
   constructor(
     private readonly options: { provider?: "custom"; channel?: string },
@@ -28,8 +34,6 @@ export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
   ) {
     super({ ...platformOptions, isUseMultipleRangeRequest: false });
   }
-
-  override get fileExtraDownloadHeaders() { return ASSET_HEADERS; }
 
   async getLatestVersion(): Promise<ReleaseUpdateInfo> {
     const channel = this.updater.channel ?? this.options.channel ?? (this.updater.allowPrerelease ? "beta" : "latest");
@@ -63,6 +67,7 @@ export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
     if (!info || valid(info.version) !== valid(release.tag_name)) throw new Error("Update manifest version does not match its release tag.");
     const result = {
       ...info,
+      tag: release.tag_name,
       releaseNotes: info.releaseNotes ?? release.body,
       releaseName: info.releaseName ?? release.name ?? release.tag_name,
       assets: release.assets,
@@ -84,7 +89,7 @@ export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
       }
       const asset = info.assets.find(item => item.name === file.url);
       if (!asset) throw new Error(`Release is missing update artifact ${file.url}.`);
-      return { url: assetUrl(asset), info: file };
+      return { url: new URL(`${RELEASE_DOWNLOADS}/${encodeURIComponent(info.tag)}/${encodeURIComponent(asset.name)}`), info: file };
     });
   }
 }
