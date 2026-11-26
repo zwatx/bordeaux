@@ -11,6 +11,21 @@ export interface ControlPoint {
   y: number;
 }
 
+/** A camera on the robot: what it can see, and where it is mounted. See src/core/robotCameras.ts. */
+export interface RobotCamera {
+  id: string;
+  name: string;
+  /** Full horizontal and vertical angles of view, degrees. */
+  horizontalFovDeg: number;
+  verticalFovDeg: number;
+  /** Lens position in robot-local meters: +X forward and +Y left of the robot center, Z above the floor. */
+  positionM: { x: number; y: number; z: number };
+  /** Direction the lens faces: 0 is the robot front, positive turns left (counterclockwise from above). */
+  yawDeg: number;
+  /** Tilt of the lens: 0 is level, positive looks up. */
+  pitchDeg: number;
+}
+
 export interface RobotConfig {
   drive: DriveType;
   w: number;
@@ -32,6 +47,8 @@ export interface RobotConfig {
     | { kind: "custom" };
   /** Optional strategy-facing mechanism details used only by agent-assisted planning. */
   planning?: RobotPlanningProfile;
+  /** Cameras on this robot. Omitted when it has none. They never change a plan. */
+  cameras?: RobotCamera[];
   /** Optional drivetrain inputs used to derive the free chassis speed. */
   driveModel?: {
     motorId: string;

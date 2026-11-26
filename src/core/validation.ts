@@ -7,6 +7,7 @@ import { routineGroupChildError } from "./routineChildren";
 import { isRobotTargetId } from "./robotTargets";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
 import { MAX_COMMAND_LOADS } from "./commandLoads";
+import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES } from "./robotCameras";
 
 type RecordValue = Record<string, unknown>;
 
@@ -115,6 +116,41 @@ function validateRobotFootprint(issues: ValidationIssue[], robot: RecordValue, b
   const maxY = Math.max(...points.map((point) => point.y));
   if (finite(robot.l) && maxX - minX > robot.l + 1e-6) issues.push(issue(`${path}.verticesM`, "Robot footprint forward extent cannot exceed robot length"));
   if (finite(robot.w) && maxY - minY > robot.w + 1e-6) issues.push(issue(`${path}.verticesM`, "Robot footprint lateral extent cannot exceed robot width"));
+}
+
+/** A robot's cameras: a list of 1 to `CAMERA_LIMIT`, each with its own id and name and numbers inside `CAMERA_RANGES`. */
+function validateRobotCameras(issues: ValidationIssue[], robot: RecordValue, base: string): void {
+  if (robot.cameras === undefined) return;
+  const path = `${base}.cameras`;
+  if (!Array.isArray(robot.cameras) || !robot.cameras.length || robot.cameras.length > CAMERA_LIMIT) {
+    issues.push(issue(path, `Cameras must be a list of 1 to ${CAMERA_LIMIT} cameras`));
+    return;
+  }
+  const within = (value: unknown, range: { min: number; max: number }, at: string, label: string, exclusive = false) => {
+    if (!finite(value) || (exclusive ? value <= range.min || value >= range.max : value < range.min || value > range.max)) {
+      issues.push(issue(at, `${label} must be ${exclusive ? "between" : "from"} ${range.min} ${exclusive ? "and" : "to"} ${range.max}`));
+    }
+  };
+  const ids = new Set<string>(), names = new Set<string>();
+  robot.cameras.forEach((camera: unknown, index: number) => {
+    const at = `${path}[${index}]`;
+    if (!isRecord(camera)) { issues.push(issue(at, "Camera must be an object")); return; }
+    if (typeof camera.id !== "string" || !camera.id.trim() || ids.has(camera.id)) issues.push(issue(`${at}.id`, "Camera id must be unique"));
+    else ids.add(camera.id);
+    const name = typeof camera.name === "string" ? camera.name.trim().toLowerCase() : "";
+    if (!name || name.length > CAMERA_NAME_MAX || names.has(name)) issues.push(issue(`${at}.name`, `Camera name must be unique and 1 to ${CAMERA_NAME_MAX} characters`));
+    else names.add(name);
+    within(camera.horizontalFovDeg, CAMERA_RANGES.fovDeg, `${at}.horizontalFovDeg`, "Camera horizontal field of view", true);
+    within(camera.verticalFovDeg, CAMERA_RANGES.fovDeg, `${at}.verticalFovDeg`, "Camera vertical field of view", true);
+    if (!isRecord(camera.positionM)) issues.push(issue(`${at}.positionM`, "Camera position is required"));
+    else {
+      within(camera.positionM.x, CAMERA_RANGES.offsetM, `${at}.positionM.x`, "Camera forward offset");
+      within(camera.positionM.y, CAMERA_RANGES.offsetM, `${at}.positionM.y`, "Camera left offset");
+      within(camera.positionM.z, CAMERA_RANGES.heightM, `${at}.positionM.z`, "Camera height");
+    }
+    within(camera.yawDeg, CAMERA_RANGES.yawDeg, `${at}.yawDeg`, "Camera yaw");
+    within(camera.pitchDeg, CAMERA_RANGES.pitchDeg, `${at}.pitchDeg`, "Camera pitch");
+  });
 }
 
 function validateRobotPlanning(issues: ValidationIssue[], robot: RecordValue, base: string): void {
@@ -524,6 +560,7 @@ function validateRobotConfig(issues: ValidationIssue[], robot: unknown, base: st
     }
   }
   validateRobotFootprint(issues, robot, base);
+  validateRobotCameras(issues, robot, base);
   validateRobotPlanning(issues, robot, base);
 }
 
