@@ -73,7 +73,8 @@ type Link = { fromPathId: string; toPathId: string };
 type LibraryPath = { id: string; name?: string; folderId?: string; waypoints?: { positionLink?: string }[] };
 type Folder = { id: string };
 type LinkedProject = { paths: LibraryPath[]; pathLinks?: Link[] | null };
-type Project = LinkedProject & { pathFolders?: Folder[] | null; robot: { planning?: unknown } };
+type Routines = { routines?: readonly { id: string }[]; activeRoutineId?: string };
+type Project = LinkedProject & Routines & { pathFolders?: Folder[] | null; robot: { planning?: unknown } };
 type FolderProject = { paths: LibraryPath[]; pathFolders?: Folder[] | null };
 
 /** The paths and every path whose waypoints move with them through endpoint or shared-position links. */
@@ -148,6 +149,8 @@ export type ProjectChange = {
   paths: { id: string; index: number; path: LibraryPath | null }[];
   links: { restore: Link[]; remove: Link[] } | null;
   planning?: { before: unknown; after: unknown };
+  /** The routine library before a change that also made routines, such as flipping a routine. */
+  routines?: Routines;
   activePathId: string | null;
 };
 
@@ -161,6 +164,7 @@ export function captureProjectChange(before: Project, after: Project, activePath
   const pathIds = [...new Set([...before.paths, ...after.paths].map((path) => path.id))].filter((id) => find(before, id) !== find(after, id));
   const restore = missingLinks(before.pathLinks, after.pathLinks), remove = missingLinks(after.pathLinks, before.pathLinks);
   const planning = before.robot.planning !== after.robot.planning;
+  const routines = before.routines !== after.routines || before.activeRoutineId !== after.activeRoutineId;
   const seeds = [...pathIds, ...[...restore, ...remove].flatMap((link) => [link.fromPathId, link.toPathId])];
   const touched = new Set([...linkedPathIds(before, seeds), ...linkedPathIds(after, seeds)]);
   const change: ProjectChange = {
@@ -170,9 +174,10 @@ export function captureProjectChange(before: Project, after: Project, activePath
     }),
     links: restore.length || remove.length ? { restore, remove } : null,
     ...(planning ? { planning: { before: before.robot.planning, after: after.robot.planning } } : {}),
+    ...(routines ? { routines: { routines: before.routines, activeRoutineId: before.activeRoutineId } } : {}),
     activePathId,
   };
-  return { touches: [...[...touched].map(pathScope), ...(planning ? ["robot.planning"] : [])], change };
+  return { touches: [...[...touched].map(pathScope), ...(planning ? ["robot.planning"] : []), ...(routines ? [ROUTINE_SCOPE] : [])], change };
 }
 
 const withFolder = <P extends { folderId?: string }>(path: P, folderId: string | undefined): P => {
@@ -212,7 +217,9 @@ export function restoreProjectChange<T extends Project>(project: T, change: Proj
     pathLinks = links;
   }
   const planning = change.planning ? revertPlanning(project.robot.planning, change.planning) : project.robot.planning;
-  return { ...project, paths, pathLinks, robot: planning === project.robot.planning ? project.robot : { ...project.robot, planning } };
+  // Routine edits made since are their own entries, undone first or blocking this one, so the library restores whole,
+  // with its chosen routine, as a routine library entry does.
+  return { ...project, paths, pathLinks, robot: planning === project.robot.planning ? project.robot : { ...project.robot, planning }, ...change.routines };
 }
 
 export type FolderChange = { folder: Folder; index: number; memberIds: string[] };

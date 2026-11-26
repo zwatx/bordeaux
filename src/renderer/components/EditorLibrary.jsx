@@ -4,6 +4,7 @@ import { UI } from './ui';
 import { AUTO } from '../lib/routineModel';
 import { selectedPathIds } from '../hooks/usePushSelection';
 import { moveFolder, movePaths } from '../lib/libraryOrder';
+import { routineFlipSummary } from '../lib/routineFlip';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
 import { routineSummary } from '../lib/routineSummary';
 
@@ -481,6 +482,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
     focusRow(origin);
   };
   const moveLabel = several ? 'Move ' + menuTargets.length + ' paths to' : 'Move to';
+  const flippable = menu?.kind === 'routine' && menuItem ? routineFlipSummary(project, menuItem).paths.length > 0 : false;
   return h('div', { ref: root, className: 'editor-library' + (drag ? ' dragging' : ''), style: drag ? { '--drag-gap': drag.box.height + 'px' } : undefined, onKeyDown: (event) => {
     if (event.target.closest('dialog')) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && pathsMode && !event.target.matches('input')) { event.preventDefault(); selection.set(displayed.map((item) => item.id)); }
@@ -530,6 +532,9 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
       menu.kind !== 'folder' && h('hr'),
       menuButton('Rename', () => rename(menu.kind, menuItem)),
       menu.kind !== 'folder' && menuButton('Duplicate', () => create(menu.kind, () => pathsMode ? actions.duplicatePath(menuItem.id) : actions.duplicateRoutine(menuItem.id))),
+      // Opens the Flip routine dialog; focus goes back to the row's trigger first so the dialog returns it there.
+      menu.kind === 'routine' && menuButton('Flip…', () => { closeMenu(true); actions.flipRoutine(menuItem.id); }, {
+        disabled: !flippable, title: flippable ? 'A flipped copy of this routine and its paths' : 'Add a path step first' }),
       // A new path that starts where this one ends, with the two ends linked.
       menu.kind === 'path' && menuButton('New path from its end', () => create('path', () => actions.appendPath(menuItem.id)), {
         disabled: !menuItem.waypoints.length, title: !menuItem.waypoints.length ? 'Place a waypoint first' : 'Starts where this path ends; the two ends stay linked' }),
