@@ -84,8 +84,9 @@
 .rp-cam-stage{position:relative;overflow:hidden;border-bottom:1px solid var(--line);border-radius:var(--r-l) var(--r-l) 0 0;background:radial-gradient(120% 90% at 50% 40%,var(--bg-1),var(--bg) 70%)}
 .rp-cam-stage svg{display:block;width:100%;height:auto;cursor:grab;touch-action:none;user-select:none}
 .rp-cam-stage svg:active{cursor:grabbing}
-/* The view shows no focus ring: its controls sit inside it, and a ring around the whole drawing reads as an error. */
-.rp-cam-stage svg:focus-visible{outline:none!important}
+/* The view shows no focus ring: its controls sit inside it, and a ring around the whole drawing reads as an error.
+   Plain :focus is named too, because Safari rings a clicked SVG that does not match :focus-visible. */
+.rp-cam-stage svg:is(:focus,:focus-visible){outline:none!important}
 .rp-cam-picks,.rp-cam-views,.rp-cam-tip,.rp-cam-zoom{position:absolute}
 .rp-cam-picks{top:10px;left:10px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 210px)}
 .rp-cam-pick{max-width:160px;height:28px;padding:0 10px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--txt-2);font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
