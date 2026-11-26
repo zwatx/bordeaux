@@ -4,6 +4,7 @@ import { pathTrajectory } from "../planners/pathTrajectory";
 import { applyRoute, stable } from "../planners/routeGeometry";
 import { routeSafetyIssue } from "../planners/routeSafety";
 import type { BordeauxProject, PathDoc, RouteGeometry, Waypoint } from "../types";
+import { validateProjectSource } from "../validation";
 import { normalizeWaypoints } from "./normalize";
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -67,5 +68,10 @@ export function migrateLegacyOptimizations(project: BordeauxProject, source: unk
     const accepted = record(settings.accepted);
     return accepted ? migratePath(path, accepted, settings, project, fieldChanged) : { ...path, optimizationNeedsReview: true as const };
   });
-  return migrated ? { ...project, paths } : project;
+  if (!migrated) return project;
+  const next = { ...project, paths };
+  if (validateProjectSource(next).ok) return next;
+  // Keep the valid drawn project open if a conversion produced invalid source.
+  return { ...project, paths: project.paths.map((path, index) =>
+    path === paths[index] ? path : { ...path, optimizationNeedsReview: true }) };
 }
