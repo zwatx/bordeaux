@@ -123,12 +123,13 @@ async function noJobsSince(mark) {
   assert.deepEqual(jobs, [], `${mark.label}: opening/reopening must issue zero additional planning jobs`);
   check(mark.label);
 }
-async function strictEditing(pathId, accepted, displayed, artifact) {
-  const evidence = await waitFor(() => evaluate((pathId, accepted) => {
+/** The latest editing plan of a path, which must be the time on screen. Every path plans its own waypoints. */
+async function strictEditing(pathId, displayed) {
+  const evidence = await waitFor(() => evaluate((pathId, time) => {
     const result = window.__optimizerWorkers.latestEditing(pathId);
     return result?.value?.status === 'ok' && result.value.comparison?.status === 'ready'
-      && result.value.acceptedTrajectory === accepted ? result : null;
-  }, pathId, accepted), 'the complete strict editing projection');
+      && result.value.trajectory?.totalTimeS === time ? result : null;
+  }, pathId, Number(displayed.time)), 'the complete strict editing projection');
   assert.equal(evidence.job.quality, 'final');
   assert.equal(evidence.job.density, 56);
   assert.equal(evidence.value.comparison.previewDensity, 56);
@@ -136,10 +137,6 @@ async function strictEditing(pathId, accepted, displayed, artifact) {
   assert.equal(evidence.value.trajectory.totalTimeS, Number(displayed.time));
   assert.deepEqual(evidence.value.derived.finalTrajectory, evidence.value.trajectory, 'Projection must preserve the full strict trajectory');
   assert.deepEqual(evidence.value.derived.trajectorySamples, evidence.value.bestEffort.samples);
-  if (artifact) {
-    assert.equal(evidence.job.acceptedDensity, artifact.samplesPerSegment);
-    assert.deepEqual(evidence.value.trajectory, artifact.result, 'Editing must preserve every accepted sample and action field');
-  }
   await fs.writeFile(path.join(output, `editing-${documentNumber}-${evidence.job.sequence}.json`), JSON.stringify(evidence, null, 2));
   return evidence;
 }
@@ -200,13 +197,13 @@ async function switchPath(name) {
   await waitFor(async () => (await snapshot()).path === name, 'the selected path');
   await ready();
 }
-async function finishSearch() {
+async function finishSearch(apply = 'Apply same shape') {
   await waitFor(() => evaluate(() => [...document.querySelectorAll('.optimizer-panel button')]
     .some((item) => item.textContent === 'Cancel')), 'the explicit search to start');
   await waitFor(() => evaluate(() => ![...document.querySelectorAll('.optimizer-panel button')]
     .some((item) => item.textContent === 'Cancel')), 'the explicit search to finish', 12_000);
-  await waitFor(() => evaluate(() => [...document.querySelectorAll('.optimizer-panel button')]
-    .some((item) => item.textContent === 'Apply same shape')), 'an improved candidate', 2000);
+  await waitFor(() => evaluate((apply) => [...document.querySelectorAll('.optimizer-panel button')]
+    .some((item) => item.textContent === apply), apply), 'an improved candidate', 2000);
 }
 async function openSettings() {
   if (!await evaluate(() => document.querySelector('.optimizer-settings')?.open)) {
@@ -235,11 +232,66 @@ async function assertCompactResult() {
   assert.equal(state.freedomPresent, false, 'Route optimization must not expose a seed-deviation setting');
   assert.ok(state.text.trim().split(/\s+/).length <= 45, `Result panel must stay concise: ${state.text}`);
   assert.ok(!state.text.includes('Limited by'), 'Detailed physics must be hidden by default');
-  assert.deepEqual(state.rows, ['Preview normal trajectory', 'Preview same shape trajectory']);
+  assert.deepEqual(state.rows, ['Preview current path trajectory', 'Preview same shape trajectory']);
   assert.equal(state.width, 320, 'The result inspector must match the fixed inspector width');
 }
 
 function check(name) { checks.push(name); console.log(`PASS ${name}`); }
+
+/** Ctrl+Z (Cmd+Z on macOS), or Ctrl+Shift+Z to redo. */
+async function history(redo) {
+  await focusEditor();
+  const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(redo ? ['shift'] : [])];
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Z', modifiers });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Z', modifiers });
+}
+/** Field positions, in SVG units, of the selected path's zone ends and command markers. */
+async function placements() {
+  return evaluate(() => {
+    const at = (selector) => [...document.querySelectorAll(selector)].map((element) => {
+      const match = element.closest('g[transform]').getAttribute('transform').match(/translate\(([-\d.e]+) ([-\d.e]+)\)/);
+      return [Number(match[1]), Number(match[2])];
+    });
+    return { zones: [...at('circle[data-role="rs"]:first-child'), ...at('circle[data-role="re"]:first-child')], markers: at('rect[data-role="em"]') };
+  });
+}
+function samePlaces(first, second, label) {
+  for (const key of ['zones', 'markers']) {
+    assert.equal(first[key].length, second[key].length, `${label}: ${key} count`);
+    first[key].forEach((point, index) => assert.ok(Math.hypot(point[0] - second[key][index][0], point[1] - second[key][index][1]) < 0.5,
+      `${label}: ${key} ${index} moved from ${point} to ${second[key][index]}`));
+  }
+}
+/** Types a value into the selected waypoint's X or Y field in the docked properties, committing with Tab. */
+async function setWaypointCoordinate(axis, value) {
+  const selector = await evaluate((axis) => {
+    const label = [...document.querySelectorAll('.pp label')].find(item => item.textContent === axis);
+    if (!label?.control) throw new Error('Waypoint ' + axis + ' input missing');
+    return '.pp input[id=' + JSON.stringify(label.htmlFor) + ']';
+  }, axis);
+  await click(selector);
+  await evaluate(selector => document.querySelector(selector).select(), selector);
+  await focusEditor();
+  await window.webContents.insertText(String(value));
+  await waitFor(() => evaluate((selector, value) => document.querySelector(selector)?.value === value, selector, String(value)), `the ${axis} draft`);
+  await focusEditor();
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+  await waitFor(() => evaluate(selector => document.activeElement !== document.querySelector(selector), selector), `the ${axis} edit to commit`);
+}
+/** Types a value into a labelled Robot page number and commits it with Tab. */
+async function setRobotNumber(label, value) {
+  const selector = `input[aria-label="${label}"]`;
+  await click(selector);
+  await evaluate((selector) => document.querySelector(selector).select(), selector);
+  await focusEditor();
+  await window.webContents.insertText(String(value));
+  await focusEditor();
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+  await waitFor(() => evaluate((selector) => document.activeElement !== document.querySelector(selector), selector), `${label} to commit`);
+}
+const added = (project, index) => project.paths[index].waypoints.map((waypoint) => Boolean(waypoint.optimizerAdded));
 
 app.whenReady().then(async () => {
   window = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
@@ -316,7 +368,7 @@ app.whenReady().then(async () => {
     await click('.app-settings-close');
     await ready();
     const normal = await snapshot();
-    const normalEvidence = await strictEditing(fixture.paths[0].id, false, normal);
+    await strictEditing(fixture.paths[0].id, normal);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       window.setContentSize(width, height);
       await delay(250);
@@ -430,8 +482,8 @@ app.whenReady().then(async () => {
     await captureMinimum('optimizer-result-1100x720.png');
     await stable(normal, 1800, 'Unapplied candidate');
     let project = await save();
-    assert.equal(project.paths[0].optimization?.accepted, undefined);
-    check('search completion leaves selected timing and geometry unchanged');
+    assert.deepEqual(project.paths[0].waypoints, fixture.paths[0].waypoints, 'A finished search leaves the path as it is');
+    check('search completion leaves the path, its timing and geometry unchanged');
     await click('button[aria-label="Preview same shape trajectory"]');
     const candidate = await snapshot();
     assert.ok(Number(candidate.time) < Number(normal.time), 'Candidate comparison must display faster timing');
@@ -443,81 +495,58 @@ app.whenReady().then(async () => {
     await stable(normal, 350, 'Reopening the candidate');
     await click('button[aria-label="Preview same shape trajectory"]');
     await stable(candidate, 250, 'Reopened candidate comparison');
-    check('closing comparison restores selected timing and reopening keeps the result without rerunning');
+    check('closing comparison restores the current path and reopening keeps the result without rerunning');
     const expectedGain = Number(normal.time) - Number(candidate.time);
     const expectedGainLabel = `${expectedGain.toFixed(2)} s faster, ${(expectedGain / Number(normal.time) * 100).toFixed(1)}%`;
-    await waitFor(async () => (await snapshot()).status === expectedGainLabel, 'gain and percentage against the actual normal trajectory');
-    await evaluate(() => {
-      const heading = document.querySelector('.optimizer-outcome[role="status"]');
-      const labels = [heading.textContent];
-      const observer = new MutationObserver(() => labels.push(heading.textContent));
-      observer.observe(heading, { childList: true, subtree: true, characterData: true });
-      window.__optimizerGainProbe = { labels, stop: () => observer.disconnect() };
-    });
+    await waitFor(async () => (await snapshot()).status === expectedGainLabel, 'gain and percentage against the current path');
+    check('gain and percentage compare the result with the current path');
     const toolbarBeforeApply = await evaluate(() => [...document.querySelectorAll('.toolbar .tb-actions button, .toolbar > .keyboard-help-trigger')].map((button) => {
       const box = button.getBoundingClientRect();
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     }));
-    const applyJobs = await markJobs('Apply retains the authored Normal reference');
+    const applyJobs = await markJobs('Apply replans only the edited path, once');
     await click('.optimizer-panel button', 'Apply same shape');
-    await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the applied selection');
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the path to take the applied curve');
+    await ready();
     const toolbarAfterApply = await evaluate(() => [...document.querySelectorAll('.toolbar .tb-actions button, .toolbar > .keyboard-help-trigger')].map((button) => {
       const box = button.getBoundingClientRect();
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     }));
-    assert.deepEqual(toolbarAfterApply, toolbarBeforeApply, 'Applying optimization must not shift the help or toolbar buttons when its label changes');
-    check('Optimize to Optimized preserves toolbar geometry');
+    assert.deepEqual(toolbarAfterApply, toolbarBeforeApply, 'Applying must not move the toolbar');
+    assert.equal(await evaluate(() => document.querySelector('.optimizer-toggle')?.textContent), 'Optimize');
+    check('Apply leaves the toolbar as it was');
     const applied = await snapshot();
-    assert.equal(applied.time, candidate.time);
-    assert.equal(applied.geometry, candidate.geometry);
+    assert.equal(applied.time, candidate.time, 'The path plans exactly the previewed time');
+    assert.equal(applied.geometry, candidate.geometry, 'The path draws exactly the previewed curve');
     project = await save();
-    const accepted = project.paths[0].optimization.accepted;
-    assert.equal(accepted.version, 2, 'New Apply must select the waypoint-route contract');
-    assert.ok(accepted?.result?.samples?.length > 0, 'Apply must persist the actual accepted artifact');
-    assert.equal(Number(applied.time), accepted.result.totalTimeS, 'Displayed time must match the saved trajectory exactly');
-    await stable(applied, 6500, 'Applied candidate');
-    await strictEditing(fixture.paths[0].id, true, applied, accepted);
+    assert.equal(project.paths[0].optimization, undefined, 'Apply stores no separate result');
+    assert.equal(project.paths[0].waypoints.length, fixture.paths[0].waypoints.length, 'A same-shape result adds no waypoints');
+    assert.notDeepEqual(project.paths[0].waypoints, fixture.paths[0].waypoints, 'Apply writes the new handles into the path');
+    project.paths[0].waypoints.forEach((waypoint, index) => assert.deepEqual([waypoint.x, waypoint.y], [fixture.paths[0].waypoints[index].x, fixture.paths[0].waypoints[index].y]));
+    const appliedWaypoints = project.paths[0].waypoints;
+    await stable(applied, 2500, 'Applied path');
+    const appliedEvidence = await strictEditing(fixture.paths[0].id, applied);
     const appliedJobs = await jobsSince(applyJobs);
     const selectedJobs = appliedJobs.filter(job => job.pathId === fixture.paths[0].id);
-    assert.equal(selectedJobs.filter(job => job.mode === 'editing' && job.acceptedIdentity !== null).length, 1, 'Apply requires one current accepted editing request');
-    assert.equal(selectedJobs.filter(job => job.mode !== 'editing' && !job.optimize).length, 0, 'Apply must retain Normal without another selected or authored reference request');
+    assert.equal(selectedJobs.filter(job => job.mode === 'editing').length, 1, 'Apply plans the edited path once');
+    assert.equal(selectedJobs.filter(job => job.mode !== 'editing' && !job.optimize).length, 0, 'Apply needs no second plan for comparison');
     workerEvidence.checkpoints.push({ ...applyJobs, jobs: appliedJobs, passed: true });
     check(applyJobs.label);
-    const gainLabels = await evaluate(() => {
-      const probe = window.__optimizerGainProbe;
-      probe.stop();
-      delete window.__optimizerGainProbe;
-      return probe.labels;
-    });
-    assert.ok(gainLabels.every((label) => label === expectedGainLabel), `Displayed gain changed while applying: ${JSON.stringify(gainLabels)}`);
-    check('gain and percentage match actual normal timing and stay stable while applying');
-    check('compare/apply selects and persists the exact candidate beyond the worker deadline');
-    await click('button[aria-label="Preview normal trajectory"]');
-    await stable(normal, 250, 'Retained authored Normal after Apply');
-    await click('button[aria-label="Preview optimized trajectory"]');
+    await capture('optimizer-applied.png');
+    await captureMinimum('optimizer-applied-1100x720.png');
+    check('Apply writes the previewed curve into the path, which plans exactly the previewed time');
     await click('button[title="Close optimization"]');
-    const historyJobs = await markJobs('Undo and Redo preserve the same authored Normal reference');
     for (const redo of [false, true]) {
-      await focusEditor();
-      const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(redo ? ['shift'] : [])];
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Z', modifiers });
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Z', modifiers });
-      await waitFor(() => evaluate((accepted) => document.querySelector('.optimizer-toggle')?.textContent === (accepted ? 'Optimized' : 'Optimize'), redo), redo ? 'Redo Apply' : 'Undo Apply');
+      await history(redo);
+      await waitFor(async () => (await snapshot()).geometry === (redo ? applied : normal).geometry, redo ? 'Redo Apply' : 'Undo Apply');
       await ready();
-      await stable(redo ? applied : normal, 250, redo ? 'Redo selected trace' : 'Undo selected trace');
-      const historyProject = await save();
-      if (redo) assert.deepEqual(historyProject.paths[0].optimization.accepted, accepted);
-      else assert.equal(historyProject.paths[0].optimization?.accepted, undefined);
-      await strictEditing(fixture.paths[0].id, redo, redo ? applied : normal, redo ? accepted : null);
+      await stable(redo ? applied : normal, 250, redo ? 'Redo' : 'Undo');
+      const saved = await save();
+      assert.deepEqual(saved.paths[0].waypoints, redo ? appliedWaypoints : fixture.paths[0].waypoints);
+      await strictEditing(fixture.paths[0].id, redo ? applied : normal);
     }
+    check('Undo restores the drawn curve and Redo applies it again, as one step each');
     await click('.optimizer-toggle');
-    await click('button[aria-label="Preview normal trajectory"]');
-    await stable(normal, 250, 'Authored Normal after Undo/Redo');
-    await click('button[aria-label="Preview optimized trajectory"]');
-    const historyRequests = await jobsSince(historyJobs);
-    assert.equal(historyRequests.filter(job => job.pathId === fixture.paths[0].id && job.mode !== 'editing' && !job.optimize).length, 0, 'History must reuse Normal at an unchanged physical key');
-    workerEvidence.checkpoints.push({ ...historyJobs, jobs: historyRequests, passed: true });
-    check(historyJobs.label);
     const layout = await evaluate(() => {
       const panel = document.querySelector('.optimizer-panel').getBoundingClientRect();
       const field = document.querySelector('.fieldsvg').getBoundingClientRect();
@@ -527,8 +556,6 @@ app.whenReady().then(async () => {
     assert.ok(layout.fieldHeight > layout.height * 0.5, 'The comparison field must remain usable with the inspector open');
     assert.ok(layout.fieldWidth > layout.width * 0.35, 'The optimizer inspector must leave room to inspect the route');
     check('optimizer inspector preserves field space');
-    await capture('optimizer-applied.png');
-    await captureMinimum('optimizer-applied-1100x720.png');
     await switchPath(fixture.paths[1].name);
     await switchPath(fixture.paths[0].name);
     await stable(applied, 300, 'Path switch');
@@ -536,7 +563,7 @@ app.whenReady().then(async () => {
     await loadApp();
     await ready();
     await stable(applied, 500, 'Save/reload');
-    check('applied timing and geometry survive path switching and save/reload');
+    check('the applied curve survives path switching and save/reload');
     await click('.places .place', 'Robot');
     await evaluate(() => {
       const input = document.querySelector('textarea[aria-label="Robot planning notes"]');
@@ -548,81 +575,33 @@ app.whenReady().then(async () => {
     await click('.places .place', 'Paths');
     project = await save();
     assert.equal(project.robot.planning.notes, 'Cosmetic optimizer verification note');
-    assert.deepEqual(project.paths[0].optimization.accepted, accepted);
+    assert.deepEqual(project.paths[0].waypoints, appliedWaypoints);
     await ready();
     await stable(applied, 1000, 'Cosmetic robot note');
-    check('cosmetic robot notes preserve the applied selection');
-    await strictEditing(fixture.paths[0].id, true, applied, accepted);
-    const coldJobs = await markJobs('cold accepted open requests only one authored Normal at density 56');
+    check('cosmetic robot notes leave the path and its timing alone');
+    const reopenJobs = await markJobs('opening Optimize on an applied path issues zero jobs');
     await click('.optimizer-toggle');
-    await waitFor(() => evaluate(() => { const normal = document.querySelector('button[aria-label="Preview normal trajectory"]'); return normal && !normal.disabled; }), 'cold accepted Normal comparison to become ready from its actual worker completion');
-    await stable(applied, 700, 'Reopening an applied selection');
-    const coldRequests = await jobsSince(coldJobs);
-    assert.equal(coldRequests.length, 1, 'Cold accepted open needs exactly one additional request after initial/library work settles');
-    assert.equal(coldRequests[0].pathId, fixture.paths[0].id);
-    assert.equal(coldRequests[0].mode, 'legacy');
-    assert.equal(coldRequests[0].optimize, false);
-    assert.equal(coldRequests[0].quality, 'final');
-    assert.equal(coldRequests[0].density, 56);
-    assert.equal(coldRequests[0].acceptedIdentity, null);
-    assert.equal(coldRequests[0].status, 'ready');
-    const coldPreview = await evaluate(sequence => window.__optimizerWorkers.valueFor(sequence), coldRequests[0].sequence);
-    // Separate solves have different wall-clock diagnostics. Preserve every physical trace/metadata field.
-    const withoutSolveWallTime = trajectory => {
-      if (!trajectory.optimization || !Object.hasOwn(trajectory.optimization, 'solveTimeMs')) return trajectory;
-      assert.ok(Number.isFinite(trajectory.optimization.solveTimeMs) && trajectory.optimization.solveTimeMs >= 0);
-      return { ...trajectory, optimization: { ...trajectory.optimization, solveTimeMs: 0 } };
-    };
-    assert.deepEqual(withoutSolveWallTime(coldPreview.finalTrajectory), withoutSolveWallTime(normalEvidence.value.trajectory), 'Cold authored Normal must reproduce the complete original Normal trace');
-    for (const field of ['prof', 'metrics', 'markers']) {
-      assert.deepEqual(coldPreview[field], normalEvidence.value.derived[field], `Cold Normal must preserve full ${field} projection metadata`);
-    }
-    await fs.writeFile(path.join(output, 'cold-normal-preview.json'), JSON.stringify(coldPreview, null, 2));
-    workerEvidence.checkpoints.push({ ...coldJobs, jobs: coldRequests, passed: true });
-    check(coldJobs.label);
-    await capture('optimizer-cold-ready.png');
-    await captureMinimum('optimizer-cold-ready-1100x720.png');
-    await click('button[aria-label="Preview normal trajectory"]');
-    await stable(normal, 250, 'Cold authored Normal reference');
-    await click('button[aria-label="Preview optimized trajectory"]');
-    await click('button[title="Close optimization"]');
-    const acceptedReopen = await markJobs('accepted reopen reuses selected and authored Normal with zero jobs');
-    await click('.optimizer-toggle');
-    await waitFor(() => evaluate(() => { const normal = document.querySelector('button[aria-label="Preview normal trajectory"]'); return normal && !normal.disabled; }), 'retained Normal after accepted reopen');
-    await stable(applied, 350, 'Reopened accepted reference');
-    await noJobsSince(acceptedReopen);
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.optimizer-panel button')].some((item) => item.textContent === 'Cancel')), false);
-    assert.equal(await evaluate(() => document.querySelector('.optimizer-main')?.textContent), 'Applied');
-    check('reopening an accepted result preserves it without starting a search');
+    await waitFor(() => evaluate(() => { const row = document.querySelector('button[aria-label="Preview current path trajectory"]'); return row && !row.disabled; }), 'the current path row');
+    await stable(applied, 350, 'Reopening Optimize');
+    await noJobsSince(reopenJobs);
     await openSettings();
     const batchJobCount = (await workerState()).jobs.length;
+    const beforeBatch = await save();
     await click('.optimizer-panel button', 'Optimize all');
     await waitFor(() => evaluate((done) => document.querySelector('.optimizer-batch')?.textContent.includes(done), `${fixture.paths.length} of ${fixture.paths.length} paths searched`), 'Optimize all to finish every path', 30_000);
     const batchRows = await evaluate(() => [...document.querySelectorAll('.optimizer-batch button')].map((item) => ({
       name: item.querySelector(':scope > span')?.textContent,
       status: item.querySelector(':scope > small')?.textContent,
     })));
-    assert.equal(batchRows.length, fixture.paths.length);
     assert.deepEqual(batchRows.map(row => row.name), fixture.paths.map(item => item.name), 'Every expected path must appear in the completed batch');
-    // Searched means controller success; route failures override that label.
-    // Read status separately so neither a path name nor a substring can pass it.
     const failedIndex = batchRows.findIndex(row => row.status !== 'Searched');
-    if (failedIndex !== -1) {
-      await click('.library-pick[data-library-item=' + JSON.stringify(fixture.paths[failedIndex].id) + ']');
-      await delay(200);
-      const error = await evaluate(() => document.querySelector('.optimizer-error')?.textContent || document.querySelector('.optimizer-outcome[role="status"]')?.textContent);
-      assert.fail(`${batchRows[failedIndex].name}: ${batchRows[failedIndex].status}: ${error}`);
-    }
-    // A completed worker alone is not proof of a usable route. Inspect the two
-    // actual batch responses without issuing any additional planning requests.
+    if (failedIndex !== -1) assert.fail(`${batchRows[failedIndex].name}: ${batchRows[failedIndex].status}`);
     const batchRoutes = await evaluate((count) => {
       const observer = window.__optimizerWorkers;
       return observer.jobs.slice(count).filter(job => job.optimize).map(job => {
         const value = observer.valueFor(job.sequence), result = value?.finalTrajectory;
-        return { pathId: job.pathId, status: job.status, routeStatus: value?.routeSearch?.status,
-          fallback: result?.optimization?.fallback, termination: result?.optimization?.termination,
-          time: result?.totalTimeS, samples: result?.samples?.length,
-          errors: result?.diagnostics?.filter(issue => issue.severity === 'error') || [] };
+        return { pathId: job.pathId, status: job.status, routeStatus: value?.routeSearch?.status, fallback: result?.optimization?.fallback,
+          time: result?.totalTimeS, samples: result?.samples?.length, errors: result?.diagnostics?.filter(issue => issue.severity === 'error') || [] };
       });
     }, batchJobCount);
     assert.deepEqual(batchRoutes.map(route => route.pathId), fixture.paths.map(item => item.id), 'Optimize all must complete one search for each expected path');
@@ -630,15 +609,13 @@ app.whenReady().then(async () => {
       assert.equal(route.status, 'ready', `${route.pathId}: batch worker must complete successfully`);
       assert.equal(route.routeStatus, 'feasible', `${route.pathId}: batch search must return a feasible route`);
       assert.equal(route.fallback, false, `${route.pathId}: fallback output is not a route`);
-      assert.ok(!['unsupported', 'invalid-baseline'].includes(route.termination), `${route.pathId}: route must support this task`);
       assert.ok(Number.isFinite(route.time) && route.time > 0 && route.samples > 0, `${route.pathId}: route must contain timed samples`);
       assert.deepEqual(route.errors, [], `${route.pathId}: route must have no error diagnostics`);
     }
     await stable(applied, 600, 'Optimize all');
     project = await save();
-    assert.deepEqual(project.paths[0].optimization.accepted, accepted, 'Optimize all must preserve the applied artifact');
-    assert.equal(project.paths[1].optimization?.accepted, undefined, 'Optimize all must leave the other path on normal');
-    check('Optimize all stages each path without changing selected trajectories');
+    assert.deepEqual(project.paths, beforeBatch.paths, 'Optimize all changes no path');
+    check('Optimize all searches every path without changing any');
     await capture('optimizer-all.png');
     await captureMinimum('optimizer-all-1100x720.png');
     // One search offers two results on a path shaped by its tangents. The batch above already searched it.
@@ -651,10 +628,10 @@ app.whenReady().then(async () => {
     }));
     await waitFor(async () => (await offered()).rows.length === 3, 'both results of the corner search');
     const both = await offered();
-    assert.deepEqual(both.rows, ['Preview normal trajectory', 'Preview same shape trajectory', 'Preview new route trajectory']);
+    assert.deepEqual(both.rows, ['Preview current path trajectory', 'Preview same shape trajectory', 'Preview new route trajectory']);
     assert.equal(both.apply, 'Apply same shape', 'Apply starts on the result that keeps the drawn shape');
     assert.ok(both.times['Preview new route trajectory'] < both.times['Preview same shape trajectory']
-      && both.times['Preview same shape trajectory'] < both.times['Preview normal trajectory'], `The new route must be the faster result: ${JSON.stringify(both.times)}`);
+      && both.times['Preview same shape trajectory'] < both.times['Preview current path trajectory'], `The new route must be the faster result: ${JSON.stringify(both.times)}`);
     await click('button[aria-label="Preview same shape trajectory"]');
     const sameShape = await snapshot();
     await click('button[aria-label="Preview new route trajectory"]');
@@ -662,122 +639,147 @@ app.whenReady().then(async () => {
     assert.equal((await offered()).apply, 'Apply new route', 'Apply follows the previewed result');
     assert.notEqual(sameShape.geometry, cornerNormal.geometry, 'The same-shape result changes handle lengths');
     assert.notEqual(newRoute.geometry, sameShape.geometry, 'The two results are different curves');
-    assert.ok(Number(newRoute.time) < Number(sameShape.time) && Number(sameShape.time) < Number(cornerNormal.time));
     const tangent = (d) => { const n = d.match(/-?\d+(?:\.\d+)?/g).map(Number); return Math.atan2(n[3] - n[1], n[2] - n[0]); };
     const turned = (first, second) => Math.abs(Math.atan2(Math.sin(first - second), Math.cos(first - second))) * 180 / Math.PI;
     assert.ok(turned(tangent(sameShape.geometry), tangent(cornerNormal.geometry)) < 3, 'The same-shape result leaves the start along the drawn tangent');
     await capture('optimizer-two-results.png');
     await captureMinimum('optimizer-two-results-1100x720.png');
     await click('.optimizer-panel button', 'Apply new route');
-    await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the applied new route');
-    // The slower result stays a row to preview, but the faster one in use keeps the headline and there is nothing to apply.
-    await waitFor(async () => (await offered()).rows.length === 3 && (await offered()).apply === undefined, 'the same-shape result to stay as a row only');
-    assert.deepEqual((await offered()).rows, ['Preview normal trajectory', 'Preview applied trajectory', 'Preview same shape trajectory']);
-    const newRouteGain = Number(cornerNormal.time) - Number(newRoute.time);
-    assert.equal((await snapshot()).status, `${newRouteGain.toFixed(2)} s faster, ${(newRouteGain / Number(cornerNormal.time) * 100).toFixed(1)}%`, 'The headline describes the result in use');
-    project = await save();
-    assert.equal(project.paths[2].optimization.accepted.result.totalTimeS.toFixed(2), Number(newRoute.time).toFixed(2), 'Apply saves the previewed result');
-    await click('button[aria-label="Preview same shape trajectory"]');
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the applied new route');
+    await ready();
+    assert.equal((await snapshot()).time, newRoute.time, 'The corner plans the previewed new route');
+    assert.deepEqual((await offered()).rows, ['Preview current path trajectory'], 'After Apply nothing older is offered');
+    await history(false);
+    await waitFor(async () => (await offered()).apply === 'Apply same shape', 'Undo to bring back both results of the same search');
     await click('.optimizer-panel button', 'Apply same shape');
-    await waitFor(async () => (await offered()).apply === 'Apply new route', 'the new route to return to offer');
-    project = await save();
-    assert.equal(project.paths[2].optimization.accepted.result.totalTimeS.toFixed(2), Number(sameShape.time).toFixed(2), 'Applying the other result replaces the first');
-    check('one search offers a same-shape result and a new route; Apply follows the previewed one, a slower result never leads, and either can replace the other');
-    await switchPath(fixture.paths[1].name);
-    const alternateNormal = await snapshot();
-    // Whichever result this path offers first: the same-shape one, or a new route.
-    await click('.optimizer-main.primary');
-    await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the alternate applied selection');
-    await switchPath(fixture.paths[0].name);
-    await click('button[aria-label="Preview normal trajectory"]');
-    await stable(normal, 250, 'Primary normal comparison after path switch');
-    await switchPath(fixture.paths[1].name);
-    await click('button[aria-label="Preview normal trajectory"]');
-    await stable(alternateNormal, 250, 'Alternate normal comparison after path switch');
-    await switchPath(fixture.paths[0].name);
-    await stable(applied, 250, 'Selected comparison restored on path switch');
-    check('Normal comparison stays on the current path when switching between applied paths');
-    await click('.pt-wp');
-    // The shared numeric control is named by its associated label, not an
-    // aria-label attribute. Resolve that real control before native input.
-    const waypointXSelector = await evaluate(() => {
-      const label = [...document.querySelectorAll('.pp label')].find(item => item.textContent === 'X');
-      if (!label?.control) throw new Error('Required waypoint X input missing');
-      return '.pp input[id=' + JSON.stringify(label.htmlFor) + ']';
-    });
-    await click(waypointXSelector);
-    await evaluate(selector => document.querySelector(selector).select(), waypointXSelector);
-    const movedX = fixture.paths[0].waypoints[0].x + 0.1;
-    await focusEditor();
-    await window.webContents.insertText(String(movedX));
-    await waitFor(() => evaluate(value => document.activeElement?.value === value, String(movedX)), 'the required waypoint draft');
-    await focusEditor();
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-    await waitFor(() => evaluate(selector => document.activeElement !== document.querySelector(selector), waypointXSelector), 'waypoint edit to commit and move focus');
-    await waitFor(async () => /Needs update/.test((await snapshot()).status || ''), 'explicit stale optimization status');
-    project = await save();
-    assert.equal(project.paths[0].waypoints[0].x, movedX, 'The required waypoint input must commit its edited value');
-    project = await save();
-    assert.ok(project.paths[0].optimization.accepted, 'Stale artifacts remain available for an explicit choice');
-    check('changing a required waypoint invalidates the selection with an explicit stale state');
-    await capture('optimizer-stale.png');
-    await captureMinimum('optimizer-stale-1100x720.png');
-    await click('.places .place', 'Routines');
-    await waitFor(() => evaluate(() => { const play = document.querySelector('button[aria-label="Play routine"]'); return play && !play.disabled && !document.querySelector('.routine-status'); }), 'the stale selection to use current normal routine planning');
-    assert.ok((await save()).paths[0].optimization.accepted, 'Routine fallback must retain the stale artifact');
-    check('stale accepted selections use current normal routine playback while retaining the artifact');
-    await click('.places .place', 'Paths');
-    await click('.optimizer-panel button', 'Use normal');
-    project = await save();
-    assert.equal(project.paths[0].optimization?.accepted, undefined);
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the applied same shape');
     await ready();
-    check('Use normal removes the accepted artifact');
-    await click('.places .place', 'Routines');
-    await waitFor(() => evaluate(() => {
-      const play = document.querySelector('button[aria-label="Play routine"]');
-      return play && !play.disabled && !document.querySelector('.routine-status');
-    }), 'routine playback after choosing normal');
-    check('choosing normal restores routine playback');
-    await click('.places .place', 'Paths');
-    await switchPath(fixture.paths[1].name);
+    assert.equal((await snapshot()).time, sameShape.time);
+    project = await save();
+    assert.equal(project.paths[2].waypoints.length, 2);
+    check('one search offers a same-shape result and a new route; Apply follows the previewed one, and Undo brings the offer back');
+    // A drawn line through the HUB. Only a route around it is valid, so Apply adds waypoints.
+    const detourIndex = 3, detour = fixture.paths[detourIndex];
+    await switchPath(detour.name);
+    const drawnPlaces = await placements();
+    assert.equal(drawnPlaces.zones.length, 2, 'The detour fixture shows both ends of its zone');
+    assert.equal(drawnPlaces.markers.length, 1);
+    await waitFor(async () => (await offered()).apply === 'Apply new route', 'the route around the HUB from Optimize all');
+    await click('button[aria-label="Preview new route trajectory"]');
+    const detourCandidate = await snapshot();
+    const previewPlaces = await placements();
+    await capture('optimizer-detour-preview.png');
+    await click('.optimizer-panel button', 'Apply new route');
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the applied detour');
+    await ready();
+    const detourApplied = await snapshot();
+    assert.equal(detourApplied.time, detourCandidate.time, 'The detour plans exactly the previewed time');
+    assert.equal(detourApplied.geometry, detourCandidate.geometry, 'The detour draws exactly the previewed curve');
+    samePlaces(previewPlaces, await placements(), 'Applied detour');
+    project = await save();
+    const flags = added(project, detourIndex);
+    assert.ok(flags.length > 2 && flags.slice(1, -1).every(Boolean) && !flags[0] && !flags.at(-1), `Apply inserts flagged waypoints between the ends: ${flags}`);
+    assert.deepEqual(project.paths[detourIndex].markers, detour.markers, 'Markers keep their authored values');
+    const zone = project.paths[detourIndex].ranges[0];
+    assert.equal(zone.w1, flags.length - 1, 'The zone still ends at the path end');
+    assert.ok(zone.w0 >= 1 && zone.t0 > 0 && zone.t0 < 1, `The zone start moves to the inserted segment that holds it: ${JSON.stringify(zone)}`);
+    await captureMinimum('optimizer-detour-applied-1100x720.png');
+    await capture('optimizer-detour-applied.png');
+    check('applying a detour inserts flagged pass-through waypoints, plans the previewed time, and keeps markers and zones where they were previewed');
+    await click('button[title="Close optimization"]');
+    await click(`.pt-wp[data-selection="wp:1"]`);
+    await click('.pp-more');
+    await waitFor(() => evaluate(() => document.querySelector('.ctxinsp-kind')?.textContent.startsWith('Added by Optimize')
+      && document.querySelector('.optimizer-added-hint')?.checkVisibility()), 'the inspector to name the added waypoint');
+    await capture('optimizer-added-waypoint.png');
+    await captureMinimum('optimizer-added-waypoint-1100x720.png');
+    await click('.ctxinsp-x');
+    check('the inspector names a waypoint Optimize added and says what a later Optimize may do');
+    for (const redo of [false, true]) {
+      await history(redo);
+      await waitFor(async () => ((await snapshot()).geometry === detourApplied.geometry) === redo, redo ? 'Redo detour' : 'Undo detour');
+      await ready();
+      assert.equal(added(await save(), detourIndex).length, redo ? flags.length : 2);
+    }
+    samePlaces(previewPlaces, await placements(), 'Redone detour');
+    check('Undo removes the inserted waypoints and Redo restores them');
+    const beforeFlip = (await save()).paths[detourIndex];
+    await click('.field-flip');
+    await click('.path-flip label:has(input[name="pf-direction"][value="rotate"])');
+    await click('.path-flip label:has(input[name="pf-target"][value="replace"])');
+    await click('.path-flip .pf-commit');
+    await waitFor(() => evaluate(() => !document.querySelector('.path-flip[open]')), 'in-place Flip');
+    const flipped = await save();
+    assert.equal(flipped.paths[detourIndex].waypoints[0].x, -beforeFlip.waypoints[0].x);
+    assert.deepEqual(added(flipped, detourIndex), flags, 'In-place Flip keeps the optimizer-added flags');
+    await history(false);
+    await waitFor(async () => (await snapshot()).geometry === detourApplied.geometry, 'Undo Flip');
+    assert.deepEqual((await save()).paths[detourIndex], beforeFlip, 'Undo restores the path before Flip');
+    check('in-place Flip keeps detour waypoints eligible for later optimization');
+    // A slower robot keeps the curve and replans its timing; nothing goes stale.
     await click('.places .place', 'Robot');
-    await click('input[aria-label="Motor free speed"]');
-    await evaluate(() => {
-      const input = document.querySelector('input[aria-label="Motor free speed"]');
-      if (!input) throw new Error('Motor free-speed input missing');
-      input.select();
-    });
-    await focusEditor();
-    await window.webContents.insertText('1000');
-    // Exercise one native blur, rather than fabricating a second focusout after
-    // blur has already committed the robot configuration.
-    await focusEditor();
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-    await waitFor(() => evaluate(() => document.activeElement !== document.querySelector('input[aria-label="Motor free speed"]')), 'motor edit to commit and move focus');
+    await setRobotNumber('Motor free speed', 1000);
     await click('.places .place', 'Paths');
-    await waitFor(async () => /Needs update/.test((await snapshot()).status || ''), 'physical robot edits to invalidate the applied trajectory');
-    const currentNormalLabel = await evaluate(() => document.querySelector('button[aria-label="Preview normal trajectory"] b')?.textContent);
-    assert.notEqual(currentNormalLabel, `${Number(alternateNormal.time).toFixed(2)} s`, 'Robot edits must not relabel old normal timing as current');
-    project = await save();
-    assert.ok(project.robot.maxSpeed < fixture.robot.maxSpeed / 2, 'The robot speed limit must be substantially lower');
-    assert.equal(project.robot.driveModel.motorFreeRpm, 1000);
-    assert.ok(project.paths[1].optimization.accepted, 'Robot edits retain the stale artifact for an explicit choice');
-    await click('.optimizer-panel button', 'Use normal');
+    await waitFor(async () => Number((await snapshot()).time) > Number(detourApplied.time) * 1.5, 'the slower robot to replan the detour');
     await ready();
-    const slowerNormal = await snapshot();
-    assert.ok(Number(slowerNormal.time) > Number(alternateNormal.time) * 1.5, 'Current normal timing must reflect the slower robot');
-    assert.equal(slowerNormal.geometry, alternateNormal.geometry, 'Changing robot speed must preserve the authored geometry');
+    const slower = await snapshot();
+    assert.equal(slower.geometry, detourApplied.geometry, 'A robot edit keeps the applied curve');
+    assert.ok(!await evaluate(() => /Needs update|Use normal/.test(document.body.innerText)), 'Nothing goes stale after a robot edit');
     project = await save();
-    assert.equal(project.paths[1].optimization?.accepted, undefined);
-    check('physical robot edits invalidate applied timing and regenerate the current slower normal trajectory');
+    assert.deepEqual(added(project, detourIndex), flags);
+    assert.equal(project.robot.driveModel.motorFreeRpm, 1000);
+    check('a robot edit keeps the applied curve and replans its timing for the new robot');
+    // A taller robot no longer fits under the TRENCH the next path drives through.
+    const trenchIndex = 4;
+    await switchPath(fixture.paths[trenchIndex].name);
+    assert.equal(await evaluate(() => document.querySelector('.problems-trigger') === null), true, 'A clear path has no problems');
+    await click('.places .place', 'Robot');
+    await setRobotNumber('Robot height', 0.8);
+    await click('.places .place', 'Paths');
+    await ready();
+    await waitFor(() => evaluate(() => document.querySelector('.problems-trigger')?.textContent.startsWith('Problems')), 'the field collision problem');
+    await click('.problems-trigger');
+    await waitFor(() => evaluate(() => [...document.querySelectorAll('.problems-menu [role="menuitemradio"]')].some((row) => row.textContent.includes('Robot hits the field'))), 'the collision in the problems menu');
+    await focusEditor();
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+    window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+    await waitFor(() => evaluate(() => document.querySelector('.pp-problem')?.innerText.includes('Optimize again or edit the path so the robot clears it.')), 'the way forward beside the problem');
+    assert.ok(Number((await snapshot()).time) > 0, 'A colliding curve keeps its timing and playback');
+    await capture('optimizer-collision.png');
+    await captureMinimum('optimizer-collision-1100x720.png');
+    check('a curve the robot no longer fits through is reported where problems are shown, with the way forward');
+    await click('.places .place', 'Robot');
+    await setRobotNumber('Robot height', 0.5);
+    await click('.places .place', 'Paths');
+    // Moving the end past the HUB makes the straight line clear; a new search drops the old detour.
+    await switchPath(detour.name);
+    await click(`.pt-wp[data-selection="wp:${flags.length - 1}"]`);
+    await setWaypointCoordinate('Y', -2.4);
+    await setWaypointCoordinate('X', 5.5705);
+    await ready();
+    project = await save();
+    assert.deepEqual(added(project, detourIndex), flags, 'Moving the end keeps the inserted waypoints');
+    await click('.optimizer-toggle');
+    await click('.optimizer-main', 'Optimize');
+    await finishSearch('Apply new route');
+    await click('button[aria-label="Preview new route trajectory"]');
+    const direct = await snapshot();
+    await click('.optimizer-panel button', 'Apply new route');
+    await waitFor(async () => (await snapshot()).status === 'Applied to the path', 'the direct route');
+    await ready();
+    assert.equal((await snapshot()).time, direct.time);
+    project = await save();
+    assert.deepEqual(added(project, detourIndex), [false, false], 'A later Optimize removes the waypoints it added');
+    assert.deepEqual(project.paths[detourIndex].ranges[0].w0, 0, 'The zone returns to the single segment');
+    await capture('optimizer-detour-removed.png');
+    check('a later Optimize removes an old detour it no longer needs');
     assert.deepEqual(errors, [], 'Renderer console must remain free of unexpected errors');
     check('renderer console has no unexpected errors');
     await settledWorkers();
     await archiveWorkers('complete');
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, checks, errors, knownConsoleWarnings, workerEvidence,
-      normalTimeS: Number(normal.time), optimizedTimeS: Number(applied.time), savedAcceptedTimeS: accepted.result.totalTimeS }, null, 2));
+      normalTimeS: Number(normal.time), optimizedTimeS: Number(applied.time), plannedTimeS: appliedEvidence.value.trajectory.totalTimeS }, null, 2));
     app.exit(0);
   } catch (error) {
     console.error(error.stack || error);

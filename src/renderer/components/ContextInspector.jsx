@@ -811,12 +811,14 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       const headingDirection = h(TurnDirection, { value: w.rotationDirection, values: AUTHORED_DIRECTION, label: 'Turn into heading', ariaLabel: 'Turn direction into heading',
         onChange: (rotationDirection) => actions.setWp(i, { rotationDirection }) });
       title = waypointLabel(i);
-      kind = kindLine(isStart ? 'Start waypoint' : isEnd ? 'End waypoint' : 'Waypoint', waypointTime(i));
+      kind = kindLine(isStart ? 'Start waypoint' : isEnd ? 'End waypoint' : w.optimizerAdded ? 'Added by Optimize' : 'Waypoint', waypointTime(i));
       remove = h(DeleteAction, { label: 'Delete waypoint', onClick: () => actions.delWp(i) });
       body = h(React.Fragment, null,
         h('div', { className: 'grid2' },
           h(Num, { label: 'X', value: w.x, unit: 'm', min: FIELD_X_MIN, max: FIELD_X_MAX, onChange: (v) => actions.setWp(i, { x: v }) }),
           h(Num, { label: 'Y', value: w.y, unit: 'm', min: FIELD_Y_MIN, max: FIELD_Y_MAX, onChange: (v) => actions.setWp(i, { y: v }) })),
+        w.optimizerAdded && h('div', { className: 'hint optimizer-added-hint' }, h(Icon, { name: 'info', size: 14 }),
+          'Optimize again may move or remove this waypoint. Edit it to keep it.'),
         props.project && props.setWaypointPositionLink && h(SharedWaypointPosition, { project: props.project, doc, index: i, onOpen: props.openPointLinks, onLink: props.setWaypointPositionLink, onName: (at, name) => actions.setWp(at, { positionName: name }) }),
 
         isTank

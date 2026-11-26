@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { OptimizationPanel } from '../src/renderer/components/OptimizationPanel';
 
 const render = (patch) => renderToStaticMarkup(React.createElement(OptimizationPanel, {
-  path: { id: 'path', optimization: {} }, paths: [], state: { paths: {}, running: false },
+  path: { id: 'path' }, paths: [], state: { paths: {}, running: false },
   unitSystem: 'metric', mode: 'selected', ...patch,
 }));
 
@@ -14,7 +14,7 @@ describe('optimizer planning failure', () => {
     expect(markup).toContain('Entry speed exceeds the limit &lt;4 m/s&gt;.');
     expect(markup).toMatch(/<button[^>]*class="qbtn optimizer-recovery"[^>]*>Edit path<\/button>/);
     expect(markup).toMatch(/class="optimizer-main primary">Optimize<\/button>/);
-    expect(markup).toMatch(/class="optimizer-choice" disabled=""[^>]*aria-label="Preview normal trajectory"/);
+    expect(markup).toMatch(/class="optimizer-choice" disabled=""[^>]*aria-label="Preview current path trajectory"/);
     expect(markup).toContain('Unavailable');
     expect(markup).not.toContain('Preparing path');
     expect(markup).toContain('Trajectory comparison');
@@ -87,8 +87,8 @@ describe('waypoint-route outcomes', () => {
     expect(markup).toContain('Clear route, 1.00 s slower');
     expect(markup).not.toContain('Route found');
     expect(markup).not.toContain('optimizer-outcome gain');
-    expect(markup).toContain('The drawn curve runs the robot into a wall or field obstacle.');
-    expect(markup).toContain('Normal timing is shown for comparison only.');
+    expect(markup).toContain('The current curve runs the robot into a wall or field obstacle.');
+    expect(markup).toContain('Its timing is shown for comparison only.');
     expect(markup).toContain('Apply new route');
     expect(markup).not.toContain('No faster route found');
   });
@@ -101,7 +101,7 @@ describe('waypoint-route outcomes', () => {
     const markup = render({ candidate: { ...candidate, routeSearch: { seedStatus: 'invalid' } }, baselineTime: 4 });
     expect(markup).toContain('1.00 s faster, 25.0%');
     expect(markup).toContain('optimizer-outcome gain');
-    expect(markup).toContain('The drawn curve doesn’t meet the path’s requirements.');
+    expect(markup).toContain('The current curve doesn’t meet the path’s requirements.');
     expect(markup).toContain('Apply new route');
   });
   it('does not promote a slower route just because seed qualification is unknown', () => {
@@ -136,23 +136,34 @@ describe('waypoint-route outcomes', () => {
     expect(markup).toContain('<summary>Details</summary>');
     expect(markup).not.toContain('Search deeper looks longer.');
   });
-  it('explains legacy selection in the chosen units without exposing deviation tuning', () => {
-    const markup = render({ accepted: { totalTimeS: 3 }, path: { id: 'path', optimization: { corridorM: .3, accepted: { version: 1 } } }, unitSystem: 'imperial' });
-    expect(markup).toContain('Earlier optimization applied');
-    expect(markup).toContain('0.98 ft');
-    expect(markup).toContain('Optimize again');
-    expect(markup).not.toContain('Path freedom');
-    expect(markup).not.toContain('<input');
-  });
 });
 
 
-describe('outdated selection copy', () => {
-  it('identifies current Normal timing while describing completed batch searches in the past tense', () => {
-    const markup = render({ stale: true, baselineTime: 4, paths: [{ id: 'path', name: 'Approach' }],
+describe('after Apply', () => {
+  it('says the path changed and how to undo it, with nothing stored to switch back to', () => {
+    const markup = render({ applied: true, baselineTime: 4 });
+    expect(markup).toContain('Applied to the path');
+    expect(markup).toContain('Undo restores the earlier curve. Optimize again may move or remove the waypoints it added.');
+    expect(markup).toMatch(/class="optimizer-main primary">Optimize again<\/button>/);
+    expect(markup).not.toContain('Use normal');
+    expect(markup).not.toContain('In use');
+    expect(markup).toMatch(/Current path<\/span><b>4.00 s<\/b>/);
+  });
+
+  it('offers a new result over the applied path, compared with the path as it is now', () => {
+    const markup = render({ applied: true, baselineTime: 4, candidate: { finalTrajectory: { totalTimeS: 3, samples: [{}, {}], diagnostics: [],
+      optimization: { fallback: false } }, routeSearch: { seedStatus: 'valid' } } });
+    expect(markup).toContain('1.00 s faster, 25.0%');
+    expect(markup).toContain('Apply new route');
+    expect(markup).not.toContain('Undo restores the earlier curve.');
+  });
+});
+
+describe('batch search copy', () => {
+  it('describes completed batch searches in the past tense', () => {
+    const markup = render({ baselineTime: 4, paths: [{ id: 'path', name: 'Approach' }],
       state: { running: false, batch: { completed: 1, total: 1 }, paths: { path: { status: 'success' } } } });
-    expect(markup).toContain('Needs update');
-    expect(markup).toMatch(/Normal<small>In use<\/small>/);
+    expect(markup).not.toContain('Needs update');
     expect(markup).toContain('<small>Searched</small>');
     expect(markup).not.toContain('<small>Ready</small>');
   });

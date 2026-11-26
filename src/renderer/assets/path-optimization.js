@@ -1,5 +1,5 @@
 import { FinalPlanning } from './final-planning';
-import { routeInputKey } from '../../core/planners/routeIdentity';
+import { pathPlanningKey } from '../../core/planners/planningKey';
 
 /** Owns explicit search jobs. Results are candidates; only the editor can apply one. */
 function create({ getProject, planner = FinalPlanning.create() }) {
@@ -19,14 +19,14 @@ function create({ getProject, planner = FinalPlanning.create() }) {
   const matches = (id, key) => {
     const project = getProject();
     const path = project.paths.find((item) => item.id === id);
-    return path && routeInputKey(path, project.robot, project.field) === key;
+    return path && pathPlanningKey(path, project.robot, project.field) === key;
   };
 
   async function run(id, deadline, owner) {
     const project = getProject();
     const path = project.paths.find((item) => item.id === id);
     if (!path || disposed || operation !== owner) return;
-    const key = routeInputKey(path, project.robot, project.field);
+    const key = pathPlanningKey(path, project.robot, project.field);
     const job = { id, key, request: null, stale: false };
     active = job;
     put(id, { key, status: 'searching', startedAt: Date.now(), value: null, error: '' });

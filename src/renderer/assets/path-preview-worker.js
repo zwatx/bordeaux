@@ -1,12 +1,10 @@
 import { planPath } from "../../core/planners/planPath";
-import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
 import { optimizeDrawnShapeFinal, optimizeDrawnShapeFinalParallel, optimizeRouteFinal, optimizeRouteFinalParallel } from "../../core/planners/routeFinal";
 import { evaluateRouteCandidate, probeRouteCandidate, qualifyRouteSeed, warmRouteEvaluation } from "../../core/planners/routeCandidateEvaluation";
 import { DRAWN_SHAPE_LIMIT_M } from "../../core/planners/limits";
 import { getPlanner } from "../../core/planners";
-import { authoredPath, getAcceptedTrajectory } from "../../core/planners/acceptedTrajectory";
 import { flipPath } from "../../core/project/flipField";
 import { analyzeRoutinePower, analyzeTrajectoryPower } from '../../core/planners/trajectoryPower';
 
@@ -246,37 +244,20 @@ function interactiveTrajectory(input) {
   return getPlanner('profiledSpline').generate(input);
 }
 
-/** Projects the exact selected result without rerunning the optimizer. */
+/**
+ * Projects a planned trajectory onto the renderer geometry of the path it was planned on: the
+ * path itself, or for a search candidate the path Apply would write (`optimizedPath`).
+ */
 export function previewForTrajectory(path, robot, trajectory, derive = PM.derivePath, perSegment = 56) {
-  let geometry = derive(trajectory.optimizedPath || authoredPath(path), robot, perSegment, trajectory.planner);
-  const required = trajectory.routeGeometry?.requiredPointIndices;
-  if (required) {
-    // Solver knots describe the curve; only authored required points can own
-    // editor selections and stationary-action indices.
-    geometry = { ...geometry,
-      wpIdx: required.map((index) => geometry.wpIdx[index]),
-      wpFrac: required.map((index) => geometry.wpFrac[index]),
-    };
-  }
-  return applyFinalTrajectoryToPreview(geometry, trajectory);
+  return applyFinalTrajectoryToPreview(derive(trajectory.optimizedPath || path, robot, perSegment, trajectory.planner), trajectory);
 }
 
 /** Opt-in editing contract; legacy final/optimization jobs retain their existing API. */
 export function processEditingPlanningJob(job) {
-  const input = { path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment || 56 };
-  const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
-  const currentAccepted = job.path.optimization?.accepted && !isOptimizationOutdated(job.path, job.robot, job.field);
-  let plan = accepted
-    ? { status: 'ok', trajectory: accepted, bestEffort: { samples: accepted.samples, totalTimeS: accepted.totalTimeS }, issues: [] }
-    : planPath(input);
-  if (currentAccepted && !accepted) {
-    plan = { ...plan, status: 'infeasible', trajectory: null, issues: [...plan.issues, {
-      code: 'planner', severity: 'error', f0: 0, f1: 1,
-      message: 'Selected optimization could not be validated',
-    }] };
-  }
+  const input = { path: job.path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment || 56 };
+  const plan = planPath(input);
   let comparison;
-  let derived = projectEditingTiming(editingGeometry(plan.trajectory?.optimizedPath || input.path, 14, job.robot), plan.bestEffort, plan.issues);
+  let derived = projectEditingTiming(editingGeometry(input.path, 14, job.robot), plan.bestEffort, plan.issues);
   if (plan.trajectory) {
     let projected = false;
     try { derived = previewForTrajectory(input.path, job.robot, plan.trajectory, PM.derivePath, input.samplesPerSegment); projected = true; }
@@ -284,10 +265,10 @@ export function processEditingPlanningJob(job) {
       derived = { ...derived, finalTrajectory: plan.trajectory, finalOptimization: plan.trajectory.optimization };
       comparison = { status: 'error', message: error?.message || String(error) };
     }
-    derived = { ...derived, trajectorySamples: plan.bestEffort.samples, acceptedTrajectory: Boolean(accepted) };
+    derived = { ...derived, trajectorySamples: plan.bestEffort.samples };
     if (projected) comparison = { status: 'ready', projectionVersion: 1, previewDensity: input.samplesPerSegment };
   }
-  return { ...plan, derived, acceptedTrajectory: Boolean(accepted), comparison };
+  return { ...plan, derived, comparison };
 }
 
 /**
@@ -404,7 +385,7 @@ function optimizeJob(job, path, derive, emitProgress, startedAt) {
 export async function processParallelOptimizeJob(job, evaluator, emitProgress = () => {}, derive = PM.derivePath) {
   const startedAt = performance.now();
   try {
-    const search = optimizeJob(job, authoredPath(job.path), derive, emitProgress, startedAt);
+    const search = optimizeJob(job, job.path, derive, emitProgress, startedAt);
     const reply = search.result(await optimizeRouteFinalParallel(search.input, search.options, evaluator));
     if (!search.wantsShape(reply)) return reply;
     return search.withShape(reply, await optimizeDrawnShapeFinalParallel(search.input, DRAWN_SHAPE_LIMIT_M, search.shapeOptions(reply), evaluator));
@@ -512,18 +493,12 @@ export function processPathPreviewJob(
       return { id: job.id, value, durationMs: performance.now() - startedAt };
     }
     if (job.mode === 'flip') {
-      const qualify = (path) => Boolean(getAcceptedTrajectory(path, job.robot, job.field));
-      const value = flipPath(job.path, job.direction, job, qualify, job.copy);
-      const accepted = value.optimization?.accepted;
-      if (accepted && accepted !== job.path.optimization?.accepted && !qualify(value)) {
-        throw new Error(`${value.name}: Flip could not preserve the applied trajectory. Choose Use normal or optimize and apply again before flipping.`);
-      }
-      return { id: job.id, quality: job.quality, value, durationMs: performance.now() - startedAt };
+      return { id: job.id, quality: job.quality, value: flipPath(job.path, job.direction, job.robot), durationMs: performance.now() - startedAt };
     }
     if (job.mode === 'editing') {
       return { id: job.id, quality: job.quality, value: processEditingPlanningJob(job), durationMs: performance.now() - startedAt };
     }
-    const path = authoredPath(job.path);
+    const path = job.path;
     // Keep pointer editing on the low-latency geometry pass. Final planning
     // replaces it with the authoritative physics result after the edit settles.
     if (job.quality !== 'final') {
@@ -540,15 +515,14 @@ export function processPathPreviewJob(
       if (!search.wantsShape(reply)) return reply;
       return search.withShape(reply, optimizeDrawnShapeFinal(search.input, DRAWN_SHAPE_LIMIT_M, search.shapeOptions(reply)));
     }
-    const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
-    const trajectory = accepted || profile({ path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
+    const trajectory = profile({ path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
     const blockingDiagnostic = trajectory.diagnostics.find((issue) => issue.severity === 'error');
     if (blockingDiagnostic) throw new Error(blockingDiagnostic.message);
     const authoritative = previewForTrajectory(path, job.robot, trajectory, derive, job.perSegment);
     return {
       id: job.id,
       quality: job.quality,
-      value: { ...authoritative, acceptedTrajectory: Boolean(accepted) },
+      value: authoritative,
       durationMs: performance.now() - startedAt,
     };
   } catch (error) {
@@ -590,7 +564,7 @@ if (typeof self !== 'undefined') {
     if (job?.mode === 'routeWarm') return post({ id: job.id, outcome: warmRouteEvaluation(job.source) });
     // This worker as the persistent optimizer: it keeps its pool between jobs.
     if (job?.type === 'warm') {
-      return void pool()?.warm({ path: authoredPath(job.path), robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
+      return void pool()?.warm({ path: job.path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
     }
     if (job?.optimize === true && job.parallel === true && job.quality === 'final' && job.mode === undefined && pool()) {
       return void processParallelOptimizeJob(job, pool(), post).then(post);

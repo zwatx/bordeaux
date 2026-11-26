@@ -783,7 +783,6 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .optimizer-choice small{color:var(--txt-3);font-size:11px;white-space:nowrap}
 .optimizer-choice b{font:600 13px var(--mono);font-variant-numeric:tabular-nums}
 .optimizer-main{width:100%;min-height:36px;margin-top:16px}
-.optimizer-reset{display:block;min-height:32px;margin:6px auto 0;padding:0 12px;border-radius:var(--r);color:var(--txt-2);font-size:12px;font-weight:500}
 .optimizer-failure{margin:0 0 16px;padding:9px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .optimizer-failure p{margin:0}
 .optimizer-failure p+p{margin-top:4px;color:var(--txt-2)}
@@ -813,7 +812,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .optimizer-background>span{flex:1;min-width:0}
 .optimizer-background strong{display:block;color:var(--txt);font-weight:500;overflow-wrap:anywhere}
 .optimizer-background button{flex:none}
-@media (hover:hover){.optimizer-choice:not(:disabled):not([aria-pressed=true]):hover{background:var(--bg-2)}.optimizer-search-actions button:not(:disabled):hover{background:var(--bg-3)}.optimizer-reset:hover{background:var(--bg-3);color:var(--txt)}.optimizer-batch button:hover{color:var(--txt)}}
+@media (hover:hover){.optimizer-choice:not(:disabled):not([aria-pressed=true]):hover{background:var(--bg-2)}.optimizer-search-actions button:not(:disabled):hover{background:var(--bg-3)}.optimizer-batch button:hover{color:var(--txt)}}
 
 /* Passive field feedback occupies one row; longer explanations are opt-in. */
 .field-status{position:relative;display:flex;align-items:flex-start;width:max-content;max-width:100%;min-width:0;border:1px solid var(--line-2);border-radius:var(--r);background:var(--hud-surface);box-shadow:var(--elevation);color:var(--txt-2);font-size:12px;line-height:1.4;pointer-events:auto}
