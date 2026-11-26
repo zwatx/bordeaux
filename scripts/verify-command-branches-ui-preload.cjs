@@ -14,7 +14,9 @@ contextBridge.exposeInMainWorld('bordeauxAPI', {
   publishAgentSession: (snapshot) => ipcRenderer.send('branches:published', snapshot.project),
   recordBranchHarnessConfirm: (message) => ipcRenderer.send('branches:confirm', message),
   robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
-  getRobotFileConnection: async () => null, // Local offline settings read, not a transport.
+  // Local offline settings read, not a transport: a harness may answer with a saved connection; others have none.
+  getRobotFileConnection: () => ipcRenderer.invoke('branches:connection').catch(() => null),
+  useRobotFileEndpoint: (endpoint) => ipcRenderer.invoke('branches:use-endpoint', endpoint), // Local settings change, never contacts a robot.
   ...Object.fromEntries(['prepareRobotFiles', 'probeRobotFiles', 'saveRobotFileSettings', 'trustRobotFiles', 'confirmRobotFiles', 'cancelRobotFiles',
     'prepareRobotPush', 'confirmRobotPush', 'cancelRobotPush', 'pinRobotRevision', 'rollbackRobotRevision', 'connectRobot', 'disconnectRobot', 'exportRobot'].map(name => [name, forbidden(name)])),
   autosaveProject: async () => ({ saved: false }), setDirty: () => undefined,

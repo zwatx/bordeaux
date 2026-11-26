@@ -492,7 +492,8 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const selSeg = sel.kind === 'seg' ? sel.idx : null;
   const selZone = sel.kind === 'cr' ? sel.idx : null;
   const speedUnit = UnitPrefs.label('m/s');
-  const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, robot.maxSpeed)));
+  // The line sits at the typed limit, which is what dragging edits; its label is the speed limit in effect.
+  const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, PM.limitCeilings(robot, doc).maxVel ?? robot.maxSpeed)));
 
   return h('section', { ref: root, className: 'pt', 'aria-label': 'Timeline', 'data-stale': stale ? '' : undefined, 'data-compact': compact ? '' : undefined, 'data-narrow': narrow ? '' : undefined,
     ...shiftDeletionInput((event) => {

@@ -23,8 +23,11 @@ const readScope = (scope) => scope?.kind === 'inventory' || scope?.kind === 'com
 const readPhase = (phase) => ['listing', 'listed', 'list-failed', 'comparing', 'compared', 'compare-failed', 'saving-copy'].includes(phase);
 const working = (phase) => ['loading', 'saving', 'probing', 'trusting', 'preparing', 'uploading', 'listing', 'comparing', 'saving-copy'].includes(phase);
 
-/** `onDirectoryChanged` runs after Connect or Save names a push folder, for a host whose command list lives there. */
-export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey, onDirectoryChanged }) {
+/**
+ * `onDirectoryChanged` runs after Connect or Save names a push folder, for a host whose command list lives there.
+ * `onEndpointChosen` receives the address the user saves or trusts in the connection dialog, for the selected robot.
+ */
+export function useRobotFilePushController({ getProject, projectKey, catalogKey, bookmarkKey, onDirectoryChanged, onEndpointChosen }) {
   const api = window.bordeauxAPI;
   const [view, setView] = useState({ open: false, phase: 'loading', settings: null, editing: false, connection: null, ...disconnected, probe: null, ...emptyReview, error: '', passwordStatus: { custom: false, persistent: false } });
   const [target, setTarget] = useState('roborio');
@@ -243,8 +246,46 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       trusted.current = connection;
       intent.current = null;
       setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory);
+      onEndpointChosen?.(settings.endpoint);
       update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', ...disconnected });
       await committedPassword();
+    } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
+  };
+  // Saves a new push folder for the robot already in use, without changing which robot that is. Returns whether it saved.
+  // An editor served by the robot uses this: the folder is the only choice there, and it is not a project robot address.
+  const saveDirectory = async (raw) => {
+    const directory = String(raw ?? '').trim(), endpoint = state.current.settings?.endpoint;
+    if (!directory || !endpoint || working(state.current.phase)) return false;
+    const request = ++generation.current;
+    update({ phase: 'saving', error: '' });
+    try {
+      const settings = await api.saveRobotFileSettings({ ...endpoint, directory }, { kind: 'keep' });
+      if (request !== generation.current) return false;
+      onDirectoryChanged?.();
+      const connection = settings.hostKeyFingerprint ? settings : null;
+      trusted.current = connection;
+      setDirectory(settings.endpoint.directory);
+      update({ settings, connection, phase: 'idle', error: '' });
+      return true;
+    } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); return false; }
+  };
+  // Makes a project robot's address active when the selected robot changes, or clears it (null) for a robot without
+  // one. It never contacts the robot, and it waits for running work: the caller asks again once `busy` clears. It also
+  // cancels a review that was waiting.
+  const useEndpoint = async (endpoint) => {
+    if (!api.useRobotFileEndpoint || working(state.current.phase)) return;
+    const request = ++generation.current;
+    intent.current = null;
+    try {
+      const settings = await api.useRobotFileEndpoint(endpoint);
+      if (request !== generation.current) return;
+      const connection = settings?.hostKeyFingerprint ? settings : null;
+      trusted.current = connection;
+      // A robot without an address starts an empty form for its own address, keeping the robot type last chosen.
+      if (settings) { setTarget(settings.endpoint.target); setHost(settings.endpoint.host); setPort(String(settings.endpoint.port)); setDirectory(settings.endpoint.directory); }
+      else { setHost(''); setPort('22'); setDirectory(ROBOT_TARGETS[state.current.settings?.endpoint.target ?? target].defaultDirectory); }
+      update({ settings, connection, editing: false, probe: null, ...emptyReview, phase: 'idle', error: '', ...disconnected });
+      void refreshPassword();
     } catch (error) { if (request === generation.current) update({ phase: 'idle', error: message(error) }); }
   };
   const acceptPairing = async (probe, request) => {
@@ -253,6 +294,7 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       const connection = await api.trustRobotFiles(probe.hostKeyFingerprint);
       if (request !== generation.current) return;
       trusted.current = connection;
+      onEndpointChosen?.(connection.endpoint);
       update({ settings: connection, connection, editing: false, probe: null, phase: 'idle', monitoring: true, reachability: 'online' });
       await committedPassword();
       if (intent.current) await prepare();
@@ -343,11 +385,12 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
   };
   return { ...view, fileTransfer: true, robotFilesAvailable: Boolean(api.listRobotPaths), target, chooseTarget, host, setHost, port, setPort, directory, setDirectory, password, setPassword, useDefault, useDefaultPassword, keepSavedPassword,
     busy: working(view.phase), canRetry: Boolean(intent.current), desktopAvailable: true, deliveryAvailable: true,
+    servedByRobot: api.robotDeliveryCapabilities?.servedByRobot === true,
     pairing: view.settings,
     connectionLabel: working(view.phase) ? 'Working…' : view.settings ? view.settings.endpoint.host + (view.reachability === 'online' ? ' · connected' : view.reachability === 'offline' ? ' · disconnected' : ' · not connected') : 'Not set up',
     itemStatus: (kind, id) => working(view.phase) && !readScope(intent.current?.scope) && intent.current?.projectKey === projectKey && (kind === 'path' ? intent.current.pathIds.includes(id) : kind === 'routine' && intent.current.scope.routineId === id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads the selected files over SFTP.', tone: 'muted' },
-    openConnection: show, close, returnFocus, requestPush, probeRobot, saveSettings, saveCopy, openRobotFiles, openRobotRow, backToRobotFiles, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
+    openConnection: show, close, returnFocus, useEndpoint, saveDirectory, requestPush, probeRobot, saveSettings, saveCopy, openRobotFiles, openRobotRow, backToRobotFiles, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
     retry: () => intent.current && requestPush(intent.current.scope) };
 }

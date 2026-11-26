@@ -52,7 +52,7 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
-import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
+import { RobotFileDelivery, openKnownHosts, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
 import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
 import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
@@ -446,6 +446,7 @@ function userDataPath(name: string): string { return path.join(app.getPath("user
 function robotProjectBookmarksFile(): string { return userDataPath("robot-projects.json"); }
 function recentProjectsFile(): string { return userDataPath("recent-projects.json"); }
 function robotFileConnectionFile(): string { return userDataPath("robot-sftp-connection.json"); }
+function robotKnownHostsFile(): string { return userDataPath("robot-known-hosts.json"); }
 /** Keychain-encrypted custom SSH password; never plaintext, absent when the default is used. */
 function robotPasswordFile(): string { return userDataPath("robot-ssh-password.bin"); }
 function labviewDiscoveryCacheDirectory(): string { return userDataPath("labview-discovery"); }
@@ -1670,6 +1671,7 @@ handle("robotFiles:connection", () => robotFileDelivery.settings());
 handle("robotFiles:check", () => robotFileDelivery.checkConnection());
 handle("robotFiles:password", () => robotFileDelivery.passwordStatus());
 handle("robotFiles:save", (_event, endpoint, password) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint, password));
+handle("robotFiles:use", (_event, endpoint) => robotFileDelivery.use(endpoint));
 handle("robotFiles:probe", (_event, endpoint, password) => robotFileDelivery.probe(endpoint as RobotFileEndpoint, password));
 handle("robotFiles:cancelProbe", () => robotFileDelivery.cancelProbe());
 handle("robotFiles:trust", (_event, fingerprint) => {
@@ -1911,7 +1913,8 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
       console.warn("Could not open the robot SSH password store:", error);
       return sessionRobotPasswordStore();
     });
-    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value), undefined, passwords);
+    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value), undefined, passwords,
+      await openKnownHosts(robotKnownHostsFile()));
   } catch (error) { console.warn("Could not load robot SFTP connection:", error); }
   agentBridge = new AgentBridgeServer(app.getPath("userData"), agentSessions);
   // The Agents menu shows MCP access as off when the bridge cannot start.

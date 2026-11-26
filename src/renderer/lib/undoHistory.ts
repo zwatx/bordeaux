@@ -73,7 +73,7 @@ type Link = { fromPathId: string; toPathId: string };
 type LibraryPath = { id: string; name?: string; folderId?: string; waypoints?: { positionLink?: string }[] };
 type Folder = { id: string };
 type LinkedProject = { paths: LibraryPath[]; pathLinks?: Link[] | null };
-type Project = LinkedProject & { pathFolders?: Folder[] | null; robot: { planning?: unknown } };
+type Project = LinkedProject & { pathFolders?: Folder[] | null; robot: { planning?: unknown }; activeRobotId?: string };
 type FolderProject = { paths: LibraryPath[]; pathFolders?: Folder[] | null };
 
 /** The paths and every path whose waypoints move with them through endpoint or shared-position links. */
@@ -147,7 +147,8 @@ export type ProjectChange = {
   /** Changed paths as they were before; null for a path the change created. */
   paths: { id: string; index: number; path: LibraryPath | null }[];
   links: { restore: Link[]; remove: Link[] } | null;
-  planning?: { before: unknown; after: unknown };
+  /** Planning set on the robot selected at the time; `robotId` is undefined for a project without a robot list. */
+  planning?: { before: unknown; after: unknown; robotId?: string };
   activePathId: string | null;
 };
 
@@ -169,7 +170,7 @@ export function captureProjectChange(before: Project, after: Project, activePath
       return { id, index, path: index >= 0 ? before.paths[index] : null };
     }),
     links: restore.length || remove.length ? { restore, remove } : null,
-    ...(planning ? { planning: { before: before.robot.planning, after: after.robot.planning } } : {}),
+    ...(planning ? { planning: { before: before.robot.planning, after: after.robot.planning, robotId: after.activeRobotId } } : {}),
     activePathId,
   };
   return { touches: [...[...touched].map(pathScope), ...(planning ? ["robot.planning"] : [])], change };
@@ -211,7 +212,9 @@ export function restoreProjectChange<T extends Project>(project: T, change: Proj
     }
     pathLinks = links;
   }
-  const planning = change.planning ? revertPlanning(project.robot.planning, change.planning) : project.robot.planning;
+  // After a robot switch the planning belongs to another robot, so the change no longer applies.
+  const planning = change.planning && change.planning.robotId === project.activeRobotId
+    ? revertPlanning(project.robot.planning, change.planning) : project.robot.planning;
   return { ...project, paths, pathLinks, robot: planning === project.robot.planning ? project.robot : { ...project.robot, planning } };
 }
 

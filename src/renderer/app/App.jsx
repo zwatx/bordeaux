@@ -59,9 +59,10 @@ import {
 } from "../../core/project/ids";
 import { normalizeProject as normalizeProjectData } from "../../core/project/normalize";
 import { promoteRoutineProjectSchema } from "../../core/project/routineSchema";
+import { addRobot, duplicateRobot, projectRobots, removeRobot, renameRobot, selectRobot, setRobotConnection } from "../../core/project/robots";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { markerInvocations } from "../../core/markerCommands";
-import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createDemoProject } from "../../core/project/defaults";
+import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createStarterProject } from "../../core/project/defaults";
 import { blankProject, blankRoutine, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setTangentDirection, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";
@@ -77,6 +78,8 @@ import { PathTimeline, PathHoverReadout } from "../components/PathTimeline";
 import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
   const { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } = React;
+  // The SystemCore web editor runs on the robot it pushes to. Host capabilities are fixed for the renderer's lifetime.
+  const SERVED_BY_ROBOT = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.servedByRobot === true;
   const h = React.createElement;
   const { IMG_W, IMG_H } = FIELD_DIMS;
   const PERSEG = 56;
@@ -314,10 +317,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
   /** Under the field: the selection's properties beside the speed, time and command timeline. */
   function PathBand({ doc, derived, tl, problems, robot, actions, edit, timingHeld, ...props }) {
-    const c = doc.constraints;
+    const c = doc.constraints, ceilings = PM.limitCeilings(robot, doc);
+    // The boxes hold what the user typed. Planning uses the lower of that and the robot's limit, which the mark states.
     const limits = h('div', { className: 'pt-limits', key: doc.id },
-      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: robot.maxSpeed, onChange: (v) => actions.setConstraint({ maxVel: v }) }),
-      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
+      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', onChange: (v) => actions.setConstraint({ maxVel: v }) }),
+      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration',
+        onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
     return h('section', { className: 'path-band', 'aria-label': 'Path details' },
       h(PathPanel, { ...props, stale: props.stale || timingHeld, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
         onFixIssue: problems.onFix, onClearIssue: problems.onClear }),
@@ -381,7 +386,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
 
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
-    const [project, setProject] = useState(() => initialProject || createDemoProject());
+    const [project, setProject] = useState(() => initialProject || createStarterProject());
     const appUpdates = useAppUpdates();
     const plannerId = 'profiledSpline';
     const [activeIdx, setActiveIdx] = useState(0);
@@ -869,6 +874,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
     const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+      // An address set up in the connection dialog belongs to the robot selected at the time. An editor served by the
+      // robot pushes only to that robot, so project robot addresses play no part there.
+      onEndpointChosen: (endpoint) => { if (!SERVED_BY_ROBOT) setProject((current) => setRobotConnection(current, endpoint)); },
       ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
@@ -1645,6 +1653,42 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const setRobot = useCallback((patch) => {
       setProject((pr) => ({ ...pr, robot: { ...pr.robot, ...patch } }));
     }, []);
+    // The project's robots. Switching, adding, renaming and removing are plain project changes, like robot edits;
+    // switching back restores a robot exactly, so applied optimizations made for it match again.
+    const robots = useMemo(() => projectRobots(project), [project.robot, project.robots, project.activeRobotId]);
+    // A project saved before robot lists has one robot that uses this computer's current connection. The first robot
+    // action that creates the list gives that robot this connection as its own address, since from then on every robot
+    // connects only through its own address.
+    const pairingRef = useRef(null); pairingRef.current = pushController.pairing;
+    const withList = (current) => {
+      const endpoint = pairingRef.current?.endpoint;
+      const next = !current.robots && endpoint && !SERVED_BY_ROBOT ? setRobotConnection(current, endpoint) : current;
+      // The single robot's card id stands in for the id the list just gave it.
+      return { project: next, idOf: (id) => current.robots ? id : next.activeRobotId };
+    };
+    const robotActions = useMemo(() => ({
+      onSelectRobot: (id) => setProject((pr) => selectRobot(pr, id)),
+      // Returns the new robot's id so its card can open the name for editing.
+      onAddRobot: () => { const next = addRobot(withList(projectRef.current).project, 'New robot'); projectRef.current = next; setProject(next); return next.activeRobotId; },
+      onDuplicateRobot: (id) => { const { project: base, idOf } = withList(projectRef.current); const next = duplicateRobot(base, idOf(id)); projectRef.current = next; setProject(next); return next.activeRobotId; },
+      onRenameRobot: (id, name) => setProject((pr) => { const { project: base, idOf } = withList(pr); return renameRobot(base, idOf(id), name); }),
+      onRemoveRobot: (id) => setProject((pr) => removeRobot(pr, id)),
+    }), []);
+    // The selected robot's address is the active connection. A listed robot without one has none, so Push asks for its
+    // address; only a project without a list falls back to this computer's current connection. Each request is made
+    // once, so a host that answers with its own address (SystemCore keeps its own host) cannot loop, and a request
+    // waits while the connection is busy.
+    const listed = Boolean(project.robots?.length);
+    const selectedConnection = SERVED_BY_ROBOT ? undefined : robots.find((item) => item.selected)?.connection;
+    const selectedEndpointKey = SERVED_BY_ROBOT ? null : selectedConnection ? JSON.stringify(selectedConnection) : listed ? 'none' : null;
+    const requestedEndpoint = useRef(null);
+    useEffect(() => {
+      if (!selectedEndpointKey) { requestedEndpoint.current = null; return; }
+      if (pushController.busy || requestedEndpoint.current === selectedEndpointKey) return;
+      requestedEndpoint.current = selectedEndpointKey;
+      if (selectedEndpointKey === 'none') { if (pushController.pairing) void pushController.useEndpoint?.(null); return; }
+      if (JSON.stringify(pushController.pairing?.endpoint ?? null) !== selectedEndpointKey) void pushController.useEndpoint?.(selectedConnection);
+    }, [selectedEndpointKey, pushController.busy, pushController.pairing]);
 
     const addTargetMid = useCallback(() => commit((d) => {
       const pts = derived.sample.pts;
@@ -3091,7 +3135,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
         optimizationOpen, toggleOptimization,
         updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck,
-        appSettings: h(AppSettings, { unitSystem, setUnitSystem, connection: pushController, updateState: appUpdates.state,
+        appSettings: h(AppSettings, { unitSystem, setUnitSystem, updateState: appUpdates.state,
           onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onCheckUpdates: appUpdates.actions.onCheck, onCloseUpdates: appUpdates.actions.onClose }) }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
       projectsSheet, departureSheet, departureHint,
@@ -3099,7 +3143,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
         onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
-        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
+        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, robots, ...robotActions, connection: pushController,
+          fallbackHost: listed ? undefined : pushController.pairing?.endpoint?.host, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),

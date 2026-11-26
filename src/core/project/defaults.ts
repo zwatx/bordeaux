@@ -2,7 +2,7 @@ import { autoHandles } from "../math/geometry";
 import { FIELD_H, FIELD_W, clampWorldPoint, rotateBlueOriginPoint } from "../math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { createPathId, createRoutineId } from "./ids";
-import { robotDefaultConstraints } from "../robotLimits";
+import { robotDefaultConstraints, startingDriveModel } from "../robotLimits";
 import type {
   BordeauxProject,
   PathConstraints,
@@ -85,6 +85,17 @@ export function blankPath(name = "NewPath", robot?: RobotConfig): PathDoc {
   };
 }
 
+/** The bare default frame, without a drivetrain: only its top speed limits planning. Fixtures and older files use it. */
+export function defaultRobot(): RobotConfig {
+  return { drive: "swerve", w: 0.84, l: 0.84, heightM: 0.5, maxSpeed: 5.0 };
+}
+
+/** A robot as the app creates one: the default frame with the starting drivetrain, so all its physical limits apply at once. */
+export function newRobot(): RobotConfig {
+  const robot = defaultRobot();
+  return { ...robot, driveModel: startingDriveModel(robot) };
+}
+
 export function createDemoProject(): BordeauxProject {
   const routine = {
     id: createRoutineId(),
@@ -96,7 +107,7 @@ export function createDemoProject(): BordeauxProject {
     schemaVersion: "1.0",
     field: { ...ACTIVE_FIELD_REFERENCE },
     name: "Untitled",
-    robot: { drive: "swerve", w: 0.84, l: 0.84, heightM: 0.5, maxSpeed: 5.0 },
+    robot: defaultRobot(),
     paths: [path],
     pathLinks: [],
     routines: [routine],
@@ -104,4 +115,9 @@ export function createDemoProject(): BordeauxProject {
     plannerId: "profiledSpline",
     editor: { activePathId: path.id },
   };
+}
+
+/** The project the app starts a user with: the demo project with a robot whose physical limits apply. `createDemoProject` stays the bare fixture. */
+export function createStarterProject(): BordeauxProject {
+  return { ...createDemoProject(), robot: newRobot() };
 }

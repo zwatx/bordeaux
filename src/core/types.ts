@@ -1,3 +1,4 @@
+import type { RobotFileEndpoint } from "./robotFileDelivery";
 export type DriveType = "swerve" | "tank";
 
 export type SegmentType = "bezier" | "line" | "arc" | "clothoid";
@@ -732,12 +733,28 @@ export interface FieldMigrationRecord {
   assigned: FieldReference;
 }
 
+/** A named robot in a project. See src/core/project/robots.ts. */
+export interface ProjectRobot {
+  id: string;
+  name: string;
+  /** This robot's details. Omitted on the selected robot, whose details are `BordeauxProject.robot`. */
+  robot?: RobotConfig;
+  /** Where Push sends this robot's files. Omitted until set: the robot then uses this computer's current connection.
+   * Host keys and passwords never live in the project; each computer keeps them. Robots may share an address. */
+  connection?: RobotFileEndpoint;
+}
+
 export interface BordeauxProject {
   schemaVersion: string;
   field: FieldReference;
   fieldMigration?: FieldMigrationRecord;
   name: string;
+  /** The selected robot's details. Planning, export and Push use these. */
   robot: RobotConfig;
+  /** Every robot in the project, in display order. Omitted on a project with one unnamed robot. */
+  robots?: ProjectRobot[];
+  /** The selected entry of `robots`. Present exactly when `robots` is. */
+  activeRobotId?: string;
   paths: PathDoc[];
   pathFolders?: PathFolder[];
   /** Keeps one path's end pose synchronized with another path's start pose. */
@@ -896,6 +913,8 @@ export interface BdxExport {
 /** Desktop delivery support; file export does not imply an installed robot receiver. */
 export interface RobotDeliveryCapabilities {
   fileTransfer?: boolean;
+  /** The editor runs on the robot it pushes to (the SystemCore web editor): only the push folder can change. */
+  servedByRobot?: boolean;
   pathPush: boolean;
   routinePush: boolean;
 }

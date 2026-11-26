@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "../src/electron/robotFileDelivery";
+import { RobotFileDelivery, memoryKnownHosts, openKnownHosts, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "../src/electron/robotFileDelivery";
 import { DEFAULT_ROBOT_PATH_DIRECTORY, type RobotFileConnection, type RobotFileSettings } from "../src/core/robotFileDelivery";
 import { sessionRobotPasswordStore } from "../src/electron/robotPasswordStore";
 const connection: RobotFileConnection = { endpoint: { target: "roborio", host: "roborio-2468-frc.local", port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY }, hostKeyFingerprint: "SHA256:abcdefghijklmnopqrstuvxyz123456789" };
@@ -212,7 +212,7 @@ describe("custom Systemcore SSH password", () => {
   const systemcore: RobotFileConnection = { endpoint: { target: "systemcore", host: "robot.local", port: 22, directory: "/home/systemcore/bordeaux/paths" }, hostKeyFingerprint: connection.hostKeyFingerprint };
   function systemcoreSetup(initial: RobotFileConnection | null = systemcore) {
     const passwords = sessionRobotPasswordStore();
-    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    const persist = vi.fn(async (_value: RobotFileSettings | null) => undefined);
     const transport = {
       discover: vi.fn(async (endpoint: RobotFileConnection["endpoint"]) => ({ endpoint, hostKeyFingerprint: systemcore.hostKeyFingerprint })),
       probe: vi.fn(async (endpoint: RobotFileConnection["endpoint"], _timeoutMs?: number, _password?: string | null) => ({ endpoint, hostKeyFingerprint: systemcore.hostKeyFingerprint })),
@@ -260,7 +260,7 @@ describe("custom Systemcore SSH password", () => {
   });
 
   it.each(["save", "trust"])("leaves safely unverified settings and permits retry after a %s credential failure", async (mode) => {
-    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    const persist = vi.fn(async (_value: RobotFileSettings | null) => undefined);
     let password: string | null = "old";
     const replace = vi.fn(async (next: string | null) => { password = next; });
     const store = { persistent: true, current: () => password, replace };
@@ -314,7 +314,7 @@ describe("custom Systemcore SSH password", () => {
 
   it("does not send the old credential after a failed save to a new endpoint", async () => {
     const endpoint = { ...systemcore.endpoint, host: "other.local" };
-    const persist = vi.fn(async (_value: RobotFileSettings) => undefined);
+    const persist = vi.fn(async (_value: RobotFileSettings | null) => undefined);
     const transport = { discover: vi.fn(async () => systemcore), probe: vi.fn(async () => systemcore), upload: vi.fn(async () => ({ directoryCreated: false })) };
     const store = { persistent: true, current: () => "old", replace: vi.fn(async () => { throw new Error("keychain failed"); }) };
     const delivery = new RobotFileDelivery(systemcore, persist, transport, store);
@@ -430,5 +430,94 @@ describe("custom Systemcore SSH password", () => {
     await expect(delivery.probe(connection.endpoint, { kind: "custom", password: "team-2468" })).rejects.toThrow(/roboRIO.*password/);
     await expect(delivery.saveSettings(connection.endpoint, { kind: "custom", password: "team-2468" })).rejects.toThrow(/roboRIO.*password/);
     expect(transport.probe).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Making a project robot's address active, written before the code. Failure modes:
+ *  1. Switching to an address this computer never reviewed comes back trusted, or contacts the robot.
+ *  2. Switching back to an address reviewed before asks for a new review, or trusts it under another robot type or port.
+ *  3. A custom password follows the switch to a different robot.
+ *  4. A different push folder on the same robot drops its trust or password.
+ *  5. A pending file review survives the switch.
+ *  6. Reviewed host keys are lost on restart.
+ *  7. Using the address already active writes anything.
+ *  8. A robot without an address keeps the previous robot's connection, password or pending review.
+ */
+describe("project robot addresses", () => {
+  const systemcore = { target: "systemcore" as const, host: "10.24.68.2", port: 22, directory: "/home/systemcore/bordeaux/paths" };
+  const other = { ...systemcore, host: "10.24.68.3" };
+  const fingerprint = "SHA256:abcdefghijklmnopqrstuvxyz123456789";
+  function addressed(initial: RobotFileSettings | null, hosts = memoryKnownHosts()) {
+    const persist = vi.fn(async (_value: RobotFileSettings | null) => undefined);
+    const transport = { probe: vi.fn(async (): Promise<RobotFileConnection> => { throw new Error("no network in this test"); }), upload: vi.fn(async () => ({ directoryCreated: false })) };
+    const passwords = sessionRobotPasswordStore();
+    return { delivery: new RobotFileDelivery(initial, persist, transport, passwords, hosts), persist, transport, passwords, hosts };
+  }
+
+  it("makes an unreviewed address active without trusting it or contacting the robot", async () => {
+    const { delivery, transport, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    const review = delivery.prepare([file()], async () => undefined);
+    expect(await delivery.use(other)).toEqual({ endpoint: other });
+    expect(delivery.current()).toBeNull();
+    expect(persist).toHaveBeenLastCalledWith({ endpoint: other });
+    expect(transport.probe).not.toHaveBeenCalled();
+    await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
+  });
+
+  it("trusts an address reviewed before again, only for the same robot type, host and port", async () => {
+    const { delivery } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    await delivery.use(other);
+    expect(await delivery.use({ ...systemcore, directory: "/home/systemcore/practice" })).toEqual({ endpoint: { ...systemcore, directory: "/home/systemcore/practice" }, hostKeyFingerprint: fingerprint });
+    expect(delivery.current()?.hostKeyFingerprint).toBe(fingerprint);
+    expect(await delivery.use({ ...systemcore, port: 2222 })).toEqual({ endpoint: { ...systemcore, port: 2222 } });
+    expect(await delivery.use({ ...systemcore, target: "roborio", directory: "/home/lvuser/natinst/bin/Paths" })).toEqual({ endpoint: { ...systemcore, target: "roborio", directory: "/home/lvuser/natinst/bin/Paths" } });
+  });
+
+  it("keeps a custom password for another folder on the same robot and drops it for another robot", async () => {
+    const { delivery, passwords } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    await passwords.replace("team-secret");
+    await delivery.use({ ...systemcore, directory: "/home/systemcore/practice" });
+    expect(passwords.current()).toBe("team-secret");
+    await delivery.use(other);
+    expect(passwords.current()).toBeNull();
+  });
+
+  it("clears the active robot for a project robot without an address, remembering the key it had", async () => {
+    const { delivery, persist, passwords, transport } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    await passwords.replace("team-secret");
+    const review = delivery.prepare([file()], async () => undefined);
+    expect(await delivery.use(null)).toBeNull();
+    expect(delivery.settings()).toBeNull();
+    expect(delivery.current()).toBeNull();
+    expect(passwords.current()).toBeNull();
+    expect(persist).toHaveBeenLastCalledWith(null);
+    await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
+    expect(await delivery.use(null)).toBeNull();
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect((await delivery.use(systemcore))?.hostKeyFingerprint).toBe(fingerprint);
+    expect(transport.probe).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for the address already active", async () => {
+    const { delivery, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    expect(await delivery.use({ ...systemcore })).toEqual({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("remembers host keys reviewed on this computer across restarts", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-known-hosts-"));
+    const knownFile = path.join(directory, "robot-known-hosts.json");
+    const first = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint }, await openKnownHosts(knownFile));
+    first.transport.probe.mockResolvedValueOnce({ endpoint: other, hostKeyFingerprint: "SHA256:otherabcdefghijklmnopqrstuv" });
+    await first.delivery.probe(other);
+    await first.delivery.trust("SHA256:otherabcdefghijklmnopqrstuv");
+    const restarted = addressed({ endpoint: other, hostKeyFingerprint: "SHA256:otherabcdefghijklmnopqrstuv" }, await openKnownHosts(knownFile));
+    expect((await restarted.delivery.use(systemcore))?.hostKeyFingerprint).toBe(fingerprint);
+    expect((await restarted.delivery.use(other))?.hostKeyFingerprint).toBe("SHA256:otherabcdefghijklmnopqrstuv");
+    await fs.writeFile(knownFile, "not json");
+    const damaged = addressed(null, await openKnownHosts(knownFile));
+    expect(await damaged.delivery.use(other)).toEqual({ endpoint: other });
+    await fs.rm(directory, { recursive: true, force: true });
   });
 });

@@ -60,6 +60,28 @@ export type ElectricalDriveKey =
 
 export type ElectricalDriveInputs = Record<ElectricalDriveKey, number>;
 
+/**
+ * The drivetrain a robot starts with, sized from its top speed and frame: a 6.75:1 swerve on 4 in wheels at 54 kg.
+ * A new robot carries it, so its speed, acceleration and cornering are limited from the start; the Robot page shows
+ * the same values for an older robot saved without a drivetrain.
+ */
+export function startingDriveModel(robot: Pick<RobotConfig, "maxSpeed" | "l" | "w">): DriveModel {
+  const gearRatio = 6.75, wheelDiameterM = 0.1016, massKg = 54;
+  return {
+    motorId: "custom",
+    motorFreeRpm: robot.maxSpeed * 60 * gearRatio / (Math.PI * wheelDiameterM),
+    motorMaxTorqueNm: 2.6,
+    motorCount: 4,
+    gearRatio,
+    wheelDiameterM,
+    massKg,
+    moiKgM2: massKg * (robot.l * robot.l + robot.w * robot.w) / 12,
+    wheelbaseM: Math.max(0.2, robot.l - 0.18),
+    trackwidthM: Math.max(0.2, robot.w - 0.18),
+    wheelFrictionCoefficient: 1.2,
+  };
+}
+
 /** Planning defaults for fields a project does not set. */
 export const ELECTRICAL_DRIVE_DEFAULTS = {
   batteryVoltageV: 12,
@@ -319,6 +341,17 @@ export function robotDefaultConstraints(constraints: PathConstraints, robot: Rob
     maxAngAccel: limits.maxAngularAccelDegps2,
     maxAngDecel: limits.maxAngularAccelDegps2,
   };
+}
+
+/**
+ * What the robot allows for each limit a path or zone sets. Planning uses the lower of the authored limit and this, so
+ * an authored limit above it is capped. A robot without a drivetrain model enforces only its top speed.
+ */
+export function robotLimitCeilings(robot: RobotConfig): Partial<Record<"maxVel" | "maxAccel" | "maxDecel" | "maxCentripetalAccel" | "maxAngVel" | "maxAngAccel", number>> {
+  const limits = robotHardLimits(robot);
+  if (!limits) return { maxVel: robot.maxSpeed };
+  return { maxVel: limits.maxSpeedMps, maxAccel: limits.maxAccelMps2, maxDecel: limits.maxDecelMps2, maxCentripetalAccel: limits.maxCornerAccelMps2,
+    maxAngVel: limits.maxAngularSpeedDegps, maxAngAccel: limits.maxAngularAccelDegps2 };
 }
 
 export function effectivePathConstraints(constraints: PathConstraints, robot: RobotConfig): PathConstraints {

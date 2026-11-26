@@ -194,6 +194,54 @@ describe('SFTP file push controller', () => {
     render().chooseTarget('roborio');
     expect(render()).toMatchObject({ target: 'roborio', directory: '/home/lvuser/practice' });
   });
+  // A project robot's address: the controller switches without contacting the robot, waits while busy, drops a waiting
+  // review, and reports addresses the user saves or trusts so App can store them on the selected robot.
+  it('makes a project robot address active without probing, and drops a waiting review', async () => {
+    const practice = { target: 'roborio', host: 'practice.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY };
+    bridge.useRobotFileEndpoint = vi.fn(async (endpoint) => ({ endpoint }));
+    await ready(); await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    expect(render().preview).toMatchObject(preview);
+    await render().useEndpoint(practice);
+    expect(bridge.useRobotFileEndpoint).toHaveBeenCalledExactlyOnceWith(practice);
+    expect(render()).toMatchObject({ phase: 'idle', connection: null, preview: null, pairing: { endpoint: practice }, host: 'practice.local' });
+    for (const name of ['probeRobotFiles', 'trustRobotFiles', 'confirmRobotFiles']) expect(bridge[name]).not.toHaveBeenCalled();
+    bridge.useRobotFileEndpoint.mockResolvedValueOnce(connection);
+    await render().useEndpoint(connection.endpoint);
+    expect(render()).toMatchObject({ connection, pairing: connection });    bridge.useRobotFileEndpoint.mockResolvedValueOnce(null);
+    await render().useEndpoint(null);
+    expect(bridge.useRobotFileEndpoint).toHaveBeenLastCalledWith(null);
+    expect(render()).toMatchObject({ connection: null, pairing: null, host: '', port: '22', directory: DEFAULT_ROBOT_PATH_DIRECTORY, connectionLabel: 'Not set up' });
+  });
+  it('waits for a running upload before switching robot addresses', async () => {
+    bridge.useRobotFileEndpoint = vi.fn(async (endpoint) => ({ endpoint }));
+    const upload = deferred(); bridge.confirmRobotFiles = vi.fn(() => upload.promise);
+    await ready(); await render().requestPush({ kind: 'paths', pathIds: ['A'] });
+    const confirming = render().confirmPush();
+    await render().useEndpoint({ ...connection.endpoint, host: 'practice.local' });
+    expect(bridge.useRobotFileEndpoint).not.toHaveBeenCalled();
+    upload.resolve({ state: 'transferred', files: preview.files, directory: connection.endpoint.directory }); await confirming;
+  });
+  it('saves only a new push folder, without reporting it as a robot address', async () => {
+    props.onEndpointChosen = vi.fn();
+    await ready();
+    expect(await render().saveDirectory('  /home/lvuser/practice  ')).toBe(true);
+    expect(bridge.saveRobotFileSettings).toHaveBeenCalledExactlyOnceWith({ ...connection.endpoint, directory: '/home/lvuser/practice' }, { kind: 'keep' });
+    expect(render()).toMatchObject({ directory: '/home/lvuser/practice', settings: { endpoint: { directory: '/home/lvuser/practice' } } });
+    expect(props.onEndpointChosen).not.toHaveBeenCalled();
+    bridge.saveRobotFileSettings.mockRejectedValueOnce(new Error('Push folder must be inside /home/systemcore'));
+    expect(await render().saveDirectory('/elsewhere')).toBe(false);
+    expect(render().error).toBe('Push folder must be inside /home/systemcore');
+    expect(await render().saveDirectory('   ')).toBe(false);
+  });
+  it('reports the address the user saves or trusts', async () => {
+    props.onEndpointChosen = vi.fn();
+    await ready(); await render().chooseAnotherRobot();
+    render().setHost('other.local');
+    await render().saveSettings();
+    expect(props.onEndpointChosen).toHaveBeenLastCalledWith({ target: 'roborio', host: 'other.local', port: 22, directory: DEFAULT_ROBOT_PATH_DIRECTORY });
+    await render().probeRobot(); await render().confirmPairing();
+    expect(props.onEndpointChosen).toHaveBeenLastCalledWith(connection.endpoint);
+  });
   it('restores the saved robot type', async () => {
     const systemcore = { endpoint: { target: 'systemcore', host: 'robot.local', port: 22, directory: '/home/systemcore/bordeaux/paths' }, hostKeyFingerprint: 'SHA256:test' };
     bridge.getRobotFileConnection = vi.fn(async () => systemcore);

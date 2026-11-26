@@ -23,6 +23,7 @@ const invokeChannels = {
   "robotFiles:check": "checkRobotFileConnection",
   "robotFiles:password": "getRobotFilePassword",
   "robotFiles:save": "saveRobotFileSettings",
+  "robotFiles:use": "useRobotFileEndpoint",
   "robotFiles:probe": "probeRobotFiles",
   "robotFiles:trust": "trustRobotFiles",
   "robotFiles:prepare": "prepareRobotFiles",

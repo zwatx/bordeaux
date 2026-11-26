@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { checkpointMatch, createCheckpointChannel, creationFailure, departureCopy, lifecycleApi, originLocation, recoveryAfterListing, recoveryOutcome, recoveryToken,
   rememberOfferedRecoveries, readOfferedRecoveries, sourceFact, unofferedRecoveries } from '../src/renderer/lib/projectLifecycle';
 import { blankProject } from '../src/renderer/lib/editorProject';
-import { createDemoProject } from '../src/core/project/defaults';
+import { createDemoProject, newRobot } from '../src/core/project/defaults';
 import { ProjectDeparture, ProjectsDialog } from '../src/renderer/components/ProjectsDialog';
 import { ProjectChip } from '../src/renderer/components/ProjectChip';
 
@@ -101,7 +101,9 @@ describe('blank first-use document', () => {
     const blank = blankProject(), demo = createDemoProject();
     expect(blank.paths).toHaveLength(1);
     expect(blank.paths[0].waypoints).toEqual([]);
-    expect(blank.robot).toEqual(demo.robot);
+    // A project the app starts has a robot with the starting drivetrain; the bare fixture has none.
+    expect(blank.robot).toEqual(newRobot());
+    expect(demo.robot.driveModel).toBeUndefined();
     expect(blank.routines).toHaveLength(1);
     expect(blank.editor.activePathId).toBe(blank.paths[0].id);
     expect(demo.paths[0].waypoints).toHaveLength(2);

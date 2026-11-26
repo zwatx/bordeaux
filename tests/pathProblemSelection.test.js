@@ -45,12 +45,14 @@ function harness({ clock = { request: () => 1, cancel() {} }, Observer = class {
       effects.push(() => { cell.cleanup?.(); cell.cleanup = effect(); });
     }
   };
-  const renderComponent = new Function('React', 'createPathHoverStore', 'document', 'MutationObserver', 'useEditPreview', 'useMemo', 'buildTimeline', 'useRef', 'useState', 'useEffect', 'window', 'h', 'UI', 'PathPanel', 'PathTimeline', 'tAtF', component + '; return { PathWorkspace, PathBand };')(
+  const renderComponent = new Function('React', 'createPathHoverStore', 'document', 'MutationObserver', 'useEditPreview', 'useMemo', 'buildTimeline', 'useRef', 'useState', 'useEffect', 'window', 'h', 'UI', 'PathPanel', 'PathTimeline', 'tAtF', 'PM', component + '; return { PathWorkspace, PathBand };')(
     { useLayoutEffect: useEffect }, () => createPathHoverStore(clock),
     { querySelector: () => null, body: {} }, Observer,
     () => ({ draft: props.draft ? { ...props.doc, ...props.draft } : null, displayed: { path: props.displayedPath || props.doc, value: props.displayedValue || props.derived }, interactionReady: props.interactionReady !== false }), useMemo, buildTimeline, useRef, useState, useEffect,
     { addEventListener: (_type, fn) => listeners.add(fn), removeEventListener: (_type, fn) => listeners.delete(fn) },
-    (type, properties, ...children) => ({ type, props: properties, children }), { Num: 'number' }, 'panel', 'timeline', tAtF);
+    (type, properties, ...children) => ({ type, props: properties, children }), { Num: 'number' }, 'panel', 'timeline', tAtF,
+    // The band reads the robot's limit ceilings for its Speed and Acceleration boxes; this robot has none.
+    { limitCeilings: () => ({}), MAX_SPEED_LIMIT: 30, MAX_ACCEL_LIMIT: 200 });
   const render = updates => {
     Object.assign(props, updates); cursor = 0;
     // Model React's keyed remount using the actual App call site's key expression.

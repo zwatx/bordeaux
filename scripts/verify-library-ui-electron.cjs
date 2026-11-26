@@ -9,6 +9,7 @@ app.setPath('userData', path.join(output, 'user-data'));
 const errors = [], checks = [], prepared = [], diagnosticPreviews = [], diagnosticSaves = [];
 let win, saved, finishPush, lastPrepared, lastProblemActivationDiagnostic;
 const problemActivationNative = [];
+let connectionFromRobot = false;
 let editorPlace = 'Paths';
 const robotConnection = { endpoint: { target: 'roborio', host: 'fixture', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'f'.repeat(43) };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,8 +31,10 @@ async function click(selector, text) {
     for (const end = Date.now() + 3000; !deferredSave && savesSettled === before && Date.now() < end;) await delay(25);
     return;
   }
-  // Robot connection is in global settings, behind the toolbar gear.
-  if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.app-settings')?.open))) await click('.app-settings-trigger');
+  // Each robot's connection is on the Robot page; closing what it opened returns to the editor place it came from.
+  if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.robot-connection')))) {
+    await click('.place', 'Robot'); connectionFromRobot = true;
+  }
   // Robot is a place in the toolbar; returning goes back to the place it was entered from (the old Editor button).
   if (selector === '.place' && text === 'Robot') editorPlace = (await evaluate(() => document.querySelector('.place[aria-current="page"]')?.textContent)) || editorPlace;
   await wait(() => evaluate((selector, text) => {
@@ -43,6 +46,9 @@ async function click(selector, text) {
     if (!el || el.disabled || el.closest('[inert]')) throw new Error('Unavailable: ' + selector + ' ' + text);
     el.click();
   }, selector, text); await delay(50);
+  if (connectionFromRobot && (selector === '[aria-label="Close robot files"]' || selector === '[aria-label="Close diagnostic bundle"]')) {
+    connectionFromRobot = false; await click('.place', editorPlace);
+  }
 }
 // Display units are in global settings (the toolbar gear): open it, choose, close.
 async function setUnits(units) {
@@ -235,11 +241,12 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0, 'Normal browsing must not show batch-selection controls');
     assert.equal(await evaluate(() => document.querySelectorAll(':is(.toolbar .library-connection,.toolbar .document-settings-trigger,.toolbar .exportrobot):not(.app-settings *)').length), 0);
     await click('.app-settings-trigger');
-    assert.equal(await evaluate(() => !!document.querySelector('.app-settings[open] .library-connection')), true);
+    assert.equal(await evaluate(() => !!document.querySelector('.app-settings .library-connection')), false, 'Connection is a robot setting');
     await click('[aria-label="Display units"] button', 'Imperial');
     assert.equal(await evaluate(() => [...document.querySelectorAll('[aria-label="Display units"] button')].find((button) => button.textContent === 'Imperial').getAttribute('aria-pressed')), 'true');
     await click('.app-settings-close');
     await click('.place', 'Robot');
+    assert.equal(await evaluate(() => !!document.querySelector('.robot-connection .library-connection')), true);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height);
       await setUnits(width === 1440 ? 'Metric' : 'Imperial');
@@ -300,7 +307,7 @@ app.whenReady().then(async () => {
     await click('.rp-shapes button', 'Rectangle');
     check('custom footprint respects displayed units, invalid drafts, Escape, and narrow layout');
     await click('.place', editorPlace);
-    check('Global settings holds connection and working display units; the toolbar itself has no connection, units, or JSON export');
+    check('The Robot page holds the connection and global settings working display units; the toolbar itself has no connection, units, or JSON export');
     await wait(() => evaluate(() => document.querySelector('[data-role="wp"]') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable field');
     await pointerClick('rect[data-role="wp"][data-idx="1"]', ['shift']);
     await click('[aria-label="Save project"]');
@@ -484,7 +491,9 @@ app.whenReady().then(async () => {
       await delay(80); await click('[aria-label="Save project"]');
       return saved.paths[0].constraints.maxVel;
     };
-    assert.equal(await enterVelocity('999'), saved.robot.maxSpeed, 'Typed velocity must respect its maximum');
+    // The box keeps a limit above the robot's, which planning caps and the box marks; only a slipped digit is refused.
+    assert.equal(await enterVelocity('999'), 30, 'Typed velocity must respect its typing bound');
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.numbox.capped')].some((box) => /^Your robot’s max .+ is .+$/.test(box.title))), true, 'A limit above the robot\'s is marked');
     assert.equal(await enterVelocity('-5'), 0.1, 'Typed velocity must respect its minimum');
     for (const invalid of ['Infinity', 'NaN', '2oops', '']) {
       assert.equal(await enterVelocity(invalid), 0.1, 'Invalid numeric text must preserve the current value: ' + invalid);

@@ -15,10 +15,10 @@ const Row = ({ label, status, children }) => h('div', { className: 'settings-row
 
 /**
  * The toolbar's gear and the Global settings dialog: preferences kept on this computer for every project. The project's
- * own settings stay on the Robot page. Robot connection, shortcuts and updates open their own dialogs, so this one
- * closes first and those return focus to the gear.
+ * robots, and where each one connects, stay on the Robot page. Shortcuts and updates open their own dialogs, so this
+ * one closes first and those return focus to the gear.
  */
-export function AppSettings({ unitSystem, setUnitSystem, connection, updateState, onOpenUpdates, onCheckUpdates, onCloseUpdates }) {
+export function AppSettings({ unitSystem, setUnitSystem, updateState, onOpenUpdates, onCheckUpdates, onCloseUpdates }) {
   useKeyRules();
   const dialog = React.useRef(null), trigger = React.useRef(null);
   // An update panel opened from here treats the gear as its opener and ignores presses on it, so opening hides the panel.
@@ -39,9 +39,6 @@ export function AppSettings({ unitSystem, setUnitSystem, connection, updateState
         h('h2', { id: 'app-settings-title' }, 'Global settings'),
         h('button', { type: 'button', className: 'app-settings-close', 'aria-label': 'Close global settings', onClick: close }, '×')),
       h('div', { className: 'settings-card' },
-        h(Row, { label: 'Robot connection', status: connection.pairing || connection.busy ? connection.connectionLabel : 'Not connected' },
-          h('button', { className: 'qbtn library-connection', type: 'button', onClick: handOff(connection.openConnection) },
-            connection.busy ? 'Show progress' : connection.pairing ? 'Edit' : 'Set up')),
         h(Row, { label: 'Display units' },
           h(UI.Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
         // Hidden where the host can't store keys.

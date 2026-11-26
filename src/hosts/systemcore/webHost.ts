@@ -13,7 +13,7 @@ import type { CreateNamedProjectRequest, OpenedProject, ProjectLocation, RecentP
 import type { RobotFileConnection, RobotFilePreview, RobotFileReading, RobotFileResult } from "../../core/robotFileDelivery";
 import type { BordeauxProject } from "../../core/types";
 import { prepareProjectFile } from "../../core/project/fileFormat";
-import { createDemoProject, defaultPathConstraints } from "../../core/project/defaults";
+import { createStarterProject, defaultPathConstraints } from "../../core/project/defaults";
 import { PROJECT_NAME_RULE, isPortableProjectName } from "../../core/project/projectName";
 import { MAX_FILE_NAME_BYTES, portableFileStem } from "../../core/portableFileName";
 import { PROJECT_WORKSPACE_FILE, decodeWorkspace, projectDocuments, workspaceContents, type FolderState } from "../../core/project/folderLayout";
@@ -213,7 +213,7 @@ export function createSystemcoreHost() {
     const name = typeof request?.name === "string" ? request.name.trim() : "";
     if (!isPortableProjectName(name)) throw new Error(PROJECT_NAME_RULE);
     if (!robotProjectName(name)) throw new Error("Choose a project name of at most 120 characters that doesn't start with a dot");
-    const project = createDemoProject();
+    const project = createStarterProject();
     project.name = name;
     if (request.template) {
       project.robot = structuredClone(request.template.robot);
@@ -244,7 +244,7 @@ export function createSystemcoreHost() {
     checkAppUpdates: () => showUpdates(true),
     setAppUpdatesVisible: showUpdates,
     openAppUpdateReleases: async () => { window.open(OFFICIAL_RELEASES_URL, "_blank", "noopener"); },
-    robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true }),
+    robotDeliveryCapabilities: Object.freeze({ pathPush: true, routinePush: false, fileTransfer: true, servedByRobot: true }),
 
     restoreLastProject: () => serially(async () => {
       const last = (await serverInfo()).lastProject;
@@ -284,6 +284,8 @@ export function createSystemcoreHost() {
     checkRobotFileConnection: connection,
     getRobotFilePassword: async () => ({ custom: false, persistent: false }),
     saveRobotFileSettings: (endpoint) => useDirectory(endpoint.directory),
+    // The robot serving this page is always the connection, so a project robot's address contributes only its push folder.
+    useRobotFileEndpoint: (endpoint) => endpoint ? useDirectory(endpoint.directory) : connection(),
     probeRobotFiles: (endpoint) => useDirectory(endpoint.directory),
     trustRobotFiles: () => connection(),
     cancelRobotFileProbe: async () => undefined,

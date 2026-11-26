@@ -407,7 +407,10 @@ import { filterPickerItems } from "../lib/pickerSearch";
   }
 
   // numeric field with drag-to-scrub
-  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, format = (number) => number.toFixed(precision), projectDraft = true }) {
+  // `ceiling` is what the robot allows for this value, in stored units, and `ceilingName` names it ("speed"). A value
+  // above it stays as typed, since planning caps it; the field is marked and states the robot's maximum on hover and to
+  // screen readers.
+  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, format = (number) => number.toFixed(precision), projectDraft = true, ceiling, ceilingName = 'value' }) {
     const id = useId();
     const [edit, setEdit] = useState(null);
     const [scrub, setScrub] = useState(null);
@@ -470,11 +473,13 @@ import { filterPickerItems } from "../lib/pickerSearch";
     const displayValue = typeof value === 'number' ? UnitPrefs.fromCanonical(value, unit, imperialUnit) : value;
     const disp = scrub != null ? format(UnitPrefs.fromCanonical(scrub, unit, imperialUnit))
       : edit != null ? edit : (typeof displayValue === 'number' ? format(displayValue) : displayValue);
+    const capped = typeof value === 'number' && typeof ceiling === 'number' && value > ceiling + 1e-9
+      ? 'Your robot\u2019s max ' + ceilingName + ' is ' + format(UnitPrefs.fromCanonical(ceiling, unit, imperialUnit)) + (unit ? ' ' + UnitPrefs.label(unit, imperialUnit) : '') : '';
     return h('div', { className: 'numrow' },
       label != null && h('label', { className: 'numlbl', htmlFor: id, onPointerDown: start() }, label),
-      h('div', { className: 'numbox' },
+      h('div', { className: 'numbox' + (capped ? ' capped' : ''), title: capped || undefined },
         h('input', {
-          id, ref, className: 'numinput', value: disp, inputMode: 'decimal', 'aria-describedby': [unit && id + '-unit', error && id + '-error'].filter(Boolean).join(' ') || undefined,
+          id, ref, className: 'numinput', value: disp, inputMode: 'decimal', 'aria-describedby': [unit && id + '-unit', capped && id + '-cap', error && id + '-error'].filter(Boolean).join(' ') || undefined,
           'data-project-draft': projectDraft ? true : undefined, 'aria-invalid': !!error,
           onChange: (e) => { cancelEdit.current = false; setEdit(e.target.value); if (error) setError(''); },
           onFocus: (e) => { cancelEdit.current = false; if (edit == null) setEdit(typeof displayValue === 'number' ? String(displayValue) : displayValue); requestAnimationFrame(() => { if (document.activeElement === e.target) e.target.select(); }); },
@@ -492,7 +497,8 @@ import { filterPickerItems } from "../lib/pickerSearch";
             }
           },
         }),
-        unit && h('span', { id: id + '-unit', className: 'numunit' }, UnitPrefs.label(unit, imperialUnit))),
+        unit && h('span', { id: id + '-unit', className: 'numunit' }, UnitPrefs.label(unit, imperialUnit)),
+        capped && h('span', { id: id + '-cap', className: 'sr-only' }, capped)),
       error && h('span', { id: id + '-error', className: 'cmd-param-error numerror', role: 'alert' }, error),
     );
   }

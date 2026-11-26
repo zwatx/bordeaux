@@ -30,11 +30,12 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
   const segmentTypeOptions = (current) => PM.SEGTYPES.filter((type) => !type.legacy || type.id === current).map((type) => ({ v: type.id, label: type.label, title: type.hint }));
   const wpName = (i, n) => i === 0 ? 'Start' : i === n - 1 ? 'End' : 'Waypoint ' + i;
 
-  function ConstraintsBody({ c, robot, setC, moreLimits, setMoreLimits }) {
+  // `c` is what the user typed; `ceilings` is what the robot allows, marked on any limit typed above it.
+  function ConstraintsBody({ c, ceilings = {}, setC, moreLimits, setMoreLimits }) {
     const advanced = moreLimits && h(React.Fragment, null,
       h('div', { className: 'grid2 compact-fields' },
-        h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngVel: v }) }),
-        h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngAccel: v }) })),
+        h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngVel, ceilingName: 'turn speed', onChange: (v) => setC({ maxAngVel: v }) }),
+        h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngAccel, ceilingName: 'turn acceleration', onChange: (v) => setC({ maxAngAccel: v }) })),
       h('div', { className: 'grid2 compact-fields' },
         h(Num, { label: 'Linear jerk check', value: c.maxJerk ?? 0, unit: 'm/s³', min: 0, step: 0.1, format: formatAngularLimit, onChange: (v) => setC({ maxJerk: v }) }),
         h(Num, { label: 'Angular jerk', value: c.maxAngJerk ?? 0, unit: '°/s³', min: 0, step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngJerk: v }) })),
@@ -42,10 +43,10 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
     return h(React.Fragment, null,
       h('div', { className: 'cgroup-h' }, 'Translation'),
       h('div', { className: 'grid2' },
-        h(Num, { label: 'Max velocity', value: c.maxVel, unit: 'm/s', min: 0.1, max: robot.maxSpeed, onChange: (v) => setC({ maxVel: v }) }),
-        h(Num, { label: 'Max acceleration', value: c.maxAccel, unit: 'm/s\u00b2', min: 0.1, onChange: (v) => setC({ maxAccel: v, maxDecel: v }) })),
+        h(Num, { label: 'Max velocity', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', onChange: (v) => setC({ maxVel: v }) }),
+        h(Num, { label: 'Max acceleration', value: c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration', onChange: (v) => setC({ maxAccel: v, maxDecel: v }) })),
       c.maxDecel != null && c.maxDecel !== c.maxAccel && h('div', { className: 'seg-hint' }, 'Saved slowing limit: ' + UnitPrefs.format(c.maxDecel, 'm/s²', 2) + '. Editing acceleration sets both limits.'),
-      h(Num, { label: 'Corner acceleration', value: c.maxCentripetalAccel != null ? c.maxCentripetalAccel : c.maxAccel, unit: 'm/s\u00b2', min: 0.1, onChange: (v) => setC({ maxCentripetalAccel: v }) }),
+      h(Num, { label: 'Corner acceleration', value: c.maxCentripetalAccel != null ? c.maxCentripetalAccel : c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: ceilings.maxCentripetalAccel, ceilingName: 'corner acceleration', onChange: (v) => setC({ maxCentripetalAccel: v }) }),
       h('button', { className: 'morebtn' + (moreLimits ? ' on' : ''), type: 'button', 'aria-expanded': moreLimits, onClick: () => setMoreLimits(!moreLimits) }, h('span', null, 'Advanced limits'), h(Icon, { name: 'chevron', size: 13 })),
       advanced);
   }
@@ -741,7 +742,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
         target && h(Num, { label: 'Heading', value: target.deg, unit: '°', onChange: (deg) => actions.setTarget(sel.idx, { deg }) }),
         range && h(RangeLimits, { range, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         !waypoint && !range && !target && !marker && h(ConstraintsBody, {
-          c: pathLimits, robot, setC: actions.setConstraint, moreLimits, setMoreLimits,
+          c: doc.constraints, ceilings: PM.limitCeilings(robot, doc), setC: actions.setConstraint, moreLimits, setMoreLimits,
         }));
     }
     else if (!sel.kind) {
@@ -771,8 +772,8 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
         h('div', { className: 'grid2' },
           endpointSpeed(0), endpointSpeed(n - 1)),
         h(ConstraintsBody, {
-          c: pathLimits,
-          robot,
+          c: doc.constraints,
+          ceilings: PM.limitCeilings(robot, doc),
           setC: actions.setConstraint,
           moreLimits,
           setMoreLimits,

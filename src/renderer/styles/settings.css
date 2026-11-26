@@ -57,6 +57,29 @@
 .rp-notes{display:block;width:100%;min-height:96px;padding:10px 12px;resize:vertical;line-height:1.5}
 .rp-text:focus,.rp-notes:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
 
+/* Robot cards: one per robot, the selected one raised; the dashed card adds a robot. */
+.robot-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.robot-card{position:relative;display:flex;flex-direction:column;min-height:66px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
+.robot-card.on{border-color:var(--accent-line);background:var(--bg-2)}
+.robot-card-pick{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:4px;padding:11px 12px;border-radius:inherit;text-align:left}
+.robot-card-pick strong{max-width:100%;overflow-wrap:anywhere;font-size:13px;font-weight:600}
+.robot-card small{color:var(--txt-3);font:11px var(--mono)}
+/* Quick actions overlay the card's end while it is hovered or holds focus. */
+.robot-card-actions{position:absolute;top:5px;right:5px;display:flex;gap:2px;padding-left:6px;border-radius:var(--r);background:inherit;opacity:0}
+.robot-card:is(:hover,:focus-within) .robot-card-actions{opacity:1}
+.robot-card-action{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
+.robot-card-action:disabled{opacity:.4}
+.robot-card-new{align-items:center;justify-content:center;border-style:dashed;color:var(--txt-3);font-size:13px}
+.robot-card-name,.robot-card-confirm{display:flex;flex-direction:column;gap:8px;padding:8px;font-size:12px}
+.robot-card-confirm{position:absolute;inset:0;justify-content:center;gap:6px;padding:6px 8px 6px 12px}
+.robot-card-confirm>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.robot-card-confirm>span:last-child{display:flex;justify-content:flex-end;gap:6px}
+.robot-card-confirm .qbtn{min-height:28px}
+/* Spaced on their own, so nothing placed after the cards can take their margin. */
+:is(.robot-connection,.robot-cards~.rp-note){margin-top:10px}
+:is(.robot-card-pick,.robot-card-action,.robot-card-new):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+@media(hover:hover){.robot-card:hover{background:var(--bg-2);color:var(--txt)}.robot-card-action:not(:disabled):hover{background:var(--bg-3);color:var(--txt)}}
+
 /* The footprint preview sits beside the dimensions that draw it. */
 .rp-robot{display:grid;grid-template-columns:minmax(0,1fr) auto}
 .rp-preview{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-left:1px solid var(--line);color:var(--txt-3);font-size:11px}

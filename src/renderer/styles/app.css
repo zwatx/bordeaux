@@ -7,27 +7,8 @@
     max-width: none;
   }
   .fieldcol .viewctl { right: 12px; bottom: 106px; }
-  .fieldcol .cbar-chip { padding-inline: 8px; }
 }
 @container (max-width: 420px) {
-  .fieldcol .cbar {
-    width: calc(100% - 24px);
-    height: auto;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 5px 6px;
-  }
-  .fieldcol .cbar-ic, .fieldcol .cbar-edit { display: none; }
-  .fieldcol .cbar-chip {
-    justify-content: center;
-    min-width: 0;
-    padding: 5px 6px;
-    border-right: 0;
-  }
-  .fieldcol .cbar-chip:nth-of-type(2), .fieldcol .cbar-chip:nth-of-type(3) {
-    border-bottom: 1px solid var(--line);
-  }
-  .fieldcol .cbar-chip:nth-of-type(even) { border-right: 1px solid var(--line); }
   .fieldcol .viewctl { bottom: 272px; }
   .fieldcol .transport-meta,
   .fieldcol .timeline-summary,
@@ -201,6 +182,8 @@ input,select,textarea{font-family:inherit}
 .numunit{flex-shrink:0;padding-left:6px;color:var(--txt-3);font:11px var(--mono);white-space:nowrap}
 @media (hover:hover){.textinput:hover,.numbox:hover{background:var(--ctl-hover)}}
 .textinput:focus,.numbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
+/* A limit typed above what the robot allows: kept as typed, and planning caps it. */
+.numrow .numbox.capped{border-color:var(--warn)}.numbox.capped .numinput{color:var(--warn-txt)}
 .numbox:has([aria-invalid="true"]),.cmd-param [aria-invalid="true"],.rp-big:has([aria-invalid="true"]){border-color:rgba(232,154,150,.65)}
 .numerror{grid-column:2}
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:6px}
@@ -543,7 +526,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .velgraph-time{position:absolute;left:14px;right:14px;bottom:0;display:flex;justify-content:space-between;color:var(--txt-3);font:11px var(--mono);pointer-events:none}
 
 /* ============ floating field instruments ============ */
-.toolrail,.cbar,.viewctl{z-index:24;background:var(--hud-surface);backdrop-filter:blur(12px);border-radius:var(--r);box-shadow:var(--hud-ring)}
+.toolrail,.viewctl{z-index:24;background:var(--hud-surface);backdrop-filter:blur(12px);border-radius:var(--r);box-shadow:var(--hud-ring)}
 .viewctl{position:absolute;right:16px;bottom:110px;z-index:27;display:flex;align-items:center;gap:1px;height:36px;padding:0 4px}
 .vc-btn{display:flex;align-items:center;justify-content:center;width:30px;height:28px;border-radius:var(--r-s);color:var(--txt-2)}
 .vc-btn.active{background:var(--accent-soft);color:var(--accent)}
@@ -572,15 +555,7 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
 .toolrail-k{position:absolute;right:3px;bottom:1px;color:var(--txt-3);font:10px var(--mono)}
 .toolrail-b.on .toolrail-k{color:var(--accent)}
 /* global-constraint chip bar */
-.cbar{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;max-width:calc(100% - 24px);height:36px;padding:0 5px 0 12px;color:var(--txt);box-shadow:var(--elevation),inset 0 1px rgb(255 255 255/.045)}
-.cbar-ic{display:flex;margin-right:6px;color:var(--txt-3)}
-.cbar-chip{display:flex;align-items:baseline;flex-shrink:0;gap:5px;padding:0 12px;border-right:1px solid var(--line-2);white-space:nowrap}
-.cbar-chip:last-of-type{border-right:none}
-.cbar-k{color:var(--txt-3);font-size:11px;font-weight:500}
-.cbar-v{color:var(--txt);font:600 13px var(--mono);font-variant-numeric:tabular-nums}
-.cbar-u{color:var(--txt-3);font:11px var(--mono)}
-.cbar-edit{margin-left:6px;padding:5px 10px;border-radius:var(--r-s);background:var(--bg-3);color:var(--txt-2);font-size:12px;font-weight:500}
-@media (hover:hover){.toolrail-b:not(.on):hover{background:var(--bg-3);color:var(--txt)}button.cbar:hover{background:var(--bg-2)}button.cbar:hover .cbar-edit{color:var(--txt)}}
+@media (hover:hover){.toolrail-b:not(.on):hover{background:var(--bg-3);color:var(--txt)}}
 
 /* context menu */
 .ctxmenu{position:fixed;z-index:200;min-width:184px;padding:5px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);box-shadow:var(--elevation),var(--shadow)}
