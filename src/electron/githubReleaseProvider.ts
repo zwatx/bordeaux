@@ -5,26 +5,22 @@ import { valid, prerelease, rcompare } from "semver";
 const RELEASES_API = "https://api.github.com/repos/zwatx/bordeaux/releases";
 const RELEASE_DOWNLOADS = "https://github.com/zwatx/bordeaux/releases/download";
 const JSON_HEADERS = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-const ASSET_HEADERS = { Accept: "application/octet-stream", "X-GitHub-Api-Version": "2022-11-28" };
 type UpdateInfo = ReturnType<typeof parseUpdateInfo>;
-type Asset = { name: string; url: string };
+type Asset = { name: string };
 type Release = { tag_name: string; draft: boolean; prerelease: boolean; assets: Asset[]; body?: string; name?: string };
 type ReleaseUpdateInfo = UpdateInfo & { tag: string; assets: Asset[] };
 
-function assetUrl(asset: Asset): URL {
-  const url = new URL(asset.url);
-  if (url.origin !== "https://api.github.com" || url.username || url.password || url.search || url.hash
-      || !/^\/repos\/zwatx\/bordeaux\/releases\/assets\/\d+$/.test(url.pathname)) {
-    throw new Error(`Untrusted update asset URL for ${asset.name}.`);
-  }
-  return url;
+/** A release file's public download URL. Built from the tag and name; an asset's own URL is never followed. */
+function releaseDownloadUrl(tag: string, name: string): URL {
+  return new URL(`${RELEASE_DOWNLOADS}/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`);
 }
 
 /**
- * Public GitHub API transport; installation and signature/checksum checks stay in electron-updater.
- * Installers download from the public release URL, not the API asset URL: electron-updater finds the
- * previous release's blockmap by swapping the version in that path, and its range requests do not
- * spend the API rate limit. That lets an update fetch only the changed blocks.
+ * Lists releases through the public GitHub API; installation and signature/checksum checks stay in
+ * electron-updater. Only that list spends the unauthenticated API limit (60 requests an hour per IP,
+ * shared by every machine behind one venue NAT). The manifest and installers download from public
+ * release URLs. electron-updater also finds the previous release's blockmap by swapping the version
+ * in the installer path, which lets an update fetch only the changed blocks.
  */
 export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
   constructor(
@@ -60,10 +56,9 @@ export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
     // A stable graduation uses the stable manifest, never an unrelated release's beta manifest.
     const channelName = prerelease(release.tag_name) ? this.getCustomChannelName("beta") : this.getDefaultChannelName();
     const manifestName = `${channelName}.yml`;
-    const manifest = release.assets.find(asset => asset.name === manifestName);
-    if (!manifest) throw new Error(`Release ${release.tag_name} is missing ${manifestName}.`);
-    const url = assetUrl(manifest);
-    const info = parseUpdateInfo(await this.httpRequest(url, ASSET_HEADERS), manifestName, url);
+    if (!release.assets.some(asset => asset.name === manifestName)) throw new Error(`Release ${release.tag_name} is missing ${manifestName}.`);
+    const url = releaseDownloadUrl(release.tag_name, manifestName);
+    const info = parseUpdateInfo(await this.httpRequest(url), manifestName, url);
     if (!info || valid(info.version) !== valid(release.tag_name)) throw new Error("Update manifest version does not match its release tag.");
     const result = {
       ...info,
@@ -89,7 +84,7 @@ export class GitHubReleaseProvider extends Provider<ReleaseUpdateInfo> {
       }
       const asset = info.assets.find(item => item.name === file.url);
       if (!asset) throw new Error(`Release is missing update artifact ${file.url}.`);
-      return { url: new URL(`${RELEASE_DOWNLOADS}/${encodeURIComponent(info.tag)}/${encodeURIComponent(asset.name)}`), info: file };
+      return { url: releaseDownloadUrl(info.tag, asset.name), info: file };
     });
   }
 }

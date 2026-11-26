@@ -21,7 +21,7 @@ function setup(releases = [release("1.0.0-beta.2")], raw = manifest(), platform:
 }
 afterEach(() => vi.unstubAllEnvs());
 describe("public GitHub API release provider", () => {
-  it("reads the manifest through the API and downloads installers from public release URLs", async () => {
+  it("lists releases through the API and reads the manifest and installers from public release URLs", async () => {
     const { provider, request } = setup();
     const info = await provider.getLatestVersion();
     const files = provider.resolveFiles(info);
@@ -29,7 +29,9 @@ describe("public GitHub API release provider", () => {
     expect(files.every(file => file.info.sha512 === checksum)).toBe(true);
     expect(files[0].url.href).toBe("https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.2/Bordeaux-arm64.zip");
     expect(request.mock.calls[0][0]).toMatchObject({ hostname: "api.github.com", path: "/repos/zwatx/bordeaux/releases?per_page=100&page=1", headers: { Accept: "application/vnd.github+json" } });
-    expect(request.mock.calls[1][0]).toMatchObject({ path: "/repos/zwatx/bordeaux/releases/assets/1", headers: { Accept: "application/octet-stream" } });
+    // Only the release list spends the unauthenticated API limit (60 requests an hour per IP).
+    expect(request.mock.calls[1][0]).toMatchObject({ hostname: "github.com", path: "/zwatx/bordeaux/releases/download/v1.0.0-beta.2/beta-mac.yml" });
+    expect(request).toHaveBeenCalledTimes(2);
     // Differential updates find the installed version's blockmap in its own release.
     expect((await provider.getBlockMapFiles(new URL("https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.2/Bordeaux-1.0.0-beta.2-mac-arm64.zip"), "1.0.0-beta.1", "1.0.0-beta.2")).map(url => url.href)).toEqual([
       "https://github.com/zwatx/bordeaux/releases/download/v1.0.0-beta.1/Bordeaux-1.0.0-beta.1-mac-arm64.zip.blockmap",
@@ -82,17 +84,14 @@ describe("public GitHub API release provider", () => {
     await expect(provider.getLatestVersion()).rejects.toThrow("does not match");
     expect(request).toHaveBeenCalledTimes(2);
   });
-  it.each([
-    "https://evil.test/1",
-    "https://api.github.com/repos/other/bordeaux/releases/assets/1",
-    "https://api.github.com/repos/Zw96042/bordeaux/releases/assets/1",
-    "https://api.github.com/repos/zwatx/other/releases/assets/1",
-    "https://api.github.com/repos/zwatx/bordeaux/releases/assets/1?redirect=evil",
-    "https://api.github.com/repos/zwatx/bordeaux/releases/assets/1#fragment",
-    "https://user:password@api.github.com/repos/zwatx/bordeaux/releases/assets/1",
-  ])("rejects off-repository manifest %s before requesting it", async url => {
-    const { provider, request } = setup([release("1.0.0-beta.2", undefined, { assets: [{ name: "beta-mac.yml", url }] })]);
-    await expect(provider.getLatestVersion()).rejects.toThrow("Untrusted");
+  it("never follows an asset's own URL to read the manifest", async () => {
+    const { provider, request } = setup([release("1.0.0-beta.2", undefined, { assets: [{ name: "beta-mac.yml", url: "https://evil.test/1" }, asset("Bordeaux-arm64.zip", 2), asset("Bordeaux-x64.zip", 3)] })]);
+    await provider.getLatestVersion();
+    expect(request.mock.calls[1][0]).toMatchObject({ protocol: "https:", hostname: "github.com", path: "/zwatx/bordeaux/releases/download/v1.0.0-beta.2/beta-mac.yml" });
+  });
+  it("rejects a release that does not list the manifest before requesting it", async () => {
+    const { provider, request } = setup([release("1.0.0-beta.2", "latest-mac.yml")]);
+    await expect(provider.getLatestVersion()).rejects.toThrow("missing beta-mac.yml");
     expect(request).toHaveBeenCalledTimes(1);
   });
   it("rejects installer filename traversal", async () => {
