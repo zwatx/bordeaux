@@ -588,7 +588,7 @@ app.whenReady().then(async () => {
     const batchJobCount = (await workerState()).jobs.length;
     const beforeBatch = await save();
     await click('.optimizer-panel button', 'Optimize all');
-    await waitFor(() => evaluate((done) => document.querySelector('.optimizer-batch')?.textContent.includes(done), `${fixture.paths.length} of ${fixture.paths.length} paths searched`), 'Optimize all to finish every path', 60_000);
+    await waitFor(() => evaluate((done) => document.querySelector('.optimizer-batch')?.textContent.includes(done), `${fixture.paths.length} of ${fixture.paths.length} paths searched`), 'Optimize all to finish every path', 30_000);
     const batchRows = await evaluate(() => [...document.querySelectorAll('.optimizer-batch button')].map((item) => ({
       name: item.querySelector(':scope > span')?.textContent,
       status: item.querySelector(':scope > small')?.textContent,
