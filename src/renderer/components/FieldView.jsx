@@ -1312,9 +1312,12 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       ? h('g', { className: 'field-apriltags', 'aria-hidden': true, style: { pointerEvents: 'none' } }, FIELD_TAG_MARKS.map((tag) => tagMark(tag, 'field-apriltag')))
       : null, [showTags, view.w, cw, accent]);
 
+    // The hovered tag is drawn just above the resting tags, under the path and its handles; only its card sits on top.
+    const hoveredTag = showTags && hoverTag != null ? FIELD_TAG_MARKS.find((item) => item.id === hoverTag) : null;
+    const tagHover = hoveredTag && h('g', { style: { pointerEvents: 'none' } }, tagMark(hoveredTag, 'field-apriltag-hover', true));
     // The hovered tag's card: its number, from the official layout.
     const tagCard = useMemo(() => {
-      const tag = showTags && hoverTag != null ? FIELD_TAG_MARKS.find((item) => item.id === hoverTag) : null;
+      const tag = hoveredTag;
       if (!tag) return null;
       const title = 'Tag ' + tag.id;
       const width = P(fieldTextWidth(title, '600 ' + CARD_FONT) + 18), height = P(26);
@@ -1328,7 +1331,6 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       const box = placeFieldLabel(tag.point, width, height, problemBounds, upp, [...tagBoxes, ...(toolRailObstacle ? [toolRailObstacle] : [])]);
       const text = { fontSize: P(12), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 500 };
       return h('g', { className: 'field-apriltag-card', style: { pointerEvents: 'none' } },
-        tagMark(tag, 'field-apriltag-hover', true),
         h('rect', { className: 'field-apriltag-card-box', x: box.x, y: box.y, width, height, rx: P(6), style: { fill: 'var(--bg-3)', stroke: 'var(--line-3)' }, strokeWidth: P(1) }),
         h('text', { ...text, x: box.x + P(9), y: box.y + P(17), fontWeight: 600, style: { fill: 'var(--txt)' } }, title));
     }, [showTags, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
@@ -1353,6 +1355,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
         h('img', { src: fieldImage, width: IMG_W, height: IMG_H, draggable: false, style: { width: IMG_W + 'px', height: IMG_H + 'px', display: 'block', opacity: 0.9, filter: 'brightness(0.38) saturate(0.32) contrast(1.06)', WebkitUserDrag: 'none', userSelect: 'none', pointerEvents: 'none' } })),
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
       tagLayer,
+      tagHover,
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),

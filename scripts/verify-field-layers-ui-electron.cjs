@@ -149,6 +149,8 @@ app.whenReady().then(async () => {
       }));
       const hovered = await hoverState();
       assert.equal(hovered.tag, '26'); assert.equal(hovered.rings, 0, 'No ring');
+      assert.ok(await evaluate(() => Boolean(document.querySelector('.field-apriltag-hover').compareDocumentPosition(document.querySelector('[data-role="wp"]')) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        'The hovered tag is drawn under waypoint handles');
       assert.notEqual(hovered.face, await evaluate(() => document.querySelector('.field-apriltag[data-tag="26"] .field-apriltag-face').getAttribute('stroke')), 'The hovered tag changes color');
       await snapshot(`hover-${size}`);
       await move({ x: Math.round(tag26.x), y: Math.round(tag26.y) - 80 });
