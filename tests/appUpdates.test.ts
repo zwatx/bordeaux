@@ -110,6 +110,29 @@ describe("application update state", () => {
     expect(f.states.map(s => s.phase)).toEqual(["available"]);
     expect(f.controller.snapshot()).toMatchObject({ phase: "available", version: "0.3.0", releaseNotes: "Better paths" });
   });
+  it.each(["failure", "same offer", "new offer", "withdrawn offer"] as const)(
+    "handles a download click during a silent check ending with %s", async (outcome) => {
+      const f = fixture();
+      f.offer();
+      const pending = deferred();
+      f.updater.checkForUpdates.mockReturnValue(pending.promise);
+      const check = f.controller.checkInBackground();
+      await Promise.resolve();
+
+      const click = f.controller.download();
+      expect(f.updater.downloadUpdate).not.toHaveBeenCalled();
+      if (outcome === "failure") {
+        pending.reject(new Error("offline"));
+      } else {
+        if (outcome === "same offer") f.offer();
+        if (outcome === "new offer") f.updater.emit("update-available", { version: "0.4.0" });
+        if (outcome === "withdrawn offer") f.updater.emit("update-not-available", { version: "0.2.0-beta.1" });
+        pending.resolve({});
+      }
+      await Promise.all([check, click]);
+      expect(f.updater.downloadUpdate).toHaveBeenCalledTimes(outcome === "failure" || outcome === "same offer" ? 1 : 0);
+    },
+  );
   it("lets background checks surface new offers and withdraw old ones", async () => {
     const f = fixture();
     f.updater.checkForUpdates.mockImplementationOnce(async () => { f.offer(); return {}; });

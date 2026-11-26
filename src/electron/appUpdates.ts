@@ -249,7 +249,15 @@ export class AppUpdateController {
   }
 
   async download(): Promise<void> {
-    if (!this.available || !this.state.version || this.downloaded || this.installing || this.activeCheck) return;
+    if (!this.available || !this.state.version || this.downloaded || this.installing) return;
+    if (this.activeCheck) {
+      // A silent check leaves the current offer actionable. Wait for its outcome
+      // before using the updater, and download only the version the user chose.
+      const version = this.state.version;
+      await this.activeCheck.promise;
+      if (this.state.version === version) return this.download();
+      return;
+    }
     if (this.downloadPromise) return this.downloadPromise;
     if (this.state.phase !== "available" && !(this.state.phase === "error" && this.state.errorStage === "download")) return;
     const token = new CancellationToken();
