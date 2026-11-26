@@ -63,7 +63,8 @@ import path from "node:path";
 // Routine field step badges and their collision placement measure 938,522 B against 935,112 B before them (2026-11-26); 919 KiB keeps about 2.5 KiB of headroom.
 // Routine pose jump sizes, field connectors and the link action measure 943,295 B against 938,522 B before them (2026-11-26); 924 KiB keeps about 2.8 KiB of headroom.
 // The routine path library ghost preview and start hints measure 946,308 B against 943,295 B before them (2026-11-26); 927 KiB keeps about 2.9 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 927 * 1024;
+// Routine flow polish (Duplicate, the add-step rail, short transport facts) measure 950,167 B against 948,626 B before them (2026-11-26); 930 KiB keeps about 2.1 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 930 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
