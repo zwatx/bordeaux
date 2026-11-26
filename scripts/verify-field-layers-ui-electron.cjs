@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
         tag: document.querySelector('.field-apriltag-hover')?.dataset.tag,
         face: document.querySelector('.field-apriltag-hover .field-apriltag-face')?.getAttribute('stroke'),
         layer: document.querySelector('.field-apriltags').outerHTML,
-        rings: document.querySelectorAll('.field-apriltag-card circle').length,
+        rings: document.querySelectorAll('.field-apriltag-card circle, .field-apriltag-hover circle').length,
       }));
       const hovered = await hoverState();
       assert.equal(hovered.tag, '26'); assert.equal(hovered.rings, 0, 'No ring');

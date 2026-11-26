@@ -132,7 +132,7 @@ const hubLandmarks = [
   obstacle("red-hub", "Red HUB", ["red hub", "red goal"], { xMin: RED_STRUCTURE_X_MIN, xMax: RED_BARRIER_X, yMin: HUB_Y_MIN, yMax: HUB_Y_MIN + HUB_WIDTH_M }),
 ];
 
-/** Official AndyMark tag poses, the layout robot code loads as `k2026RebuiltAndymark`. The welded field's layout differs by a few millimetres. */
+/** Official AndyMark tag poses, the layout robot code loads as `k2026RebuiltAndymark`. The welded field's layout differs. */
 export const REBUILT_2026_TAG_LAYOUT: WpilibFieldLayout = rebuiltAndyMarkLayout;
 
 function aprilTagAttachment(id: number): string {

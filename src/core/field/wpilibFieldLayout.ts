@@ -3,8 +3,9 @@ import type { FieldPoint } from "./types";
 /**
  * WPILib's field metadata format, one JSON file per field variant under
  * `fields/src/main/native/resources/org/wpilib/fields/frc/` in allwpilib (2027 and later).
- * Robot code loads these files through `AprilTagFieldLayout`. When it loads the same variant,
- * tags drawn from it sit where the robot's localization believes they are.
+ * The vendored file holds the same tag poses as the layout robot code loads through
+ * `AprilTagFieldLayout` for the same field variant, so tags drawn from it sit where that
+ * robot's localization believes they are.
  *
  * Each season: copy the new game's file from the WPILib release unchanged into `./wpilib/`,
  * import it in the field pack, and pin its URL and sha256 in the pack's `sources`.
