@@ -481,7 +481,7 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
     event.preventDefault();
     if (editing) finish(editing.id); else if (menu) closeMenu(true); else if (blocked) { setBlocked(null); focusRow(blocked.id); } else if (multiple) selection.clear(); else { update({ query: '' }); search.current?.focus(); }
   } },
-    // Paths, Routines and Settings are places in the toolbar; the library is just the collection and its search.
+    // Paths, Routines and Robot are places in the toolbar; the library is just the collection and its search.
     h('div', { className: 'library-find' },
       h('input', { ref: search, className: 'library-search', type: 'search', 'aria-label': pathsMode ? 'Search paths and folders' : 'Search routines', placeholder: pathsMode ? 'Search paths' : 'Search routines', value: prefs.query, onChange: (event) => { update({ query: event.target.value, scroll: 0 }); setMenu(null); } }),
       pathsMode && h('button', { type: 'button', className: 'library-icon-button', title: 'New folder', 'aria-label': 'New folder', onClick: () => create('folder', actions.addFolder) }, h(Icon, { name: 'folder', size: 14 })),

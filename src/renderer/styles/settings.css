@@ -1,4 +1,4 @@
-/* Settings: a section rail beside one column of ruled rows; each row names a value on the left and edits it on the right. */
+/* Robot page: a section rail beside one column of ruled rows; each row names a value on the left and edits it on the right. */
 .robotpage{position:relative;flex:1;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg)}
 /* The section rail is the same left column as the Paths and Routines library, under the project selector. */
 .settings-layout{display:grid;grid-template-columns:264px minmax(0,1fr);min-height:100%}
