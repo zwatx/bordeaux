@@ -143,7 +143,7 @@ export interface HostInvokes {
   "robotProject:openRecent": { method: "openRecentRobotProject"; call: (id: string, context: ProjectDurabilityContext) => Promise<RobotProjectLink> };
   "robotProject:refresh": { method: "refreshRobotProject"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectConnection> };
   "robotProject:inspectLabview": { method: "inspectLabviewCommands"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectConnection> };
-  "robotProject:ensureWrappers": { method: "ensureCommandWrappers"; call: (context: ProjectDurabilityContext, commandIds: string[]) => Promise<{ created: number }> };
+  "robotProject:ensureWrappers": { method: "ensureCommandWrappers"; call: (context: ProjectDurabilityContext, commandIds: string[]) => Promise<{ created: number; referencesCreated?: string; referencesError?: string }> };
   "robotProject:buildCatalog": { method: "buildRobotCatalog"; call: (context: ProjectDurabilityContext) => Promise<RobotProjectConnection> };
 
   /** The user's own key rules, already checked with sanitizeUserKeyRules. Defaults are not included. */

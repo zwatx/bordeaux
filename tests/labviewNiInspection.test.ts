@@ -315,6 +315,7 @@ describe("NI legacy connector discovery", () => {
     const item = { name: "Start_wrapper.vi", type: "VI", target: "Robot", projectPath: "Robot/Intake/Commands/Start_wrapper.vi", file: "Intake/Commands/Start_wrapper.vi", status: "present" as const, origin: "autoFolder" as const };
     expect(eligibleLabviewLegacySource(item)).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, name: "Start.vi", file: "Intake/Commands/Start.vi" })).toBe(true);
+    expect(eligibleLabviewLegacySource({ ...item, name: "Bordeaux Command Wrappers.vi", file: "Bordeaux Command Wrappers.vi" })).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, projectPath: "Robot/Support Code/Start.vi" })).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, projectPath: "Robot/Framework/Start.vi" })).toBe(false);
     expect(eligibleLabviewLegacySource({ ...item, name: "Intake Command Helper.vi copy.vi" })).toBe(false);

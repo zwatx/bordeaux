@@ -85,6 +85,7 @@ export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items
     && !item.projectPath.split("/").some((part) => /^(?:Support Code|Framework)$/i.test(part))
     && !/Command Helper\.vi/i.test(item.name)
     && !/_wrapper\.vi$/i.test(item.name)
+    && item.name.toLowerCase() !== "bordeaux command wrappers.vi"
     && !["prep command info for wait.vi", "wait for command.vi", "should abort operation.vi", "subsystems.vi"].includes(item.name.toLowerCase());
 }
 
@@ -278,12 +279,18 @@ export async function labviewCommandSourceChanges(selection: string, catalog: Ro
   return { changed: order(changed), missing: order(missing) };
 }
 
+/** A bundled NI inspection file: the source tree's in development, the packaged resources' otherwise. */
+export async function labviewInspectionResource(name: string): Promise<string> {
+  const development = path.resolve(__dirname, "../../resources/labview-inspection", name);
+  const file = await fs.access(development).then(() => development,
+    () => path.join((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? "", "labview-inspection", name));
+  await fs.access(file);
+  return file;
+}
+
 export async function runLabviewNiAdapter(requestFile: string, responseFile: string): Promise<void> {
   if (process.platform !== "win32") throw new Error("NI inspection is available on Windows with LabVIEW installed. Existing cached and declared catalogs remain available.");
-  const developmentScript = path.resolve(__dirname, "../../resources/labview-inspection/InspectCommands.ps1");
-  const script = await fs.access(developmentScript).then(() => developmentScript,
-    () => path.join((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? "", "labview-inspection", "InspectCommands.ps1"));
-  await fs.access(script);
+  const script = await labviewInspectionResource("InspectCommands.ps1");
   // A PowerShell reaches only the LabVIEW COM server of its own bitness: 64-bit for LabVIEW 2026, usually 32-bit for
   // LabVIEW 2025 FRC installs. Try 64-bit first; move on only when that LabVIEW is absent or lacks the open project.
   const windows = process.env.SystemRoot ?? "C:\\Windows";
@@ -304,6 +311,11 @@ export async function runLabviewNiAdapter(requestFile: string, responseFile: str
 const NO_LABVIEW = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered/;
 /** InspectCommands.ps1's failures that mean "try the other LabVIEW bitness", not a failed inspection. */
 const PROJECT_ELSEWHERE = /LabVIEW COM is not installed for this architecture|LabVIEW COM server is not registered|Open the selected project in one LabVIEW instance|The selected project is not already open in LabVIEW/;
+/** LabVIEW 2025 isn't available to script right now (absent, closed, project not open, other version or user). */
+export function labviewScriptingUnavailable(error: unknown): boolean {
+  return error instanceof Error && (PROJECT_ELSEWHERE.test(error.message)
+    || /only in LabVIEW 2025|supports LabVIEW 2025 and LabVIEW 2026|LabVIEW exited before inspection|LabVIEW belongs to another Windows user|Windows PowerShell is unavailable/.test(error.message));
+}
 
 function runInspectionScript(powershell: string, script: string, requestFile: string, responseFile: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
