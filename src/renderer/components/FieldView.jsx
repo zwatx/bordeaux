@@ -118,10 +118,55 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     if (geometry) return geometry;
     const toImage = worldToFieldImage;
     let d = '';
-    pts.forEach((p, k) => { const q = toImage(p); d += (k ? ' L ' : 'M ') + q.x.toFixed(1) + ' ' + q.y.toFixed(1); });
-    geometry = { d, start: toImage(pts[0]), end: toImage(pts[pts.length - 1]), mid: toImage(pts[Math.floor(pts.length / 2)]) };
+    const img = [], len = [];
+    pts.forEach((p, k) => {
+      const q = toImage(p);
+      len.push(k ? len[k - 1] + Math.hypot(q.x - img[k - 1].x, q.y - img[k - 1].y) : 0); img.push(q);
+      d += (k ? ' L ' : 'M ') + q.x.toFixed(1) + ' ' + q.y.toFixed(1);
+    });
+    geometry = { d, img, len, start: img[0], end: img[img.length - 1] };
     routeGeometry.set(pts, geometry);
     return geometry;
+  }
+  /** The point `distance` image units along a cached route, with its unit tangent. */
+  function routePointAt(geometry, distance) {
+    const { img, len } = geometry;
+    let k = 1;
+    while (k < len.length - 1 && len[k] < distance) k++;
+    const a = img[k - 1], b = img[k] || a, span = Math.max(1e-9, len[k] - len[k - 1]);
+    const r = Math.max(0, Math.min(1, (distance - len[k - 1]) / span)), dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1;
+    return { x: a.x + dx * r, y: a.y + dy * r, tx: dx / n, ty: dy / n };
+  }
+  const BADGE_FONT = '600 10.5px "JetBrains Mono", monospace', NAME_FONT = '600 11.5px "Space Grotesk", system-ui, sans-serif';
+  /**
+   * Where each routine path's step badge sits, in step order: near the path's start, slid along the path (then to its
+   * side) until it clears earlier badges and every path's end squares. `items` are { key, geometry, text }; `P` turns
+   * screen pixels into field units, so placement follows zoom. `obstacles` are boxes to keep clear as well (the robot
+   * where the routine starts). Returns key -> { x, y, w, h }.
+   */
+  function placeRoutineBadges(items, P, obstacles = []) {
+    const placed = [...obstacles], out = new Map(), ends = items.flatMap((item) => [item.geometry.start, item.geometry.end]);
+    const h = P(16), gap = P(3);
+    const clearance = (box) => Math.min(
+      ...placed.map((other) => Math.max(Math.abs(box.x - other.x) - (box.w + other.w) / 2, Math.abs(box.y - other.y) - (box.h + other.h) / 2)),
+      ...ends.map((end) => Math.max(Math.abs(box.x - end.x) - box.w / 2, Math.abs(box.y - end.y) - box.h / 2) - P(5)));
+    for (const item of items) {
+      const w = P(Math.max(18, fieldTextWidth(item.text, BADGE_FONT) + 9)), total = item.geometry.len.at(-1) || 0;
+      const along = [24, 44, 64, 88, 116, 150].map(P).filter((distance, index) => !index || distance < total * 0.7).map((distance) => Math.min(distance, total / 2));
+      const candidates = [];
+      for (const side of [0, 1, -1]) for (const distance of along) {
+        const point = routePointAt(item.geometry, distance);
+        candidates.push({ x: point.x - point.ty * side * P(17), y: point.y + point.tx * side * P(17), w, h });
+      }
+      let best = null, bestClearance = -Infinity;
+      for (const box of candidates) {
+        const room = clearance(box);
+        if (room >= gap) { best = box; break; }
+        if (room > bestClearance) { best = box; bestClearance = room; }
+      }
+      placed.push(best); out.set(item.key, best);
+    }
+    return out;
   }
 
   function HoverGhost({ store, context, derived, doc, robot, W2P, P }) {
@@ -147,6 +192,8 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     const [preview, setPreview] = useState(null);
     const [snap, setSnap] = useState(null);
     const [visitFocus, setVisitFocus] = useState(null);
+    // The routine step whose path or badge is under the pointer; its name shows beside its badge.
+    const [routineHover, setRoutineHover] = useState(null);
     const visitFocusRef = useRef(null);
     const actionsRef = useRef(actions);
     actionsRef.current = actions;
@@ -192,6 +239,10 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
 
     const upp = view.w / Math.max(1, cw);
     const P = (px) => px * upp;
+    // Screen pixels to field units where the field fits the height too (a wide routine preview), for text that must
+    // read at its pixel size.
+    const textUpp = Math.max(upp, canvasLayout.height > 0 ? view.h / canvasLayout.height : 0);
+    const T = (px) => px * textUpp;
     const pts = derived.sample.pts;
     const visitTolerance = P(18) / Math.min(SX, SY);
 
@@ -251,6 +302,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       return tagMarkAt(pt.matrixTransform(ctm.inverse()), P(10))?.id ?? null;
     };
     const onHoverMove = event => {
+      if (routine) setRoutineHover(event.buttons ? null : event.target.closest?.('[data-role="rpath"]')?.getAttribute('data-idx') ?? null);
       if (showTags) setTagHover(event.buttons ? null : tagAtClient(event.clientX, event.clientY));
       if (!hoverStore) return;
       if (event.buttons) { hoverStore.clear(undefined, hoverContext); return; }
@@ -1193,6 +1245,24 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     }, [playTime, pts, derived, drive, robot, view.w, cw, doc.waypoints]);
 
     // ---------- ROUTINE OVERLAY (Autonomous Routine / Auto mode) ----------
+    // One badge per path step, numbered like its row in the flow; repeated passes share their step's badge.
+    const routineBadges = useMemo(() => {
+      if (!routine) return null;
+      const rank = (s) => ({ focus: 5, genfocus: 5, active: 4, generated: 3, done: 1, pending: 1, dim: 0 }[s] || 0);
+      const steps = new Map();
+      routine.forEach((rp) => {
+        if (!rp.pts || rp.pts.length < 2) return;
+        const known = steps.get(rp.nodeId);
+        if (!known) steps.set(rp.nodeId, { key: rp.nodeId, geometry: routineRouteGeometry(rp.pts), text: rp.step == null ? '?' : String(rp.step), step: rp.step, label: rp.label, state: rp.state, kind: rp.kind });
+        else if (rank(rp.state) > rank(known.state)) known.state = rp.state;
+      });
+      const items = [...steps.values()].sort((a, b) => (a.step ?? Infinity) - (b.step ?? Infinity));
+      // The robot rests where the routine starts and draws over the badges, so the first badge keeps clear of it.
+      const first = routine.find((rp) => rp.pts && rp.pts.length > 1), reach = Math.max(...localFootprint(robot).map((p) => Math.hypot(p.x, p.y))) * 2 * SX;
+      const rest = first ? [{ ...routineRouteGeometry(first.pts).start, w: reach, h: reach }] : [];
+      const boxes = placeRoutineBadges(items, T, rest);
+      return { items: items.map((item) => ({ ...item, box: boxes.get(item.key) })), rest: rest[0] };
+    }, [routine, robot, textUpp]);
     const routineLayers = useMemo(() => {
       if (!routine) return null;
       const els = [];
@@ -1211,7 +1281,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       order.forEach((ri) => {
         const rp = routine[ri]; if (!rp.pts || rp.pts.length < 2) return;
         const S = STYLE[rp.state] || STYLE.pending;
-        const { d, start: a, end: b, mid } = routineRouteGeometry(rp.pts);
+        const { d, start: a, end: b } = routineRouteGeometry(rp.pts);
         // glow / casing under emphasized paths
         if (S.glow) els.push(h('path', { key: 'rg' + ri, d, fill: 'none', stroke: S.col, strokeOpacity: 0.22, strokeWidth: P(S.w + 9), strokeLinecap: 'round', strokeLinejoin: 'round', style: { pointerEvents: 'none' } }));
         if (rp.state === 'active' || rp.state === 'focus') els.push(h('path', { key: 'rc' + ri, d, fill: 'none', stroke: '#05060a', strokeOpacity: 0.7, strokeWidth: P(S.w + 2.5), strokeLinecap: 'round', strokeLinejoin: 'round', style: { pointerEvents: 'none' } }));
@@ -1228,17 +1298,53 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
             h('circle', { r: P(8.5), fill: 'rgba(20,16,10,0.92)', stroke: S.col, strokeWidth: P(1.4) }),
             h('path', { d: `M ${P(1.5)} ${-P(4.5)} L ${-P(3)} ${P(0.8)} L ${P(0.2)} ${P(0.8)} L ${-P(1.5)} ${P(4.5)} L ${P(3)} ${-P(0.8)} L ${P(0.2)} ${-P(0.8)} Z`, fill: S.col })));
         }
-        // mid label
-        const dim = rp.state === 'dim' || rp.state === 'pending';
-        const lblCol = (rp.state === 'active' || rp.state === 'focus') ? accent : S.gen ? S.col : '#8b94a2';
-        const txt = (S.gen ? '\u26a1 ' : (rp.idxLabel ? rp.idxLabel + '  ' : '')) + (rp.label || '');
-        const tw = P(8.0 * txt.length + 18), th = P(17);
-        els.push(h('g', { key: 'rl' + ri, transform: `translate(${mid.x} ${mid.y - P(15)})`, style: { pointerEvents: 'none' }, opacity: dim ? 0.55 : 1 },
-          h('rect', { x: -tw / 2, y: -th / 2, width: tw, height: th, rx: P(3), fill: 'rgba(11,12,14,0.92)', stroke: (rp.state === 'active' || rp.state === 'focus') ? accent : S.gen ? S.col : '#2a2e34', strokeWidth: P(1) }),
-          h('text', { x: 0, y: P(3.8), fill: lblCol, fontSize: P(11), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, txt)));
       });
       return els;
     }, [routine, accent, view.w, cw]);
+    // Step badges above the paths, emphasized ones last. A badge selects its step like the path does.
+    const routineBadgeEls = useMemo(() => {
+      if (!routineBadges) return null;
+      const rank = (s) => ({ focus: 5, genfocus: 5, active: 4, generated: 3, done: 1, pending: 1, dim: 0 }[s] || 0), els = [];
+      [...routineBadges.items].sort((x, y) => rank(x.state) - rank(y.state)).forEach((badge) => {
+        const { box } = badge, strong = badge.state === 'active' || badge.state === 'focus' || badge.state === 'genfocus';
+        const gen = badge.kind === 'gen', col = strong ? (gen ? '#ffb347' : accent) : gen ? '#f6a93a' : null;
+        els.push(h('g', { key: 'rs' + badge.key, className: 'routine-step-badge', 'data-role': 'rpath', 'data-idx': badge.key, 'data-step': badge.text,
+          transform: `translate(${box.x} ${box.y})`, opacity: badge.state === 'dim' || badge.state === 'pending' ? 0.55 : 1, style: { cursor: 'pointer' } },
+          h('rect', { x: -box.w / 2, y: -box.h / 2, width: box.w, height: box.h, rx: box.h / 2, fill: '#0b0c0e', stroke: col || '#3a3f47', strokeWidth: T(strong ? 1.6 : 1) }),
+          h('text', { x: 0, y: T(3.6), fill: col || '#aeb5bf', fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, badge.text)));
+      });
+      return els;
+    }, [routineBadges, accent, textUpp]);
+    // The full name, beside its badge, only for the selected step, the running step and the path under the pointer.
+    const routineLabels = useMemo(() => {
+      if (!routineBadges) return null;
+      const { rest } = routineBadges;
+      const shown = routineBadges.items.filter((badge) => badge.key === routineHover || badge.state === 'focus' || badge.state === 'genfocus' || badge.state === 'active');
+      return shown.map((badge) => {
+        const { box } = badge, gen = badge.kind === 'gen', strong = ['focus', 'genfocus', 'active'].includes(badge.state);
+        // Hover stays neutral; the selected or running step keeps the path's emphasis color.
+        const col = gen ? '#ffb347' : strong ? accent : '#c3c9d2';
+        // Extend right from the badge where the whole name fits clear of the resting robot, else left; otherwise the
+        // side with more room in the visible field, where a long name ends in an ellipsis (the flow and the inspector
+        // carry it in full).
+        const half = (canvasLayout.width || cw) * textUpp / 2, center = view.x + view.w / 2;
+        const roomRight = center + half - T(8) - (box.x - box.w / 2), roomLeft = box.x + box.w / 2 - (center - half + T(8));
+        const full = box.w + T(fieldTextWidth((gen ? '\u26a1 ' : '') + (badge.label || ''), NAME_FONT) + 10);
+        const clear = (x0) => !rest || x0 >= rest.x + rest.w / 2 || x0 + full <= rest.x - rest.w / 2 || Math.abs(box.y - rest.y) >= (rest.h + box.h) / 2;
+        const fitsRight = roomRight >= full, fitsLeft = roomLeft >= full;
+        const toRight = fitsRight && clear(box.x - box.w / 2) ? true : fitsLeft && clear(box.x + box.w / 2 - full) ? false : fitsRight || (!fitsLeft && roomRight >= roomLeft);
+        let name = (gen ? '\u26a1 ' : '') + (badge.label || '');
+        const fits = (text) => box.w + T(fieldTextWidth(text, NAME_FONT) + 10) <= (toRight ? roomRight : roomLeft);
+        if (!fits(name)) { while (name.length > 1 && !fits(name + '\u2026')) name = name.slice(0, -1); name = name.trimEnd() + '\u2026'; }
+        const numberW = box.w, nameW = T(fieldTextWidth(name, NAME_FONT) + 10), w = numberW + nameW;
+        const left = toRight ? box.x - box.w / 2 : box.x + box.w / 2 - w;
+        const numberX = toRight ? left : left + nameW;
+        return h('g', { key: 'rl' + badge.key, className: 'routine-step-label', 'data-step': badge.text, style: { pointerEvents: 'none' } },
+          h('rect', { x: left, y: box.y - box.h / 2 - T(1), width: w, height: box.h + T(2), rx: (box.h + T(2)) / 2, fill: 'rgba(11,12,14,0.95)', stroke: col, strokeWidth: T(1.4) }),
+          h('text', { x: numberX + numberW / 2, y: box.y + T(3.6), fill: col, fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, badge.text),
+          h('text', { x: toRight ? left + numberW + T(2) : left + T(8), y: box.y + T(4), fill: '#e8ecf2', fontSize: T(11.5), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 600 }, name));
+      });
+    }, [routineBadges, routineHover, accent, view.x, view.w, textUpp, canvasLayout.width, cw]);
 
     const routineRobot = useMemo(() => {
       if (!routine || !routinePose) return null;
@@ -1342,7 +1448,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     return h('svg', {
       ref: svgRef, className: 'fieldsvg', tabIndex: routine ? undefined : 0, 'aria-label': 'Path field', onKeyDown: onFieldKeyDown, viewBox: vb, preserveAspectRatio: 'xMidYMid meet',
       onPointerDown: (event) => { setTagHover(null); onDown(event); }, onPointerMove: onHoverMove,
-      onPointerLeave: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
+      onPointerLeave: () => { setTagHover(null); setRoutineHover(null); hoverStore?.clear('field', hoverContext); },
       onPointerCancel: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
       onLostPointerCapture: () => hoverStore?.clear('field', hoverContext),
       onWheel: onWheel, onDoubleClick: onDbl,
@@ -1370,6 +1476,8 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       routine ? null : previewEl,
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
+      routine ? routineBadgeEls : null,
+      routine ? routineLabels : null,
       routine ? routineRobot : robotEl,
       !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
       routine ? null : snapEl,

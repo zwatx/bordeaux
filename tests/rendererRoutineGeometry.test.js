@@ -20,7 +20,7 @@ function countedPoints(count, y, reads) {
 
 function routineRun(reads) {
   const segs = ["A", "B", "C"].map((id, index) => ({
-    nodeId: id, kind: "path", label: "Path " + id, idxLabel: "0" + (index + 1), t0: index, t1: index + 1, pts: countedPoints(200, 2 + index, reads),
+    nodeId: id, kind: "path", label: "Path " + id, step: index + 1, t0: index, t1: index + 1, pts: countedPoints(200, 2 + index, reads),
   }));
   return { segs, steps: segs.map((seg, segIdx) => ({ t0: seg.t0, t1: seg.t1, segIdx })), total: 3 };
 }
@@ -33,7 +33,8 @@ function renderField(routine, view = FIT) {
   }));
 }
 
-const hitTargets = (html) => [...html.matchAll(/data-role="rpath" data-idx="([^"]+)"/g)].map((match) => match[1]);
+const hitTargets = (html) => [...html.matchAll(/<path [^>]*data-role="rpath" data-idx="([^"]+)"/g)].map((match) => match[1]);
+const badgeSteps = (html) => [...html.matchAll(/<g class="routine-step-badge" data-role="rpath" data-idx="([^"]+)" data-step="([^"]+)"/g)].map((match) => match[1] + match[2]);
 const routeData = (html) => new Set([...html.matchAll(/ d="(M [^"]+)"/g)].map((match) => match[1]).filter((d) => d.split(" L ").length > 100));
 
 describe("routine playback geometry", () => {
@@ -64,6 +65,9 @@ describe("routine playback geometry", () => {
     expect(hitTargets(early)).toEqual(["B", "C", "A"]);
     expect(hitTargets(later)).toEqual(["A", "C", "B"]);
     expect(hitTargets(selected)).toEqual(["A", "B", "C"]);
+    // Each path step also has a step badge that selects it; emphasized badges draw last too.
+    expect(badgeSteps(early)).toEqual(["B2", "C3", "A1"]);
+    expect(badgeSteps(selected)).toEqual(["A1", "B2", "C3"]);
     expect(routeData(early).size).toBe(3);
     expect(routeData(later)).toEqual(routeData(early));
     expect(routeData(zoomed)).toEqual(routeData(early));

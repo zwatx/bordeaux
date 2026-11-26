@@ -284,6 +284,11 @@ import { createRoutineNodeId } from "../../core/project/ids";
   }
   function findNode(routine, id) { let hit = null; walk(routine.nodes, (n) => { if (n.id === id) hit = n; }); return hit; }
   function countSteps(routine) { let n = 0; walk(routine.nodes, () => n++); return n; }
+  /**
+   * The flow's step numbers: every step in reading order from 1, nested steps included, so a number names one row.
+   * The field's path badges and the step inspector show the same number; repeated passes keep their step's number.
+   */
+  function stepNumbers(routine) { const numbers = new Map(); walk(routine?.nodes, (node) => numbers.set(node.id, numbers.size + 1)); return numbers; }
 
   // Every path document the routine can follow in any branch, once each.
   function planningPaths(routine, paths) {
@@ -445,7 +450,8 @@ import { createRoutineNodeId } from "../../core/project/ids";
         if (route) frames.push({ kind: 'list', nodes: route.nodes || [], index: 0, depth: frame.depth + 1, passStack });
       }
     }
-    let t = 0, pIdx = 0, lastPose = null, previousPath = null, exactS = 0, parallel = false;
+    const numbers = stepNumbers(routine);
+    let t = 0, lastPose = null, previousPath = null, exactS = 0, parallel = false;
     const continuityEdges = new Set();
     // Open groups, innermost last. Each child of a parallel group starts at the group's start; the group ends with
     // its latest child. A sequential group runs its children one after another.
@@ -480,8 +486,8 @@ import { createRoutineNodeId } from "../../core/project/ids";
       if (it.kind === 'path' || it.kind === 'gen') {
         const dp = derivePathNode(it.node, pathsById, robot, plannerId, plannedValues, derivedPaths, derivePath);
         if (!dp || !Array.isArray(dp.pts) || dp.pts.length < 2 || !Number.isFinite(dp.total) || dp.total < 0) { invalid(`Path ${it.node.ref || it.node.id} has no usable authoritative plan.`); break; }
-        dur = dp.total; timing = 'exact'; pIdx++;
-        const idxLabel = String(pIdx).padStart(2, '0'), label = it.node.type === 'path' ? dp.doc.name : ('Saved reference: ' + dp.doc.name);
+        dur = dp.total; timing = 'exact';
+        const step = numbers.get(it.node.id), label = it.node.type === 'path' ? dp.doc.name : ('Saved reference: ' + dp.doc.name);
         const startPose = dp.trajectory ? trajectoryPoseAt(dp.trajectory, 0) : PM.poseAtTime(0, dp.pts, dp.deriv.prof, dp.deriv.anchors, dp.deriv.mode, dp.deriv.rev);
         if (lastPose && startPose) {
           const distanceM = Math.hypot(lastPose.x - startPose.x, lastPose.y - startPose.y);
@@ -492,9 +498,9 @@ import { createRoutineNodeId } from "../../core/project/ids";
               message: 'The next planned path starts at a different reference pose.', distanceM, headingRad });
           }
         }
-        result.segs.push({ nodeId: it.node.id, occurrenceId: it.occurrenceId, passStack: it.passStack, timing, kind: it.kind, label, idxLabel,
+        result.segs.push({ nodeId: it.node.id, occurrenceId: it.occurrenceId, passStack: it.passStack, timing, kind: it.kind, label, step,
           pts: dp.pts, t0: t, t1: t + dur, deriv: dp.deriv, trajectory: dp.trajectory, doc: dp.doc });
-        extras = { segIdx: result.segs.length - 1, idxLabel, label, dist: dp.trajectory ? dp.trajectory.totalDistanceM : dp.deriv.sample.length };
+        extras = { segIdx: result.segs.length - 1, step, label, dist: dp.trajectory ? dp.trajectory.totalDistanceM : dp.deriv.sample.length };
         lastPose = dp.trajectory ? trajectoryPoseAt(dp.trajectory, dp.total) : PM.poseAtTime(dp.total, dp.pts, dp.deriv.prof, dp.deriv.anchors, dp.deriv.mode, dp.deriv.rev);
         previousPath = it.node.id;
       } else if (it.kind === 'wait') {
@@ -575,11 +581,11 @@ import { createRoutineNodeId } from "../../core/project/ids";
       } else {
         state = seg.kind === 'gen' ? 'generated' : 'done';
       }
-      return { nodeId: seg.nodeId, occurrenceId: seg.occurrenceId, passStack: seg.passStack, label: seg.label, idxLabel: seg.idxLabel, pts: seg.pts, kind: seg.kind, state };
+      return { nodeId: seg.nodeId, occurrenceId: seg.occurrenceId, passStack: seg.passStack, label: seg.label, step: seg.step, pts: seg.pts, kind: seg.kind, state };
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, stepNumbers, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 

@@ -381,7 +381,7 @@ app.whenReady().then(async () => {
       // Clicking a step's path on the field selects that step, and the flow scrolls to it.
       await evaluate(() => { document.querySelector('.rt-scroll').scrollTop = 0; });
       const onField = await evaluate(() => {
-        for (const element of document.querySelectorAll('.routine-workspace-field [data-role="rpath"]')) {
+        for (const element of document.querySelectorAll('.routine-workspace-field path[data-role="rpath"]')) {
           const length = element.getTotalLength(), m = element.getScreenCTM();
           for (let f = 0.3; f <= 0.9; f += 0.05) {
             const p = element.getPointAtLength(length * f), x = Math.round(m.a * p.x + m.c * p.y + m.e), y = Math.round(m.b * p.x + m.d * p.y + m.f);
@@ -399,6 +399,40 @@ app.whenReady().then(async () => {
         return row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1;
       }), 'The step selected on the field is in view in the flow');
       await snapshot('field-selects-step-' + width);
+      // Each path step on the field has one badge with its row's number in the flow, even when three steps share one
+      // path; badges never overlap. Only the selected step shows its name beside its badge.
+      const badges = () => evaluate(() => {
+        const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; };
+        return { badges: [...document.querySelectorAll('.routine-workspace-field .routine-step-badge')].map(el => ({ id: el.dataset.idx, step: el.dataset.step, ...box(el),
+            row: document.querySelector('.rt-step[data-id="' + el.dataset.idx + '"] .rt-step-num')?.textContent, hit: document.elementFromPoint(box(el).x, box(el).y)?.closest('.routine-step-badge') === el })),
+          labels: [...document.querySelectorAll('.routine-workspace-field .routine-step-label')].map(el => { const r = el.getBoundingClientRect(), svg = document.querySelector('.routine-workspace-field .fieldsvg').getBoundingClientRect();
+            return { step: el.dataset.step, name: el.querySelectorAll('text')[1].textContent, inside: r.left >= svg.left - 1 && r.right <= svg.right + 1 }; }),
+          selected: document.querySelector('.rt-step.sel')?.dataset.id, field: box(document.querySelector('.routine-workspace-field .fieldsvg')) };
+      });
+      const marks = await badges();
+      const traced = await evaluate(() => [...new Set([...document.querySelectorAll('.routine-workspace-field path[data-role="rpath"]')].map(el => el.dataset.idx))].sort());
+      assert.deepEqual(marks.badges.map(b => b.id).sort(), traced, 'One badge per path step on the field: ' + JSON.stringify(marks.badges));
+      assert.ok(marks.badges.length >= 2 && marks.badges.every(b => b.step === b.row && b.hit), 'Badges show their step numbers from the flow and can be pressed: ' + JSON.stringify(marks.badges));
+      for (const [i, a] of marks.badges.entries()) for (const b of marks.badges.slice(i + 1)) {
+        assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, 'Badges do not overlap: ' + JSON.stringify([a, b]));
+      }
+      const selectedStep = marks.badges.find(b => b.id === onField.id).step;
+      assert.deepEqual(marks.labels.map(l => l.step), [selectedStep], 'Only the selected step shows its name on the field');
+      // A long name ends in an ellipsis rather than leaving the field.
+      assert.ok(marks.labels[0].inside && route.name.startsWith(marks.labels[0].name.replace(/\u2026$/, '')) && marks.labels[0].name.length > 12, 'The label names the path inside the field: ' + JSON.stringify(marks.labels[0]));
+      // The path under the pointer (its badge here) shows its name too, until the pointer leaves it.
+      const other = marks.badges.find(b => b.id !== onField.id);
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: other.x, y: other.y });
+      await wait(async () => (await badges()).labels.map(l => l.step).sort().join() === [selectedStep, other.step].sort().join(), 'hovering a badge shows its name');
+      await snapshot('field-badge-hover-' + width);
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(marks.field.left + 6), y: Math.round(marks.field.top + 6) });
+      await wait(async () => (await badges()).labels.map(l => l.step).join() === selectedStep, 'leaving the badge hides its name');
+      // Pressing a badge selects its step, like pressing its path.
+      await focus();
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, x: other.x, y: other.y });
+      await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id, other.id), 'a badge selects its step');
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(marks.field.left + 6), y: Math.round(marks.field.top + 6) });
+      await wait(async () => (await badges()).labels.map(l => l.step).join() === other.step, 'the newly selected step shows its name');
       // Playback: the running row and the robot on the field show together.
       const lane = await evaluate(() => { const r = document.querySelector('.rt-timeline-editor').getBoundingClientRect(); return { x: Math.round(r.left + r.width * 0.3), y: Math.round(r.top + 30) }; });
       await focus();
@@ -412,6 +446,11 @@ app.whenReady().then(async () => {
           row: row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1 };
       });
       assert.ok(playing.robot && playing.row && playing.field > 150 && playing.flow > 130, 'The robot on the field and the running row are visible together: ' + JSON.stringify(playing));
+      // The running path step shows its name beside its badge during playback.
+      const activeRow = await evaluate(() => { const row = document.querySelector('.rt-step.active'); return { id: row.dataset.id, step: row.querySelector('.rt-step-num').textContent }; });
+      const activeLabels = (await badges()).labels.map(l => l.step);
+      assert.ok((await badges()).badges.some(b => b.id === activeRow.id), 'The seek lands on a path step: ' + activeRow.id);
+      assert.ok(activeLabels.includes(activeRow.step), 'The running path step shows its name: ' + JSON.stringify({ activeRow, activeLabels }));
       await snapshot('playback-' + width);
       await click('[aria-label="Restart routine"]');
       await click('button[aria-label="Close step inspector"]');
@@ -624,7 +663,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));
