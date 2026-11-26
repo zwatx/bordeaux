@@ -741,8 +741,15 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const ids = JSON.parse(usedCommandKey).filter(id => catalog.commands.some(command => command.id === id && command.labviewConnector));
       if (!ids.length) return;
       let current = true;
-      void api.ensureCommandWrappers(sessionContext.current, ids).then(() => {
-        if (current) setRobotProjectState(state => state.wrapperError ? { ...state, wrapperError: '' } : state);
+      const context = sessionContext.current;
+      void api.ensureCommandWrappers(context, ids).then((result) => {
+        // The first time Bordeaux fills its wrapper references VI, the team still has to place it on Autonomous.vi once.
+        // That happens only once, so it is kept even when a newer check replaced this one, as long as the project is the same.
+        if (result?.referencesCreated && sameContext(context, sessionContext.current)) setRobotProjectState(state => ({ ...state, notice: 'Created Bordeaux Command Wrappers.vi beside the robot project. Place it once on the Autonomous.vi block diagram.' }));
+        if (!current) return;
+        // The menu shows a fact's first sentence, so the message itself (which names the VI) leads.
+        const wrapperError = result?.referencesError || '';
+        setRobotProjectState(state => state.wrapperError === wrapperError ? state : { ...state, wrapperError });
       }, error => {
         if (current) setRobotProjectState(state => ({ ...state, wrapperError: 'Couldn’t prepare command wrapper. ' + operationErrorMessage(error) }));
       });

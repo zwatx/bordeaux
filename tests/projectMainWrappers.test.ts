@@ -14,8 +14,10 @@ function fixture() {
     queueLabviewOperation: (fn: () => Promise<unknown>) => fn(),
     prepareBdxBindings: vi.fn(async () => ({ catalog: { commands: [fresh] }, definitionJson: "validated" })),
     ensureLabviewCommandWrapper: vi.fn(async () => ({ created: true })), labviewDiscoveryCacheDirectory: () => "cache",
+    syncLabviewWrapperReferences: vi.fn(async (): Promise<unknown> => ({ file: "Bordeaux Command Wrappers.vi", created: false, updated: false })),
     // Changed commands are read before entering the LabVIEW queue; the comparison covers only the used commands.
     refreshLinkedCommands: vi.fn(async () => null), usedCommandEvidence,
+    labviewScriptingUnavailable: (error: Error) => /not already open/.test(error.message),
   };
   const source = ts.createSourceFile("main.ts", fs.readFileSync("src/electron/main.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const statement = source.statements.find(node => ts.isExpressionStatement(node) && ts.isCallExpression(node.expression) && node.expression.arguments[0]?.getText(source) === '"robotProject:ensureWrappers"');
@@ -44,4 +46,21 @@ it("retains a revalidation callback that rejects changed evidence during scripti
   const validate = (f.sandbox.ensureLabviewCommandWrapper.mock.calls as unknown as Array<[unknown, unknown, unknown, unknown, unknown, () => Promise<void>]>)[0][5];
   f.sandbox.prepareBdxBindings.mockResolvedValue({ catalog: { commands: [] }, definitionJson: "empty" });
   await expect(validate()).rejects.toThrow("changed during wrapper creation");
+});
+it("updates the wrapper references from the whole validated catalog and reports a newly created VI", async () => {
+  const f = fixture(); expect(await f.run()).toEqual({ created: 1 });
+  expect(f.sandbox.syncLabviewWrapperReferences).toHaveBeenCalledExactlyOnceWith("Robot.lvproj", { commands: [f.fresh] }, "cache", expect.any(Function));
+  f.sandbox.syncLabviewWrapperReferences.mockResolvedValue({ file: "Bordeaux Command Wrappers.vi", created: true, updated: true });
+  expect(await f.run()).toEqual({ created: 1, referencesCreated: "Bordeaux Command Wrappers.vi" });
+  f.sandbox.syncLabviewWrapperReferences.mockResolvedValue(null);
+  expect(await f.run()).toEqual({ created: 1 });
+});
+it("keeps wrapper results when the references VI can't be updated", async () => {
+  const f = fixture();
+  f.sandbox.syncLabviewWrapperReferences.mockRejectedValue(new Error("The selected project is not already open in LabVIEW."));
+  expect(await f.run()).toEqual({ created: 1 });
+  f.sandbox.syncLabviewWrapperReferences.mockRejectedValue(new Error("Bordeaux Command Wrappers.vi has unsaved changes in LabVIEW."));
+  expect(await f.run()).toEqual({ created: 1, referencesError: "Bordeaux Command Wrappers.vi has unsaved changes in LabVIEW." });
+  f.sandbox.syncLabviewWrapperReferences.mockImplementation(async () => { f.sandbox.robotConnectionGeneration++; throw new Error("anything"); });
+  await expect(f.run()).rejects.toThrow("linked robot project changed");
 });

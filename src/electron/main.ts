@@ -15,12 +15,13 @@ import { commandListEvidence, prepareBdxBindings, prepareCommandListBindings, us
 import { buildBdxBatchOffThread, buildBdxOffThread } from "./bdxWorkerClient";
 import { buildRoutineOffThread } from "./routineRuntimeWorkerClient";
 import { buildLabviewCatalog, LABVIEW_CATALOG_SOURCE, resolveLabviewProject } from "./labviewProject";
-import { withCachedLabviewCommands, withSessionLabviewCommands } from "./labviewNiInspection";
+import { labviewScriptingUnavailable, withCachedLabviewCommands, withSessionLabviewCommands } from "./labviewNiInspection";
 import { projectCommandIds } from "./usedCommands";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { labviewLinkMatches, relativeLabviewLink, rebaseProjectLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "./projectLabviewLink";
 import { inspectLabviewCommandsQueued, refreshLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation } from "./labviewProjectSync";
 import { ensureLabviewCommandWrapper } from "./labviewWrappers";
+import { syncLabviewWrapperReferences } from "./labviewWrapperReferences";
 import { discoverRobotProject, type RobotProjectRuntime } from "./robotProjectRuntime";
 import {
   type RobotProjectBookmark,
@@ -1639,7 +1640,19 @@ handle("robotProject:ensureWrappers", async (_event, context, rawIds) => {
       guard();
       results.push(await ensureLabviewCommandWrapper(selection, command, labviewDiscoveryCacheDirectory(), guard, undefined, validateSnapshot));
     }
-    guard(); return { created: results.filter(result => result.created).length };
+    guard();
+    const created = results.filter(result => result.created).length;
+    // Bordeaux Command Wrappers.vi references every wrapper that now exists, not only the ones these commands use. It is
+    // best effort: without LabVIEW 2025 open it waits for a later refresh, and its own problems never fail the wrappers.
+    try {
+      const references = await syncLabviewWrapperReferences(selection, validated.catalog ?? catalog, labviewDiscoveryCacheDirectory(), guard);
+      guard();
+      return { created, ...(references?.created ? { referencesCreated: references.file } : {}) };
+    } catch (error) {
+      guard();
+      if (labviewScriptingUnavailable(error)) return { created };
+      return { created, referencesError: typeof (error as Error)?.message === "string" ? (error as Error).message : String(error) };
+    }
   });
 });
 handle("robotProject:buildCatalog", async (_event, context) => {
