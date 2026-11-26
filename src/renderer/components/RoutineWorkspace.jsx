@@ -20,7 +20,7 @@ function storeFieldHeight(value) {
   catch (_) { /* Keep the split for this session when storage is unavailable. */ }
 }
 /**
- * The split of `room` px (between the header and the transport): the chosen field height, or about 62% of the room
+ * The split of `room` px (above the transport): the chosen field height, or about 62% of the room
  * while the flow keeps its default minimum, clamped so neither part collapses. `flow` is what the divider reports.
  */
 function routineSplit(room, chosen) {
@@ -31,44 +31,19 @@ function routineSplit(room, chosen) {
 }
 
 /**
- * The Routines place: the field preview over the run-order flow, split by a draggable divider, with status and the
- * transport across the bottom. An empty routine shows the empty field and its first-step slot, without a transport.
+ * Power and About preview, at the start of the field's view controls: they cost the field no height. Power opens its
+ * report beside its trigger; About is a small native popover that opens above its trigger, over the field.
  */
-export function RoutineWorkspace({ routine, flow, field, transport, status, run, robot }) {
+export function RoutineViewTools({ robot, run }) {
   const [help, setHelp] = React.useState(false);
   const trigger = React.useRef(null), popover = React.useRef(null);
-  // An empty routine has nothing to play, so it has no transport.
-  const empty = !routine.nodes.length;
-  // The split is a window preference like the Paths field focus, not project data, so it lives in localStorage. Once
-  // the user sets a split, the field keeps its height and the flow takes what changes (a planning status, a taller
-  // transport), so rows hold still. The default split follows the room between the header and the transport.
-  const [chosenField, setChosenField] = React.useState(storedFieldHeight);
-  const [room, setRoom] = React.useState(0);
-  // A status banner sits under the flow and shortens it without moving the field; the divider reports the flow it leaves.
-  const [banner, setBanner] = React.useState(0);
-  const sectionRef = React.useRef(null), headRef = React.useRef(null), transportRef = React.useRef(null), statusRef = React.useRef(null);
-  React.useLayoutEffect(() => {
-    const measure = () => {
-      setRoom(sectionRef.current.clientHeight - headRef.current.offsetHeight - (transportRef.current?.offsetHeight || 0));
-      setBanner(statusRef.current?.offsetHeight || 0);
-    };
-    measure();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    for (const element of [sectionRef.current, headRef.current, transportRef.current, statusRef.current]) if (element) observer?.observe(element);
-    return () => observer?.disconnect();
-  }, [empty]);
-  const split = room > 0 ? routineSplit(room, chosenField) : null;
-  const resizeFlow = (flowHeight) => {
-    const next = flowHeight == null ? null : room - banner - flowHeight;
-    setChosenField(next); storeFieldHeight(next);
-  };
   React.useEffect(() => {
     // A native auto popover: the trigger toggles it with pointer, Enter or Space; Escape and outside presses dismiss
-    // it. It holds no controls, so focus stays on the trigger; it overlays the field instead of pushing it down.
+    // it. It holds no controls, so focus stays on the trigger.
     const element = popover.current;
     const place = () => {
       const anchor = trigger.current.getBoundingClientRect();
-      element.style.top = Math.round(anchor.bottom + 6) + 'px';
+      element.style.bottom = Math.round(window.innerHeight - anchor.top + 6) + 'px';
       element.style.right = Math.max(8, Math.round(window.innerWidth - anchor.right)) + 'px';
     };
     const before = (event) => { if (event.newState === 'open') place(); };
@@ -82,6 +57,48 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
       window.removeEventListener('resize', place);
     };
   }, []);
+  return h('div', { className: 'routine-workspace-actions' },
+    robot && h(PowerAnalysis, { robot, run }),
+    h('button', { ref: trigger, type: 'button', className: 'vc-btn routine-workspace-about', popovertarget: 'routine-preview-notes',
+      'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
+      // Tabbing on closes it, so it never covers the control that takes focus next.
+      onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); } },
+      h(UI.Icon, { name: 'info', size: 15 })),
+    h('div', { ref: popover, id: 'routine-preview-notes', className: 'routine-preview-help', popover: 'auto', role: 'note', 'aria-label': 'About the local preview' },
+      h('p', null, PREVIEW_HELP)));
+}
+
+/**
+ * The Routines place: the field preview over the run-order flow, split by a draggable divider, with status and the
+ * transport across the bottom. An empty routine shows the empty field and its first-step slot, without a transport.
+ * Its only header is the field's view controls (see RoutineViewTools), so the field starts at the top.
+ */
+export function RoutineWorkspace({ routine, flow, field, transport, status }) {
+  // An empty routine has nothing to play, so it has no transport.
+  const empty = !routine.nodes.length;
+  // The split is a window preference like the Paths field focus, not project data, so it lives in localStorage. Once
+  // the user sets a split, the field keeps its height and the flow takes what changes (a planning status, a taller
+  // transport), so rows hold still. The default split follows the room above the transport.
+  const [chosenField, setChosenField] = React.useState(storedFieldHeight);
+  const [room, setRoom] = React.useState(0);
+  // A status banner sits under the flow and shortens it without moving the field; the divider reports the flow it leaves.
+  const [banner, setBanner] = React.useState(0);
+  const sectionRef = React.useRef(null), transportRef = React.useRef(null), statusRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      setRoom(sectionRef.current.clientHeight - (transportRef.current?.offsetHeight || 0));
+      setBanner(statusRef.current?.offsetHeight || 0);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    for (const element of [sectionRef.current, transportRef.current, statusRef.current]) if (element) observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [empty]);
+  const split = room > 0 ? routineSplit(room, chosenField) : null;
+  const resizeFlow = (flowHeight) => {
+    const next = flowHeight == null ? null : room - banner - flowHeight;
+    setChosenField(next); storeFieldHeight(next);
+  };
 
   // The rails' footer strips (library feedback, step inspector) take the transport's height on this page, so their
   // top rules continue the transport's top rule as one line. The transport grows with its rows; without it they keep
@@ -100,16 +117,6 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
     return () => { observer?.disconnect(); stage.style.removeProperty('--side-foot'); stage.removeAttribute('data-transport-foot'); };
   }, [empty]);
   return h('section', { ref: sectionRef, className: 'routine-workspace', 'aria-label': 'Routine workspace: ' + routine.name },
-    h('header', { ref: headRef, className: 'routine-workspace-head' },
-      h('div', { className: 'routine-workspace-actions' },
-        robot && h(PowerAnalysis, { robot, run }),
-        h('button', { ref: trigger, type: 'button', className: 'routine-workspace-about', popovertarget: 'routine-preview-notes',
-          'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
-          // Tabbing on closes it, so it never covers the control that takes focus next.
-          onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); } },
-          h(UI.Icon, { name: 'info', size: 14 })),
-        h('div', { ref: popover, id: 'routine-preview-notes', className: 'routine-preview-help', popover: 'auto', role: 'note', 'aria-label': 'About the local preview' },
-          h('p', null, PREVIEW_HELP)))),
     h('div', { className: 'routine-workspace-body', style: split ? { '--field-height': split.field + 'px' } : undefined },
       h('div', { className: 'fieldcol routine-workspace-field', 'aria-label': 'Routine field preview' }, field),
       split && h(BandDivider, { className: 'routine-split', height: split.flow - banner, min: Math.max(0, split.flowMin - banner), max: Math.max(0, split.flowMax - banner), onChange: resizeFlow, label: 'Resize flow' }),

@@ -453,7 +453,7 @@ describe('routine command chooser', () => {
       context: { ...env.context, ...commandSearch, AUTO, deletionInput, robotValueSchemasEqual, UnitPrefs: { format: String }, CommandBranches: 'CommandBranches', CommandParameterEditor: 'CommandParameterEditor', InspectorShell: 'InspectorShell', DeleteAction: 'DeleteAction',
         commandArguments: () => ({}), parameterValueError: () => '', safeControlId: String, LabviewProjectPanel: 'LabviewProjectPanel', Glyph: 'Glyph', continuityText: String, describeStop: String, stepTitle: String,
         UI: { Icon: marker('Icon'), Dropdown: 'Dropdown', ChoiceBrowser: 'ChoiceBrowser', DraftText: 'DraftText', Seg: 'Seg', Toggle: 'Toggle' } },
-      replacements: [['export function StepInspector', 'window.StepInspector = function StepInspector'], ['export function RoutineTransport', 'function RoutineTransport']],
+      replacements: [['export function StepInspector', 'window.StepInspector = function StepInspector'], ['export function SlotInspector', 'function SlotInspector'], ['export function RoutineTransport', 'function RoutineTransport']],
     });
     const acq = { branch: vi.fn(() => ({ status: 'refused', removed: 0 })), set: vi.fn(), select: vi.fn() };
     const view = env.mount(StepInspector).render({ node, routine: { nodes: [node] }, paths: [], acq, robotProject: { catalog: { commands: [scan(), { id: 'aim', label: 'Aim', outputs: [] }] } } });

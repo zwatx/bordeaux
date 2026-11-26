@@ -135,7 +135,7 @@ export function groupClosing(node, after, paths, catalog) {
   const next = continuePhrase(after, paths, catalog, false);
   if (node.mode === 'sequential') return { glyph: 'join', quiet: true, parts: ['After its last step, ', ...next] };
   const count = node.nodes.length;
-  return { glyph: 'join', parts: [count > 1 ? 'Waits for all ' + count + ' to finish, then ' : 'Waits for it to finish, then ', ...next] };
+  return { glyph: 'join', parts: [count > 1 ? 'Waits for all ' + count + ' to finish, then ' : count ? 'Waits for it to finish, then ' : 'No steps yet, so it ', ...next] };
 }
 
 function stepKind(node) {
@@ -577,7 +577,8 @@ export function RoutinePanel(props) {
     });
   };
   // Change path from the inspector opens the path library for that step; nothing else changes until a path is chosen.
-  if (props.sourceApi) props.sourceApi.current = { changePath: (nodeId, origin) => { setMenu(null); setAdd(null); setChange({ nodeId, origin }); } };
+  if (props.sourceApi) props.sourceApi.current = { changePath: (nodeId, origin) => { setMenu(null); setAdd(null); setChange({ nodeId, origin }); },
+    closeAdd: () => closeAdd(true) };
   // A press outside the slot and its library closes them without moving focus; the first step's slot only drops its
   // library. Presses on the inspector's Change path belong to the library it opens.
   const open = Boolean((add && !add.persistent) || adding?.source || change);
@@ -620,6 +621,12 @@ export function RoutinePanel(props) {
     if (ref.kind === 'repeat' || ref.kind === 'group') return 'At the end of “' + stepTitle(owner, paths, catalog) + '”' + alongside(where);
     return 'At the end of route “' + (A.childLists(owner).find((list) => refKey(list.ref) === refKey(ref))?.label || '') + '”';
   };
+  // An opened slot (not the empty routine's own first slot) is reported by where it lands, so the inspector beside the
+  // flow can show the slot instead of the step selected before it opened.
+  const slotDest = add && !add.persistent ? destination(add.where) : null;
+  const onSlotChange = props.onSlotChange;
+  useEffect(() => { onSlotChange?.(slotDest); }, [slotDest, onSlotChange]);
+  useEffect(() => () => onSlotChange?.(null), [onSlotChange]);
   const nodeFor = (item) => {
     if (item.kind === 'path') return A.newNode('path', null, item.ref);
     // A catalog command lands bound, with its default arguments; without a catalog it stays a placeholder to bind later.
@@ -692,6 +699,13 @@ export function RoutinePanel(props) {
           onClose: (refocus) => (adding.persistent ? setSource(null, { refocus }) : closeAdd(refocus)) })
       : null;
 
+  /** Duplicate: a copy with fresh IDs right after the step, as one Undo step; the copy is then selected. */
+  const duplicate = (at) => {
+    const operation = { kind: 'insert', listRef: at.listRef, index: at.index + 1, node: A.duplicateNode(at.node) };
+    const check = A.checkEdit(routine, operation);
+    return { key: 'duplicate', label: 'Duplicate', disabled: !check.allowed, reason: check.allowed ? '' : check.reason,
+      run: () => { const result = edit(operation); if (result.changed) { setRange([]); onSelect(operation.node.id); focusStep(operation.node.id); } } };
+  };
   // ---- row actions: each is a checked model operation; an unavailable one names its reason ----
   const rowItems = (id) => {
     const at = A.locate(routine, id); if (!at) return [];
@@ -715,6 +729,7 @@ export function RoutinePanel(props) {
         option('groupRange', 'Group these ' + range.length + ' ' + groupWords, { kind: 'wrapGroup', nodeIds: range, mode: groupMode })] : []),
       { key: 'add', label: 'Add step after', hint: 'A', run: () => openAdd({ afterId: id }, body, 'Add a step after this one') },
       { key: 'addBefore', label: 'Add step before', hint: '⇧A', run: () => openAdd({ beforeId: id }, body, 'Add a step before this one') },
+      duplicate(at),
       // Branching belongs to the command: this opens its inspector at the output choice.
       ...(branchable ? [{ key: 'branch', label: at.node.outputBranch ? 'Change branch output…' : 'Branch on output…', run: () => { setRange([]); onSelect(id); focusInspector(id, '#command-branch-output'); } }] : []),
       option('wrap', 'Repeat this step', { kind: 'wrapRepeat', nodeIds: [id] }),
@@ -726,7 +741,7 @@ export function RoutinePanel(props) {
       ...(up ? [option('up', at.index > 0 ? 'Move up' : 'Move out, above', up, '⌥↑')] : []),
       ...(down ? [option('down', at.index < at.siblings.length - 1 ? 'Move down' : 'Move out, below', down, '⌥↓')] : []),
       // A cancelled delete returns focus to the row that opened the menu.
-      { key: 'delete', label: 'Delete', hint: '⌫', danger: true, run: () => acq.del(id) },
+      { key: 'delete', label: 'Delete step', hint: '⌫', danger: true, run: () => acq.del(id) },
     ];
   };
 
@@ -825,7 +840,7 @@ export function RoutinePanel(props) {
     if (node.type === 'builtin') return { meta: endsPhrase(node, routine, catalog), dur: durationOf(node) };
     if (node.type === 'decision') return { meta: 'Checked once when reached' };
     if (node.type === 'repeat') return { meta: node.until ? 'Until ' + describeStop(node.until, routine, catalog) + ' · checked after each pass' : 'Same steps every pass', dur: durationOf(node) };
-    if (node.type === 'group') return { meta: node.mode === 'sequential' ? 'Runs ' + plural(node.nodes.length, 'step') + ' in order' : 'Starts ' + plural(node.nodes.length, 'step') + ' together and finishes when every one finishes', dur: durationOf(node) };
+    if (node.type === 'group') return { meta: !node.nodes.length ? 'No steps yet' : node.mode === 'sequential' ? 'Runs ' + plural(node.nodes.length, 'step') + ' in order' : 'Starts ' + plural(node.nodes.length, 'step') + ' together and finishes when every one finishes', dur: durationOf(node) };
     if (node.type === 'end') {
       if (node.scope === 'routine') return { meta: 'Ends the routine here; later steps never run' };
       return { meta: exitTo ? plainText(['Leaves the repeat and ', ...continuePhrase(exitTo, paths, catalog, false)]) : 'Leaves the repeat' };

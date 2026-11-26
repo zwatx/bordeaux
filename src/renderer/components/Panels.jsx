@@ -114,7 +114,8 @@ import { deletionInput } from "./DeletionNotice";
 
   // Hiding the path list lives on the library's own header (and its key); the restore strip brings it back.
   // The Layers button opens a menu of field layers (grid, AprilTags), each checkable and labelled with its current key.
-  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, graphOpen, onFlip, flipDisabled }) {
+  /** The field's view cluster: zoom, layers and fit. `lead` puts a place's own field tools first (Routines: Power, About). */
+  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, graphOpen, onFlip, flipDisabled, lead }) {
     useKeyRules();
     const [layersMenu, setLayersMenu] = React.useState(null);
     // The menu closes on any press outside it, including a press on its own button. That press only closes the menu:
@@ -133,6 +134,7 @@ import { deletionInput } from "./DeletionNotice";
       { label: 'AprilTags', icon: 'apriltag', checked: showTags, hint: keyLabel('view.tags'), onClick: () => setShowTags(!showTags) },
     ];
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
+      lead, lead && h('div', { className: 'vc-div' }),
       onFlip && h('button', { className: 'vc-text field-flip', type: 'button', disabled: flipDisabled, ...deletionInput(onFlip),
         title: 'Mirror or rotate this path', 'aria-label': 'Flip path', 'aria-haspopup': 'dialog' }, 'Flip'),
       onFlip && h('div', { className: 'vc-div' }),
