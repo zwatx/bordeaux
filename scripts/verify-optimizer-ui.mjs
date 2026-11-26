@@ -47,7 +47,20 @@ try {
       { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -0.5655, segType: 'bezier',
         prevC: { x: 0.0705, y: -3.1655 }, nextC: { x: -0.8875, y: 0.2605 } },
     ] };
-  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner], pathLinks: [],
+  // A straight line between two waypoints. Normal already drives it as fast as the robot can, so neither search
+  // has anything to offer and both result rows are listed greyed with their reason.
+  const straight = { ...structuredClone(corner), id: 'optimizer-verification-straight', name: 'Optimizer verification straight',
+    waypoints: [
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 3.8805, y: -3.5155, segType: 'bezier',
+        prevC: { x: 4.8805, y: -3.5155 }, nextC: { x: 2.6305, y: -3.5155 } },
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -3.5155, segType: 'bezier',
+        prevC: { x: 1.4055, y: -3.5155 }, nextC: { x: -0.8445, y: -3.5155 } },
+    ] };
+  // A drawn curve that fails the field check under the trench. A route that clears it is offered although it is not faster.
+  const trench = structuredClone(corpus.paths.find((item) => item.id === 'corpus-red-away-trench'));
+  if (!trench) throw new Error('Trench verification fixture was not found');
+  trench.name = 'Optimizer verification trench';
+  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner, straight, trench], pathLinks: [],
     routines: [{ id: 'optimizer-verification-routine', name: 'Verification', nodes: [{ id: 'optimizer-drive', type: 'path', ref: primary.id }] }],
     activeRoutineId: 'optimizer-verification-routine', plannerId: 'profiledSpline', editor: { activePathId: primary.id } };
   const html = path.join(root, 'dist-renderer/index.html');
@@ -76,8 +89,8 @@ try {
   assert.equal(result.passed, true);
   assert.deepEqual(result.errors, []);
   assert.ok(Array.isArray(result.checks));
-  assert.equal(result.checks.length, 36, 'Retain all 27 original checks, eight request-evidence checks and the two-result check');
-  assert.equal(new Set(result.checks).size, 36);
+  assert.equal(result.checks.length, 40, 'Retain all 27 original checks, eight request-evidence checks, the two-result check and the four result-row checks');
+  assert.equal(new Set(result.checks).size, 40);
   assert.ok(result.checks.every(name => typeof name === 'string' && name.length));
   const evidence = result.workerEvidence;
   assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and cold accepted reload documents');

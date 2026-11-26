@@ -95,7 +95,9 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 254 * 1024;
 // (popup triggers stay down) add little; 176 KiB still fits the combined styles (2026-11-24).
 // Shared rail styles and the linked-point and Flip sheets measure about 186 KB together.
 // Routine step drag cards, wells and transport-height footers measure 188,882 B against 187,080 B before them (2026-11-25).
-const CSS_BUDGET_BYTES = 185 * 1024;
+// Greyed optimizer result rows keep their reason at the note colour: 189,465 B against 189,419 B before them
+// (2026-11-26), 25 B over the 185 KiB allowance; 186 KiB keeps about 1 KiB of headroom.
+const CSS_BUDGET_BYTES = 186 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 
