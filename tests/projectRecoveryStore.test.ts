@@ -128,7 +128,7 @@ describe("local project recovery snapshots", () => {
     expect(await store.writeSnapshot(input)).toMatchObject({ stored: true, written: false });
     input.project.paths[0].name = "Conflicting token";
     await expect(store.writeSnapshot(input)).rejects.toMatchObject({ code: "revision-conflict" });
-    expect((await store.readSnapshot(input.recordId)).project.paths[0].name).toBe("NewPath");
+    expect((await store.readSnapshot(input.recordId)).project.paths[0].name).toBe("New path");
   });
 
   it("preserves prior usable source and cleans its temporary file on failed replacement", async () => {
@@ -137,7 +137,7 @@ describe("local project recovery snapshots", () => {
     vi.spyOn(fs, "rename").mockRejectedValue(new Error("private exception contents"));
     await expect(store.writeSnapshot(input)).rejects.toMatchObject({ code: "storage-unavailable", message: "Recovery storage is unavailable" });
     expect((await store.readSnapshot(input.recordId)).receipt).toEqual({ recordId: receipt.recordId, revision: receipt.revision, digest: receipt.digest });
-    expect((await store.readSnapshot(input.recordId)).project.paths[0].name).toBe("NewPath");
+    expect((await store.readSnapshot(input.recordId)).project.paths[0].name).toBe("New path");
     expect(await fs.readdir(root)).toEqual([input.recordId + ".json"]);
   });
 

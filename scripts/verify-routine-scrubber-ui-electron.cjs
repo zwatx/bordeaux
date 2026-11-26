@@ -404,6 +404,37 @@ app.whenReady().then(async () => {
     }
     pass('Run time estimates are marked in rows, inspector, transport total and status, scrubber blocks and group spans; limits cap them; untimed commands open the Robot page');
 
+    // Routine library rows: each routine's default preview time and a problem mark, from path times the library already
+    // has. A timed row matches the transport total and pose jump count of the opened routine; details are its title.
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height);
+      await load(ROUTINE); await planned();
+      const rowState = () => evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-library-item]')].map((row) => {
+        const meta = row.querySelector('.library-meta');
+        return [row.dataset.libraryItem, { label: meta?.lastChild?.textContent ?? '', title: meta?.title || '', flag: meta?.querySelector('.library-flag')?.className.replace('library-flag', '').trim() || null,
+          flagName: meta?.querySelector('.library-flag')?.getAttribute('aria-label') || null }];
+      })));
+      await wait(async () => Object.values(await rowState()).every((row) => row.label && row.label !== '…'), 'routine rows timed');
+      const rows = await rowState();
+      assert.deepEqual({ label: rows['untimed-routine'].label, flag: rows['untimed-routine'].flag }, { label: 'Untimed', flag: null }, 'untimed row');
+      assert.deepEqual({ label: rows['empty-routine'].label, flag: rows['empty-routine'].flag, title: rows['empty-routine'].title }, { label: '—', flag: null, title: 'No steps yet' }, 'empty row');
+      assert.deepEqual({ label: rows['missing-routine'].label, flag: rows['missing-routine'].flag, flagName: rows['missing-routine'].flagName }, { label: '—', flag: 'bad', flagName: 'Has problems' }, 'missing path row');
+      assert.match(rows['missing-routine'].title, /The referenced path is unavailable\./);
+      for (const id of [ROUTINE, 'groups-routine', 'estimate-routine']) {
+        await click(`[data-library-item="${id}"]`); await planned();
+        const opened = await evaluate(() => ({ total: document.querySelector('.rt-timeline-time small').textContent, summary: document.querySelector('.rt-timeline-summary .rt-summary-full').textContent }));
+        const row = (await rowState())[id], jumps = opened.summary.match(/(\d+) pose jumps?/)?.[1];
+        assert.equal(' / ' + row.label, opened.total, id + ' row time matches the transport total');
+        assert.match(row.title, /^Preview time with the first route of each branch/, id + ' row title says what it counts');
+        for (const note of opened.summary.split(' · ').filter((part) => !/pose jump/.test(part))) assert.ok(row.title.includes(note), id + ' row title notes ' + note);
+        if (jumps) { assert.equal(row.flag, 'warn', id + ' pose jumps mark the row'); assert.ok(row.title.includes(jumps + ' pose jump'), id + ' row names its pose jumps: ' + row.title); }
+        else assert.equal(row.flag, null, id + ' has no problem mark: ' + row.title);
+      }
+      assert.match((await rowState())['estimate-routine'].label, /^≈ /, 'estimates mark the row time');
+      await snapshot('library-routines-' + width);
+    }
+    pass('Routine library rows show the default preview time (matching the transport), Untimed, empty and missing-path states, and problem marks with details in the title');
+
     // Untimed and empty routines.
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height);

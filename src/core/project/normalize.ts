@@ -119,7 +119,7 @@ export function normalizeProject(value: unknown): unknown {
 
   const routineSources = Array.isArray(source.routines) && source.routines.length
     ? source.routines
-    : isRecord(source.routine) ? [source.routine] : [{ name: "Autonomous Routine", nodes: [] }];
+    : isRecord(source.routine) ? [source.routine] : [{ name: "New routine", nodes: [] }];
   const routineIds = new Set<string>();
   const routines = routineSources.map((raw) => {
     if (!isRecord(raw)) return raw;

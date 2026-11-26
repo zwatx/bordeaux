@@ -5,6 +5,7 @@ import { AUTO } from '../lib/routineModel';
 import { selectedPathIds } from '../hooks/usePushSelection';
 import { moveFolder, movePaths } from '../lib/libraryOrder';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
+import { routineSummary } from '../lib/routineSummary';
 
 const h = React.createElement;
 const { useState, useRef, useEffect, useLayoutEffect } = React;
@@ -246,8 +247,11 @@ function useLibraryDrag({ scroll, locate, drop }) {
   return { drag, begin };
 }
 
-function EditorLibrary({ mode, prefs, update, project, routines, activePathId, activeRoutineId, onPath, onRoutine, actions, times, controller, selection, deletionNotice, onHide }) {
+function EditorLibrary({ mode, prefs, update, project, routines, activePathId, activeRoutineId, onPath, onRoutine, actions, times, catalog, controller, selection, deletionNotice, onHide }) {
   const pathsMode = mode === 'paths';
+  // Routine rows trace their default preview over the path times already known; nothing is planned for them.
+  const summaries = React.useMemo(() => pathsMode ? null
+    : new Map(routines.map((routine) => [routine.id, routineSummary(routine, project.paths, times, project.robot, catalog)])), [pathsMode, routines, project.paths, project.robot, times, catalog]);
   const routinePushAvailable = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.routinePush === true;
   const pushUnavailable = !pathsMode && !routinePushAvailable;
   const items = pathsMode ? project.paths : routines;
@@ -428,10 +432,13 @@ function EditorLibrary({ mode, prefs, update, project, routines, activePathId, a
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
             rows[next]?.focus(); const nextItem = items.find((value) => value.id === rows[next]?.dataset.libraryItem); if (nextItem) choose(nextItem, event);
           } }, h('span', { className: 'library-mark', 'aria-hidden': true }, multiple && selected.includes(item.id) && h(Icon, { name: 'check', size: 12 })), h('span', { className: 'library-name' }, item.name),
-          // Paths show their time; a routine row is just its name (its steps are on the page beside it).
-          pathsMode && h('span', { className: 'library-meta', title: durationTitle }, durationText)),
+          // Paths show their time; routines their preview time, after a mark when the flow has problems. Details are the title.
+          pathsMode ? h('span', { className: 'library-meta', title: durationTitle }, durationText) : routineMeta(summaries.get(item.id))),
         more('Actions for ' + item.name, kind, item)));
   };
+  const routineMeta = (summary) => h('span', { className: 'library-meta', title: summary.title },
+    summary.severity && h('span', { className: 'library-flag ' + summary.severity, role: 'img', 'aria-label': summary.severity === 'bad' ? 'Has problems' : 'Has warnings' }),
+    summary.label);
   const group = (folder) => {
     const id = folder.id, members = items.filter((item) => item.folderId === id), collapsed = prefs.collapsed[id];
     const folderMark = drag?.kind === 'folder' && mark?.folderId === id, into = drag?.kind === 'path' && mark?.folderId === id && !mark.rowId;

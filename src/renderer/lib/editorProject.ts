@@ -10,7 +10,7 @@ export function blankProject(): BordeauxProject {
   return { ...project, paths: project.paths.slice(0, 1).map((path) => ({ ...path, waypoints: [], markers: [], ranges: [], targets: [] })) };
 }
 
-export function blankRoutine(name = "Autonomous Routine"): AutonomousRoutine {
+export function blankRoutine(name = "New routine"): AutonomousRoutine {
   return { id: createRoutineId(), name, nodes: [] };
 }
 

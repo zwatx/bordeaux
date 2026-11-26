@@ -538,15 +538,11 @@ export function RoutineTransport(props) {
   const pass = active?.passStack?.at(-1);
   const passes = pass && run.steps.find((step) => step.kind === 'repeat' && step.nodeId === pass.repeatId)?.passes;
   const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity').length;
-  // Any estimate makes the total an estimate; otherwise a limit makes it an upper bound.
-  const totalLabel = duration.estimateCount > 0 ? '≈ ' + fmt(run.total) : duration.maxS !== null && duration.usesLimits ? '≤ ' + fmt(run.total) : fmt(run.total);
+  const totalLabel = A.previewTotalLabel(run);
   // Each fact has a short form for a narrow transport (the inspector open at 1100 px), so every count stays readable
   // beside the step playing now; the full sentence stays in the tooltip and for assistive technology.
   const facts = [
-    duration.usesLimits && ['Using time limits', 'Time limits'],
-    duration.estimateCount > 0 && [plural(duration.estimateCount, 'step') + ' estimated from run times', duration.estimateCount + ' estimated'],
-    // Untimed steps add no preview time; that is not a claim that they take none.
-    duration.unknownCount > 0 && [plural(duration.unknownCount, 'untimed step') + ' not counted', duration.unknownCount + ' untimed'],
+    ...A.durationFacts(run),
     jumps > 0 && [plural(jumps, 'pose jump'), plural(jumps, 'pose jump')],
     run.truncated && ['Preview stops at 2,000 steps', 'Stops at 2,000'],
     !timedPlayable && occurrences.length > 0 && !run.blocked && ['Untimed preview', 'Untimed'],
