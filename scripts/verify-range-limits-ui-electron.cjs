@@ -106,8 +106,9 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelector('.range-limits input').value), '1.23');
     for (const system of ['metric', 'imperial']) {
       if (system === 'imperial') {
-        await click('.places .place', 'Settings');
+        await click('.app-settings-trigger');
         await click('[aria-label="Display units"] button', 'Imperial');
+        await click('.app-settings-close');
         await click('.places .place', 'Paths');
         await openZone();
       }
@@ -174,7 +175,7 @@ app.whenReady().then(async () => {
       saved.paths[0].ranges[0] = { anchor: 'param', f0: 0.15, f1: 0.85, maxAngVel: 0.01, maxAngAccel: 0.004 };
       win.setContentSize(width, height); await load();
       if (system === 'imperial') {
-        await click('.places .place', 'Settings'); await click('[aria-label="Display units"] button', 'Imperial');
+        await click('.app-settings-trigger'); await click('[aria-label="Display units"] button', 'Imperial'); await click('.app-settings-close');
         await click('.places .place', 'Paths'); await openZone();
       }
       const angularInput = '.range-limits .range-limit:nth-child(2) input';
@@ -286,8 +287,9 @@ app.whenReady().then(async () => {
     assert.equal(saved.paths[0].ranges.length, 1);
     assert.deepEqual(Object.keys(saved.paths[0].ranges[0]).filter((key) => key.startsWith('max')), []);
     await snapshot('new-dragged-region-1100');
-    await click('.places .place', 'Settings');
+    await click('.app-settings-trigger');
     await click('[aria-label="Display units"] button', 'Metric');
+    await click('.app-settings-close');
     await click('.places .place', 'Paths');
     await openZone();
     await click('#range-add-limit');

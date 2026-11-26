@@ -263,20 +263,26 @@ async function editingChecks() {
   assert.equal(await evaluate(() => document.activeElement?.classList.contains('keyboard-help-trigger')), true, 'Closing returns focus to ?');
   console.log('PASS search, Done and focus return');
 
-  // Settings › General opens the dialog ready to edit; the row counts changed commands.
-  await click('.places .place', 'Settings');
+  // Global settings (the toolbar gear) opens the dialog ready to edit; the row counts changed commands.
+  await click('.app-settings-trigger');
   const keyboardRow = () => evaluate(() => [...document.querySelectorAll('.settings-row')].find(row => row.textContent.startsWith('Keyboard shortcuts'))?.textContent);
   assert.equal(await keyboardRow(), 'Keyboard shortcutsDefaultsCustomize');
   await click('.settings-row .qbtn', 'Customize');
-  await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open), 'dialog from Settings');
+  await wait(() => evaluate(() => document.querySelector('.keyboard-help')?.open && !document.querySelector('.app-settings').open), 'shortcuts dialog replaces global settings');
   assert.equal(await attr('.kh-edit', 'aria-pressed'), 'true', 'Customize opens editing');
   await click(chip('view.fit', 0)); await key('k');
   await rulesAre([fitRule], 'K from Settings');
   for (const [width, height] of [[1440, 900], [1100, 720]]) { win.setContentSize(width, height); await delay(250); await snapshot(`editing-settings-${width}`); }
   await key('Escape');
+  assert.equal(await evaluate(() => document.activeElement?.classList.contains('app-settings-trigger')), true, 'Closing returns focus to the gear');
+  await key('Enter');
+  await wait(() => evaluate(() => document.querySelector('.app-settings')?.open), 'Global settings from the keyboard');
   assert.equal(await keyboardRow(), 'Keyboard shortcuts1 changedCustomize');
-  assert.equal(await evaluate(() => document.activeElement?.textContent), 'Customize', 'Closing returns focus to Customize');
-  console.log('PASS Settings row opens editing and counts changes');
+  for (const [width, height] of [[1440, 900], [1100, 720]]) { win.setContentSize(width, height); await delay(250); await snapshot(`bordeaux-settings-${width}`); }
+  win.setContentSize(1440, 900); await delay(150);
+  await key('Escape');
+  assert.equal(await evaluate(() => !document.querySelector('.app-settings').open && document.activeElement?.classList.contains('app-settings-trigger')), true, 'Escape closes global settings onto the gear');
+  console.log('PASS Global settings row opens editing and counts changes');
 
   // Shift+V for Create zone and V for Select both work: an exact match wins over a letter accepting Shift.
   await click('.keyboard-help-trigger'); await click('.kh-edit');

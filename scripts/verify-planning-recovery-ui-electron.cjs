@@ -387,8 +387,9 @@ app.whenReady().then(async () => {
       assert.ok(Math.abs(after.x-before.x) < 1e-10 && Math.abs(after.y-before.y) < 1e-10, 'Two flips restore coordinates');
       assert.equal(after.theta, before.theta + 360);
     }
-    await click('.places .place', 'Settings');
+    await click('.app-settings-trigger');
     await click('[aria-label="Display units"] button', 'Imperial');
+    await click('.app-settings-close');
     await click('.places .place', 'Paths');
     await save();
     assert.equal(saved.editor?.unitSystem, undefined, 'display units stay out of the project');

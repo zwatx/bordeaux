@@ -11,10 +11,11 @@ import { deletionInput } from "./DeletionNotice";
   const R2D = 180 / Math.PI;
 
   // A project has three places. They are plain text; the current one is at full strength with a neutral rule.
-  const PLACES = [{ id: 'paths', label: 'Paths' }, { id: 'routines', label: 'Routines' }, { id: 'settings', label: 'Settings' }];
-  export const placeOf = (page) => page === 'robot' ? 'settings' : page === 'auto' ? 'routines' : 'paths';
+  const PLACES = [{ id: 'paths', label: 'Paths' }, { id: 'routines', label: 'Routines' }, { id: 'robot', label: 'Robot' }];
+  export const placeOf = (page) => page === 'robot' ? 'robot' : page === 'auto' ? 'routines' : 'paths';
 
-  // One bar, read left to right: the project, its places, the current place's actions, then the robot (Push).
+  // One bar, read left to right: the project, its places, the current place's actions, the robot (Push), then app-wide
+  // controls: updates, global settings (the gear) and shortcuts.
   function Toolbar(props) {
     useKeyRules();
     const { page, onPlace, onUndo, onRedo, optimizationOpen, toggleOptimization, optimizationApplied } = props;
@@ -31,6 +32,7 @@ import { deletionInput } from "./DeletionNotice";
         (plan || page === 'auto') && h(IconBtn, { icon: 'redo', onClick: onRedo, disabled: !props.canRedo, label: 'Redo', title: withKey('Redo', 'edit.redo', true) })),
       props.push && h('div', { className: 'tb-push' }, props.push),
       h(UpdateButton, { state: props.updateState, onOpen: props.onOpenUpdates, onInstall: props.onInstallUpdate, onCheck: props.onCheckUpdates }),
+      props.appSettings,
       h(KeyboardHelp));
   }
 

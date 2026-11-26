@@ -134,7 +134,7 @@ function revertFields(current: unknown, before: unknown, after: unknown): unknow
   return next ?? current;
 }
 
-/** Robot planning is also edited in Settings outside the journal, so it reverts only the fields a change set. */
+/** Robot planning is also edited on the Robot page outside the journal, so it reverts only the fields a change set. */
 const revertPlanning = (current: unknown, change: { before: unknown; after: unknown }) => {
   const base = current ?? {};
   const next = revertFields(base, change.before ?? {}, change.after ?? {});

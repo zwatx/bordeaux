@@ -82,13 +82,15 @@
     throw new Error('Smoke marker pointer input was not delivered');
   };
   const unnamed = [...unnamedOnPage()];
-  for (const page of ['Routines', 'Settings']) {
+  for (const page of ['Routines', 'Robot']) {
     [...document.querySelectorAll('.places .place')].find((button) => button.textContent.trim() === page)?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     unnamed.push(...unnamedOnPage());
   }
-  await waitFor(() => [...document.querySelectorAll('.settings-row')].some(row => row.textContent.includes('Software updates')), 'software updates settings entry');
-  const updatesButton = [...document.querySelectorAll('.settings-row')].find(row => row.textContent.includes('Software updates')).querySelector('button');
+  // App-wide entries are in global settings, behind the toolbar gear.
+  document.querySelector('.app-settings-trigger').click();
+  await waitFor(() => [...document.querySelectorAll('.app-settings .settings-row')].some(row => row.textContent.includes('Software updates')), 'software updates settings entry');
+  const updatesButton = [...document.querySelectorAll('.app-settings .settings-row')].find(row => row.textContent.includes('Software updates')).querySelector('button');
   updatesButton.focus();
   updatesButton.click();
   await waitFor(() => document.querySelector('.app-update-dialog')?.open, 'native updater state opens in-app dialog');
@@ -98,7 +100,8 @@
   // The update card has no close button; Escape (or an outside press) dismisses it.
   document.querySelector('dialog.app-update-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   await waitFor(async () => !document.querySelector('.app-update-dialog')?.open && !(await window.bordeauxAPI.getAppUpdateState()).visible, 'updater closes through native IPC');
-  const updaterIntegration = updaterStateVisible && document.activeElement === updatesButton;
+  // The row closes global settings before the panel opens, so focus returns to the gear.
+  const updaterIntegration = updaterStateVisible && document.activeElement === document.querySelector('.app-settings-trigger');
   const project = { schemaVersion: '1.0', field: { id: '2026-rebuilt', revision: '2026-manual-tu19-andymark-1', coordinateSchemaId: 'wpilib-center-origin/2026-andymark/1' }, name: 'Smoke edited', robot: { drive: 'swerve', w: .8, l: .8, maxSpeed: 4 }, paths: [{ id: 'path_smoke', name: 'Smoke', waypoints: [{ x: 1, y: 1, theta: 0, thetaOn: true, linked: true, stop: false, prevC: { x: .8, y: 1 }, nextC: { x: 1.2, y: 1 } }, { x: 2, y: 1, theta: 0, thetaOn: true, linked: true, stop: false, prevC: { x: 1.8, y: 1 }, nextC: { x: 2.2, y: 1 } }], targets: [], markers: [{ id: 'event_smoke', f: .5, name: 'Smoke event', invocation: { commandId: 'frc.robot.SmokeCommand', arguments: { count: 2, sequence: '9007199254740993', tags: ['auto'] }, cancelOnPathEnd: true } }], ranges: [], constraints: { maxVel: 2, maxAccel: 2, maxDecel: 2, maxAngVel: 180, maxAngAccel: 360 }, startVel: 0, goalVel: 0 }], pathLinks: [], routines: [{ id: 'routine_smoke_active', name: 'Smoke routine', nodes: [{ id: 'routine_smoke', type: 'path', ref: 'path_smoke' }] }], activeRoutineId: 'routine_smoke_active', plannerId: 'profiledSpline' };
   await window.bordeauxAPI.saveProject(project, true);
   await waitFor(() => document.getElementById('robot-drive-motor'), 'robot settings');
@@ -394,7 +397,7 @@
   // Exercise real unsaved renderer state. A raw setDirty(true) is overwritten
   // legitimately when an earlier autosave finishes, making the close probe race.
   document.querySelector('button[aria-label="Close robot files"]').click();
-  [...document.querySelectorAll('.places .place')].find(button => button.textContent.trim() === 'Settings').click();
+  [...document.querySelectorAll('.places .place')].find(button => button.textContent.trim() === 'Robot').click();
   await waitFor(() => document.querySelector('input[aria-label="Drive reduction"]'), 'unsaved draft input');
   await new Promise(resolve => setTimeout(resolve, 1100));
   const unsavedInput = document.querySelector('input[aria-label="Drive reduction"]');

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AppUpdateDialog } from '../src/renderer/components/AppUpdateDialog';
 import { useAppUpdates } from '../src/renderer/components/useAppUpdates';
 import { Panels } from '../src/renderer/components/Panels';
+import { AppSettings } from '../src/renderer/components/AppSettings';
 import '../src/renderer/styles/app.css';
 const h = React.createElement;
 let state = { phase: 'idle', currentVersion: '0.2.0-beta.10', version: null, channel: 'beta', visible: false, projectDirty: false, releaseNotes: '', progress: null, error: null, errorStage: null };
@@ -19,11 +20,15 @@ window.bordeauxAPI = {
   installAppUpdate: () => { calls.push('install'); return set({ phase: 'installing' }); },
   openAppUpdateReleases: () => { calls.push('releases'); return Promise.resolve(); },
   copyAppUpdateDetails: () => { calls.push('copy'); return Promise.resolve(); },
+  // Key storage, so global settings shows its keyboard shortcuts row as on the desktop.
+  getKeyRules: async () => [], setKeyRules: async (rules) => rules,
 };
 function Harness() {
   const { state, actions } = useAppUpdates();
   return h(React.Fragment, null,
-    h(Panels.Toolbar, { page: 'robot', editorPage: 'plan', setPage: () => {}, updateState: state, onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onInstallUpdate: actions.onInstall, onCheckUpdates: actions.onCheck }),
+    h(Panels.Toolbar, { page: 'robot', editorPage: 'plan', setPage: () => {}, updateState: state, onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onInstallUpdate: actions.onInstall, onCheckUpdates: actions.onCheck,
+      appSettings: h(AppSettings, { unitSystem: 'metric', setUnitSystem: () => {}, connection: { openConnection: () => calls.push('connection') }, updateState: state,
+        onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onCheckUpdates: actions.onCheck, onCloseUpdates: actions.onClose }) }),
     h('main', { style: { height: 'calc(100vh - 56px)', padding: 48, background: 'var(--bg-0)' } },
     h('h1', { style: { fontSize: 20 } }, 'Bordeaux'), h('p', null, 'Editor workspace'),
     h('button', { id: 'update-trigger', className: 'qbtn', onClick: () => window.bordeauxAPI.setAppUpdatesVisible(true) }, 'Software updates'),

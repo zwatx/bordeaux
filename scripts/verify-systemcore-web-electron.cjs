@@ -80,13 +80,13 @@ app.whenReady().then(async () => {
     check('the robot serves the editor and installs its host', { lastProject: before.lastProject });
 
     // The page ships in the package, so the version it reports is the installed one. Updates come as a new ipk.
-    await click('.place', 'Settings');
-    await wait(() => [...document.querySelectorAll('.settings-row')].some((row) => row.querySelector('strong')?.textContent === 'Software updates'), 'software updates row');
+    await click('.app-settings-trigger');
+    await wait(() => [...document.querySelectorAll('.app-settings .settings-row')].some((row) => row.querySelector('strong')?.textContent === 'Software updates'), 'software updates row');
     const shown = await evaluate(() => [...document.querySelectorAll('.settings-row')].find((row) => row.querySelector('strong')?.textContent === 'Software updates').querySelector('.settings-status').textContent);
     // A local server runs this checkout's build; an installed robot runs whatever version is installed.
     const expected = home ? 'Bordeaux ' + require('../package.json').version : null;
-    if (expected ? shown !== expected : !/^Bordeaux \d+\.\d+\.\d+/.test(shown)) throw new Error(`Settings shows ${JSON.stringify(shown)}, expected ${expected ?? 'a version'}`);
-    // Focus first, as a pointer click does, so the panel anchors under the button.
+    if (expected ? shown !== expected : !/^Bordeaux \d+\.\d+\.\d+/.test(shown)) throw new Error(`Global settings shows ${JSON.stringify(shown)}, expected ${expected ?? 'a version'}`);
+    // The row closes global settings first, so the panel anchors under the gear.
     await evaluate(() => { const button = [...document.querySelectorAll('.settings-row button')].find((el) => el.textContent.trim() === 'Check for updates'); button.focus(); button.click(); });
     await wait(() => document.querySelector('.app-update-dialog')?.open, 'update panel');
     const panel = await evaluate(() => ({ title: document.querySelector('#app-update-title').textContent, description: document.querySelector('.app-update-description')?.textContent,
@@ -105,7 +105,7 @@ app.whenReady().then(async () => {
     if (opened.length !== 1 || opened[0] !== 'https://github.com/zwatx/bordeaux/releases') throw new Error('All releases opened ' + JSON.stringify(opened));
     await evaluate(() => document.querySelector('.app-update-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     await wait(() => !document.querySelector('.app-update-dialog')?.open, 'update panel closed');
-    check('Settings shows the installed version and points updates at the release ipk', { shown, panel, opened });
+    check('Global settings shows the installed version and points updates at the release ipk', { shown, panel, opened });
     await click('.place', 'Paths');
     await editorReady();
 
@@ -121,12 +121,12 @@ app.whenReady().then(async () => {
     if (!workspace.project.robot.driveModel) {
       // BDX needs a complete drivetrain model, as on the desktop; the source is kept regardless.
       if (Object.keys(workspace.generatedFiles || {}).length) throw new Error('BDX was written without a drivetrain model');
-      await click('.place', 'Settings');
+      await click('.place', 'Robot');
       await click('#robot-drive-motor');
       await click('#robot-drive-motor-listbox [data-value="rev-neo"]');
       await wait(new Function(`return fetch('/api/projects/${encodeURIComponent(name)}/workspace').then((r) => r.json()).then((w) => JSON.parse(w.contents).project.robot.driveModel?.motorId === 'rev-neo')`), 'autosaved motor preset', 30_000);
       await shot('03-motor-preset');
-      check('a saved project without a drivetrain model keeps its source, and a Settings edit autosaves to the robot');
+      check('a saved project without a drivetrain model keeps its source, and a Robot page edit autosaves to the robot');
       await click('.place', 'Paths');
       await editorReady();
     }

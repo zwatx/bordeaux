@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(() => document.querySelectorAll('.field-confirmation details, .field-confirmation button').length), 0);
     await pointer('.pp-more'); await capture('inspector-open-1100');
     await pointer('.pp-more'); await capture('inspector-closed-1100');
-    await pointer('.places .place', 'Settings'); await pointer('[aria-label="Display units"] button', 'Imperial'); await pointer('.places .place', 'Paths'); await key('Tab'); await key('Escape'); await capture('imperial-1100');
+    await pointer('.app-settings-trigger'); await pointer('[aria-label="Display units"] button', 'Imperial'); await pointer('.app-settings-close'); await pointer('.places .place', 'Paths'); await key('Tab'); await key('Escape'); await capture('imperial-1100');
     saveMode = 'cancel'; const before = fs.readFileSync(path.join(output, 'selected.bdx'));
     const canceled = await evaluate((project, id) => window.bordeauxAPI.exportBdx(project, id), fixture, route.id); assert.equal(canceled.canceled, true); assert.deepEqual(fs.readFileSync(path.join(output, 'selected.bdx')), before);
     saveMode = 'replace'; const replaced = await evaluate((project, id) => window.bordeauxAPI.exportBdx(project, id), fixture, route.id); assert.equal(replaced.exported, true); assert.deepEqual(fs.readFileSync(path.join(output, 'selected.bdx')), expected);
