@@ -27,7 +27,7 @@ function routineSplit(room, chosen) {
   const max = Math.max(FIELD_MIN, room - FLOW_MIN);
   const wanted = chosen ?? Math.min(room * 0.62, room - FLOW_DEFAULT_MIN);
   const field = Math.round(Math.max(FIELD_MIN, Math.min(max, wanted)));
-  return { field, flow: room - field, flowMin: Math.min(FLOW_MIN, room - FIELD_MIN), flowMax: room - FIELD_MIN };
+  return { field, flow: room - field, flowMin: Math.max(0, Math.min(FLOW_MIN, room - FIELD_MIN)), flowMax: Math.max(0, room - FIELD_MIN) };
 }
 
 /**
@@ -39,21 +39,27 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
   const trigger = React.useRef(null), popover = React.useRef(null);
   // An empty routine has nothing to play, so it has no transport.
   const empty = !routine.nodes.length;
-  // The split is a window preference like the Paths field focus, not project data, so it lives in localStorage. The
-  // field keeps its height and the flow takes what changes (a planning status, a taller transport), so rows hold still.
+  // The split is a window preference like the Paths field focus, not project data, so it lives in localStorage. Once
+  // the user sets a split, the field keeps its height and the flow takes what changes (a planning status, a taller
+  // transport), so rows hold still. The default split follows the room between the header and the transport.
   const [chosenField, setChosenField] = React.useState(storedFieldHeight);
   const [room, setRoom] = React.useState(0);
-  const sectionRef = React.useRef(null), headRef = React.useRef(null), transportRef = React.useRef(null);
+  // A status banner sits under the flow and shortens it without moving the field; the divider reports the flow it leaves.
+  const [banner, setBanner] = React.useState(0);
+  const sectionRef = React.useRef(null), headRef = React.useRef(null), transportRef = React.useRef(null), statusRef = React.useRef(null);
   React.useLayoutEffect(() => {
-    const measure = () => setRoom(sectionRef.current.clientHeight - headRef.current.offsetHeight - (transportRef.current?.offsetHeight || 0));
+    const measure = () => {
+      setRoom(sectionRef.current.clientHeight - headRef.current.offsetHeight - (transportRef.current?.offsetHeight || 0));
+      setBanner(statusRef.current?.offsetHeight || 0);
+    };
     measure();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    for (const element of [sectionRef.current, headRef.current, transportRef.current]) if (element) observer?.observe(element);
+    for (const element of [sectionRef.current, headRef.current, transportRef.current, statusRef.current]) if (element) observer?.observe(element);
     return () => observer?.disconnect();
   }, [empty]);
   const split = room > 0 ? routineSplit(room, chosenField) : null;
   const resizeFlow = (flowHeight) => {
-    const next = flowHeight == null ? null : room - flowHeight;
+    const next = flowHeight == null ? null : room - banner - flowHeight;
     setChosenField(next); storeFieldHeight(next);
   };
   React.useEffect(() => {
@@ -106,8 +112,8 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
           h('p', null, PREVIEW_HELP)))),
     h('div', { className: 'routine-workspace-body', style: split ? { '--field-height': split.field + 'px' } : undefined },
       h('div', { className: 'fieldcol routine-workspace-field', 'aria-label': 'Routine field preview' }, field),
-      split && h(BandDivider, { className: 'routine-split', height: split.flow, min: split.flowMin, max: split.flowMax, onChange: resizeFlow, label: 'Resize flow' }),
+      split && h(BandDivider, { className: 'routine-split', height: split.flow - banner, min: Math.max(0, split.flowMin - banner), max: Math.max(0, split.flowMax - banner), onChange: resizeFlow, label: 'Resize flow' }),
       h('div', { className: 'routine-workspace-flow', 'aria-label': 'Routine flow' }, flow)),
-    status,
+    h('div', { ref: statusRef, className: 'routine-workspace-status' }, status),
     !empty && h('div', { ref: transportRef, className: 'routine-workspace-transport' }, transport));
 }

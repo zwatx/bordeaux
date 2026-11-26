@@ -270,6 +270,7 @@
 }
 
 /* ============ routine status and playback ============ */
+.routine-workspace-status{flex-shrink:0}
 .routine-status{display:flex;align-items:flex-start;gap:10px;flex-shrink:0;padding:10px 24px;border-top:1px solid var(--line-2);background:var(--bg-1)}
 .routine-status-icon{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;height:24px;border-radius:var(--r);background:var(--accent-soft);color:var(--accent)}
 .routine-status-copy{display:flex;flex-direction:column;gap:2px;min-width:0;padding-top:3px}
