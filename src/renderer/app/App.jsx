@@ -36,6 +36,7 @@ import { RobotPushDialog, useRobotPushController } from "../components/RobotPush
 import { RoutineTransport, StepInspector } from "../components/RoutineInspector";
 import { RoutinePanel } from "../components/RoutinePanel";
 import { RoutineWorkspace } from "../components/RoutineWorkspace";
+import { BandDivider } from "../components/BandDivider";
 import { UI } from "../components/ui";
 import { PM } from "../lib/pathMath";
 import { agentProposalMatchesPublishedContext } from "../lib/agentProposalContext";
@@ -72,7 +73,6 @@ import { useEditingPlanning } from "../hooks/useEditingPlanning";
 import { useOptimizerComparison } from "../hooks/useOptimizerComparison";
 import { usePushSelection } from "../hooks/usePushSelection";
 import { PushControl } from "../components/PushControl";
-import { PointerDrag } from "../hooks/usePointerDrag";
 import { PathPanel } from "../components/PathPanel";
 import { PathTimeline, PathHoverReadout } from "../components/PathTimeline";
 import { buildTimeline, tAtF } from "../components/pathTimelineModel";
@@ -334,26 +334,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     if (!size) return 280;
     const field = size.w * (FIT.h / FIT.w) + 12;
     return Math.round(Math.max(BAND_MIN, Math.min(size.h * 0.6, size.h - field)));
-  }
-  /** Band height: drag, or arrows/Home/End with focus. Enter or double-click returns to the balanced height. */
-  function BandDivider({ height, max, onChange }) {
-    const pointerDrag = PointerDrag.useController();
-    const clampBand = (value) => Math.round(Math.max(BAND_MIN, Math.min(max, value)));
-    return h('div', { className: 'band-divider', role: 'separator', tabIndex: 0, 'aria-orientation': 'horizontal', 'aria-label': 'Resize timeline',
-      'aria-valuemin': BAND_MIN, 'aria-valuemax': Math.round(max), 'aria-valuenow': Math.round(height), title: 'Drag to resize · double-click to reset',
-      onPointerDown: (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        const y0 = event.clientY, start = height;
-        pointerDrag.start(event, { cursor: 'ns-resize', move: (next) => onChange(clampBand(start - (next.clientY - y0))) });
-      },
-      onDoubleClick: () => onChange(null),
-      onKeyDown: (event) => {
-        const step = event.shiftKey ? 64 : 16;
-        const next = { ArrowUp: height + step, ArrowDown: height - step, Home: BAND_MIN, End: max }[event.key];
-        if (next != null) { event.preventDefault(); event.stopPropagation(); onChange(clampBand(next)); }
-        else if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onChange(null); }
-      } });
   }
   function RoutinePanelPlayback({ store, ...props }) {
     const playback = usePlayback(store);
@@ -3178,7 +3158,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 h('div', { className: 'field-view-tools' },
                   h(Panels.MetricControl, { metric, setMetric, derived: scene.derived, robot }),
                   h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),
-            h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
+            h(BandDivider, { height: bandHeight, min: BAND_MIN, max: bandMax, onChange: setBandOverride, label: 'Resize timeline' }),
             h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
               actions: bandActions, edit: { begin: beginEdit, mutate, finish: finishEdit, cancel: cancelEdit, draft: editStore.getSnapshot, flushDraft: flushProjectDraft },
               playbackStore, stale: !derivationCurrent,

@@ -46,7 +46,7 @@ async function snapshot(name) {
   await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
 }
-// Preview help is a small native popover under its trigger; it must overlay the flow, never move it.
+// Preview help is a small native popover under its trigger; it must overlay the field, never move the flow.
 const previewHelp = () => evaluate(() => {
   const trigger = document.querySelector('.routine-workspace-about'), help = document.querySelector('#routine-preview-notes');
   const flow = document.querySelector('.rt-scroll').getBoundingClientRect(), anchor = trigger.getBoundingClientRect(), rect = help.getBoundingClientRect();
@@ -54,6 +54,29 @@ const previewHelp = () => evaluate(() => {
     sentences: help.textContent.trim().split(/(?<=[.!?])\s+/), flow: [flow.x, flow.y, flow.width, flow.height].join(),
     fits: rect.left >= 8 && rect.right <= innerWidth - 8 && rect.top >= anchor.bottom && rect.bottom <= innerHeight - 8 && rect.width <= 300 };
 });
+// The field preview sits over the flow, split by a divider (aria-valuenow is the flow's height; the field's height is
+// what is remembered), then the transport.
+const splitState = () => evaluate(() => {
+  const box = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r ? { top: r.top, bottom: r.bottom, height: r.height, width: r.width } : null; };
+  const divider = document.querySelector('.routine-split'), scroll = document.querySelector('.rt-scroll');
+  return { field: box('.routine-workspace-field'), svg: box('.routine-workspace-field .fieldsvg'), flow: box('.routine-workspace-flow'), transport: box('.routine-workspace-transport'),
+    divider: divider && { now: Number(divider.getAttribute('aria-valuenow')), min: Number(divider.getAttribute('aria-valuemin')), max: Number(divider.getAttribute('aria-valuemax')),
+      label: divider.getAttribute('aria-label'), top: divider.getBoundingClientRect().top, focused: document.activeElement === divider },
+    rowRoom: scroll ? scroll.clientHeight - parseFloat(getComputedStyle(scroll).paddingTop) : 0,
+    toggle: Boolean(document.querySelector('.routine-workspace-views, [aria-label="Routine view"]')) || [...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Field preview'),
+    stored: localStorage.getItem('bordeaux.routines.fieldHeight') };
+});
+// Drags the split divider by `dy` pixels with native pointer input.
+async function dragDivider(dy) {
+  await focus();
+  const { divider, field } = await splitState(), x = Math.round(field.width / 2 + (await evaluate(() => document.querySelector('.routine-workspace-field').getBoundingClientRect().left))), y = Math.round(divider.top);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+  win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+  for (const step of [0.25, 0.5, 0.75, 1]) { await delay(30); win.webContents.sendInputEvent({ type: 'mouseMove', x, y: Math.round(y + dy * step), button: 'left', modifiers: ['leftButtonDown'] }); }
+  await delay(60);
+  win.webContents.sendInputEvent({ type: 'mouseUp', x, y: Math.round(y + dy), button: 'left', clickCount: 1 });
+  await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
 // The planning banner sits below the flow until trajectories arrive; measure layout only once it and the fonts settle.
 async function planned() {
   await wait(() => evaluate(() => !document.querySelector('.routine-status.planning')
@@ -187,22 +210,30 @@ app.whenReady().then(async () => {
         .map(selector => Math.round(document.querySelector(selector).getBoundingClientRect().top)));
       assert.ok(rules.every(top => top === rules[0]), 'Library and inspector footer rules line up with the transport: ' + rules.join());
       // Dragging a step lifts it into a card the size of its row; its slot closes and a matching gap opens at the target.
-      const grip = await evaluate(() => {
-        const row = document.querySelector('[data-id="return"]'), r = row.querySelector('.rt-grip').getBoundingClientRect(), box = row.getBoundingClientRect();
-        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), width: box.width, height: box.height };
-      });
-      const header = await evaluate(() => { const r = document.querySelector('[data-id="cycle"]').getBoundingClientRect(); return { x: Math.round(r.x + 60), y: Math.round(r.y + r.height / 4) }; });
-      const stepDrag = async (to) => {
+      // The flow shares the column with the field, so End on the divider gives it more room. At the minimum size the step
+      // and the repeat still do not fit together, so the drag holds at the flow's top edge until it scrolls to the repeat.
+      await evaluate(() => document.querySelector('.routine-split').focus()); await key('End');
+      let grip, header;
+      const stepDrag = async () => {
         await focus();
+        await evaluate(() => { const scroll = document.querySelector('.rt-scroll'); scroll.scrollTop = scroll.scrollHeight; });
+        grip = await evaluate(() => {
+          const row = document.querySelector('[data-id="return"]'), r = row.querySelector('.rt-grip').getBoundingClientRect(), box = row.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), width: box.width, height: box.height };
+        });
         win.webContents.sendInputEvent({ type: 'mouseDown', x: grip.x, y: grip.y, button: 'left', clickCount: 1 });
         await delay(40);
         win.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 8, y: grip.y - 8, button: 'left', modifiers: ['leftButtonDown'] });
         await wait(() => evaluate(() => Boolean(document.querySelector('.rt-drag-card'))), 'the step lifts into a card');
-        win.webContents.sendInputEvent({ type: 'mouseMove', x: to.x, y: to.y, button: 'left', modifiers: ['leftButtonDown'] });
+        const edge = await evaluate(() => Math.round(document.querySelector('.rt-scroll').getBoundingClientRect().top + 4));
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 60, y: edge, button: 'left', modifiers: ['leftButtonDown'] });
+        await wait(() => evaluate(() => document.querySelector('.rt-scroll').scrollTop === 0), 'the flow scrolls up under the dragged step');
+        header = await evaluate(() => { const r = document.querySelector('[data-id="cycle"]').getBoundingClientRect(); return { x: Math.round(r.x + 60), y: Math.round(r.y + r.height / 4) }; });
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: header.x, y: header.y, button: 'left', modifiers: ['leftButtonDown'] });
         await wait(() => evaluate(() => Boolean(document.querySelector('.rt-group.drop-before'))), 'a gap opens before the repeat');
         await delay(260);
       };
-      await stepDrag(header);
+      await stepDrag();
       const lifted = await evaluate(() => {
         // The card's layout size (it is drawn lifted, scaled 2%).
         const card = { width: document.querySelector('.rt-drag-card').offsetWidth, height: document.querySelector('.rt-drag-card').offsetHeight }, source = document.querySelector('[data-id="return"]');
@@ -220,12 +251,13 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: 'mouseUp', x: header.x, y: header.y, button: 'left', clickCount: 1 });
       await delay(120);
       assert.deepEqual(await source(), baseline, 'Escape cancels the drag without an edit');
-      await stepDrag(header);
+      await stepDrag();
       win.webContents.sendInputEvent({ type: 'mouseUp', x: header.x, y: header.y, button: 'left', clickCount: 1 });
       await wait(async () => (await source())[0].nodes.map(node => node.id).join() === 'return,cycle', 'the drop moves the step before the repeat');
       assert.ok(await evaluate(() => !document.querySelector('.rt-drag-card, .rt-panel.dragging')), 'The card is gone after the drop');
       await key('z', ['meta']);
       await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'one Undo restores the order');
+      await evaluate(() => document.querySelector('.routine-split').focus()); await key('Enter');
       if (await evaluate(() => document.querySelector('[data-id="return"]').classList.contains('sel'))) await click('[data-id="choice"] .rt-step-body');
       await click('[data-id="return"] .rt-step-body');
       await key('A');
@@ -301,9 +333,88 @@ app.whenReady().then(async () => {
       if (!(await evaluate(() => document.querySelector('[data-id="return"]').classList.contains('sel')))) await click('[data-id="return"] .rt-step-body');
       await click('button[aria-label="Close step inspector"]');
       await snapshot('flow-closed-' + width);
-      await click('.routine-workspace-views button', 'Field preview');
-      await snapshot('field-' + width);
-      await click('.routine-workspace-views button', 'Flow');
+      // One view: the field over the flow, both usable at the default split, with no Flow / Field preview switch.
+      const split = await splitState();
+      assert.equal(split.toggle, false, 'The Flow / Field preview switch is gone');
+      assert.equal(split.stored, null, 'A fresh profile uses the default split');
+      assert.equal(split.divider.label, 'Resize flow', 'The divider names what it resizes');
+      assert.ok(split.field.bottom <= split.flow.top + 1 && split.flow.bottom <= split.transport.top + 1, 'Field, flow, then transport, without overlap: ' + JSON.stringify(split));
+      assert.ok(split.svg.height >= 160 && split.svg.width >= 400, 'The field preview is usable: ' + JSON.stringify(split.svg));
+      assert.ok(split.rowRoom >= 5 * 34, 'The flow has room for five rows: ' + split.rowRoom);
+      assert.ok(Math.abs(split.flow.height - split.divider.now) <= 1, 'The divider reports the flow height');
+      if (width === 1440) assert.ok(split.field.height > split.flow.height, 'At 1440x900 the field gets the larger share: ' + JSON.stringify(split));
+      // Pointer drag moves the divider with the pointer and clamps so neither part collapses.
+      await dragDivider(-60);
+      const dragged = await splitState();
+      assert.ok(Math.abs(dragged.divider.now - split.divider.now - 60) <= 1 && Math.abs(dragged.flow.height - dragged.divider.now) <= 1, 'Dragging up 60px grows the flow by 60px: ' + JSON.stringify(dragged.divider));
+      assert.equal(dragged.stored, String(Math.round(dragged.field.height)), 'A drag remembers the split as the field height');
+      assert.equal(dragged.divider.focused, false, 'A pointer drag does not take focus');
+      await dragDivider(-2000);
+      const tallest = await splitState();
+      assert.ok(tallest.divider.now === tallest.divider.max && tallest.field.height >= 159, 'The field keeps its minimum: ' + JSON.stringify(tallest));
+      await dragDivider(2000);
+      const shortest = await splitState();
+      assert.ok(shortest.divider.now === shortest.divider.min && shortest.flow.height >= 139 && shortest.flow.bottom <= shortest.transport.top + 1, 'The flow keeps its minimum: ' + JSON.stringify(shortest));
+      await snapshot('split-shortest-flow-' + width);
+      // Keyboard on the focused divider: arrows step 16px (Shift 64px), Home/End reach the limits, Enter resets.
+      await evaluate(() => document.querySelector('.routine-split').focus());
+      const nowAfter = async (keyCode, modifiers) => { await key(keyCode, modifiers); return (await splitState()).divider.now; };
+      assert.equal(await nowAfter('Up'), shortest.divider.min + 16, 'ArrowUp grows the flow by 16px');
+      assert.equal(await nowAfter('Up', ['shift']), shortest.divider.min + 80, 'Shift+ArrowUp grows the flow by 64px');
+      assert.equal(await nowAfter('Down'), shortest.divider.min + 64, 'ArrowDown shrinks the flow by 16px');
+      assert.equal(await nowAfter('End'), shortest.divider.max, 'End gives the flow its maximum');
+      assert.equal(await nowAfter('Home'), shortest.divider.min, 'Home gives the flow its minimum');
+      await key('Enter');
+      const reset = await splitState();
+      assert.ok(reset.divider.now === split.divider.now && reset.stored === null && reset.divider.focused, 'Enter returns to the default split and keeps focus: ' + JSON.stringify(reset.divider));
+      // The chosen split survives a reload; a double-click returns to the default and forgets it.
+      await key('Up', ['shift']);
+      const chosen = (await splitState()).divider.now;
+      await load(); await planned();
+      const reloaded = await splitState();
+      assert.ok(reloaded.divider.now === chosen && reloaded.stored === String(Math.round(reloaded.field.height)), 'The split is remembered across reload: ' + JSON.stringify(reloaded.divider));
+      await focus();
+      const handle = { x: Math.round(reloaded.field.width / 2 + await evaluate(() => document.querySelector('.routine-workspace-field').getBoundingClientRect().left)), y: Math.round(reloaded.divider.top) };
+      for (const clickCount of [1, 2]) for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount, ...handle });
+      await wait(async () => (await splitState()).divider.now === split.divider.now, 'double-click resets the split');
+      assert.equal((await splitState()).stored, null, 'A double-click forgets the chosen split');
+      // Clicking a step's path on the field selects that step, and the flow scrolls to it.
+      await evaluate(() => { document.querySelector('.rt-scroll').scrollTop = 0; });
+      const onField = await evaluate(() => {
+        for (const element of document.querySelectorAll('.routine-workspace-field [data-role="rpath"]')) {
+          const length = element.getTotalLength(), m = element.getScreenCTM();
+          for (let f = 0.3; f <= 0.9; f += 0.05) {
+            const p = element.getPointAtLength(length * f), x = Math.round(m.a * p.x + m.c * p.y + m.e), y = Math.round(m.b * p.x + m.d * p.y + m.f);
+            if (document.elementFromPoint(x, y) === element) return { x, y, id: element.dataset.idx };
+          }
+        }
+        return null;
+      });
+      assert.ok(onField, 'A routine path on the field can be pressed');
+      await focus();
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, x: onField.x, y: onField.y });
+      await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id && Boolean(document.querySelector('.routine-insp')), onField.id), 'a field path selects its step');
+      assert.ok(await evaluate(() => {
+        const row = document.querySelector('.rt-step.sel').getBoundingClientRect(), scroll = document.querySelector('.rt-scroll').getBoundingClientRect();
+        return row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1;
+      }), 'The step selected on the field is in view in the flow');
+      await snapshot('field-selects-step-' + width);
+      // Playback: the running row and the robot on the field show together.
+      const lane = await evaluate(() => { const r = document.querySelector('.rt-timeline-editor').getBoundingClientRect(); return { x: Math.round(r.left + r.width * 0.3), y: Math.round(r.top + 30) }; });
+      await focus();
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...lane });
+      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-list.playing') && document.querySelector('.rt-step.active'))), 'seeking shows the running row');
+      const playing = await evaluate(() => {
+        const robot = document.querySelector('.routine-workspace-field .fieldsvg polygon[fill="rgba(14,16,20,0.85)"]')?.getBoundingClientRect();
+        const field = document.querySelector('.routine-workspace-field').getBoundingClientRect(), flow = document.querySelector('.routine-workspace-flow').getBoundingClientRect();
+        const row = document.querySelector('.rt-step.active').getBoundingClientRect(), scroll = document.querySelector('.rt-scroll').getBoundingClientRect();
+        return { robot: Boolean(robot && robot.width && robot.top >= field.top && robot.bottom <= field.bottom), field: field.height, flow: flow.height,
+          row: row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1 };
+      });
+      assert.ok(playing.robot && playing.row && playing.field > 150 && playing.flow > 130, 'The robot on the field and the running row are visible together: ' + JSON.stringify(playing));
+      await snapshot('playback-' + width);
+      await click('[aria-label="Restart routine"]');
+      await click('button[aria-label="Close step inspector"]');
       const beforeSave = saves;
       await click('.project-chip'); await click('[role="menuitem"][data-action="save"]');
       await wait(() => saves > beforeSave, 'explicit local save');
@@ -320,6 +431,11 @@ app.whenReady().then(async () => {
       saved.routines = [{ ...routine, nodes: [] }];
       await load(null);
       await snapshot('empty-' + width);
+      // An empty routine shows the robot field over its flow, with nothing planned and nothing to play.
+      const emptySplit = await splitState();
+      assert.ok(emptySplit.svg?.height >= 160 && emptySplit.field.bottom <= emptySplit.flow.top + 1 && !emptySplit.transport && !emptySplit.toggle,
+        'An empty routine shows the field over the flow without a transport: ' + JSON.stringify(emptySplit));
+      assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-field [data-role="rpath"]').length), 0, 'The empty field has no planned paths');
       // An empty routine shows its first step's slot in place, without an explanation or a button to open it.
       assert.ok(await evaluate(() => !/No steps yet|Steps run top to bottom/.test(document.querySelector('.rt-panel').textContent)
         && Boolean(document.querySelector('.rt-empty .rt-slot.first [data-action="wait"]')) && !document.querySelector('#rt-source')), 'Empty routine shows its first step slot');
@@ -508,7 +624,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field view', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

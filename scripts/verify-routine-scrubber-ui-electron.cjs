@@ -146,8 +146,6 @@ app.whenReady().then(async () => {
         await click('.rt-addwrap .rt-add'); await delay(300);
         await snapshot('baseline-add-slot-' + width);
         await key('Escape');
-        await click('.routine-workspace-views .seg-i', 'Field preview'); await delay(300);
-        await snapshot('baseline-field-' + width);
       }
       app.exit(0); return;
     }
@@ -230,10 +228,8 @@ app.whenReady().then(async () => {
       await key('Home'); await key('PageDown'); await key('PageDown'); await key('PageDown');
       await snapshot('scrub-keyboard-' + width);
 
-      // Field preview keeps the same transport.
-      await click('.routine-workspace-views .seg-i', 'Field preview');
+      // The field above the flow shows the scrubbed pose over the same transport.
       await snapshot('field-scrubbed-' + width);
-      await click('.routine-workspace-views .seg-i', 'Flow');
 
       // Path chooser: the current path reads as a card with its context.
       await click('[data-id="leave"] .rt-step-body');
@@ -319,7 +315,6 @@ app.whenReady().then(async () => {
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height);
       await load('groups-routine', '[data-id="g-leave"]'); await planned();
-      await click('.routine-workspace-views .seg-i', 'Field preview'); await delay(300);
       const laneState = () => evaluate(() => {
         const editor = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
         const box = (el) => { const r = el.getBoundingClientRect(); return { x0: r.left, x1: r.right, y0: r.top, y1: r.bottom, text: el.textContent, title: el.title, cls: el.className }; };
@@ -350,8 +345,6 @@ app.whenReady().then(async () => {
       await snapshot('groups-field-seek-' + width);
       await key('End');
       await snapshot('groups-field-end-' + width);
-      await click('.routine-workspace-views .seg-i', 'Flow'); await delay(200);
-      await snapshot('groups-flow-' + width);
     }
     pass('Groups stack parallel steps in outlined rows, loops are marked, instant commands are unclipped chips, and running steps are lit at both sizes');
 

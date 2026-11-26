@@ -201,14 +201,17 @@ describe('preview boundary is stated once', () => {
     expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toMatch(/^Routine\b/);
   });
 
-  it('offers only the flow for an empty routine, and both views with playback once it has a step', () => {
-    const render = (nodes) => renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine: { id: 'r', name: 'R', nodes }, flow: null, field: null, transport: 'TRANSPORT', status: null }));
+  it('shows the field over the flow for every routine, without a view switch, and playback once it has a step', () => {
+    const render = (nodes) => renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine: { id: 'r', name: 'R', nodes }, flow: 'FLOW', field: 'FIELD', transport: 'TRANSPORT', status: null }));
     const empty = render([]), filled = render([path('p', 'a')]);
-    expect(empty).not.toContain('routine-workspace-views');
+    for (const html of [empty, filled]) {
+      expect(html).not.toContain('routine-workspace-views');
+      expect(html).not.toContain('Field preview<');
+      expect(html).toMatch(/aria-label="Routine field preview">FIELD<[\s\S]*aria-label="Routine flow">FLOW</);
+      expect(html).toContain('aria-label="About preview"');
+    }
     expect(empty).not.toContain('TRANSPORT');
-    expect(empty).toContain('aria-label="About preview"');
     expect(empty).not.toContain('Local preview');
-    expect(filled).toMatch(/class="seg routine-workspace-views"[\s\S]*aria-pressed="true"[^>]*>Flow<[\s\S]*>Field preview</);
     expect(filled).toContain('TRANSPORT');
   });
 

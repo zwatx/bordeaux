@@ -443,11 +443,23 @@ export function RoutinePanel(props) {
   useEffect(() => { setAdd(null); setChange(null); setMenu(null); setRange([]); setNote(''); }, [routine.id]);
   useEffect(() => { if (range.length && range.some((id) => !A.locate(routine, id))) setRange([]); }, [routine, range]);
   useEffect(() => { if (!selId && range.length) setRange([]); }, [selId]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Scrolls only the flow so step `id`'s row is in view; a row inside a collapsed group stays put. */
+  const revealStep = (id) => {
+    const box = scrollRef.current, row = id && box && [...box.querySelectorAll('.rt-step')].find((element) => element.dataset.id === id);
+    if (!row) return;
+    const inner = row.getBoundingClientRect(), outer = box.getBoundingClientRect();
+    if (inner.top < outer.top) box.scrollTop -= outer.top - inner.top + 8;
+    else if (inner.bottom > outer.bottom) box.scrollTop += inner.bottom - outer.bottom + 8;
+  };
+  // A step selected elsewhere (its path on the field) comes into view.
+  useEffect(() => revealStep(selId), [selId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const outcomes = acq.outcomes || {};
   const activeIdx = run.steps.length && (running || time > 0) ? A.stepAt(run, time) : -1;
   const activeStep = activeIdx >= 0 ? run.steps[activeIdx] : null;
   const activeId = running && activeStep && activeStep.kind !== 'repeat' ? activeStep.nodeId : null;
+  // Playback keeps the running step in view, moving the flow only when another step starts.
+  useEffect(() => revealStep(activeId), [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const passOf = (repeatId) => run.steps.find((step) => step.kind === 'repeat' && step.nodeId === repeatId)?.passes;
   const activePass = activeStep?.passStack?.at(-1);
   const topIndex = new Map(routine.nodes.map((node, index) => [node.id, index + 1]));

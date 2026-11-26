@@ -1,18 +1,18 @@
-/* The routine workspace: a run-order flow beside the library, with field preview and playback. */
+/* The routine workspace: the field preview over the run-order flow (a draggable split), then status and playback. */
 .routine-workspace{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;background:var(--bg);container:routine-workspace / inline-size}
 .routine-workspace-head{display:flex;align-items:center;justify-content:flex-end;gap:16px;flex-shrink:0;min-height:52px;padding:8px 16px 8px 24px;border-bottom:1px solid var(--line)}
 .routine-workspace-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.routine-workspace-views{min-height:32px}
-.routine-workspace-views .seg-i{padding-inline:10px;white-space:nowrap}
-/* The preview boundary is one small native popover under its trigger; it overlays the flow and never repeats per step. */
+/* The preview boundary is one small native popover under its trigger; it overlays the field and never repeats per step. */
 .routine-workspace-about{display:inline-flex;align-items:center;justify-content:center;width:32px;min-height:32px;padding:0;border-radius:var(--r);color:var(--txt-3)}
 .routine-workspace-about[aria-expanded=true]{background:var(--bg-3);color:var(--txt)}
 @media (hover:hover){.routine-workspace-about:hover{color:var(--txt)}}
 .routine-preview-help{position:fixed;inset:auto;width:min(288px,calc(100vw - 16px));margin:0;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt-2);box-shadow:var(--elevation),var(--shadow);font-size:12px;line-height:1.5}
 .routine-preview-help p{margin:0;text-wrap:pretty}
-.routine-workspace-body{position:relative;display:flex;flex:1;min-width:0;min-height:0}
-.routine-workspace-flow,.routine-workspace-field{flex:1;min-width:0;min-height:0}
-.routine-workspace [hidden]{display:none!important}
+.routine-workspace-body{position:relative;display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
+/* RoutineWorkspace sets --field-height from the divider; the flow takes the rest, so a status banner or a taller
+   transport shortens the flow from the bottom instead of moving its rows. The field gives way only below 96px of flow. */
+.routine-workspace-body>.routine-workspace-field{flex:0 1 var(--field-height,62%)}
+.routine-workspace-flow{flex:1 1 0;min-width:0;min-height:96px;border-top:1px solid var(--line-2)}
 .routine-workspace .viewctl{bottom:16px}
 .routine-workspace-transport{position:relative;flex-shrink:0}
 /* With a transport, the rails' footer strips take its height (RoutineWorkspace sets --side-foot), so their top rules

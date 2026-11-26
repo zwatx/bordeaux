@@ -9,12 +9,6 @@
 .field-view-tools>.viewctl{position:static}
 .field-view-tools>.metricctl{height:36px;padding:0 10px 0 4px;border:0;border-radius:var(--r);background:var(--hud-surface);backdrop-filter:blur(12px);box-shadow:var(--hud-ring)}
 
-.band-divider{position:relative;z-index:30;flex:0 0 0;height:0;outline:none}
-.band-divider::before{content:'';position:absolute;left:0;right:0;top:-4px;height:8px;cursor:ns-resize;touch-action:none}
-.band-divider::after{content:'';position:absolute;left:0;right:0;top:-1px;height:2px;background:transparent;transition:background-color .12s;pointer-events:none}
-.band-divider:hover::after,.band-divider:active::after{background:var(--line-3)}
-.band-divider:focus-visible::after{background:var(--focus)}
-
 .path-band{display:grid;flex:0 0 var(--band-height);grid-template-columns:var(--panel-width) minmax(0,1fr);min-width:0;min-height:0;background:var(--bg-1);border-top:1px solid var(--line-2)}
 
 /* ---------- properties ---------- */
