@@ -77,7 +77,9 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 910 * 1024;
 // (2026-11-25); 245 KiB keeps about 2 KiB of headroom.
 // The search that keeps the drawn shape (handle-length descent, its two drivers and pool probes) measures 249,682 B;
 // 245 KiB keeps ~1.2 KiB headroom.
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 245 * 1024;
+// Both together, the AprilTag layout and the search that keeps the drawn shape, measure 254,072 B (2026-11-25);
+// 250 KiB keeps about 2 KiB of headroom.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 250 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.
