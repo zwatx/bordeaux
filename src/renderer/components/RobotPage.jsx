@@ -63,7 +63,8 @@ import "../styles/settings.css";
   };
 
   // Numeric settings use explicit input; dragging units or errors must not edit robot configuration.
-  function BigNum({ label, value, onChange, unit, imperialUnit = unit === 'm' ? 'in' : undefined, step = 0.01, min, max, precision = 2, disabled = false, placeholder }) {
+  // `clearable`: committing an empty field unsets the value (onChange(undefined)) instead of being an error.
+  function BigNum({ label, value, onChange, unit, imperialUnit = unit === 'm' ? 'in' : undefined, step = 0.01, min, max, precision = 2, disabled = false, placeholder, clearable = false }) {
     const errorId = React.useId();
     const cancelEdit = useRef(false);
     const [edit, setEdit] = useState(null);
@@ -78,6 +79,7 @@ import "../styles/settings.css";
     const commitEdit = (raw) => {
       // Leaving an unset optional value empty keeps it unset.
       if (disabled || (typeof value !== 'number' && !raw.trim())) return true;
+      if (clearable && !raw.trim()) { setError(''); onChange(undefined); return true; }
       const next = committedDraftValue(raw, value, displayValue, (parsed) => UnitPrefs.toCanonical(parsed, unit, imperialUnit), { min, max });
       if (next == null) { setError('Enter a finite number.'); return false; }
       setError('');
@@ -102,7 +104,7 @@ import "../styles/settings.css";
       error && h('span', { id: errorId, className: 'cmd-param-error', role: 'alert' }, error));
   }
 
-  function RobotPage({ robot, setRobot, unitSystem, mcpEnabled, agentProposal, onApplyProposal, onRejectProposal }) {
+  function RobotPage({ robot, setRobot, commands = [], unitSystem, mcpEnabled, agentProposal, onApplyProposal, onRejectProposal }) {
     const isSwerve = robot.drive === 'swerve';
     const [customEditing, setCustomEditing] = useState(false);
     const [current, setCurrent] = useState('robot');
@@ -205,7 +207,7 @@ import "../styles/settings.css";
       { key: 'driveCurrentLimitA', label: 'Drive current limit', hint: 'Stator current limit for each drive motor.', ...effective('driveCurrentLimitA'), unit: 'A', min: 5, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveCurrentLimitA: value }) },
       { key: 'batteryVoltageV', label: 'Battery voltage', hint: 'Resting voltage with no load.', ...effective('batteryVoltageV'), unit: 'V', min: 8, max: 14, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ batteryVoltageV: value }) },
       { key: 'batteryResistanceOhm', label: 'Battery resistance', hint: 'Battery and wiring resistance. Measure it for the condition you plan for.', ...effective('batteryResistanceOhm', 1000), unit: 'mΩ', min: 0, max: 100, precision: 1, step: 0.5, onChange: (value) => setDriveModel({ batteryResistanceOhm: value / 1000 }) },
-      { key: 'otherLoadA', label: 'Other mechanisms', hint: 'Current other mechanisms draw while driving.', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
+      { key: 'otherLoadA', label: 'Other mechanisms', hint: 'Constant current from everything without a command load, such as controllers and sensors.', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
       { key: 'driveEfficiency', label: 'Drive efficiency', hint: 'Gearbox and wheel losses between motor and floor.', ...effective('driveEfficiency', 100), unit: '%', min: 50, max: 100, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveEfficiency: value / 100 }) },
       { key: 'controlReserve', label: 'Control reserve', hint: 'Torque held back for path-following corrections.', ...effective('controlReserve', 100), unit: '%', min: 0, max: 50, precision: 0, step: 1, onChange: (value) => setDriveModel({ controlReserve: value / 100 }) },
       { label: 'Minimum bus voltage', hint: (driveModel.minimumBusVoltageV === undefined ? 'Using the default. ' : '') + 'Lowest voltage plans may sag to. Keep it above your brownout threshold.', value: driveModel.minimumBusVoltageV, placeholder: '7.25', unit: 'V', min: 1, max: (driveModel.batteryVoltageV ?? 12) - 0.01, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ minimumBusVoltageV: value }) },
@@ -428,7 +430,7 @@ import "../styles/settings.css";
                     h('div', { className: 'rp-drive-result', key: label }, h('span', null, label), h('strong', null, UnitPrefs.fromCanonical(value, unit).toFixed(precision), h('small', null, ' ' + UnitPrefs.label(unit))))))
               : h('button', { className: 'qbtn', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits')),
 
-          h(Section, { id: 'power', title: 'Loads and breakers' }, h(PowerSettings, { model: driveModel, setModel: setDriveModel, BigNum, Row })),
+          h(Section, { id: 'power', title: 'Loads and breakers' }, h(PowerSettings, { model: driveModel, setModel: setDriveModel, commands, BigNum, Row })),
 
           mcpEnabled && h(Section, { id: 'agent', title: 'Agent profile', hint: 'Guides agent plans. Review changes before applying.' },
             agentProposal && h('div', { className: 'settings-card rp-proposal', role: 'region', 'aria-label': 'Agent robot profile proposal' },

@@ -65,7 +65,7 @@ export interface RobotConfig {
     batteryVoltageV?: number;
     /** Battery internal plus wiring resistance. Defaults to 0.02 ohm. */
     batteryResistanceOhm?: number;
-    /** Current drawn by other mechanisms while driving paths. Defaults to 0 A. */
+    /** Constant current drawn by mechanisms without a command load. Defaults to 0 A. */
     otherLoadA?: number;
     /** Drive gearing and wheel efficiency, 0 to 1. Defaults to 0.9. */
     driveEfficiency?: number;
@@ -73,13 +73,29 @@ export interface RobotConfig {
     controlReserve?: number;
     /** Minimum planned bus voltage, including margin above the configured brownout threshold. Default 7.25 V. */
     minimumBusVoltageV?: number;
-    /** Additional supply-current bursts, seconds from the start of the analyzed path or routine. Overlaps add. */
+    /**
+     * Supply current each command draws while it runs, on top of Other mechanisms. Path timing reserves the
+     * commands each path's events start; see commandLoads.ts for how their windows are timed.
+     */
+    commandLoads?: CommandLoad[];
+    /**
+     * Legacy timed loads: supply-current intervals in seconds from the start of every analyzed path or routine.
+     * Overlaps add. Kept so older projects still plan the same; new loads belong to commands.
+     */
     loadBursts?: { startTimeS: number; endTimeS: number; currentA: number }[];
     /** Optional thermal estimates, one breaker per drive motor and one main breaker. No assumed hardware curve. */
     driveBreaker?: BreakerModel;
     mainBreaker?: BreakerModel;
   };
   maxSpeed: number;
+}
+
+export interface CommandLoad {
+  commandId: string;
+  /** Additional battery current while the command runs. */
+  currentA: number;
+  /** How long one run lasts. Unset: until a loop limit or path-end cancel stops it, else to the end of the path. */
+  runTimeS?: number;
 }
 
 export interface BreakerModel {
@@ -229,7 +245,7 @@ export interface CommandInvocation {
   commandId: string;
   arguments: Record<string, CommandArgumentValue>;
   cancelOnPathEnd?: boolean;
-  /** Restart the command each time it finishes until the limit, then cancel the run in progress. */
+  /** Restart the command each time it finishes until the limit, then let the last run finish. */
   loop?: CommandLoop;
 }
 

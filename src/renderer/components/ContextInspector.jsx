@@ -683,7 +683,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
     const [moreLimits, setMoreLimits] = React.useState(false);
     const wps = doc.waypoints;
     const waypointLabel = (index) => PathLinks.waypointName(props.project, doc, index);
-    const pathLimits = PM.effectiveConstraints(doc.constraints, robot);
+    const pathLimits = PM.effectiveConstraints(doc.constraints, robot, doc);
     const isTank = drive === 'tank';
     const n = wps.length;
     const headingMode = isTank ? 'tangent' : (doc.headingMode || 'targets');

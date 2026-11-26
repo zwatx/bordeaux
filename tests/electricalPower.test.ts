@@ -129,7 +129,7 @@ describe('path and routine integration', () => {
     const trajectory = getPlanner('profiledSpline').generate({ path, robot: r });
     expect(trajectory.diagnostics.filter(d => d.severity === 'error')).toEqual([]);
     expect(validateOptimizedTrajectory({ path, robot: r }, trajectory.samples, { angularKinematics: 'sample' }).violations).toEqual([]);
-    const report = analyzeTrajectoryPower(r, path, trajectory.samples)!;
+    const report = analyzeTrajectoryPower(r, path, trajectory)!;
     expect(report.minimumBusVoltageV).toBeGreaterThanOrEqual(7.25);
     expect(report.currentOverload).toBe(false);
     expect(report.voltageOverload).toBe(false);

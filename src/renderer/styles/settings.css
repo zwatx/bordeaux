@@ -37,8 +37,8 @@
 .settings-control>input[type="range"]{accent-color:var(--accent)}
 .settings-foot{display:flex;justify-content:flex-end;gap:8px;padding:6px 6px}
 .rp-check{justify-content:flex-start;gap:10px;color:var(--txt-2)}
-.power-burst .settings-control>.rp-big{width:92px}
-.power-dash{margin:0 -4px;color:var(--txt-3)}
+.power-load .rp-big{width:96px}
+.power-load .rp-big+.rp-big{width:136px}
 .power-remove{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
 @media(hover:hover){.power-remove:hover{background:var(--bg-3);color:var(--txt)}}
 

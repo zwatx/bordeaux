@@ -4,6 +4,7 @@ import type { FieldReference, PathDoc, RobotConfig } from "../types";
 import { routeIntentKey } from "./routeIdentity";
 import { routeGeometryShapeError } from "./routeGeometry";
 import { MAX_TRAJECTORY_SAMPLES } from "./limits";
+import { planningRobotForPath } from "../commandLoads";
 
 // 2: drive models use the electrical motor envelope (current limit, battery sag) by default.
 // 3: per-wheel traction follows quasi-static load transfer from the CG height (default 0.25 m).
@@ -32,7 +33,8 @@ export function physicalPath(path: PathDoc) {
 }
 
 export function optimizationInputKey(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): string {
-  const { planning: _planning, footprintPreset: _preset, ...physicalRobot } = robot;
+  // Only this path's mechanism reserve matters, so editing another command's load keeps its applied trajectory.
+  const { planning: _planning, footprintPreset: _preset, ...physicalRobot } = planningRobotForPath(robot, path);
   return stable({ version: PLANNER_VERSION, field, path: physicalPath(path), robot: physicalRobot, corridorM: path.optimization?.corridorM ?? 0.15 });
 }
 

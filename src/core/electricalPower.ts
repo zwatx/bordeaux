@@ -1,16 +1,17 @@
 import type { BreakerModel, RobotConfig } from './types';
 import { resolveElectricalDriveInputs } from './robotLimits';
+import { commandLoadCurrent, type CommandLoadWindow } from './commandLoads';
 
 export const DEFAULT_MINIMUM_BUS_VOLTAGE_V = 7.25;
 export function minimumBusVoltage(robot: RobotConfig): number {
   return robot.driveModel?.minimumBusVoltageV ?? DEFAULT_MINIMUM_BUS_VOLTAGE_V;
 }
 
-/** Half-open intervals; overlapping mechanisms add. No schedule is inferred from command names. */
-export function mechanismCurrent(robot: RobotConfig, timeS: number): number {
+/** Other mechanisms, legacy timed loads and running commands. Half-open intervals; different loads add. */
+export function mechanismCurrent(robot: RobotConfig, timeS: number, commands: readonly CommandLoadWindow[] = []): number {
   const model = robot.driveModel;
   return (model?.otherLoadA ?? 0) + (model?.loadBursts ?? []).reduce((sum, burst) =>
-    sum + (timeS >= burst.startTimeS && timeS < burst.endTimeS ? burst.currentA : 0), 0);
+    sum + (timeS >= burst.startTimeS && timeS < burst.endTimeS ? burst.currentA : 0), 0) + commandLoadCurrent(commands, timeS);
 }
 
 export interface MotorDemand { label: string; speedMps: number; forceN: number }
@@ -92,6 +93,7 @@ export interface PowerReport {
   minimumBusVoltageV: number;
   peakSupplyCurrentA: number;
   peakStatorCurrentA: number;
+  peakMechanismCurrentA: number;
   mainBreakerPeakHeat: number | null;
   driveBreakerPeakHeat: number | null;
   mainBreakerEndHeat: number | null;
@@ -109,11 +111,11 @@ export function summarizePower(robot: RobotConfig, intervals: readonly PowerInte
   let mainHeat = main?.initialHeat ?? 0, mainPeak = mainHeat;
   let driveHeat = intervals[0]?.bus.motors.map(() => drive?.initialHeat ?? 0) ?? [];
   let drivePeak = drive?.initialHeat ?? 0;
-  let minV = Infinity, supply = 0, stator = 0, voltageOverload = false, currentOverload = false, collapsed = false;
+  let minV = Infinity, supply = 0, stator = 0, mechanism = 0, voltageOverload = false, currentOverload = false, collapsed = false;
   for (const interval of intervals) {
     const dt = interval.endTimeS - interval.startTimeS, bus = interval.bus;
     if (!(dt > 0)) continue;
-    minV = Math.min(minV, bus.busVoltageV); supply = Math.max(supply, bus.totalSupplyCurrentA);
+    minV = Math.min(minV, bus.busVoltageV); supply = Math.max(supply, bus.totalSupplyCurrentA); mechanism = Math.max(mechanism, bus.otherCurrentA);
     voltageOverload ||= bus.voltageUtilization > 1.01;
     currentOverload ||= bus.currentUtilization > 1.01;
     collapsed ||= bus.collapsed;
@@ -126,7 +128,7 @@ export function summarizePower(robot: RobotConfig, intervals: readonly PowerInte
       }
     });
   }
-  return { minimumBusVoltageV: minV, peakSupplyCurrentA: supply, peakStatorCurrentA: stator,
+  return { minimumBusVoltageV: minV, peakSupplyCurrentA: supply, peakStatorCurrentA: stator, peakMechanismCurrentA: mechanism,
     mainBreakerPeakHeat: main ? mainPeak : null, driveBreakerPeakHeat: drive ? drivePeak : null,
     mainBreakerEndHeat: main ? mainHeat : null, driveBreakerEndHeat: drive ? driveHeat : null,
     brownoutRisk: minV < minimumBusVoltage(robot) - 0.01, voltageOverload, currentOverload, collapsed,

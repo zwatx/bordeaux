@@ -17,7 +17,8 @@ import {
 import { accelerationBoundsForSpeedSquared } from "./reachability";
 import { minimumBusVoltage } from "../electricalPower";
 import { driveContacts } from "../loadTransfer";
-import { peakMechanismCurrent, electricalConfigurationError, robotHardLimits } from "../robotLimits";
+import { peakMechanismCurrent, electricalConfigurationError, physicalPlannerInput, robotHardLimits } from "../robotLimits";
+import { pathCommandReserveA } from "../commandLoads";
 
 const EPSILON = 1e-9;
 const DEG = Math.PI / 180;
@@ -111,10 +112,14 @@ function pushViolation(
 }
 
 export function validateOptimizedTrajectory(
-  input: PlannerInput,
+  plannedInput: PlannerInput,
   samples: readonly TrajectorySample[],
   options: TrajectoryValidationOptions = {},
 ): TrajectoryValidationResult {
+  // Check against the same per-path mechanism reserve, speed and limits the planner timed with. Planner inputs
+  // already carry them (folding is idempotent); an authored input with command loads gets them here.
+  // A load table that reserves nothing for this path changes nothing here.
+  const input = pathCommandReserveA(plannedInput.robot.driveModel, plannedInput.path.markers) > 0 ? physicalPlannerInput(plannedInput) : plannedInput;
   const violations: TrajectoryConstraintViolation[] = [];
   const refinableIntervals = new Set<number>();
   const activeConstraints = new Set<string>();

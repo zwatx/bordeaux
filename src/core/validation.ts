@@ -6,6 +6,7 @@ import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVIS
 import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
+import { MAX_COMMAND_LOADS } from "./commandLoads";
 
 type RecordValue = Record<string, unknown>;
 
@@ -518,6 +519,25 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
               issues.push(issue(p, "Load burst requires nonnegative start/current and an end after its start"));
             }
           });
+        }
+        const commandLoads = project.robot.driveModel.commandLoads;
+        if (commandLoads !== undefined) {
+          if (!Array.isArray(commandLoads) || commandLoads.length > MAX_COMMAND_LOADS) issues.push(issue(`${modelPath}.commandLoads`, `Use at most ${MAX_COMMAND_LOADS} command loads`));
+          else {
+            const seen = new Set<string>();
+            commandLoads.forEach((load, index) => {
+              const p = `${modelPath}.commandLoads[${index}]`;
+              if (!isRecord(load) || typeof load.commandId !== 'string' || !load.commandId || load.commandId.length > 256) {
+                issues.push(issue(p, "Command load requires a command ID")); return;
+              }
+              if (seen.has(load.commandId)) issues.push(issue(`${p}.commandId`, "Each command has at most one load"));
+              seen.add(load.commandId);
+              if (!finite(load.currentA) || load.currentA < 0) issues.push(issue(`${p}.currentA`, "Command load current must be a nonnegative number"));
+              if (load.runTimeS !== undefined && (!finite(load.runTimeS) || load.runTimeS <= 0 || load.runTimeS > 3600)) {
+                issues.push(issue(`${p}.runTimeS`, "Command run time must be greater than 0 and at most 3600 seconds"));
+              }
+            });
+          }
         }
         for (const key of ['driveBreaker', 'mainBreaker'] as const) {
           const breaker = project.robot.driveModel[key];

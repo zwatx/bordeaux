@@ -11,6 +11,7 @@ import { addAngularLimitDiagnostics } from "./angularConstraints";
 import { applyStationaryActions } from "./stationaryActions";
 import { applyRotationPriority, headingTransitionIntervalMask } from "./rotationPriority";
 import { physicalPlannerInput, electricalConfigurationError } from "../robotLimits";
+import { planningRobotForPath } from "../commandLoads";
 import { validateOptimizedTrajectory } from "./trajectoryValidation";
 import { DEFAULT_SAMPLES_PER_SEGMENT } from "./limits";
 import { rememberByInput } from "./rememberByInput";
@@ -145,7 +146,7 @@ export function canonicalPlanningInput(input: PlannerInput): {
  * Returns null when that solve fails; the full planner then reports why.
  */
 export function fixedGeometryFirstPassTime(input: PlannerInput): number | null {
-  if (electricalConfigurationError(input.robot)) return null;
+  if (electricalConfigurationError(planningRobotForPath(input.robot, input.path))) return null;
   try {
     return firstPassDuration(canonicalPlanningInput(input).planningInput);
   } catch {
@@ -171,7 +172,7 @@ function validatedPlanner(id: TrajectoryPlannerId): TrajectoryPlanner {
   return {
     id: planner.id,
     generate(input) {
-      const electricalError = electricalConfigurationError(input.robot);
+      const electricalError = electricalConfigurationError(planningRobotForPath(input.robot, input.path));
       if (electricalError) throw new Error(electricalError);
       const maxAngDecel = input.path.constraints.maxAngDecel;
       if (maxAngDecel !== undefined && !Number.isFinite(maxAngDecel)) throw new Error("maxAngDecel must be a finite number");
