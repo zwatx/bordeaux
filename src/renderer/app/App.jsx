@@ -1067,7 +1067,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const normalReady = normal.status === 'ready';
     const normalError = editing.comparisonError || normal.error;
     const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === optimizationKey ? comparison.mode : 'selected';
-    const comparedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'normal' && normalReady ? normal.value : null;
+    // One search reply carries both results: its own trajectory is the new route, and `shape` keeps the drawn shape.
+    const comparedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'shape' ? candidate?.shape
+      : comparisonMode === 'normal' && normalReady ? normal.value : null;
     const selectedPreview = comparedPreview || acceptedPreview;
     // The optimizer replaces the display only with a chosen comparison or accepted preview; otherwise the
     // editing result stays on screen, so opening or closing it never swaps timing sources.
@@ -2124,18 +2126,20 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setComparison(null);
       void optimizer.start(doc.id, deadline);
     };
-    const applyOptimization = () => {
-      if (!candidate?.finalTrajectory || editStore.getSnapshot()) return;
+    /** Applies one result of the last search: 'shape' for the one that keeps the drawn shape, 'candidate' for the new route. */
+    const applyOptimization = (kind) => {
+      const chosen = kind === 'shape' ? candidate?.shape : candidate;
+      if (!chosen?.finalTrajectory || editStore.getSnapshot()) return;
       const current = projectRef.current;
       const currentPath = current.paths.find((path) => path.id === doc.id);
       if (!currentPath || routeInputKey(currentPath, current.robot, current.field) !== searchKey) return;
       try {
         // Search publishes independently qualified output. Keep numerical validation
         // in workers; selected planning and export revalidate this exact artifact.
-        const nextPath = stageAcceptedRouteTrajectory(currentPath, current.robot, candidate.finalTrajectory, current.field, PERSEG);
+        const nextPath = stageAcceptedRouteTrajectory(currentPath, current.robot, chosen.finalTrajectory, current.field, PERSEG);
         const result = nextPath.optimization.accepted;
         appliedPreview.current = { artifact: result, documentKey: projectKey, pathId: doc.id, key: optimizationKey,
-          plannerId, previewDensity: PERSEG, projectionVersion: 1, value: candidate };
+          plannerId, previewDensity: PERSEG, projectionVersion: 1, value: chosen };
         beginHistory();
         playbackStore.reset();
         setComparison(null);

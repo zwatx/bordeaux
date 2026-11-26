@@ -206,7 +206,7 @@ async function finishSearch() {
   await waitFor(() => evaluate(() => ![...document.querySelectorAll('.optimizer-panel button')]
     .some((item) => item.textContent === 'Cancel')), 'the explicit search to finish', 12_000);
   await waitFor(() => evaluate(() => [...document.querySelectorAll('.optimizer-panel button')]
-    .some((item) => item.textContent === 'Apply optimized')), 'an improved candidate', 2000);
+    .some((item) => item.textContent === 'Apply same shape')), 'an improved candidate', 2000);
 }
 async function openSettings() {
   if (!await evaluate(() => document.querySelector('.optimizer-settings')?.open)) {
@@ -217,7 +217,7 @@ async function assertCompactResult() {
   // The result replaces Cancel; wait until its Apply action is available.
   await waitFor(() => evaluate(() => {
     const primary = document.querySelector('.optimizer-main.primary');
-    return primary && primary.textContent === 'Apply optimized' && !primary.disabled && primary.checkVisibility();
+    return primary && primary.textContent === 'Apply same shape' && !primary.disabled && primary.checkVisibility();
   }), 'the enabled Apply action', 2000);
   const state = await evaluate(() => {
     const panel = document.querySelector('.optimizer-panel');
@@ -235,7 +235,7 @@ async function assertCompactResult() {
   assert.equal(state.freedomPresent, false, 'Route optimization must not expose a seed-deviation setting');
   assert.ok(state.text.trim().split(/\s+/).length <= 45, `Result panel must stay concise: ${state.text}`);
   assert.ok(!state.text.includes('Limited by'), 'Detailed physics must be hidden by default');
-  assert.deepEqual(state.rows, ['Preview normal trajectory', 'Preview optimized trajectory']);
+  assert.deepEqual(state.rows, ['Preview normal trajectory', 'Preview same shape trajectory']);
   assert.equal(state.width, 320, 'The result inspector must match the fixed inspector width');
 }
 
@@ -409,7 +409,7 @@ app.whenReady().then(async () => {
     await click('.optimizer-background button');
     await waitFor(() => evaluate(() => !document.querySelector('.optimizer-background') && !document.querySelector('.optimizer-main')?.disabled), 'background cancellation to release the search slot');
     await evaluate(() => window.__optimizerWorkers.releaseOptimizeReplies());
-    assert.equal(await evaluate(() => !!document.querySelector('button[aria-label="Preview optimized trajectory"]')), false, 'The background job must not create a candidate on the selected path');
+    assert.equal(await evaluate(() => !!document.querySelector('button[aria-label="Preview same shape trajectory"]')), false, 'The background job must not create a candidate on the selected path');
     await switchPath(fixture.paths[0].name);
     await stable(normal, 200, 'Canceling the original search');
     // Cancellation may retain an incumbent candidate; it must never apply it.
@@ -432,7 +432,7 @@ app.whenReady().then(async () => {
     let project = await save();
     assert.equal(project.paths[0].optimization?.accepted, undefined);
     check('search completion leaves selected timing and geometry unchanged');
-    await click('button[aria-label="Preview optimized trajectory"]');
+    await click('button[aria-label="Preview same shape trajectory"]');
     const candidate = await snapshot();
     assert.ok(Number(candidate.time) < Number(normal.time), 'Candidate comparison must display faster timing');
     assert.notEqual(candidate.geometry, normal.geometry, 'Candidate comparison must show improved geometry');
@@ -441,7 +441,7 @@ app.whenReady().then(async () => {
     await click('.optimizer-toggle');
     assert.equal(await evaluate(() => [...document.querySelectorAll('.optimizer-panel button')].some((item) => item.textContent === 'Cancel')), false);
     await stable(normal, 350, 'Reopening the candidate');
-    await click('button[aria-label="Preview optimized trajectory"]');
+    await click('button[aria-label="Preview same shape trajectory"]');
     await stable(candidate, 250, 'Reopened candidate comparison');
     check('closing comparison restores selected timing and reopening keeps the result without rerunning');
     const expectedGain = Number(normal.time) - Number(candidate.time);
@@ -459,7 +459,7 @@ app.whenReady().then(async () => {
       return { x: box.x, y: box.y, width: box.width, height: box.height };
     }));
     const applyJobs = await markJobs('Apply retains the authored Normal reference');
-    await click('.optimizer-panel button', 'Apply optimized');
+    await click('.optimizer-panel button', 'Apply same shape');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the applied selection');
     const toolbarAfterApply = await evaluate(() => [...document.querySelectorAll('.toolbar .tb-actions button, .toolbar > .keyboard-help-trigger')].map((button) => {
       const box = button.getBoundingClientRect();
@@ -597,13 +597,13 @@ app.whenReady().then(async () => {
     await openSettings();
     const batchJobCount = (await workerState()).jobs.length;
     await click('.optimizer-panel button', 'Optimize all');
-    await waitFor(() => evaluate(() => document.querySelector('.optimizer-batch')?.textContent.includes('2 of 2 paths searched')), 'Optimize all to finish both paths', 22_000);
+    await waitFor(() => evaluate((done) => document.querySelector('.optimizer-batch')?.textContent.includes(done), `${fixture.paths.length} of ${fixture.paths.length} paths searched`), 'Optimize all to finish every path', 30_000);
     const batchRows = await evaluate(() => [...document.querySelectorAll('.optimizer-batch button')].map((item) => ({
       name: item.querySelector(':scope > span')?.textContent,
       status: item.querySelector(':scope > small')?.textContent,
     })));
-    assert.equal(batchRows.length, 2);
-    assert.deepEqual(batchRows.map(row => row.name), fixture.paths.map(item => item.name), 'Both expected paths must appear in the completed batch');
+    assert.equal(batchRows.length, fixture.paths.length);
+    assert.deepEqual(batchRows.map(row => row.name), fixture.paths.map(item => item.name), 'Every expected path must appear in the completed batch');
     // Searched means controller success; route failures override that label.
     // Read status separately so neither a path name nor a substring can pass it.
     const failedIndex = batchRows.findIndex(row => row.status !== 'Searched');
@@ -641,9 +641,52 @@ app.whenReady().then(async () => {
     check('Optimize all stages each path without changing selected trajectories');
     await capture('optimizer-all.png');
     await captureMinimum('optimizer-all-1100x720.png');
+    // One search offers two results on a path shaped by its tangents. The batch above already searched it.
+    await switchPath(fixture.paths[2].name);
+    const cornerNormal = await snapshot();
+    const offered = () => evaluate(() => ({
+      rows: [...document.querySelectorAll('.optimizer-choice')].map((row) => row.getAttribute('aria-label')),
+      apply: document.querySelector('.optimizer-main.primary')?.textContent,
+      times: Object.fromEntries([...document.querySelectorAll('.optimizer-choice')].map((row) => [row.getAttribute('aria-label'), Number.parseFloat(row.querySelector('b')?.textContent)])),
+    }));
+    await waitFor(async () => (await offered()).rows.length === 3, 'both results of the corner search');
+    const both = await offered();
+    assert.deepEqual(both.rows, ['Preview normal trajectory', 'Preview same shape trajectory', 'Preview new route trajectory']);
+    assert.equal(both.apply, 'Apply same shape', 'Apply starts on the result that keeps the drawn shape');
+    assert.ok(both.times['Preview new route trajectory'] < both.times['Preview same shape trajectory']
+      && both.times['Preview same shape trajectory'] < both.times['Preview normal trajectory'], `The new route must be the faster result: ${JSON.stringify(both.times)}`);
+    await click('button[aria-label="Preview same shape trajectory"]');
+    const sameShape = await snapshot();
+    await click('button[aria-label="Preview new route trajectory"]');
+    const newRoute = await snapshot();
+    assert.equal((await offered()).apply, 'Apply new route', 'Apply follows the previewed result');
+    assert.notEqual(sameShape.geometry, cornerNormal.geometry, 'The same-shape result changes handle lengths');
+    assert.notEqual(newRoute.geometry, sameShape.geometry, 'The two results are different curves');
+    assert.ok(Number(newRoute.time) < Number(sameShape.time) && Number(sameShape.time) < Number(cornerNormal.time));
+    const tangent = (d) => { const n = d.match(/-?\d+(?:\.\d+)?/g).map(Number); return Math.atan2(n[3] - n[1], n[2] - n[0]); };
+    const turned = (first, second) => Math.abs(Math.atan2(Math.sin(first - second), Math.cos(first - second))) * 180 / Math.PI;
+    assert.ok(turned(tangent(sameShape.geometry), tangent(cornerNormal.geometry)) < 3, 'The same-shape result leaves the start along the drawn tangent');
+    await capture('optimizer-two-results.png');
+    await captureMinimum('optimizer-two-results-1100x720.png');
+    await click('.optimizer-panel button', 'Apply new route');
+    await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the applied new route');
+    // The slower result stays a row to preview, but the faster one in use keeps the headline and there is nothing to apply.
+    await waitFor(async () => (await offered()).rows.length === 3 && (await offered()).apply === undefined, 'the same-shape result to stay as a row only');
+    assert.deepEqual((await offered()).rows, ['Preview normal trajectory', 'Preview applied trajectory', 'Preview same shape trajectory']);
+    const newRouteGain = Number(cornerNormal.time) - Number(newRoute.time);
+    assert.equal((await snapshot()).status, `${newRouteGain.toFixed(2)} s faster, ${(newRouteGain / Number(cornerNormal.time) * 100).toFixed(1)}%`, 'The headline describes the result in use');
+    project = await save();
+    assert.equal(project.paths[2].optimization.accepted.result.totalTimeS.toFixed(2), Number(newRoute.time).toFixed(2), 'Apply saves the previewed result');
+    await click('button[aria-label="Preview same shape trajectory"]');
+    await click('.optimizer-panel button', 'Apply same shape');
+    await waitFor(async () => (await offered()).apply === 'Apply new route', 'the new route to return to offer');
+    project = await save();
+    assert.equal(project.paths[2].optimization.accepted.result.totalTimeS.toFixed(2), Number(sameShape.time).toFixed(2), 'Applying the other result replaces the first');
+    check('one search offers a same-shape result and a new route; Apply follows the previewed one, a slower result never leads, and either can replace the other');
     await switchPath(fixture.paths[1].name);
     const alternateNormal = await snapshot();
-    await click('.optimizer-panel button', 'Apply optimized');
+    // Whichever result this path offers first: the same-shape one, or a new route.
+    await click('.optimizer-main.primary');
     await waitFor(() => evaluate(() => document.querySelector('.optimizer-toggle')?.textContent === 'Optimized'), 'the alternate applied selection');
     await switchPath(fixture.paths[0].name);
     await click('button[aria-label="Preview normal trajectory"]');

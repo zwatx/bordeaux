@@ -103,7 +103,8 @@ function directedDeviation(points: readonly GeometryPoint[], reference: Readonly
   return maximum;
 }
 
-function routeDeviation(reference: readonly GeometryPoint[], candidate: readonly GeometryPoint[]): number {
+/** The largest distance between two sampled curves through the same waypoints, compared segment by segment, both ways. */
+export function curveDeviation(reference: readonly GeometryPoint[], candidate: readonly GeometryPoint[]): number {
   return Math.max(
     directedDeviation(candidate, pointsBySegment(reference)),
     directedDeviation(reference, pointsBySegment(candidate)),
@@ -168,7 +169,7 @@ export function validateCorridorCandidate(
   const resolution = Math.max(128, (input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT) * 2);
   const reference = PM.sample(input.path.waypoints, resolution).pts as GeometryPoint[];
   const candidate = PM.sample((result.optimizedPath ?? input.path).waypoints, resolution).pts as GeometryPoint[];
-  const deviationM = routeDeviation(reference, candidate);
+  const deviationM = curveDeviation(reference, candidate);
   const authoredTopology = observeRobotFieldPortalSequence(input.robot, baseline.samples);
   const topology = observeRobotFieldPortalSequence(input.robot, result.samples);
   return Number.isFinite(deviationM) && deviationM <= corridorM + EPSILON
@@ -388,7 +389,7 @@ export function optimizeCorridorFinal(input: PlannerInput, requested: CorridorFi
     evaluations += 1;
     try {
       const route = PM.sample(path.waypoints, Math.max(128, samplesPerSegment * 2)).pts as GeometryPoint[];
-      const maxDeviationM = routeDeviation(reference, route);
+      const maxDeviationM = curveDeviation(reference, route);
       if (!Number.isFinite(maxDeviationM) || maxDeviationM > corridorM + EPSILON) return reject("Outside the authored corridor");
       // Candidate generation already performs dense physical validation.
       const result = getPlanner("optimizedTrajectory").generate({ ...input, path });

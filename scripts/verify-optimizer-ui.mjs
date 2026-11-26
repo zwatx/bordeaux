@@ -37,7 +37,17 @@ try {
   if (!primary) throw new Error('Neutral slalom verification fixture was not found');
   primary.name = 'Optimizer verification slalom';
   const alternate = { ...structuredClone(corpus.paths.find((item) => item.id === 'corpus-neutral-stop')), id: 'optimizer-verification-alternate', name: 'Optimizer verification alternate' };
-  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate], pathLinks: [],
+  // Two waypoints whose shape comes only from their tangent handles: out along one line, then a turn onto another.
+  // The search that keeps this shape and the route search both gain here, by different amounts.
+  const corner = { ...structuredClone(alternate), id: 'optimizer-verification-corner', name: 'Optimizer verification corner',
+    headingMode: 'targets', constraints: { ...alternate.constraints, maxVel: 4.2, maxAccel: 6.5, maxDecel: 6.5, maxCentripetalAccel: undefined },
+    waypoints: [
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 3.8805, y: -3.5155, segType: 'bezier',
+        prevC: { x: 4.9235, y: -4.3415 }, nextC: { x: 0.9805, y: -3.3755 } },
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -0.5655, segType: 'bezier',
+        prevC: { x: 0.0705, y: -3.1655 }, nextC: { x: -0.8875, y: 0.2605 } },
+    ] };
+  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner], pathLinks: [],
     routines: [{ id: 'optimizer-verification-routine', name: 'Verification', nodes: [{ id: 'optimizer-drive', type: 'path', ref: primary.id }] }],
     activeRoutineId: 'optimizer-verification-routine', plannerId: 'profiledSpline', editor: { activePathId: primary.id } };
   const html = path.join(root, 'dist-renderer/index.html');
@@ -66,8 +76,8 @@ try {
   assert.equal(result.passed, true);
   assert.deepEqual(result.errors, []);
   assert.ok(Array.isArray(result.checks));
-  assert.equal(result.checks.length, 35, 'Retain all 27 original checks plus eight request-evidence checks');
-  assert.equal(new Set(result.checks).size, 35);
+  assert.equal(result.checks.length, 36, 'Retain all 27 original checks, eight request-evidence checks and the two-result check');
+  assert.equal(new Set(result.checks).size, 36);
   assert.ok(result.checks.every(name => typeof name === 'string' && name.length));
   const evidence = result.workerEvidence;
   assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and cold accepted reload documents');

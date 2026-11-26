@@ -34,7 +34,8 @@ function create({ getProject, planner = FinalPlanning.create() }) {
     // Final planning keeps the latest incumbent for timeout/cancel results;
     // nothing renders intermediate progress, so it never enters this store.
     job.request = planner.request(
-      { path, robot: project.robot, field: project.field, optimize: true, plannerId: 'profiledSpline' },
+      // One click runs both searches: the one that keeps the drawn shape, and the route search.
+      { path, robot: project.robot, field: project.field, optimize: true, keepShape: true, plannerId: 'profiledSpline' },
       { deadline },
     );
     const result = await job.request.promise;

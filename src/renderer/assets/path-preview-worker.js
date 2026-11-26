@@ -2,8 +2,9 @@ import { planPath } from "../../core/planners/planPath";
 import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
-import { optimizeRouteFinal, optimizeRouteFinalParallel } from "../../core/planners/routeFinal";
-import { evaluateRouteCandidate, qualifyRouteSeed, warmRouteEvaluation } from "../../core/planners/routeCandidateEvaluation";
+import { optimizeDrawnShapeFinal, optimizeDrawnShapeFinalParallel, optimizeRouteFinal, optimizeRouteFinalParallel } from "../../core/planners/routeFinal";
+import { evaluateRouteCandidate, probeRouteCandidate, qualifyRouteSeed, warmRouteEvaluation } from "../../core/planners/routeCandidateEvaluation";
+import { DRAWN_SHAPE_LIMIT_M } from "../../core/planners/limits";
 import { getPlanner } from "../../core/planners";
 import { authoredPath, getAcceptedTrajectory } from "../../core/planners/acceptedTrajectory";
 import { flipPath } from "../../core/project/flipField";
@@ -290,24 +291,42 @@ export function processEditingPlanningJob(job) {
 }
 
 /**
- * The route-search input and options of one optimize job, and the worker reply
- * for its outcome. Shared by the sequential search and the parallel one.
+ * The share of a job's deadline the search that keeps the drawn shape is paced for. It runs second, and only
+ * when the route search left at least this much.
+ */
+const SHAPE_BUDGET_SHARE = 0.4;
+/** The share of the time left that the shape search may spend before it gives up. The rest covers its last plan. */
+const SHAPE_HARD_SHARE = 0.8;
+
+/**
+ * The search input and options of one optimize job, and the worker reply for
+ * its outcome. Shared by the sequential search and the parallel one.
+ *
+ * A job with `keepShape` runs two searches. The route search runs first, with
+ * the whole deadline as its budget, exactly as it does alone. The search that
+ * keeps the drawn shape then runs in the time that is left, so a long path
+ * that needs most of the deadline for its route simply has no second result.
+ * On a fast machine the shape search stops refining after half its share. On a
+ * slow one it may use most of the time left to finish its first sweep.
+ * The reply is the route search's, with the shape-keeping result beside it as
+ * `value.shape` when that search found a curve materially faster than Normal.
  */
 function optimizeJob(job, path, derive, emitProgress, startedAt) {
   const toPreview = (trajectory) => previewForTrajectory(path, job.robot, trajectory, derive, job.perSegment);
+  const envelope = (search) => ({
+    status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
+    seedStatus: search.seedStatus || 'unknown', seedIssue: search.seedIssue,
+  });
+  const incumbentEnvelope = (trajectory) => ({ status: 'feasible',
+    seedStatus: trajectory.optimization?.seedStatus || 'unknown', seedIssue: trajectory.optimization?.seedIssue });
+  const progress = (value) => emitProgress({ id: job.id, type: 'progress', quality: job.quality, value, durationMs: performance.now() - startedAt });
+  const isOffer = (trajectory) => Boolean(trajectory && !trajectory.optimization?.fallback && trajectory.optimization?.status !== 'equivalent');
   return {
     input: { path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment },
     options: {
       budgetTier: job.deadline,
       budgetMs: job.deadlineMs,
-      onProgress: (trajectory) => emitProgress({
-        id: job.id,
-        type: 'progress',
-        quality: job.quality,
-        value: { ...toPreview(trajectory), routeSearch: { status: 'feasible',
-          seedStatus: trajectory.optimization?.seedStatus || 'unknown', seedIssue: trajectory.optimization?.seedIssue } },
-        durationMs: performance.now() - startedAt,
-      }),
+      onProgress: (trajectory) => progress({ ...toPreview(trajectory), routeSearch: incumbentEnvelope(trajectory) }),
       // Counters only: the incumbent and its projected preview are unchanged.
       onStatistics: (statistics) => emitProgress({
         id: job.id,
@@ -321,10 +340,7 @@ function optimizeJob(job, path, derive, emitProgress, startedAt) {
       // The injected legacy planner remains useful to historical worker tests;
       // production uses the explicit route-search envelope, including no result.
       const finalTrajectory = search.candidate || (search.optimization ? search : null);
-      const routeSearch = search.status ? {
-        status: search.status, reason: search.reason, termination: search.termination, statistics: search.statistics,
-        seedStatus: search.seedStatus || 'unknown', seedIssue: search.seedIssue,
-      } : undefined;
+      const routeSearch = search.status ? envelope(search) : undefined;
       if (!finalTrajectory) return {
         id: job.id, quality: job.quality,
         value: { routeSearch }, durationMs: performance.now() - startedAt,
@@ -344,6 +360,40 @@ function optimizeJob(job, path, derive, emitProgress, startedAt) {
         durationMs: performance.now() - startedAt,
       };
     },
+    /**
+     * Whether `reply`, the route search's, is one the shape search may add to.
+     * A reply without a value is an error and stays as it is.
+     */
+    wantsShape: (reply) => job.keepShape === true && Boolean(reply.value)
+      && job.deadlineMs - (performance.now() - startedAt) >= job.deadlineMs * SHAPE_BUDGET_SHARE,
+    /**
+     * Options for the shape search that follows the route search answered by `reply`. Publishes `reply` first,
+     * so a job that runs out of time during the shape search still ends with the route search's full result.
+     */
+    shapeOptions(reply) {
+      progress(reply.value);
+      // The drawn curve's own retimed plan can lead until Normal is qualified and then stop being an offer.
+      let offered = false;
+      const hardBudgetMs = (job.deadlineMs - (performance.now() - startedAt)) * SHAPE_HARD_SHARE;
+      return {
+        budgetTier: job.deadline,
+        // Never above the hard budget, which would otherwise rise to the budget and leave no time for the last plan.
+        budgetMs: Math.min(job.deadlineMs * SHAPE_BUDGET_SHARE, hardBudgetMs),
+        hardBudgetMs,
+        // Kept as the incumbent, so a job that times out still offers both results found so far.
+        onProgress: (trajectory) => {
+          if (!isOffer(trajectory) && !offered) return;
+          offered = isOffer(trajectory);
+          progress(offered ? { ...reply.value, shape: { ...toPreview(trajectory), routeSearch: incumbentEnvelope(trajectory) } } : reply.value);
+        },
+      };
+    },
+    /** `reply` with the outcome of the shape search added. */
+    withShape: (reply, search) => ({
+      ...reply,
+      value: isOffer(search.candidate) ? { ...reply.value, shape: { ...toPreview(search.candidate), routeSearch: envelope(search) } } : reply.value,
+      durationMs: performance.now() - startedAt,
+    }),
   };
 }
 
@@ -355,7 +405,9 @@ export async function processParallelOptimizeJob(job, evaluator, emitProgress = 
   const startedAt = performance.now();
   try {
     const search = optimizeJob(job, authoredPath(job.path), derive, emitProgress, startedAt);
-    return search.result(await optimizeRouteFinalParallel(search.input, search.options, evaluator));
+    const reply = search.result(await optimizeRouteFinalParallel(search.input, search.options, evaluator));
+    if (!search.wantsShape(reply)) return reply;
+    return search.withShape(reply, await optimizeDrawnShapeFinalParallel(search.input, DRAWN_SHAPE_LIMIT_M, search.shapeOptions(reply), evaluator));
   } catch (error) {
     return {
       id: job.id,
@@ -386,8 +438,8 @@ export function createCandidatePool(size) {
   const pending = new Map();
   const live = new Set();
   let nextId = 0;
-  const failed = (message) => message.mode === 'routeSeed'
-    ? { status: 'rejected', reason: 'Route evaluation worker failed.', concrete: false }
+  const failed = (message) => message.mode === 'routeProbe' ? Number.POSITIVE_INFINITY
+    : message.mode === 'routeSeed' ? { status: 'rejected', reason: 'Route evaluation worker failed.', concrete: false }
     : { status: 'rejected', reason: 'Route evaluation worker failed.' };
   const dispatch = () => {
     while (queue.length > 0 && (idle.length > 0 || live.size === 0)) {
@@ -438,6 +490,7 @@ export function createCandidatePool(size) {
     get alive() { return live.size > 0; },
     evaluate: (source, geometry, limits) => run({ mode: 'routeCandidate', source, geometry, limits }),
     qualifySeed: (source) => run({ mode: 'routeSeed', source }),
+    probe: (source, geometry) => run({ mode: 'routeProbe', source, geometry }),
     // One warm task per sub-worker compiles the planner on every thread.
     warm: (source) => { live.forEach(() => { run({ mode: 'routeWarm', source }); }); },
   };
@@ -483,7 +536,9 @@ export function processPathPreviewJob(
     }
     if (job.optimize === true) {
       const search = optimizeJob(job, path, derive, emitProgress, startedAt);
-      return search.result(optimize(search.input, search.options));
+      const reply = search.result(optimize(search.input, search.options));
+      if (!search.wantsShape(reply)) return reply;
+      return search.withShape(reply, optimizeDrawnShapeFinal(search.input, DRAWN_SHAPE_LIMIT_M, search.shapeOptions(reply)));
     }
     const accepted = getAcceptedTrajectory(job.path, job.robot, job.field);
     const trajectory = accepted || profile({ path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });
@@ -531,6 +586,7 @@ if (typeof self !== 'undefined') {
     // This worker as a sub-worker of a candidate pool.
     if (job?.mode === 'routeCandidate') return post({ id: job.id, outcome: evaluateRouteCandidate(job.source, job.geometry, job.limits) });
     if (job?.mode === 'routeSeed') return post({ id: job.id, outcome: qualifyRouteSeed(job.source) });
+    if (job?.mode === 'routeProbe') return post({ id: job.id, outcome: probeRouteCandidate(job.source, job.geometry) });
     if (job?.mode === 'routeWarm') return post({ id: job.id, outcome: warmRouteEvaluation(job.source) });
     // This worker as the persistent optimizer: it keeps its pool between jobs.
     if (job?.type === 'warm') {

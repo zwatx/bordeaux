@@ -2,21 +2,30 @@ import { clone } from "../project/defaults";
 import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult, RouteGeometry } from "../types";
 import { authoredPath, stable } from "./acceptedTrajectoryIdentity";
 import type { CorridorSearchStatistics } from "./corridorFinal";
+import { drawnShapeDescent } from "./drawnShapeDescent";
+import { materialGainS } from "./limits";
 import {
   evaluateRouteCandidate,
   NOT_FASTER,
+  probeRouteCandidate,
   qualifyRouteSeed,
   type RouteCandidateLimits,
   type RouteCandidateOutcome,
   type RouteSeedOutcome,
 } from "./routeCandidateEvaluation";
 import { routeCandidates } from "./routeCandidates";
-import { routeUnsupportedReason } from "./routeGeometry";
+import { geometryFromPath, routeUnsupportedReason } from "./routeGeometry";
 
 export interface RouteFinalOptions {
   budgetTier?: "common" | "stress" | "hard";
   budgetMs?: number;
   maximumEvaluations?: number;
+  /**
+   * Only for the search that keeps the drawn shape: when it gives up, at least `budgetMs`.
+   * It paces itself by `budgetMs` and runs past it only to finish its first sweep and to
+   * plan the curve its descent found.
+   */
+  hardBudgetMs?: number;
   isCancelled?: () => boolean;
   onProgress?: (candidate: PlannerResult) => void;
   onStatistics?: (statistics: CorridorSearchStatistics) => void;
@@ -33,6 +42,9 @@ export interface RouteSearchResult {
   statistics: CorridorSearchStatistics;
 }
 
+/** Curves a sequential shape descent times between reads of its pace. Small, so it overruns a limit by little. */
+const SEQUENTIAL_DESCENT_BATCH = 4;
+
 /** The drawn curve and its three shortened-handle repairs, which routeCandidates yields right after the canonical rescue. */
 const HEAD_START_CANDIDATES = 4;
 
@@ -42,6 +54,8 @@ export interface RouteCandidateEvaluator {
   parallelism: number;
   evaluate(source: PlannerInput, geometry: RouteGeometry, limits: RouteCandidateLimits): Promise<RouteCandidateOutcome>;
   qualifySeed(source: PlannerInput): Promise<RouteSeedOutcome>;
+  /** The first-pass time of a curve, for ranking; infinity when it cannot be timed. */
+  probe(source: PlannerInput, geometry: RouteGeometry): Promise<number>;
 }
 
 /**
@@ -54,6 +68,7 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
   const tier = options.budgetTier ?? "common";
   const budget = Math.max(1, Math.min(30_000, Number.isFinite(options.budgetMs) ? options.budgetMs! : ({ common: 5000, stress: 15000, hard: 30000 })[tier]));
   const maximum = Math.max(1, Math.min(72, Math.floor(Number.isFinite(options.maximumEvaluations) ? options.maximumEvaluations! : ({ common: 24, stress: 48, hard: 72 })[tier])));
+  const hardBudget = Math.max(budget, Number.isFinite(options.hardBudgetMs) ? options.hardBudgetMs! : budget);
   let evaluations = 0;
   let validatedCandidates = 0;
   let rejectedCandidates = 0;
@@ -86,11 +101,11 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
     maxVelocityMps: Math.max(...result.samples.map((s) => Math.abs(s.velocityMps))),
     maxAccelerationMps2: Math.max(...result.samples.map((s) => Math.abs(s.accelerationMps2))),
     constraintViolations: 0, fallback: false, ...result.optimization,
-    status: baseline && result.totalTimeS >= baseline.totalTimeS - Math.max(0.02, baseline.totalTimeS * 0.005) ? "equivalent" : "feasible",
+    status: baseline && result.totalTimeS >= baseline.totalTimeS - materialGainS(baseline.totalTimeS) ? "equivalent" : "feasible",
     optimizationClass: "route", ...statistics(), budgetTier: tier, budgetMs: budget, termination, seedStatus, ...(seedIssue ? { seedIssue } : {}),
     ...(baseline ? { baselineTimeS: baseline.totalTimeS, gainS: baseline.totalTimeS - result.totalTimeS } : {}),
   } });
-  const materialGain = (normal: PlannerResult) => Math.max(0.02, normal.totalTimeS * 0.005);
+  const materialGain = (normal: PlannerResult) => materialGainS(normal.totalTimeS);
   const retained = () => baseline && best && baseline.totalTimeS - best.totalTimeS < materialGain(baseline) ? baseline : best;
   let lastPublished: PlannerResult | undefined;
   let lastPublishedSeedStatus: RouteSearchResult["seedStatus"] | undefined;
@@ -106,6 +121,17 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
   return {
     source,
     stop,
+    /** How a shape descent paces itself inside this search's budget. */
+    descentPace: {
+      // Half the budget is enough descent: the rest plans and qualifies what it found.
+      enough: () => stop() || performance.now() - start >= budget / 2,
+      giveUp: () => Boolean(options.isCancelled?.()) || performance.now() - start >= hardBudget,
+    },
+    /**
+     * True when no evaluation may start. Unlike `stop` it keeps no margin for a further candidate,
+     * so the curves a descent was run to find are still planned when the descent ran long.
+     */
+    spent: () => Boolean(options.isCancelled?.()) || evaluations >= maximum || performance.now() - start >= hardBudget,
     candidates: routeCandidates(source, stop, () => reject("Visibility graph work budget exhausted; route alternatives remain untested.")),
     limits: (): RouteCandidateLimits => {
       const timeToBeat = best ? best.totalTimeS - 1e-6 : Number.POSITIVE_INFINITY;
@@ -269,6 +295,79 @@ export async function optimizeRouteFinalParallel(
     if (!oldest) break;
     const result = await oldest;
     search.recordCandidate(result.outcome, result.elapsedMs);
+  }
+  return search.finish();
+}
+
+/**
+ * The search that keeps the drawn shape. It returns the fastest validated curve
+ * that keeps every waypoint and the travel direction there and stays within
+ * `limitM` of the drawn curve, or Normal when none is materially faster. Unlike
+ * optimizeRouteFinal it never reroutes: when the drawn curve cannot be driven,
+ * only a handle-length change within the limit can give a result here.
+ */
+export function optimizeDrawnShapeFinal(input: PlannerInput, limitM: number, options: RouteFinalOptions = {}): RouteSearchResult {
+  const search = routeSearchState(input, options);
+  const unsupported = routeUnsupportedReason(input);
+  if (unsupported) return search.unsupported(unsupported);
+  /** True when the curve was valid. */
+  const evaluate = (geometry: RouteGeometry) => {
+    if (!search.take(geometry)) return false;
+    const began = performance.now();
+    const outcome = evaluateRouteCandidate(search.source, geometry, search.limits());
+    search.recordCandidate(outcome, performance.now() - began);
+    return outcome.status === "valid";
+  };
+  if (!search.stop()) evaluate(geometryFromPath(search.source.path));
+  if (!search.stop()) search.recordSeed(qualifyRouteSeed(search.source));
+  const descent = drawnShapeDescent(search.source, limitM, search.descentPace, SEQUENTIAL_DESCENT_BATCH);
+  let step = descent.next();
+  while (!step.done) step = descent.next(step.value.map((geometry) => probeRouteCandidate(search.source, geometry)));
+  // The best curve first; its fallbacks matter only if it is not valid.
+  for (const geometry of step.value) {
+    if (search.spent() || evaluate(geometry)) break;
+  }
+  return search.finish();
+}
+
+/**
+ * The same search with its timing probes and evaluations on `evaluator`'s
+ * threads. The drawn curve and the Normal qualification run while the descent
+ * probes. The descent takes the same steps as the sequential search, so both
+ * return the same curve whenever both complete.
+ */
+export async function optimizeDrawnShapeFinalParallel(
+  input: PlannerInput,
+  limitM: number,
+  options: RouteFinalOptions,
+  evaluator: RouteCandidateEvaluator,
+): Promise<RouteSearchResult> {
+  const search = routeSearchState(input, options);
+  const unsupported = routeUnsupportedReason(input);
+  if (unsupported) return search.unsupported(unsupported);
+  const evaluate = async (geometry: RouteGeometry) => {
+    const began = performance.now();
+    const outcome = await evaluator.evaluate(search.source, geometry, search.limits());
+    return { outcome, elapsedMs: performance.now() - began };
+  };
+  if (search.stop()) return search.finish();
+  const drawn = geometryFromPath(search.source.path);
+  search.take(drawn);
+  const drawnCurve = evaluate(drawn);
+  const seed = evaluator.qualifySeed(search.source);
+  const descent = drawnShapeDescent(search.source, limitM, search.descentPace, evaluator.parallelism * 4);
+  let step = descent.next();
+  while (!step.done) step = descent.next(await Promise.all(step.value.map((geometry) => evaluator.probe(search.source, geometry))));
+  const first = await drawnCurve;
+  search.recordCandidate(first.outcome, first.elapsedMs);
+  search.recordSeed(await seed);
+  // The best curve first, against the limits Normal and the drawn curve set; its fallbacks matter only if it is not valid.
+  for (const geometry of step.value) {
+    if (search.spent()) break;
+    if (!search.take(geometry)) continue;
+    const result = await evaluate(geometry);
+    search.recordCandidate(result.outcome, result.elapsedMs);
+    if (result.outcome.status === "valid") break;
   }
   return search.finish();
 }

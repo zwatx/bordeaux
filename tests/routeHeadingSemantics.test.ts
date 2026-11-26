@@ -144,7 +144,7 @@ describe("route heading semantics match Normal", () => {
       const markup = panel(input, candidate, candidate.optimization!.seedStatus!, expected.totalTimeS);
       expect(markup).not.toContain("Route found");
       if (candidate.totalTimeS > expected.totalTimeS - Math.max(0.02, expected.totalTimeS * 0.005)) {
-        expect(markup).not.toContain("Apply optimized");
+        expect(markup).not.toContain("Apply new route");
       }
     }
     if (id === "neutral-slalom") {
