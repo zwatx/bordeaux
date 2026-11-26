@@ -3,16 +3,20 @@ import { buildCanonicalPathState } from './pathState';
 import { evaluateDrivetrainPower } from './drivetrainProjection';
 import { mechanismCurrent, predictBus, summarizePower, type PowerInterval, type PowerReport } from '../electricalPower';
 import { driveContacts } from '../loadTransfer';
-import { commandLoadWindows, commandsWithoutLoad, type CommandLoadWindow } from '../commandLoads';
+import { commandLoadWindows, commandsWithoutLoad, planningRobotForPath, type CommandLoadWindow } from '../commandLoads';
 
 /** Where mechanism current can change: legacy timed loads and command windows. */
 function loadBoundaries(robot: RobotConfig, commands: readonly CommandLoadWindow[]): number[] {
   return [...(robot.driveModel?.loadBursts ?? []), ...commands].flatMap(load => [load.startTimeS, load.endTimeS]);
 }
 
-/** Analyze final samples, including waits/turns. Load boundaries are integrated exactly. */
+/**
+ * Analyze final samples, including waits/turns. Load boundaries are integrated exactly. Wheel forces are allocated
+ * under `allocationRobot`, the per-path planning robot, as planning and export allocate them; the bus sees the
+ * scheduled mechanism current.
+ */
 export function trajectoryPowerIntervals(robot: RobotConfig, path: PathDoc, samples: readonly TrajectorySample[], offsetS = 0,
-  commands: readonly CommandLoadWindow[] = []): PowerInterval[] {
+  commands: readonly CommandLoadWindow[] = [], allocationRobot: RobotConfig = robot): PowerInterval[] {
   if (samples.length < 2) return [];
   const state = buildCanonicalPathState(path, samples);
   const intervals: PowerInterval[] = [];
@@ -37,7 +41,7 @@ export function trajectoryPowerIntervals(robot: RobotConfig, path: PathDoc, samp
       const bus = evaluateDrivetrainPower({
         headingRad: a.headingRad + f * headingDelta, tangentX: Math.cos(tangent), tangentY: Math.sin(tangent),
         normalX: -Math.sin(tangent), normalY: Math.cos(tangent), curvatureInvM: mix(p.curvatureInvM, q.curvatureInvM),
-      }, robot, mix(a.velocityMps, b.velocityMps), (b.velocityMps - a.velocityMps) / dt,
+      }, allocationRobot, mix(a.velocityMps, b.velocityMps), (b.velocityMps - a.velocityMps) / dt,
       mix(a.angularVelocityRadps, b.angularVelocityRadps), (b.angularVelocityRadps - a.angularVelocityRadps) / dt,
       mechanismCurrent(robot, time, commands));
       if (bus) intervals.push({ startTimeS: cuts[j], endTimeS: cuts[j + 1], bus });
@@ -55,6 +59,11 @@ export function idlePowerIntervals(robot: RobotConfig, startTimeS: number, endTi
   });
 }
 
+function lastCommandEnd(commands: readonly CommandLoadWindow[], endS: number): number {
+  for (const window of commands) endS = Math.max(endS, window.endTimeS);
+  return endS;
+}
+
 export interface PlannedTrajectory { samples: TrajectorySample[]; markers?: BdxMarker[]; optimizedPath?: PathDoc }
 /** The estimate plus the commands it started that have no configured load, so it added no current for them. */
 export type PowerAnalysis = PowerReport & { commandsWithoutLoad: string[] };
@@ -62,7 +71,10 @@ export type PowerAnalysis = PowerReport & { commandsWithoutLoad: string[] };
 /** `path` is the authored path: its events say which commands start; the trajectory says when. */
 export function analyzeTrajectoryPower(robot: RobotConfig, path: PathDoc, trajectory: PlannedTrajectory): PowerAnalysis | null {
   const commands = commandLoadWindows(robot, path, trajectory);
-  const intervals = trajectoryPowerIntervals(robot, trajectory.optimizedPath || path, trajectory.samples, 0, commands);
+  const intervals = trajectoryPowerIntervals(robot, trajectory.optimizedPath || path, trajectory.samples, 0, commands, planningRobotForPath(robot, path));
+  // A command still running when the path ends keeps drawing while the robot waits.
+  const endS = trajectory.samples.length ? trajectory.samples[trajectory.samples.length - 1].t : 0;
+  for (const interval of idlePowerIntervals(robot, endS, lastCommandEnd(commands, endS), commands)) intervals.push(interval);
   return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: commandsWithoutLoad(robot.driveModel, path.markers) } : null;
 }
 
@@ -87,9 +99,10 @@ export function analyzeRoutinePower(robot: RobotConfig, segments: readonly {
   for (const segment of segments) {
     const trajectory = segment.trajectory!;
     for (const interval of idlePowerIntervals(robot, time, segment.t0, commands)) intervals.push(interval);
-    for (const interval of trajectoryPowerIntervals(robot, trajectory.optimizedPath || segment.doc, trajectory.samples, segment.t0, commands)) intervals.push(interval);
+    for (const interval of trajectoryPowerIntervals(robot, trajectory.optimizedPath || segment.doc, trajectory.samples, segment.t0, commands,
+      planningRobotForPath(robot, segment.doc))) intervals.push(interval);
     time = segment.t1;
   }
-  for (const interval of idlePowerIntervals(robot, time, totalTimeS, commands)) intervals.push(interval);
+  for (const interval of idlePowerIntervals(robot, time, lastCommandEnd(commands, totalTimeS), commands)) intervals.push(interval);
   return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: [...unloaded].sort() } : null;
 }

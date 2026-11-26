@@ -89,9 +89,8 @@ describe('command load windows', () => {
     const path = [...samples.slice(0, 3), { ...samples[2], i: 3, t: 2.5, s: 2.5 }];
     const windows = commandLoadWindows(r, { markers: [group] }, { samples: path, markers: [{ timeS: 0 }] });
     expect(commandLoadCurrent(windows, 2.6)).toBe(85);
-    // The winch can start no sooner than the loop's first run ends.
-    expect(commandLoadCurrent(windows, 0.9)).toBe(5);
-    expect(commandLoadCurrent(windows, 1.1)).toBe(85);
+    // A path-end loop cannot finish before the path ends, so the winch cannot start sooner.
+    expect(commandLoadCurrent(windows, 2.4)).toBe(5);
   });
 
   it('bounds a distance loop that only earlier starts can complete', () => {
@@ -101,6 +100,15 @@ describe('command load windows', () => {
     const windows = commandLoadWindows(r, { markers: [group] }, { samples: samples.slice(0, 4), markers: [{ timeS: 0 }] });
     // A later start never reaches 2.5 m on this 3 m path, so the loop itself may also still be running.
     expect(commandLoadCurrent(windows, 3.6)).toBe(85);
+  });
+
+  it('starts the next command no sooner than a timed loop can finish', () => {
+    // A 5 s loop of 1 s runs ends no sooner than 5 s after it starts, however soon intake finishes.
+    const r = robot([{ commandId: 'intake', currentA: 0 }, { commandId: 'spin', currentA: 5, runTimeS: 1 }, { commandId: 'winch', currentA: 80, runTimeS: 0.25 }]);
+    const group = marker('g', { commandGroup: { mode: 'sequential', commands: [run('intake'), run('spin', { loop: { until: { kind: 'time', seconds: 5 } } }), run('winch')] } });
+    const windows = commandLoadWindows(r, { markers: [group] }, { samples, markers: [{ timeS: 0 }] });
+    expect(commandLoadCurrent(windows, 2)).toBe(5);
+    expect(commandLoadCurrent(windows, 5.1)).toBe(85);
   });
 
   it('runs a repeat due exactly at its expiry', () => {
@@ -222,6 +230,28 @@ describe('per-path planning reserve', () => {
     const r = robot([{ commandId: 'winch', currentA: 400 }]);
     expect(() => getPlanner('profiledSpline').generate({ robot: r, path: pathWith([run('winch')]) })).toThrow(/command loads this path starts/);
     expect(planPath({ robot: r, path: pathWith([]) }).status).toBe('ok');
+  });
+
+  it('counts a command that starts as the path or routine ends', () => {
+    const r = robot([{ commandId: 'shoot', currentA: 60, runTimeS: 1 }]);
+    const path = pathWith([]); path.markers = [marker('end', { f: 1, invocation: run('shoot') })];
+    const trajectory = getPlanner('profiledSpline').generate({ robot: r, path });
+    const report = analyzeTrajectoryPower(r, path, trajectory)!;
+    expect(report.peakMechanismCurrentA).toBe(65);
+    expect(report.durationS).toBeCloseTo(trajectory.totalTimeS + 1, 6);
+    const routine = analyzeRoutinePower(r, [{ t0: 0, t1: trajectory.totalTimeS, doc: path, trajectory }], trajectory.totalTimeS)!;
+    expect(routine.peakMechanismCurrentA).toBe(65);
+  });
+
+  it('allocates wheel forces under the path reserve, as planning and export do', () => {
+    // A command running for the whole path must read the same as that current folded into Other mechanisms.
+    const turning = createDemoProject().paths[0];
+    turning.markers = [marker('start', { f: 0, invocation: run('shoot') })];
+    const loaded = robot([{ commandId: 'shoot', currentA: 80 }]), folded = robot(); folded.driveModel!.otherLoadA = 85;
+    const trajectory = getPlanner('profiledSpline').generate({ robot: loaded, path: turning });
+    const a = analyzeTrajectoryPower(loaded, turning, trajectory)!, b = analyzeTrajectoryPower(folded, { ...turning, markers: [] }, trajectory)!;
+    expect(a.peakStatorCurrentA).toBeCloseTo(b.peakStatorCurrentA, 9);
+    expect(a.minimumBusVoltageV).toBeCloseTo(b.minimumBusVoltageV, 9);
   });
 
   it('reports command current in path and routine estimates, and carries a running command into the next wait', () => {
