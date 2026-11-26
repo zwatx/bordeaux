@@ -76,7 +76,15 @@ export async function verifyUpdateManifest({
     }
     const sha512 = await digest(artifact, "sha512", "base64");
     if (sha512 !== entry.sha512) throw new Error(`${manifestName} has an invalid SHA-512 digest for ${url}`);
-    hasInstallable ||= url.toLowerCase().endsWith(expectedExtension.toLowerCase());
+    const installable = url.toLowerCase().endsWith(expectedExtension.toLowerCase());
+    hasInstallable ||= installable;
+    // Without its blockmap an installer still updates, but every client silently downloads all of it.
+    // An AppImage embeds its blockmap and the manifest records its size; ZIPs and setup executables publish it beside them.
+    if (installable && (expectedExtension === ".AppImage"
+      ? !Number.isSafeInteger(entry.blockMapSize) || entry.blockMapSize <= 0
+      : !fs.statSync(`${artifact}.blockmap`, { throwIfNoEntry: false })?.isFile())) {
+      throw new Error(`${manifestName} has no blockmap for ${url}, so updates to it could not download only changed blocks`);
+    }
     files.push({
       name: url,
       size: artifactStats.size,

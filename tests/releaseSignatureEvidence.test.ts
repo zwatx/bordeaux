@@ -27,6 +27,8 @@ async function writeManifest(directory: string, name: string, artifactName: stri
       sha512: createHash("sha512").update(contents).digest("base64"),
     }],
   }));
+  // Published installers carry a blockmap, which manifest verification requires.
+  await writeFile(path.join(directory, `${artifactName}.blockmap`), "blockmap fixture");
 }
 
 async function macRelease(channel = "beta") {
