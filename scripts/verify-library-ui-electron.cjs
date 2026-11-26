@@ -9,7 +9,6 @@ app.setPath('userData', path.join(output, 'user-data'));
 const errors = [], checks = [], prepared = [], diagnosticPreviews = [], diagnosticSaves = [];
 let win, saved, finishPush, lastPrepared, lastProblemActivationDiagnostic;
 const problemActivationNative = [];
-let connectionFromSettings = false;
 let editorPlace = 'Paths';
 const robotConnection = { endpoint: { target: 'roborio', host: 'fixture', port: 22, directory: '/home/lvuser/natinst/bin/Paths' }, hostKeyFingerprint: 'SHA256:' + 'f'.repeat(43) };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,11 +30,10 @@ async function click(selector, text) {
     for (const end = Date.now() + 3000; !deferredSave && savesSettled === before && Date.now() < end;) await delay(25);
     return;
   }
-  if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.settings-general')))) {
-    await click('.place', 'Settings'); connectionFromSettings = true;
-  }
-  // Settings is a place in the toolbar; returning goes back to the place it was entered from (the old Editor button).
-  if (selector === '.place' && text === 'Settings') editorPlace = (await evaluate(() => document.querySelector('.place[aria-current="page"]')?.textContent)) || editorPlace;
+  // Robot connection is in global settings, behind the toolbar gear.
+  if (selector === '.library-connection' && !(await evaluate(() => document.querySelector('.app-settings')?.open))) await click('.app-settings-trigger');
+  // Robot is a place in the toolbar; returning goes back to the place it was entered from (the old Editor button).
+  if (selector === '.place' && text === 'Robot') editorPlace = (await evaluate(() => document.querySelector('.place[aria-current="page"]')?.textContent)) || editorPlace;
   await wait(() => evaluate((selector, text) => {
     const el = [...document.querySelectorAll(selector)].find((item) => text == null || (item.firstElementChild?.textContent.trim() === text || item.textContent.trim() === text));
     return Boolean(el && !el.disabled && !el.closest('[inert]'));
@@ -45,9 +43,10 @@ async function click(selector, text) {
     if (!el || el.disabled || el.closest('[inert]')) throw new Error('Unavailable: ' + selector + ' ' + text);
     el.click();
   }, selector, text); await delay(50);
-  if (connectionFromSettings && (selector === '[aria-label="Close robot files"]' || selector === '[aria-label="Close diagnostic bundle"]')) {
-    connectionFromSettings = false; await click('.place', editorPlace);
-  }
+}
+// Display units are in global settings (the toolbar gear): open it, choose, close.
+async function setUnits(units) {
+  await click('.app-settings-trigger'); await click('[aria-label="Display units"] button', units); await click('.app-settings-close');
 }
 async function pointerClick(selector, modifiers = []) {
   await wait(() => evaluate((selector) => {
@@ -234,14 +233,16 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move'), 'restored library');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 200);
     assert.equal(await evaluate(() => document.querySelectorAll('.library-row input[type="checkbox"]').length), 0, 'Normal browsing must not show batch-selection controls');
-    assert.equal(await evaluate(() => document.querySelectorAll('.toolbar .library-connection,.toolbar .document-settings-trigger,.toolbar .exportrobot').length), 0);
-    await click('.place', 'Settings');
-    assert.equal(await evaluate(() => !!document.querySelector('.settings-general .library-connection')), true);
+    assert.equal(await evaluate(() => document.querySelectorAll(':is(.toolbar .library-connection,.toolbar .document-settings-trigger,.toolbar .exportrobot):not(.app-settings *)').length), 0);
+    await click('.app-settings-trigger');
+    assert.equal(await evaluate(() => !!document.querySelector('.app-settings[open] .library-connection')), true);
     await click('[aria-label="Display units"] button', 'Imperial');
     assert.equal(await evaluate(() => [...document.querySelectorAll('[aria-label="Display units"] button')].find((button) => button.textContent === 'Imperial').getAttribute('aria-pressed')), 'true');
+    await click('.app-settings-close');
+    await click('.place', 'Robot');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height);
-      await click('[aria-label="Display units"] button', width === 1440 ? 'Metric' : 'Imperial');
+      await setUnits(width === 1440 ? 'Metric' : 'Imperial');
       await pointerClick('#robot-drive-motor');
       await pointerClick('[role="option"][data-value="rev-neo"]');
       const motorState = () => ({
@@ -294,12 +295,12 @@ app.whenReady().then(async () => {
       await fs.writeFile(path.join(output, `custom-footprint-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     win.setContentSize(1440, 900);
-    await click('[aria-label="Display units"] button', 'Metric');
+    await setUnits('Metric');
     assert.equal(await evaluate(() => document.querySelector('[aria-label="Vertex 1 X"]').value), '-0.254');
     await click('.rp-shapes button', 'Rectangle');
     check('custom footprint respects displayed units, invalid drafts, Escape, and narrow layout');
     await click('.place', editorPlace);
-    check('Settings contains connection and working display units; toolbar has no connection, units, or JSON export');
+    check('Global settings holds connection and working display units; the toolbar itself has no connection, units, or JSON export');
     await wait(() => evaluate(() => document.querySelector('[data-role="wp"]') && !document.querySelector('.fieldcol[data-planning-ready="false"]')), 'editable field');
     await pointerClick('rect[data-role="wp"][data-idx="1"]', ['shift']);
     await click('[aria-label="Save project"]');
@@ -616,7 +617,7 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => document.activeElement.matches('.library-pick')), 'renamed routine restores row focus');
     await click('[aria-label="Save project"]');
     assert.ok(saved.routines.some((routine) => routine.name === 'Fresh routine'));
-    await click('.place', 'Settings'); await click('.place', editorPlace);
+    await click('.place', 'Robot'); await click('.place', editorPlace);
     assert.equal(await evaluate(() => document.querySelector('.place[aria-current="page"]').textContent), 'Routines');
     check('inline naming restores focus; Save and return-to-editor retain routine mode');
     await click('.place', 'Paths');
@@ -1159,17 +1160,13 @@ app.whenReady().then(async () => {
     await win.loadFile(rendererHtml);
     await wait(() => evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name')?.textContent === 'Opening move'), 'simple restored library');
     assert.equal(await evaluate(() => document.querySelectorAll('.library-pick').length), 2);
-    await click('.place', 'Settings');
-    await click('[aria-label="Display units"] button', 'Imperial');
-    await click('.place', editorPlace);
+    await setUnits('Imperial');
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0), 'Imperial waypoint coordinates');
     await click('.pt-wp');
     const coordinate = (label) => evaluate((label) => { const row = [...document.querySelectorAll('.pp .numrow')].find((r) => r.querySelector('.numlbl')?.textContent === label); return row && row.querySelector('input').value + ' ' + row.querySelector('.numunit').textContent; }, label);
     assert.equal(await coordinate('X'), `${(saved.paths[0].waypoints[0].x / .3048).toFixed(2)} ft`);
     assert.equal(await coordinate('Y'), `${(saved.paths[0].waypoints[0].y / .3048).toFixed(2)} ft`);
-    await click('.place', 'Settings');
-    await click('[aria-label="Display units"] button', 'Metric');
-    await click('.place', editorPlace);
+    await setUnits('Metric');
     assert.equal(await coordinate('X'), `${saved.paths[0].waypoints[0].x.toFixed(2)} m`);
     check('docked waypoint coordinates use the selected unit system');
 
@@ -1888,7 +1885,8 @@ app.whenReady().then(async () => {
       await fs.writeFile(path.join(output, `settings-notes-edited-${width}.png`), (await win.webContents.capturePage()).toPNG());
     }
     assert.equal((await notesSelection()).focused, true, 'Settings notes keep focus through the screenshots');
-    await click('.place', editorPlace); await editorReady('editor after Settings');
+    // The proposal opened Robot on its own, so return to the path editor by name.
+    await click('.place', 'Paths'); await editorReady('editor after Robot');
     await keyboardUndo(); await click('[aria-label="Save project"]');
     assert.deepEqual(saved.robot.planning, { notes: 'new operator notes', shooter: facing }, 'Undo reverts the proposal and keeps the newer Settings notes');
     await click('[title^="Redo"]'); await click('[aria-label="Save project"]');
@@ -1897,7 +1895,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.robot.planning, { notes: 'new operator notes', shooter: facing });
     await win.loadFile(rendererHtml);
     await editorReady('reopened robot profile');
-    await click('.place', 'Settings');
+    await click('.place', 'Robot');
     await evaluate(() => window.bordeauxAPI.__libraryAgent.setAccess(true, 1));
     await wait(() => evaluate(() => document.querySelector('.rp-notes')?.value === 'new operator notes'), 'reopened Settings notes');
     assert.equal(await evaluate(() => document.querySelector('input[aria-label="Shooter direction"]').value), '0', 'The reopened shooter direction is the pre-proposal value');

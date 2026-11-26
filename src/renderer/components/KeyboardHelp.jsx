@@ -17,7 +17,7 @@ const FIXED_KEYS = [
   ['Larger move', 'Shift + arrows'], ['Fine waypoint move', 'Alt + arrows'], ['Rename library item', 'F2'],
 ];
 
-// Set while the dialog is mounted, so Settings › General can open it ready to edit.
+// Set while the dialog is mounted, so global settings can open it ready to edit.
 let openDialog = null;
 /** Opens the shortcuts dialog; `edit` starts in editing where the host can store keys. */
 export function openKeyboardShortcuts(edit = false) { openDialog?.(edit); }
@@ -154,7 +154,7 @@ export function KeyboardHelp() {
   const groups = GROUPS.map(([title, ids]) => [title, ids.filter(matches)]).filter(([, ids]) => ids.length);
   const fixed = FIXED_KEYS.filter(([label, keys]) => !q || label.toLowerCase().includes(q) || keys.toLowerCase().includes(q));
   return h(React.Fragment, null,
-    h('button', { ref: trigger, type: 'button', className: 'qbtn keyboard-help-trigger', 'aria-label': 'Keyboard shortcuts', title: 'Keyboard shortcuts', onClick: () => open(false) }, '?'),
+    h('button', { ref: trigger, type: 'button', className: 'qbtn keyboard-help-trigger tb-icon', 'aria-label': 'Keyboard shortcuts', title: 'Keyboard shortcuts', onClick: () => open(false) }, '?'),
     h('dialog', { ref: dialog, className: 'keyboard-help', 'aria-labelledby': 'keyboard-help-title', onCancel: (event) => { event.preventDefault(); close(); }, onClick: (event) => { if (event.target === event.currentTarget) { const b = event.currentTarget.getBoundingClientRect(); if (event.clientX < b.left || event.clientX > b.right || event.clientY < b.top || event.clientY > b.bottom) close(); } } },
       h('header', null, h('h2', { id: 'keyboard-help-title' }, 'Keyboard shortcuts'),
         h('span', { className: 'kh-actions' },

@@ -165,8 +165,6 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
         PointerDrag: { useController: () => ({ start: () => undefined }) },
         UnitPrefs: { current: () => "metric", fromCanonical: (value: number) => value, toCanonical: (value: number) => value, label: () => "", format: () => "" },
         UI: {},
-        // Key editing is unavailable in this host, so Settings shows no Keyboard shortcuts row.
-        useKeyRules: () => 0, canEditKeys: () => false, currentUserKeyRules: () => [], openKeyboardShortcuts: () => undefined,
       },
       replacements: [["export { RobotPage };", "window.RobotPageControls = { RobotPage };"]],
     },
@@ -175,7 +173,6 @@ function robotPageFieldProps(label: string, setRobot: (patch: Record<string, unk
     robot: { drive: "swerve", w: 0.8, l: 0.8, maxSpeed: 4.5 },
     setRobot,
     unitSystem: "metric",
-    pushController: { pairing: null, busy: false },
   });
   const field = (node: unknown): ElementNode | undefined => {
     if (Array.isArray(node)) return node.map(field).find(Boolean);

@@ -11,7 +11,7 @@ describe('robot settings page', () => {
   it.each(['rev-neo', 'rev-vortex', 'ctre-kraken-x60', 'ctre-falcon-500', 'custom'])('locks only motor-provided specifications for %s', (motorId) => {
     const robot = createDemoProject().robot;
     robot.driveModel = { ...robot.driveModel, motorId, motorFreeRpm: 5676, motorMaxTorqueNm: 2.6 };
-    const markup = renderToStaticMarkup(React.createElement(RobotPage, { robot, pushController: {} }));
+    const markup = renderToStaticMarkup(React.createElement(RobotPage, { robot }));
     for (const label of ['Motor free speed', 'Motor torque limit', 'Drive reduction', 'Wheel diameter', 'Drive motors', 'Mass']) {
       const input = markup.match(new RegExp(`<input(?=[^>]*aria-label="${label}")[^>]*>`))[0];
       expect(input.includes('disabled=""')).toBe(motorId !== 'custom' && ['Motor free speed', 'Motor torque limit'].includes(label));
@@ -31,7 +31,7 @@ describe('robot settings page', () => {
     ] };
     const before = structuredClone(robot);
     const markup = renderToStaticMarkup(React.createElement(RobotPage, {
-      robot, unitSystem: system, pushController: {},
+      robot, unitSystem: system,
     }));
     expect(markup).toMatch(new RegExp(`<input(?=[^>]*aria-label="Vertex 1 X")(?=[^>]*step="0[.]01")(?=[^>]*value="${display.replace(".", "[.]")}")[^>]*><span class="u">${unit}</span>`));
     expect(markup).toMatch(new RegExp(`<input(?=[^>]*aria-label="Vertex 1 Y")(?=[^>]*step="0[.]01")(?=[^>]*value="-${display.replace(".", "[.]")}")[^>]*><span class="u">${unit}</span>`));

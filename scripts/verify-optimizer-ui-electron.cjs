@@ -293,10 +293,11 @@ app.whenReady().then(async () => {
     await click('.places .place', 'Routines');
     assert.ok(await evaluate(() => document.querySelector('.library-rail').checkVisibility() && !document.querySelector('.pathlib-panel')));
     check('routine and path libraries remain docked beside the field');
-    await click('.places .place', 'Settings');
-    await click('.settings-general .seg-i', 'Imperial');
+    await click('.app-settings-trigger');
+    await click('.app-settings .seg-i', 'Imperial');
     await delay(250);
     await capture('document-settings.png');
+    await click('.app-settings-close');
     await click('.places .place', 'Routines');
     assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
     await waitFor(() => evaluate(() => !document.querySelector('.routine-status')), 'routine preview');
@@ -310,9 +311,9 @@ app.whenReady().then(async () => {
     await ready();
     assert.equal(await evaluate(() => document.documentElement.dataset.units), 'imperial');
     check('display units reopen from this machine, stay out of the saved project, and leave geometry unchanged');
-    await click('.places .place', 'Settings');
-    await click('.settings-general .seg-i', 'Metric');
-    await click('.places .place', 'Paths');
+    await click('.app-settings-trigger');
+    await click('.app-settings .seg-i', 'Metric');
+    await click('.app-settings-close');
     await ready();
     const normal = await snapshot();
     const normalEvidence = await strictEditing(fixture.paths[0].id, false, normal);
@@ -536,7 +537,7 @@ app.whenReady().then(async () => {
     await ready();
     await stable(applied, 500, 'Save/reload');
     check('applied timing and geometry survive path switching and save/reload');
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await evaluate(() => {
       const input = document.querySelector('textarea[aria-label="Robot planning notes"]');
       if (!input) throw new Error('Robot planning notes missing');
@@ -697,7 +698,7 @@ app.whenReady().then(async () => {
     check('choosing normal restores routine playback');
     await click('.places .place', 'Paths');
     await switchPath(fixture.paths[1].name);
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await click('input[aria-label="Motor free speed"]');
     await evaluate(() => {
       const input = document.querySelector('input[aria-label="Motor free speed"]');

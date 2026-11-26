@@ -8,11 +8,9 @@ import { DRIVE_MOTOR_PRESETS } from "../../core/motorPresets";
 import { resolveElectricalDriveInputs } from "../../core/robotLimits";
 import { resolveCgHeightM } from "../../core/loadTransfer";
 import { PowerSettings } from './PowerSettings';
-import { openKeyboardShortcuts } from './KeyboardHelp';
-import { canEditKeys, currentUserKeyRules, useKeyRules } from "../lib/keyBindings";
 import "../styles/settings.css";
 
-// Bordeaux Settings page. General holds this machine's app preferences; every other section edits the project's robot.
+// The Robot page: the project's robot model, saved in the project file. App preferences live in the toolbar's global settings.
   const { useRef, useState, useEffect } = React;
   const h = React.createElement;
   const { Dropdown, Icon, Seg } = UI;
@@ -26,7 +24,7 @@ import "../styles/settings.css";
   ];
   // Electrical values a project may leave to the shared planning defaults.
   const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve', 'minimumBusVoltageV'];
-  const SECTIONS = [['general', 'General'], ['robot', 'Robot'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
+  const SECTIONS = [['robot', 'Dimensions'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
   const SHAPES = ['Rectangle', 'Round', 'Trapezoid', 'Custom'].map((label) => ({ v: label.toLowerCase(), label }));
 
   // Explanations are a hover tooltip on an info mark, and screen-reader text beside the name.
@@ -104,12 +102,10 @@ import "../styles/settings.css";
       error && h('span', { id: errorId, className: 'cmd-param-error', role: 'alert' }, error));
   }
 
-  function RobotPage({ robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState, onOpenUpdates, agentProposal, onApplyProposal, onRejectProposal }) {
-    useKeyRules();
+  function RobotPage({ robot, setRobot, unitSystem, mcpEnabled, agentProposal, onApplyProposal, onRejectProposal }) {
     const isSwerve = robot.drive === 'swerve';
     const [customEditing, setCustomEditing] = useState(false);
-    const changedKeys = new Set(currentUserKeyRules().map((rule) => rule.command)).size;
-    const [current, setCurrent] = useState('general');
+    const [current, setCurrent] = useState('robot');
     const pageRef = useRef(null), jumped = useRef(false);
     const [selectedVertex, setSelectedVertex] = useState(0);
     const [dragVertices, setDragVertices] = useState(null);
@@ -333,7 +329,7 @@ import "../styles/settings.css";
       const page = pageRef.current, line = page.getBoundingClientRect().top + 120;
       // A short final section cannot reach the top; reaching the end selects it.
       setCurrent(page.scrollTop + page.clientHeight >= page.scrollHeight - 2 ? sections[sections.length - 1][0]
-        : sections.reduce((found, [id]) => document.getElementById('settings-' + id).getBoundingClientRect().top <= line ? id : found, 'general'));
+        : sections.reduce((found, [id]) => document.getElementById('settings-' + id).getBoundingClientRect().top <= line ? id : found, sections[0][0]));
     };
     const jump = (id) => {
       const page = pageRef.current, top = page.scrollTop, heading = document.getElementById('settings-' + id + '-h');
@@ -350,24 +346,11 @@ import "../styles/settings.css";
     return h('div', { className: 'robotpage', ref: pageRef, onScroll: followScroll },
       h('div', { className: 'settings-layout' },
         h('div', { className: 'settings-side' },
-          h('h1', { className: 'rp-title' }, 'Settings'),
-          h('nav', { className: 'settings-nav', 'aria-label': 'Settings sections' },
+          h('h1', { className: 'rp-title' }, 'Robot'),
+          h('nav', { className: 'settings-nav', 'aria-label': 'Robot sections' },
             sections.map(([id, title]) => h('button', { key: id, type: 'button', 'aria-current': current === id || undefined, onClick: () => jump(id) }, title)))),
         h('div', { className: 'settings-content' },
-          h(Section, { id: 'general', title: 'General' },
-            h('div', { className: 'settings-card settings-general' },
-              h(Row, { label: 'Robot connection', status: pushController.pairing || pushController.busy ? pushController.connectionLabel : 'Not connected' },
-                h('button', { className: 'qbtn library-connection', type: 'button', onClick: pushController.openConnection },
-                  pushController.busy ? 'Show progress' : pushController.pairing ? 'Edit' : 'Set up')),
-              h(Row, { label: 'Display units' },
-                h(Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
-              // Opens the shortcuts dialog ready to edit; hidden where the host can't store keys.
-              canEditKeys() && h(Row, { label: 'Keyboard shortcuts', status: changedKeys ? changedKeys + ' changed' : 'Defaults' },
-                h('button', { className: 'qbtn', type: 'button', onClick: () => openKeyboardShortcuts(true) }, 'Customize')),
-              updateState && h(Row, { label: 'Software updates', status: 'Bordeaux ' + updateState.currentVersion + (updateState.phase === 'downloaded' ? ' · Ready to install' : updateState.phase === 'downloading' ? ' · Downloading update' : updateState.phase === 'available' ? ' · Update available' : '') },
-                h('button', { className: 'qbtn', type: 'button', onClick: onOpenUpdates }, ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(updateState.phase) ? 'View update' : 'Check for updates')))),
-
-          h(Section, { id: 'robot', title: 'Robot' },
+          h(Section, { id: 'robot', title: 'Dimensions' },
             h('div', { className: 'settings-card rp-robot' },
               h('div', null,
                 h(Row, { label: 'Width' }, h(BigNum, { label: 'Robot width', value: robot.w, unit: 'm', min: 0.3, max: 1.3, onChange: (v) => resize('w', v) })),

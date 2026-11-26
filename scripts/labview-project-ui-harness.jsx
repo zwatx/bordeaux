@@ -33,7 +33,7 @@ function Harness() {
     <header className="toolbar"><div className="tb-project"><ProjectChip name="Component fixture project" folderPath="/fixture/Component project" status="saved" {...projectProps}
       robotCode={{...props,name:props.catalog?.projectName,commands:props.catalog?.commands.length}}
       actions={{projects:()=>calls.push('projects'),create:()=>calls.push('new'),save:()=>calls.push('save'),saveCopy:()=>calls.push('copy'),linkCode:()=>calls.push('link'),refreshCode:()=>calls.push('refresh'),rescanCode:()=>calls.push('rescan'),recentCode:id=>calls.push(id),buildCode:()=>calls.push('build')}} /></div>
-      <nav className="places" aria-label="Project sections">{['Paths','Routines','Settings'].map(label=><button className="place" type="button" key={label}>{label}</button>)}</nav></header>
+      <nav className="places" aria-label="Project sections">{['Paths','Routines','Robot'].map(label=><button className="place" type="button" key={label}>{label}</button>)}</nav></header>
     <div style={{display:'flex',flex:1,minHeight:0}}><main style={{flex:1,padding:32,color:'var(--txt-3)'}}><h2>Robot code component verification</h2><p>Actual ProjectChip, lazy Sources and command controls; explicit callback and platform fixtures. This is not the full App.</p></main>
       <aside className="ctxinsp inspector-refresh"><div className="ctxinsp-hd"><span className="ctxinsp-t">Intake command</span></div><div className="ctxinsp-body">
         <UI.ChoiceBrowser id="fixture-command" label="Command" value={command} items={[{value:'shoot',label:'Shoot game piece',meta:'Target speed'}]} onChoose={value=>{setCommand(value);return {status:'applied',current:()=>true};}} />

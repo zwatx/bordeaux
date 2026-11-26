@@ -484,7 +484,7 @@ app.whenReady().then(async () => {
       assert.deepEqual(await source(), branchBaseline, 'Opening a route never rewrites the routine');
       await snapshot('boolean-branch-route-' + width);
       const geometry = [];
-      for (const place of ['Paths', 'Routines', 'Settings']) {
+      for (const place of ['Paths', 'Routines', 'Robot']) {
         await click('.places .place', place); await delay(250);
         geometry.push(await evaluate(() => {
           const project = document.querySelector('.tb-project').getBoundingClientRect(), nav = document.querySelector('.places').getBoundingClientRect();

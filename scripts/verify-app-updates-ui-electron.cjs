@@ -42,6 +42,29 @@ app.whenReady().then(async () => {
       win.setContentSize(width, height);
       await evaluate(platform => { window.bordeauxAPI.platform = platform; window.__updateFixture.calls.length = 0; }, platform);
       await set({ phase: 'idle', visible: false, currentVersion: '0.2.0-beta.10', version: null, releaseNotes: '', projectDirty: false });
+      // Global settings (the toolbar gear) shows the version and checks for updates; it closes first so the panel can open.
+      await click('.app-settings-trigger');
+      const updatesRow = () => evaluate(() => [...document.querySelectorAll('.app-settings .settings-row')].find(row => row.querySelector('strong')?.textContent === 'Software updates')?.querySelector('.settings-control').textContent ?? null);
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.app-settings .settings-row strong')].map(label => label.textContent)), ['Robot connection', 'Display units', 'Keyboard shortcuts', 'Software updates']);
+      assert.equal(await updatesRow(), 'Bordeaux 0.2.0-beta.10Check for updates');
+      await capture(`${platform}-${width}-global-settings`);
+      await click('.app-settings .settings-row button', 'Check for updates');
+      assert.deepEqual(await evaluate(() => window.__updateFixture.calls), ['check']);
+      assert.equal(await evaluate(() => !document.querySelector('.app-settings').open && document.activeElement?.classList.contains('app-settings-trigger')), true, 'Checking closes global settings onto the gear');
+      await set({ phase: 'available', version: '0.2.0-beta.11', releaseNotes: '- Faster pushes' });
+      await click('.app-settings-trigger');
+      assert.equal(await updatesRow(), 'Bordeaux 0.2.0-beta.10 · Update availableView update');
+      await click('.app-settings .settings-row button', 'View update');
+      await waitFor(() => evaluate(() => document.querySelector('dialog.app-update-dialog')?.open && !document.querySelector('.app-settings').open), 'update notes from global settings');
+      // The notes keep the gear as their opener; pressing it again must replace them, never stack the two.
+      await click('.app-settings-trigger');
+      await waitFor(() => evaluate(() => document.querySelector('.app-settings').open && !document.querySelector('dialog.app-update-dialog')?.open), 'the gear replaces update notes with global settings');
+      assert.equal(await evaluate(() => document.querySelector('.app-settings').contains(document.activeElement)), true, 'Focus stays in global settings when the notes close');
+      await click('.app-settings-close');
+      assert.equal(await evaluate(() => document.activeElement?.classList.contains('app-settings-trigger')), true, 'Closing returns focus to the gear');
+      await evaluate(() => { window.__updateFixture.calls.length = 0; });
+      await set({ phase: 'idle', visible: false, version: null, releaseNotes: '' });
+      pass(`${platform} ${width}: global settings checks for updates and opens update notes`);
       // The toolbar icon reports background updates without opening the panel; with nothing pending it checks.
       const chip = () => evaluate(() => document.querySelector('.update-button')?.getAttribute('aria-label') ?? null);
       assert.equal(await chip(), 'Check for updates');

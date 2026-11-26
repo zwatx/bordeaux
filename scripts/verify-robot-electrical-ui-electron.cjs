@@ -45,6 +45,10 @@ const placeholder = (label) => evaluate((label) => document.querySelector(`input
 const labelNote = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.closest('.settings-row')?.querySelector('.settings-hint')?.title ?? null, label);
 const fieldText = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.value ?? null, label);
 const resultText = (label) => evaluate((label) => [...document.querySelectorAll('.rp-drive-result')].find((el) => el.querySelector('span')?.textContent === label)?.querySelector('strong')?.textContent ?? null, label);
+// Display units are in global settings (the toolbar gear): open it, choose, close.
+async function chooseUnits(units) {
+  await click('.app-settings-trigger'); await click('.app-settings .seg-i', units); await click('.app-settings-close');
+}
 async function capture() {
   for (let attempt = 0; attempt < 3; attempt++) {
     await delay(250);
@@ -86,7 +90,7 @@ app.whenReady().then(async () => {
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     win.focus(); win.webContents.focus();
     await wait(() => evaluate(() => document.querySelectorAll('.pt-wp').length > 0), 'editable path');
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Drive current limit"]')), 'electrical fields');
     // A preset robot plans electrically with visible defaults; nothing has to be turned on.
     assert.equal(await evaluate(() => [...document.querySelectorAll('button')].some((el) => /Model current limit|Use stall torque/.test(el.textContent))), false);
@@ -120,7 +124,7 @@ app.whenReady().then(async () => {
       await click('input[aria-label="CG height"]'); await key('Tab');
       await fs.writeFile(path.join(output, `cg-metric-${width}.png`), (await capture()).toPNG());
     }
-    await click('button', 'Imperial');
+    await chooseUnits('Imperial');
     await typeInto('CG height', '12');
     await save();
     assert.ok(Math.abs(saved.robot.driveModel.cgHeightM - 0.3048) < 1e-12);
@@ -129,7 +133,7 @@ app.whenReady().then(async () => {
     saved = { ...saved, editor: { ...saved.editor, unitSystem: 'metric' } };
     await win.reload();
     await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'restored places');
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await wait(() => evaluate(() => !!document.querySelector('input[aria-label="CG height"]')), 'restored CG height');
     await wait(async () => Math.abs(Number(await fieldText('CG height')) - 12) < 0.001, 'restored imperial CG value');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
@@ -137,7 +141,7 @@ app.whenReady().then(async () => {
       await click('input[aria-label="CG height"]'); await key('Tab');
       await fs.writeFile(path.join(output, `cg-imperial-${width}.png`), (await capture()).toPNG());
     }
-    await click('button', 'Metric');
+    await chooseUnits('Metric');
     await typeInto('CG height', '0');
     await save();
     assert.equal(saved.robot.driveModel.cgHeightM, 0);
@@ -170,11 +174,11 @@ app.whenReady().then(async () => {
     await snapshotBothSizes('edited-metric');
     console.log('PASS Keyboard edits store exact canonical values (A, mΩ to Ω, % to fraction); Escape keeps the default');
 
-    await click('button', 'Imperial');
+    await chooseUnits('Imperial');
     await wait(async () => (await resultText('Top speed'))?.endsWith('ft/s'), 'imperial results');
     assert.equal(await fieldText('Drive current limit'), '55');
     await snapshotBothSizes('edited-imperial');
-    await click('button', 'Metric');
+    await chooseUnits('Metric');
     console.log('PASS Imperial converts speed and acceleration while electrical units stay A, V, mΩ and %');
 
     await click('button', 'Use default electrical values');
@@ -213,7 +217,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.robot.driveModel.mainBreaker, { ratedCurrentA: 120, tripTimeAt2xS: 10, initialHeat: 0.25 });
     await win.reload();
     await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'power restored places');
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Minimum bus voltage"]')), 'power settings restored');
     await wait(async () => await fieldText('Minimum bus voltage') === '8.00', 'restored voltage floor');
     assert.equal(await fieldText('Minimum bus voltage'), '8.00');

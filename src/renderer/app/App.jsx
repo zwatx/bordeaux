@@ -30,6 +30,7 @@ import { useProjectDeparture } from "../hooks/useProjectDeparture";
 import { AppUpdateDialog } from "../components/AppUpdateDialog";
 import { useAppUpdates } from "../components/useAppUpdates";
 import { RobotPage } from "../components/RobotPage";
+import { AppSettings } from "../components/AppSettings";
 import { DiagnosticBundleDialog } from "../components/DiagnosticBundleDialog";
 import { LibraryRail, referencingRoutines } from "../components/EditorLibrary";
 import { RobotPushDialog, useRobotPushController } from "../components/RobotPushDialog";
@@ -405,7 +406,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       deletionAction.current = null;
       if (beforeHide && document.activeElement?.closest('.deletion-notice')
         && !document.querySelector('dialog:modal,[role="dialog"][aria-modal="true"]')) {
-        // Places survive workspace replacement and navigation to Settings; the field does not.
+        // Places survive workspace replacement and navigation to Robot; the field does not.
         (document.querySelector('.toolbar .place[aria-current="page"]') || document.querySelector('.toolbar .place'))?.focus();
       }
       setDeletionNotice(null);
@@ -3026,11 +3027,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       // any other focused control (Push itself, a library row) stays the origin.
       if (!document.activeElement || document.activeElement === document.body) focusIfAvailable(document.querySelector('.push-button'));
       pushController.requestPush(scope); } };
-    // Places keep each mode's state: returning from Settings resumes the editor mode as it was, while moving between
+    // Places keep each mode's state: returning from Robot resumes the editor mode as it was, while moving between
     // Paths and Routines goes through the same switches (and draft commits) the library always used.
     const leaveForPage = (next) => { retireDeletion(true); finishEdit(); playbackStore.reset(); routinePlaybackStore.reset(); setPage(next); };
     const onPlace = (place) => {
-      if (place === 'settings') { if (page !== 'robot') leaveForPage('robot'); }
+      if (place === 'robot') { if (page !== 'robot') leaveForPage('robot'); }
       else if (place === 'paths') { if (page === 'robot' && editorPage === 'plan') leaveForPage('plan'); else setActive(activeIdx); }
       else if (page === 'robot' && editorPage === 'auto') leaveForPage('auto');
       else setActiveRoutine(routine.id);
@@ -3081,16 +3082,16 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
         optimizationOpen, toggleOptimization, optimizationApplied: Boolean(editing.ready && editing.acceptedTrajectory),
-        updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck }),
+        updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck,
+        appSettings: h(AppSettings, { unitSystem, setUnitSystem, connection: pushController, updateState: appUpdates.state,
+          onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onCheckUpdates: appUpdates.actions.onCheck, onCloseUpdates: appUpdates.actions.onClose }) }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
       projectsSheet, departureSheet, departureHint,
       h(DiagnosticBundleDialog, { getProject: materializeProject, targetSelector: '.robot-connection-diagnostics', onOpen: pushController.close, renderKey: pushController.open + ':' + pushController.phase,
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
         onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
-        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, unitSystem, setUnitSystem, pushController, mcpEnabled, updateState: appUpdates.state,
-          onOpenUpdates: () => ['available', 'downloading', 'downloaded', 'installing', 'error'].includes(appUpdates.state?.phase)
-            ? window.bordeauxAPI.setAppUpdatesVisible(true) : appUpdates.actions.onCheck(), agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
+        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, unitSystem, mcpEnabled, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),

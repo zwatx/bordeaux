@@ -156,7 +156,7 @@ app.whenReady().then(async () => {
     check('graph open/close first changed and settled animation frames keep view controls above telemetry at 1440 and 1100');
     for (const [width, height] of [[1440, 900], [1100, 720], [1100, 600]]) {
       win.setContentSize(width, height); await delay(100);
-      await pointer('.places .place', 'Settings');
+      await pointer('.places .place', 'Robot');
       const bounds = await evaluate(() => {
         const page = document.querySelector('.robotpage');
         const r = page.getBoundingClientRect();

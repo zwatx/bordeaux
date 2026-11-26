@@ -199,9 +199,9 @@ app.whenReady().then(async () => {
     inspectionMode = 'normal'; await pointer('#project-menu button', 'Refresh commands'); await menu();
     await wait(() => evaluate(() => ![...document.querySelectorAll('#project-menu [role="alert"]')].some(el => el.textContent.includes('LabVIEW inspection unavailable')) && [...document.querySelectorAll('#project-menu button')].some(el => el.textContent.includes('Refresh commands'))), 'Refresh retry clears failure'); await key('Escape');
     check('Refresh owns pending inspection, explicit failure and retry at supported window sizes');
-    await pointer('.places .place', 'Settings'); await pointer('[aria-label="Display units"] button', 'Imperial');
+    await pointer('.app-settings-trigger'); await pointer('[aria-label="Display units"] button', 'Imperial'); await pointer('.app-settings-close');
     await pointer('.places .place', 'Paths'); await selectMarker(); await shot('imperial-command');
-    await pointer('.places .place', 'Settings'); await pointer('[aria-label="Display units"] button', 'Metric'); await pointer('.places .place', 'Paths');
+    await pointer('.app-settings-trigger'); await pointer('[aria-label="Display units"] button', 'Metric'); await pointer('.app-settings-close'); await pointer('.places .place', 'Paths');
     await menu(); await pointer('#project-menu [data-action="save"]'); await wait(() => explicitSaves === 1, 'explicit in-memory Save capture');
     assert.equal(saved.editor.labviewProjectPath, editorLink.labviewProjectPath);
     await win.loadFile(path.resolve('dist-renderer/index.html')); await guard('reload admission'); await observeDocument(); await selectMarker();

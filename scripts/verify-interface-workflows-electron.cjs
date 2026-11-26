@@ -91,7 +91,7 @@ app.whenReady().then(async () => {
     await save(); assert.deepEqual(saved.paths[0].waypoints, before);
     await snapshot('editor-1440');
     console.log('PASS Keyboard-focused toolbar controls cannot nudge or delete the selected waypoint');
-    await click('.places .place', 'Settings');
+    await click('.places .place', 'Robot');
     await click('input[aria-label="Robot width"]');
     await key('Home'); win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End', modifiers: ['shift'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'End', modifiers: ['shift'] });
     await win.webContents.insertText('invalid'); await key('Enter');
