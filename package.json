@@ -114,7 +114,9 @@
         "to": "labview-inspection",
         "filter": [
           "*.ps1",
-          "CreateCommandWrapper.vi"
+          "CreateCommandWrapper.vi",
+          "UpdateCommandWrapperReferences.vi",
+          "CommandWrapperReferences.vi"
         ]
       },
       {

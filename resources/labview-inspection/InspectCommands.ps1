@@ -4,6 +4,8 @@ Set-StrictMode -Version Latest
 # Bordeaux's inspection adapter uses NI's installed COM API. It never executes
 # team VIs or accesses remote target instances. The separate wrapper request runs
 # only Bordeaux's local scripting helper and saves a new, caller-owned temporary VI.
+# The wrapper references request runs UpdateCommandWrapperReferences.vi, which edits only
+# the Bordeaux-managed references VI beside the project (it refuses any other VI).
 Add-Type @'
 using System;
 using System.Reflection;
@@ -62,8 +64,8 @@ $context = $null
 # repeatedly unload/reload shared dependencies. Metadata is still read afresh.
 $heldVIs = New-Object 'System.Collections.Generic.Queue[object]'
 try {
-  $request = Get-Content -LiteralPath $RequestFile -Raw | ConvertFrom-Json
-  if ($request.schemaVersion -notin @('bordeaux-ni-inspection/1', 'bordeaux-ni-wrapper/1') -or @($request.sources).Count -gt 1000) { throw 'Invalid Bordeaux NI request.' }
+  $request = Get-Content -LiteralPath $RequestFile -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($request.schemaVersion -notin @('bordeaux-ni-inspection/1', 'bordeaux-ni-wrapper/1', 'bordeaux-ni-wrapper-references/1') -or @($request.sources).Count -gt 1000) { throw 'Invalid Bordeaux NI request.' }
   $projectFile = Assert-LocalFile ([string]$request.projectFile)
   $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
   $registryView = if ([IntPtr]::Size -eq 4) { [Microsoft.Win32.RegistryView]::Registry32 } else { [Microsoft.Win32.RegistryView]::Registry64 }
@@ -122,6 +124,42 @@ try {
       $response = @{ schemaVersion = 'bordeaux-ni-wrapper/1'; wrapperFile = $wrapperFile; terminalCount = $terminalErrors.Count }
       [IO.File]::WriteAllText($ResponseFile, ($response | ConvertTo-Json -Depth 8 -Compress), (New-Object Text.UTF8Encoding($false)))
     } finally { [BordeauxNiInspection]::Release($generator) }
+    exit 0
+  }
+  if ($request.schemaVersion -eq 'bordeaux-ni-wrapper-references/1') {
+    # UpdateCommandWrapperReferences.vi scripting was validated only in LabVIEW 2025; keep in sync with labviewNiTypes.ts.
+    if ([string][BordeauxNiInspection]::Get($app, 'Version') -notmatch '^25\.') { throw 'Bordeaux updates Bordeaux Command Wrappers.vi only in LabVIEW 2025. Add the static wrapper references by hand in other versions.' }
+    $referencesFile = Assert-LocalFile ([string]$request.referencesFile)
+    if ([IO.Path]::GetFileName($referencesFile) -ne 'Bordeaux Command Wrappers.vi' -or [IO.Path]::GetDirectoryName($referencesFile) -ne [IO.Path]::GetDirectoryName($projectFile)) { throw 'Wrapper references must be Bordeaux Command Wrappers.vi beside the project.' }
+    $wrapperFiles = @(@($request.wrapperFiles) | ForEach-Object { Assert-LocalFile ([string]$_) })
+    if ($wrapperFiles.Count -gt 1000 -or @($wrapperFiles | Where-Object { [IO.Path]::GetFileName($_) -notmatch '_wrapper\.vi$' }).Count) { throw 'Wrapper references accept only command wrapper VIs.' }
+    $marker = [string]$request.marker
+    if ($marker -ne 'bordeaux-command-wrappers/1' -or ([string]$request.description).IndexOf($marker) -lt 0) { throw 'Invalid Bordeaux wrapper references request.' }
+    $helper = Assert-LocalFile (Join-Path $PSScriptRoot 'UpdateCommandWrapperReferences.vi')
+    $updater = $null
+    try {
+      $updater = [BordeauxNiInspection]::Call($context, 'GetVIReference', @([string]$helper, [string]'', $false, 32))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('project path', $projectFile))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('target name', [string]$request.target))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('references path', $referencesFile))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('description', [string]$request.description))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('marker', $marker))
+      [void][BordeauxNiInspection]::Call($updater, 'SetControlValue', @('wrapper paths', [string[]]$wrapperFiles))
+      [void][BordeauxNiInspection]::Call($updater, 'Run', @($false))
+      $failure = [BordeauxNiInspection]::Call($updater, 'GetControlValue', @('error out'))
+      if ($failure[0]) {
+        switch ([int]$failure[1]) {
+          5001 { throw 'Bordeaux Command Wrappers.vi open in LabVIEW is not the one Bordeaux manages. Close or rename it, then refresh commands.' }
+          5002 { throw 'Bordeaux Command Wrappers.vi has unsaved changes in LabVIEW. Save or revert it, then refresh commands.' }
+          5003 { throw ('The project has no target named "' + [string]$request.target + '". Rescan command inputs.') }
+          default { throw ('Updating Bordeaux Command Wrappers.vi failed: ' + $failure[1] + ' ' + $failure[2]) }
+        }
+      }
+      $count = [int][BordeauxNiInspection]::Call($updater, 'GetControlValue', @('reference count'))
+      if ($count -ne $wrapperFiles.Count) { throw 'Bordeaux Command Wrappers.vi does not reference every command wrapper. Refresh commands to try again.' }
+      $response = @{ schemaVersion = 'bordeaux-ni-wrapper-references/1'; referencesFile = $referencesFile; referenceCount = $count; context = [string][BordeauxNiInspection]::Call($updater, 'GetControlValue', @('context name')) }
+      [IO.File]::WriteAllText($ResponseFile, ($response | ConvertTo-Json -Depth 8 -Compress), (New-Object Text.UTF8Encoding($false)))
+    } finally { [BordeauxNiInspection]::Release($updater) }
     exit 0
   }
   $rows = @()
