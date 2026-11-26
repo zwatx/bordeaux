@@ -830,6 +830,8 @@ app.whenReady().then(async () => {
       assert.equal(await evaluate(() => document.querySelector('.push-button').checkVisibility()), true);
       await fs.writeFile(path.join(output, `paths-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
+      // A planning banner shortens the flow until trajectories arrive; measure the settled layout.
+      await wait(() => evaluate(() => !document.querySelector('.routine-status.planning')), 'routine planning settles before measuring the flow');
       const flowGeometry = await evaluate(() => {
         const flow = document.querySelector('.routine-workspace-flow'), stage = document.querySelector('.stage-auto');
         return { sharedPositions: ['.places', '.project-chip'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), width: flow.getBoundingClientRect().width, height: flow.getBoundingClientRect().height, fieldHeight: document.querySelector('.routine-workspace-field').getBoundingClientRect().height, stageHeight: stage.getBoundingClientRect().height, railWidth: document.querySelector('.library-rail').getBoundingClientRect().width, inRail: Boolean(flow.closest('.library-rail')), flowInRail: Boolean(document.querySelector('.library-rail .rt-panel')), overflow: document.documentElement.scrollWidth > innerWidth, contentOverflow: flow.querySelector('.rt-scroll').scrollWidth > flow.querySelector('.rt-scroll').clientWidth };
