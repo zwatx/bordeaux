@@ -55,7 +55,8 @@ export function PowerReportBody({ report, robot, routine = false, error = '', up
 
 function analyze({ robot, path, trajectory, run }) {
   if (run?.truncated) return Promise.reject(new Error('This routine preview was truncated. A whole-routine heat estimate needs the complete sequence; analyze its individual paths instead.'));
-  if (run && (run.duration.unknownCount || run.duration.usesLimits)) return Promise.reject(new Error('This routine contains unknown or conditional durations. A whole-routine heat estimate needs exact timing; analyze its individual paths instead.'));
+  // Run time estimates are not exact either, and the routine's own command steps add no load here.
+  if (run && (run.duration.unknownCount || run.duration.estimateCount || run.duration.usesLimits)) return Promise.reject(new Error('This routine contains estimated, unknown or conditional durations. A whole-routine heat estimate needs exact timing; analyze its individual paths instead.'));
   let worker, timer;
   const promise = new Promise((resolve, reject) => {
     worker = new Worker(new URL('../assets/path-preview-worker.js', import.meta.url), { type: 'module' });

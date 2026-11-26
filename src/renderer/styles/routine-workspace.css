@@ -90,6 +90,8 @@
 .rt-step-time .event{--c:var(--cmd)}
 .rt-step-time .group{--c:var(--line-3)}
 .rt-step-time .upper{background:repeating-linear-gradient(135deg,var(--c) 0 2px,transparent 2px 4px)}
+/* Run time estimates are dashed wherever preview time is drawn, and their times read "≈". */
+.rt-step-time .estimate{background:repeating-linear-gradient(90deg,var(--c) 0 4px,transparent 4px 6px)}
 .rt-step-dur{color:var(--txt-2);font:11px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .rt-step-dur.unknown{color:var(--txt-3);font-family:var(--ui)}
 .rt-step-live{color:var(--txt);font-family:var(--ui);font-weight:500}
@@ -308,15 +310,17 @@
 .rt-timeline-tick::after{content:'';position:absolute;left:50%;top:13px;width:1px;height:4px;background:var(--line-3)}
 .rt-timeline-track{position:absolute;left:10px;right:10px;top:22px;height:18px;border-radius:4px;background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045)}
 /* Each step with a duration is a labelled block over its seconds; overlapping steps (a parallel group) stack in rows.
-   The step playing now is brighter. Limits draw hatched as upper bounds. */
+   The step playing now is brighter. Limits draw hatched as upper bounds; run time estimates have a dashed edge. */
 .rt-timeline-span{position:absolute;display:flex;align-items:center;gap:5px;height:18px;min-width:2px;padding:0 6px 0 7px;overflow:hidden;border-radius:4px;background:color-mix(in srgb,var(--step-color) 20%,var(--bg-2));box-shadow:inset 2px 0 0 color-mix(in srgb,var(--step-color) 75%,transparent);color:var(--txt-2);font-size:11px;white-space:nowrap;pointer-events:none}
 .rt-timeline-span.on{background:color-mix(in srgb,var(--step-color) 42%,var(--bg-2));box-shadow:inset 2px 0 0 var(--step-color),inset 0 0 0 1px color-mix(in srgb,var(--step-color) 70%,transparent);color:var(--txt)}
 .rt-timeline-span.upper{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--step-color) 30%,transparent) 0 3px,transparent 3px 6px),var(--bg-2)}
+.rt-timeline-span.estimate{outline:1px dashed color-mix(in srgb,var(--step-color) 80%,transparent);outline-offset:-1px}
 .rt-timeline-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-timeline-span small{flex:none;color:var(--txt-3);font:11px var(--mono)}
 .rt-timeline-glyph{flex:none;color:var(--cmd)}
 /* A group's span outlines the rows its steps use. */
 .rt-timeline-group{position:absolute;top:20px;margin-left:-2px;padding-right:4px;box-sizing:content-box;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
+.rt-timeline-group.estimate{box-shadow:none;outline:1px dashed var(--line-3);outline-offset:-1px}
 /* Instant and untimed commands: the Paths command lane's chips, a diamond on their time. */
 .rt-timeline-chip{position:absolute;display:flex;align-items:center;gap:6px;height:19px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11px;white-space:nowrap;pointer-events:none}
 .rt-timeline-chip.left{flex-direction:row-reverse;padding:0 6px 0 8px}

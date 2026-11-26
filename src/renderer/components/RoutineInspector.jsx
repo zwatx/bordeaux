@@ -174,6 +174,28 @@ function LoopSection({ node, command, set }) {
       Hint('Checked after each completed run. Starts again until it matches.')));
 }
 
+/**
+ * A command's preview time and where it comes from (A.commandTiming). An untimed command that a run time would time
+ * points to the Robot page, where command loads keep run times; `onOpenRobot` goes there.
+ */
+function PreviewTime({ node, driveModel, onOpenRobot }) {
+  const { durS, timing, runTimeS } = A.commandTiming(node, driveModel);
+  const until = node.invocation?.loop?.until;
+  const value = timing === 'estimate' || timing === 'upperBound' ? A.timingPrefix(timing) + fmt(durS)
+    : until?.kind === 'output' ? 'Until result' : 'Untimed';
+  const hint = timing === 'estimate' ? 'Estimated from its ' + fmt(runTimeS) + ' run time on the Robot page. Preview only; the robot does not use it.'
+    : timing === 'upperBound' ? (runTimeS !== undefined ? 'Its run time on the Robot page reaches the time limit, so the preview uses the limit.' : 'Up to its time limit. A run time on the Robot page would estimate it.')
+    : until?.kind === 'output' ? 'Runs until its result matches, so the preview cannot time it.'
+    : until?.kind === 'time' ? 'The last run may finish after the loop time, so it is not counted. A run time on the Robot page would estimate it.'
+    : 'Not counted in the preview time. Set a run time for this command on the Robot page to estimate it.';
+  const suggest = runTimeS === undefined && until?.kind !== 'output' && onOpenRobot;
+  return Section('Preview time',
+    h('div', { className: 'rt-stat rt-preview-time' }, h('div', { className: 'rt-stat-i' },
+      h('span', { className: 'rt-stat-v' }, value), h('span', { className: 'rt-stat-k' }, timing === 'estimate' ? 'Estimate' : 'In this preview'))),
+    Hint(hint),
+    suggest && h('button', { type: 'button', className: 'choice-change rt-open-robot', onClick: onOpenRobot }, 'Open Robot page'));
+}
+
 function Problems({ issues, jumps, jump }) {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity !== 'error');
@@ -345,7 +367,9 @@ export function StepInspector(props) {
       Hint(parallel ? 'Every step starts together. The group finishes when all of them finish.' : 'Each step starts when the one before it finishes.'),
       h('div', { className: 'rt-stat' },
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, String(node.nodes.length)), h('span', { className: 'rt-stat-k' }, node.nodes.length === 1 ? 'Step' : 'Steps')),
-        span && h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, A.groupTiming(node) === 'unknown' ? 'Untimed' : (A.groupTiming(node) === 'upperBound' ? '≤ ' : '') + fmt(span.t1 - span.t0)), h('span', { className: 'rt-stat-k' }, 'In this preview'))),
+        span && h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, span.timing === 'unknown' ? 'Untimed' : A.timingPrefix(span.timing) + fmt(span.t1 - span.t0)),
+          h('span', { className: 'rt-stat-k' }, span.timing === 'estimate' ? 'Estimate' : 'In this preview'))),
+      span?.timing === 'estimate' && Hint('Estimated from command run times on the Robot page. Preview only.'),
       Hint(ROUTINE_GROUP_CHILD_RULE),
       h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.edit({ kind: 'unwrapGroup', nodeId: node.id }) }, h(Glyph, { name: parallel ? 'parallel' : 'sequential', size: 14 }), 'Remove group, keep steps'),
       remove('Delete group'));
@@ -424,6 +448,7 @@ export function StepInspector(props) {
             }))),
       selected && h(LoopSection, { node, command: selected, set }),
       h(EndsSection, { node, routine, catalog, set }),
+      h(PreviewTime, { node, driveModel: props.robot?.driveModel, onOpenRobot: props.onOpenRobot }),
       (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, acq, ...(branchBlocked ? { blocked: branchBlocked } : {}) }),
       remove('Delete command'));
 
@@ -458,7 +483,8 @@ export function SlotInspector({ dest, onClose }) {
     Hint('Choose a path or command in the left rail, or a step from the strip in the flow.'));
 }
 
-/** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, untimed commands as markers.
+/** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, run time estimates dashed,
+ * untimed commands as markers.
  * The scrubber is a slider over a time scale: drag the handle or press anywhere on the lane to seek (seeking pauses),
  * hover to read a time and the step there, and use the arrows (Shift for 1 s), Page Up/Down for step starts, Home/End. */
 // The routine scrubber's rows: the seconds scale, block rows from LANE_TOP, then chip rows for instant commands.
@@ -507,16 +533,18 @@ export function RoutineTransport(props) {
   const activeIdx = running || time > 0 ? stepIndex(time) : -1;
   const active = activeIdx >= 0 ? run.steps[activeIdx] : null;
   const pct = run.total > 0 ? Math.max(0, Math.min(1, time / run.total)) : 0;
-  const duration = run.duration || { maxS: run.total, unknownCount: 0, usesLimits: false };
+  const duration = run.duration || { maxS: run.total, unknownCount: 0, estimateCount: 0, usesLimits: false };
   const timedPlayable = run.timedPlayable !== undefined ? run.timedPlayable : run.total > 0;
   const pass = active?.passStack?.at(-1);
   const passes = pass && run.steps.find((step) => step.kind === 'repeat' && step.nodeId === pass.repeatId)?.passes;
   const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity').length;
-  const totalLabel = duration.maxS !== null && duration.usesLimits ? '≤ ' + fmt(run.total) : fmt(run.total);
+  // Any estimate makes the total an estimate; otherwise a limit makes it an upper bound.
+  const totalLabel = duration.estimateCount > 0 ? '≈ ' + fmt(run.total) : duration.maxS !== null && duration.usesLimits ? '≤ ' + fmt(run.total) : fmt(run.total);
   // Each fact has a short form for a narrow transport (the inspector open at 1100 px), so every count stays readable
   // beside the step playing now; the full sentence stays in the tooltip and for assistive technology.
   const facts = [
     duration.usesLimits && ['Using time limits', 'Time limits'],
+    duration.estimateCount > 0 && [plural(duration.estimateCount, 'step') + ' estimated from run times', duration.estimateCount + ' estimated'],
     // Untimed steps add no preview time; that is not a claim that they take none.
     duration.unknownCount > 0 && [plural(duration.unknownCount, 'untimed step') + ' not counted', duration.unknownCount + ' untimed'],
     jumps > 0 && [plural(jumps, 'pose jump'), plural(jumps, 'pose jump')],
@@ -596,7 +624,9 @@ export function RoutineTransport(props) {
         h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
         h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' + (playKey ? '  (' + playKey + ')' : '') : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
       h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
-      h('span', { className: 'rt-timeline-summary', title: summary || undefined },
+      h('span', { className: 'rt-timeline-summary', title: summary ? [summary,
+        duration.estimateCount > 0 && 'Estimates use command run times from the Robot page. Preview only; the robot does not use them.',
+        duration.unknownCount > 0 && 'A command run time on the Robot page estimates an untimed command.'].filter(Boolean).join(NL) : undefined },
         h('span', { className: 'rt-summary-full' }, summary),
         h('span', { className: 'rt-summary-short', 'aria-hidden': true }, facts.map(([, short]) => short).join(' · '))),
       pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
@@ -607,14 +637,16 @@ export function RoutineTransport(props) {
     h('div', { className: 'rt-timeline-editor' + (dragging ? ' dragging' : ''), ref: editorRef, style: { '--routine-progress': pct, height: lane.height } },
       ticks.map((t, i) => h('span', { key: 'tick' + i, className: 'rt-timeline-tick' + (t / run.total > 0.97 ? ' end' : ''), style: { left: at(t) }, 'aria-hidden': true }, t === 0 ? '0' : t.toFixed(tickDigits))),
       h('span', { className: 'rt-timeline-track', style: { height: lane.rows * lane.rowH - 2 } }),
-      lane.groups.map((group) => h('span', { key: 'g' + group.occurrenceId, className: 'rt-timeline-group', title: A.groupLabel(group.mode),
+      lane.groups.map((group) => h('span', { key: 'g' + group.occurrenceId, className: 'rt-timeline-group' + (group.timing === 'estimate' ? ' estimate' : ''),
+        title: A.groupLabel(group.mode) + (group.timing === 'estimate' ? ', estimated' : group.timing === 'upperBound' ? ', up to its limits' : group.timing === 'unknown' ? ', has untimed steps' : ''),
         style: { left: at(group.t0), width: width(group.t1 - group.t0), height: group.rows * lane.rowH + 2 } })),
       lane.blocks.map(({ step, row, wide }) => {
         const pass = step.passStack?.length ? step.passStack.at(-1).pass : 0;
         const loop = step.node?.invocation?.loop;
         const name = stepName(step);
-        return h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : '') + (now?.step === step || activeAt(step) ? ' on' : ''),
-          title: (step.timing === 'upperBound' ? 'Up to ' : '') + name + (pass ? ', pass ' + pass : '') + (loop ? ', loops ' + A.loopSummary(loop) : ''),
+        return h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : step.timing === 'estimate' ? ' estimate' : '') + (now?.step === step || activeAt(step) ? ' on' : ''),
+          title: (step.timing === 'upperBound' ? 'Up to ' : '') + name + (pass ? ', pass ' + pass : '') + (loop ? ', loops ' + A.loopSummary(loop) : '')
+            + (step.timing === 'estimate' ? ', about ' + fmt(step.t1 - step.t0) + ' from its run time' : ''),
           style: { left: at(step.t0), width: width(step.t1 - step.t0), top: LANE_TOP + row * lane.rowH, ...(lane.rowH < LANE_ROW ? { height: lane.rowH - 2 } : {}), '--step-color': color(step) } },
           wide && h('span', { className: 'rt-timeline-name' }, name),
           wide && pass > 0 && h('small', null, pass),

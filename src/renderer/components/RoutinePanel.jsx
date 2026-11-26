@@ -418,6 +418,8 @@ function Grip({ onPointerDown }) {
 
 export function RoutinePanel(props) {
   const { routine, run, paths, selId, onSelect, acq, time, running, catalog } = props;
+  // Command run times on the Robot page give untimed commands a preview estimate.
+  const driveModel = props.robot?.driveModel;
   const issues = props.issues || [];
   // How often this routine follows each path, for the path library; recounted only when the authored steps change.
   const pathUses = useMemo(() => routinePathUses(routine), [routine.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -848,7 +850,11 @@ export function RoutinePanel(props) {
     if (node.type === 'function' && node.cat === 'command') {
       const command = catalog?.commands?.find((item) => item.id === node.invocation?.commandId);
       const output = node.outputBranch && A.branchOutputs(command).find((item) => item.name === node.outputBranch.output);
-      return { meta: (node.outputBranch ? 'Then branch on ' + (output?.label || node.outputBranch.output) + ' · ' : '') + endsPhrase(node, routine, catalog), dur: durationOf(node) };
+      const timing = A.commandTiming(node, driveModel).timing;
+      // The row's tooltip says where an estimate comes from, or where an untimed command could get one.
+      const time = timing === 'estimate' ? 'Preview estimate from its Robot page run time'
+        : timing === 'unknown' && node.invocation?.loop?.until?.kind !== 'output' ? 'Untimed: set a run time on the Robot page to estimate it' : '';
+      return { meta: [(node.outputBranch ? 'Then branch on ' + (output?.label || node.outputBranch.output) + ' · ' : '') + endsPhrase(node, routine, catalog), time].filter(Boolean).join(' · '), dur: durationOf(node) };
     }
     return { meta: 'Unsupported step · ignored by the preview', problem: 'warn' };
   }
@@ -861,15 +867,16 @@ export function RoutinePanel(props) {
     if (node.type === 'path') return seg ? fmt(seg.t1 - seg.t0) : '';
     if (node.type === 'builtin') return (node.ends?.endWhen ? '≤ ' : '') + fmt(node.arguments?.durationS);
     if (node.type === 'function' && node.cat === 'command') {
-      const until = node.invocation?.loop?.until;
+      const until = node.invocation?.loop?.until, { durS, timing } = A.commandTiming(node, driveModel);
+      if (timing === 'estimate' || timing === 'upperBound') return A.timingPrefix(timing) + fmt(durS);
       if (until?.kind === 'time' && Number.isFinite(until.seconds)) return fmt(until.seconds);
       if (until?.kind === 'output') return 'Until result';
-      return node.ends?.timeoutS !== undefined ? '≤ ' + fmt(node.ends.timeoutS) : 'Untimed';
+      return 'Untimed';
     }
     if (node.type === 'group') {
-      const timing = A.groupTiming(node), span = groupSpan.get(node.id);
+      const timing = A.groupTiming(node, driveModel), span = groupSpan.get(node.id);
       if (timing === 'unknown') return 'Untimed';
-      return span ? (timing === 'upperBound' ? '≤ ' : '') + fmt(span.t1 - span.t0) : '';
+      return span ? A.timingPrefix(timing) + fmt(span.t1 - span.t0) : '';
     }
     if (node.type === 'repeat') return node.times === undefined ? 'Until result' : (node.until ? '≤ ' : '') + node.times + '×';
     return '';
@@ -937,8 +944,8 @@ export function RoutinePanel(props) {
         h('span', { className: 'rt-step-meta' + (info.problem ? ' ' + info.problem : '') },
           isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
       h('span', { className: 'rt-step-time', 'aria-hidden': true }, (spans.get(node.id) || []).map((step) => h('i', { key: step.occurrenceId || step.t0,
-        className: step.kind + (step.timing === 'upperBound' ? ' upper' : ''), style: { left: pct(step.t0), width: pct(step.t1 - step.t0) } }))),
-      h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
+        className: step.kind + (step.timing === 'upperBound' ? ' upper' : step.timing === 'estimate' ? ' estimate' : ''), style: { left: pct(step.t0), width: pct(step.t1 - step.t0) } }))),
+      h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : info.dur?.startsWith('≈') ? ' estimate' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
       h('span', { className: 'rt-step-tools' }, !readOnly && h('button', { className: 'rt-tool rt-more', type: 'button', tabIndex: -1, 'aria-haspopup': 'menu', 'aria-expanded': menu?.id === node.id, title: 'Step actions (⇧F10)',
         'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
   }
