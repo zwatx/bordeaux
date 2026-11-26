@@ -31,7 +31,6 @@ try {
   const run = { steps: Array.from({ length: 10000 }, (_, i) => ({ t0: i, t1: i + 1, pose: { x: i, y: 0 } })), segs: [] };
   const project = createDemoProject();
   const routine = { nodes: Array.from({ length: 100 }, (_, i) => ({ id: String(i), type: 'path', ref: project.paths[0].id })) };
-  const selectedPath = { ...project.paths[0], optimization: { accepted: { result: trajectory } } };
   const preview = PathPreview.create({ workerFactory: () => ({
     postMessage(job) {
       const cloned = structuredClone(job);
@@ -48,7 +47,7 @@ try {
         AUTO.stepAt(run, time);
       }
     }, 12),
-    measure('dispatch interactive edit with 5000-sample accepted trajectory', () => preview.request({ path: selectedPath, robot: project.robot, quality: 'interactive' }), 30),
+    measure('dispatch interactive edit', () => preview.request({ path: project.paths[0], robot: project.robot, quality: 'interactive' }), 30),
     measure('build routine repeating one path 100 times', () => AUTO.buildRun(routine, project.paths, project.robot, {}, project.plannerId), 8),
   ], null, 2));
   preview.destroy();

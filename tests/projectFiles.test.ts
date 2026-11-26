@@ -6,7 +6,8 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
+import { pathTrajectory } from "../src/core/planners/pathTrajectory";
+import { applyRoute } from "../src/core/planners/routeGeometry";
 import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../src/core/project/fileFormat";
 import { decodeBdx } from "../src/core/export/bdxReader";
 import { buildRobotBinary } from "../src/core/export/robotBinary";
@@ -86,24 +87,24 @@ describe("managed document persistence", () => {
     expect(decodeBdx(readBack).field).toEqual(project.field);
   });
 
-  it("writes selected routes as versioned standalone paths and reopens their exact selection", async () => {
+  it("writes an applied route into the standalone path and reopens to the same trajectory", async () => {
     const directory = await folder(), project = createDemoProject();
     const source = project.paths[0];
     source.waypoints = buildWaypoints([{ x: -1.7705, y: 2.0345 }, { x: 1.7295, y: 2.0345 }]);
     source.headingMode = 'manual'; source.constraints.maxVel = .5;
     const route = optimizeRouteFinal({ path: source, robot: project.robot }, { maximumEvaluations: 2 }).candidate;
     expect(route).toBeDefined();
-    project.paths[0] = applyAcceptedRouteTrajectory(source, project.robot, route!);
+    project.paths[0] = applyRoute(source, route!.routeGeometry!);
     await autosaveProjectFolder(directory, project, null);
     const files = await fs.readdir(path.join(directory, 'Paths'));
     const raw = await fs.readFile(path.join(directory, 'Paths', files[0]), 'utf8');
-    expect(JSON.parse(raw).version).toBe('2.1');
+    expect(JSON.parse(raw).version).toBe('2.0');
+    expect(JSON.parse(raw)).not.toHaveProperty('optimization');
     const standalone = decodeProjectFile(raw).project;
-    expect(standalone.schemaVersion).toBe('1.2');
-    expect(selectPathTrajectory(standalone.paths[0], standalone.robot).samples).toEqual(route!.samples);
+    expect(pathTrajectory(standalone.paths[0], standalone.robot).samples).toEqual(route!.samples);
     const reopened = (await openProjectFolder(directory)).project!;
-    expect(reopened.schemaVersion).toBe('1.2');
-    expect(selectPathTrajectory(reopened.paths[0], reopened.robot).samples).toEqual(route!.samples);
+    expect(reopened.paths[0].waypoints).toEqual(project.paths[0].waypoints);
+    expect(pathTrajectory(reopened.paths[0], reopened.robot).samples).toEqual(route!.samples);
   });
   it("keeps unchanged documents in place when one path is renamed", async () => {
     const directory = await folder(), project = manyPaths(21);

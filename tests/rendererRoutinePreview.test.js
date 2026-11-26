@@ -173,17 +173,12 @@ describe("routine planning", () => {
   });
 
   it.each([
-    ["an unvalidated current optimization", true, { status: "success", value: { prof: { totalTime: 2 }, finalTrajectory: {} } }, "The selected optimization could not be validated. Review this path."],
-    ["a timeout", false, { status: "timeout", fallbackReason: "Final planning exceeded the common deadline (5000 ms)." }, "Final planning exceeded the common deadline (5000 ms)."],
-    ["a worker failure", false, { status: "failure", error: { message: "worker crashed" } }, "worker crashed"],
-    ["malformed output", false, { status: "success", value: { prof: { totalTime: 2 } } }, "Could not prepare this trajectory."],
-  ])("blocks the routine on %s", async (_label, applied, result, message) => {
+    ["a timeout", { status: "timeout", fallbackReason: "Final planning exceeded the common deadline (5000 ms)." }, "Final planning exceeded the common deadline (5000 ms)."],
+    ["a worker failure", { status: "failure", error: { message: "worker crashed" } }, "worker crashed"],
+    ["malformed output", { status: "success", value: { prof: { totalTime: 2 } } }, "Could not prepare this trajectory."],
+  ])("blocks the routine on %s", async (_label, result, message) => {
     const project = createDemoProject();
-    const base = project.paths[0];
-    const { optimizationInputKey } = await import("../src/core/planners/acceptedTrajectoryIdentity");
-    const path = applied
-      ? { ...base, optimization: { corridorM: 0.15, accepted: { version: 1, inputKey: optimizationInputKey(base, project.robot, project.field), samplesPerSegment: 56, result: {} } } }
-      : base;
+    const path = project.paths[0];
     const paths = [path, ...project.paths.slice(1)];
     planning.request = vi.fn(() => ({ promise: Promise.resolve(result), cancel: vi.fn() }));
 
@@ -191,16 +186,6 @@ describe("routine planning", () => {
     await settle();
 
     expect(render(true, routineFor(path), paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "error", error: `${path.name}: ${message}` });
-  });
-
-  it("uses normal planning for an applied optimization made for older inputs", async () => {
-    const project = createDemoProject();
-    const path = { ...project.paths[0], optimization: { corridorM: 0.15, accepted: { version: 1, inputKey: "older inputs", samplesPerSegment: 56, result: {} } } };
-    const paths = [path, ...project.paths.slice(1)];
-    render(true, routineFor(path), paths, project.robot, project.field, "profiledSpline");
-    await settle();
-
-    expect(render(true, routineFor(path), paths, project.robot, project.field, "profiledSpline")).toMatchObject({ status: "ready", values: { [path.id]: { pathId: path.id } } });
   });
 
   it.each(["authored-first", "generated-first"])("keeps same-ID generated previews separate from authored paths (%s)", (order) => {
