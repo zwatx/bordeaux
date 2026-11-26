@@ -1,6 +1,8 @@
 import { FIELD_H, FIELD_W, FIELD_X_MAX, FIELD_Y_MAX, WELDED_FIELD_W, WELDED_FIELD_H, centerAndyMarkPoint, rotateBlueOriginPoint } from "../math/fieldBounds";
 import type { FieldLandmark, FieldPack, FieldPoint, FieldRect } from "./types";
 import { FIELD_IMAGE } from "./imageCalibration";
+import { wpilibFieldTags, type WpilibFieldLayout } from "./wpilibFieldLayout";
+import rebuiltAndyMarkLayout from "./wpilib/2026-rebuilt-andymark.json";
 
 export const REBUILT_2026_FIELD_REVISION = "2026-manual-tu19-andymark-1";
 export const WELDED_FIELD_REVISION = "2026-manual-tu19-welded-4";
@@ -130,21 +132,8 @@ const hubLandmarks = [
   obstacle("red-hub", "Red HUB", ["red hub", "red goal"], { xMin: RED_STRUCTURE_X_MIN, xMax: RED_BARRIER_X, yMin: HUB_Y_MIN, yMax: HUB_Y_MIN + HUB_WIDTH_M }),
 ];
 
-const aprilTagData = [
-  [1, 11.8779798, 7.4247756, 0.889, 180], [2, 11.9154194, 4.63804, 1.12395, 90], [3, 11.3118646, 4.3902376, 1.12395, 180], [4, 11.3118646, 4.0346376, 1.12395, 180],
-  [5, 11.9154194, 3.4312352, 1.12395, -90], [6, 11.8779798, 0.6444996, 0.889, 180], [7, 11.9528844, 0.6444996, 0.889, 0], [8, 12.2710194, 3.4312352, 1.12395, -90],
-  [9, 12.5191774, 3.6790376, 1.12395, 0], [10, 12.5191774, 4.0346376, 1.12395, 0], [11, 12.2710194, 4.63804, 1.12395, 90], [12, 11.9528844, 7.4247756, 0.889, 0],
-  [17, 4.6630844, 0.6444996, 0.889, 0], [18, 4.6256194, 3.4312352, 1.12395, -90], [19, 5.2291742, 3.6790376, 1.12395, 0], [20, 5.2291742, 4.0346376, 1.12395, 0],
-  [21, 4.6256194, 4.63804, 1.12395, 90], [22, 4.6630844, 7.4247756, 0.889, 0], [23, 4.5881798, 7.4247756, 0.889, 180], [24, 4.2700194, 4.63804, 1.12395, 90],
-  [25, 4.0218614, 4.3902376, 1.12395, 180], [26, 4.0218614, 4.0346376, 1.12395, 180], [27, 4.2700194, 3.4312352, 1.12395, -90], [28, 4.5881798, 0.6444996, 0.889, 180],
-] as const;
-
-const andyMarkWallTags = [
-  [13, 16.499332, 7.391908, 0.55245, 180], [14, 16.499332, 6.960108, 0.55245, 180],
-  [15, 16.4989764, 4.3124882, 0.55245, 180], [16, 16.4989764, 3.8806882, 0.55245, 180],
-  [29, 0.0136906, 0.6507734, 0.55245, 0], [30, 0.0136906, 1.0825734, 0.55245, 0],
-  [31, 0.0140462, 3.7301932, 0.55245, 0], [32, 0.0140462, 4.1619932, 0.55245, 0],
-] as const;
+/** Official AndyMark tag poses, the layout robot code loads as `k2026RebuiltAndymark`. The welded field's layout differs. */
+export const REBUILT_2026_TAG_LAYOUT: WpilibFieldLayout = rebuiltAndyMarkLayout;
 
 function aprilTagAttachment(id: number): string {
   if ([1, 6, 7, 12, 17, 22, 23, 28].includes(id)) return "TRENCH";
@@ -153,16 +142,16 @@ function aprilTagAttachment(id: number): string {
   return "TOWER WALL";
 }
 
-const aprilTagLandmarks: FieldLandmark[] = [...aprilTagData, ...andyMarkWallTags].sort(([a], [b]) => a - b).map(([id, x, y, elevationM, headingDeg]) => ({
+const aprilTagLandmarks: FieldLandmark[] = wpilibFieldTags(REBUILT_2026_TAG_LAYOUT).map(({ id, point, elevationM, yawDeg }) => ({
   id: `apriltag-${id}`,
   name: `AprilTag ${id}`,
   aliases: [`april tag ${id}`, `apriltag ${id}`, `tag ${id}`],
   kind: "point",
   behavior: "interaction",
   navigable: false,
-  point: { x, y },
+  point,
   elevationM,
-  headingDeg,
+  headingDeg: yawDeg,
   attachedTo: aprilTagAttachment(id),
   allianceOwner: id <= 16 ? "red" : "blue",
   description: "WPILib 2026 fiducial pose. The point is on the tag face and is unsuitable as a robot destination.",
@@ -222,8 +211,8 @@ export const REBUILT_2026_INITIAL_FUEL_REGION = centerRect(measuredFuelRegion);
 
 const centeredLandmarks = landmarks.map((landmark): FieldLandmark => ({
   ...landmark,
-  ...(landmark.point && { point: (andyMarkWallTags.some(([id]) => landmark.id === `apriltag-${id}`)
-    ? centerAndyMarkPoint : centerMeasuredPoint)(landmark.point) }),
+  // Tags come from the AndyMark layout, so they rotate about the AndyMark field center.
+  ...(landmark.point && { point: (landmark.id.startsWith("apriltag-") ? centerAndyMarkPoint : centerMeasuredPoint)(landmark.point) }),
   ...(landmark.bounds && { bounds: centerRect(landmark.bounds) }),
   ...(landmark.line && { line: {
     start: centerMeasuredPoint(landmark.line.start),
@@ -303,7 +292,7 @@ export const REBUILT_2026_FIELD: FieldPack = {
     "A route with different outbound and inbound crossings must use ordered per-leg traversal requirements; one global traversal is invalid.",
     "A swoosh is a typed 180-degree maneuver with explicit turn direction and radius, not an arbitrary coordinate loop.",
     "Initial FUEL collection uses the approximately 72-inch-deep staging band around the CENTER LINE, not the full 283-inch NEUTRAL ZONE depth.",
-    "The AndyMark perimeter and wall tag poses use WPILib v2026.2.1. Interior features retain their welded center-relative geometry without scaling.",
+    "The AndyMark perimeter uses WPILib v2026.2.1 and every AprilTag pose comes from the vendored WPILib AndyMark layout. Interior features retain their welded center-relative geometry without scaling.",
     "Positive Y is scoring-table side and negative Y is non-scoring-table side.",
     "The ROBOT STARTING LINE is the alliance-side face of the HUB/BUMP/TRENCH band, not the center of those structures.",
     "AprilTags and HUB faces are perception/aiming references, not collision-free chassis poses.",
@@ -318,6 +307,12 @@ export const REBUILT_2026_FIELD: FieldPack = {
       url: "https://github.com/wpilibsuite/allwpilib/blob/v2026.2.1/apriltag/src/main/native/resources/edu/wpi/first/apriltag/2026-rebuilt-andymark.json",
       revision: "v2026.2.1",
       sha256: "9b44d503e056e8303b6cee7ec65b0cf770cbea2e475516c03b95f8fcfdee49ca",
+    },
+    {
+      label: "WPILib 2026 REBUILT AndyMark AprilTag layout (vendored in src/core/field/wpilib)",
+      url: "https://github.com/wpilibsuite/allwpilib/blob/v2027.0.0-alpha-8/fields/src/main/native/resources/org/wpilib/fields/frc/2026-rebuilt-andymark.json",
+      revision: "v2027.0.0-alpha-8",
+      sha256: "5225a3c49bf403e920a353ed46639691ae2f12e93af4309ff5e3c1044de3d8fb",
     },
     {
       label: "Original Bordeaux field overlay and calibrated playing rectangle",

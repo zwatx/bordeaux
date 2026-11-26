@@ -3,6 +3,7 @@ import { FIELD_X_MAX, FIELD_Y_MAX, centerAndyMarkPoint } from "../math/fieldBoun
 import {
   ACTIVE_FIELD_REFERENCE,
   REBUILT_2026_FIELD,
+  REBUILT_2026_TAG_LAYOUT,
   appToAllianceViewPoint,
 } from "./rebuilt2026";
 import type { FieldPack, FieldPoint, FieldRect } from "./types";
@@ -11,7 +12,7 @@ const CERTIFICATION_SCHEMA_VERSION = "bordeaux-field-certification/1.0" as const
 const EPSILON = 1e-8;
 
 /** Update deliberately only after reviewing a changed certification report. */
-export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:bf457c53a7382d07332e6a3de36875f9f7ae7746d1d11cb19bb8cb97e05efe3e";
+export const FIELD_CERTIFICATION_EXPECTED_DIGEST = "sha256:a74b0bc94e29f9fe80082689561253b6291cf5a6a9c0809663eb51cf4886794d";
 
 /** These commitments are deliberately distinct so coordinate fixes do not imply full behavior certification. */
 export const FIELD_SUPPORT_PROMISES = {
@@ -186,6 +187,11 @@ export function certifyField(
     && [rail.start.y, rail.end.y].every((y) => close(y, 4.0215))
     && close(wallTag.x, 8.2453094) && close(wallTag.y, 3.3707266),
     "Perimeter and wall tags use WPILib v2026.2.1 AndyMark measurements.");
+  const layoutDimensions = REBUILT_2026_TAG_LAYOUT["field-dimensions"];
+  check("apriltag.official-layout",
+    close(layoutDimensions.length, pack.dimensions.lengthM) && close(layoutDimensions.width, pack.dimensions.widthM)
+    && REBUILT_2026_TAG_LAYOUT["field-tags"].every(({ ID }) => find(`apriltag-${ID}`)?.point),
+    "Every tag in the vendored WPILib layout is a landmark, and the layout measures the same field as the pack.");
   check("andymark.interior-registration", !!blueBarrier
     && close(blueBarrier.x, 4.24206)
     && blueBarrier.portals.filter((portal) => portal.side === "table").every(({ point }) => point.y > 0)

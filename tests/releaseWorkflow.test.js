@@ -96,8 +96,8 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   const groups = ci.jobs.desktop.strategy.matrix.include;
   expect(groups.map(({ group }) => group)).toEqual(["library", "planning", "workflows"]);
   const desktopScripts = groups.flatMap(({ checks }) => checks.trim().split("\n"));
-  expect(desktopScripts).toHaveLength(23);
-  expect(new Set(desktopScripts).size).toBe(23);
+  expect(desktopScripts).toHaveLength(24);
+  expect(new Set(desktopScripts).size).toBe(24);
   expect(desktopScripts).toContain("scripts/verify-key-bindings.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_KEY_BINDINGS_OUTPUT).toBe(".ui-artifacts/key-bindings");
   expect(desktopScripts).toContain("scripts/verify-rotation-focus-ui.mjs");
@@ -115,6 +115,8 @@ it("keeps required CI job identities, all shards, and all desktop scripts", () =
   expect(desktopScripts).toContain("scripts/verify-robot-electrical-ui.mjs");
   expect(desktopScripts).toContain("scripts/verify-timeline-commands-ui.mjs");
   expect(ci.jobs.desktop.env.BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT).toBe(".ui-artifacts/timeline-commands");
+  expect(desktopScripts).toContain("scripts/verify-field-layers-ui.mjs");
+  expect(ci.jobs.desktop.env.BORDEAUX_FIELD_LAYERS_UI_OUTPUT).toBe(".ui-artifacts/field-layers");
   const checks = ci.jobs.checks.steps.map(({ run }) => run ?? "").join("\n");
   for (const command of ["verify:license", "typecheck", "certify-field.mjs", "npm run build", "npm run audit:dependencies"]) expect(checks).toContain(command);
   expect(ci.jobs.desktop.steps.some(({ run }) => run === "xvfb-run -a npm run test:smoke:built")).toBe(true);

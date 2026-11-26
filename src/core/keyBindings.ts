@@ -10,7 +10,7 @@
 
 export const COMMAND_IDS = [
   'tool.select', 'tool.waypoint', 'tool.rotation', 'tool.command', 'tool.zone',
-  'view.fit', 'view.grid', 'view.focusField', 'visit.next', 'visit.previous',
+  'view.fit', 'view.grid', 'view.tags', 'view.focusField', 'visit.next', 'visit.previous',
   'playback.toggle', 'edit.undo', 'edit.redo',
   'project.new', 'project.list', 'project.openFile', 'project.save', 'project.saveCopy',
   'export.bdx', 'robot.push',
@@ -26,6 +26,7 @@ export const COMMAND_LABELS = {
   'tool.zone': 'Create zone',
   'view.fit': 'Fit field',
   'view.grid': 'Toggle grid',
+  'view.tags': 'Toggle AprilTags',
   'view.focusField': 'Toggle path list',
   'visit.next': 'Next pass through a point',
   'visit.previous': 'Previous pass through a point',
@@ -73,6 +74,7 @@ export const DEFAULT_KEY_RULES: readonly KeyRule[] = [
   { key: 'c', command: 'tool.zone', when: 'pathsPage' },
   { key: 'f', command: 'view.fit', when: 'pathsPage' },
   { key: 'g', command: 'view.grid', when: 'pathsPage' },
+  { key: 't', command: 'view.tags', when: 'pathsPage' },
   { key: '\\', command: 'view.focusField', when: 'pathsPage' },
   { key: ']', command: 'visit.next', when: 'pathsPage' },
   { key: '[', command: 'visit.previous', when: 'pathsPage' },

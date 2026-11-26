@@ -136,6 +136,10 @@
       {
         "from": "licenses/ssh2-MIT.txt",
         "to": "licenses/ssh2-MIT.txt"
+      },
+      {
+        "from": "licenses/WPILib-BSD-3-Clause.txt",
+        "to": "licenses/WPILib-BSD-3-Clause.txt"
       }
     ],
     "mac": {
