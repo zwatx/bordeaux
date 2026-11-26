@@ -1,6 +1,7 @@
 import { jigglePositions } from "../../core/planners/jiggle";
 import { indexIntervalPolicies } from "../../core/planners/intervalPolicies";
 import { robotHardLimits as sharedRobotHardLimits } from "../../core/robotLimits";
+import { planningRobotForPath } from "../../core/commandLoads";
 import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../core/math/geometry";
 import { headingAt, buildAnchors } from "../../core/math/headingAnchors";
 import { waypointFracs, effectiveRanges, featureFraction, remapWaypointRange } from "../../core/math/pathRanges";
@@ -85,8 +86,9 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
       electrical: limits.electrical,
     };
   }
-  function effectiveConstraints(constraints, robot) {
-    const limits = robotHardLimits(robot);
+  // With `path`, its command loads' mechanism reserve lowers the limits as it does in planning.
+  function effectiveConstraints(constraints, robot, path) {
+    const limits = robotHardLimits(robot && path ? planningRobotForPath(robot, path) : robot);
     return limits ? {
       ...constraints,
       maxVel: Math.min(constraints.maxVel, limits.maxSpeed),
@@ -594,6 +596,8 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
   // ---- one-call derivation: everything the field + panels need for a path ----
   function derivePath(doc, robot, perSeg, plannerId) {
     perSeg = perSeg || 56;
+    // The same per-path command reserve as final planning, so the quick preview does not promise more speed.
+    if (robot) robot = planningRobotForPath(robot, doc);
     const hardLimits = robotHardLimits(robot);
     if (hardLimits) {
       robot = { ...robot, maxSpeed: hardLimits.maxSpeed };

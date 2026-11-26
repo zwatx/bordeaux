@@ -7,6 +7,7 @@ import { densifyRobotSamples } from "./robotSamples";
 import { portableFileStem } from "../portableFileName";
 import { robotSchemaValueError } from "../robotCommands";
 import { buildModuleForces, type ModuleForcesN } from "./moduleForces";
+import { planningRobotForPath } from "../commandLoads";
 import { MAX_LOOP_SECONDS, MIN_LOOP_SECONDS, markerInvocations, markerUsesEventExtension } from "../markerCommands";
 
 export interface BinarySelection { kind: BinaryKind; id: string }
@@ -138,7 +139,8 @@ export function buildRobotBinary(project: BordeauxProject, selection: BinarySele
     startSample: sampled.sourceIndices[section.startSample], endSample: sampled.sourceIndices[section.endSample],
   }));
   const travelHeadings = sampled.travelHeadings;
-  const moduleForcesN = buildModuleForces(project.robot, path.samples, travelHeadings, sampled.curvatures);
+  // The same per-path mechanism reserve the planner allocated forces under.
+  const moduleForcesN = buildModuleForces(planningRobotForPath(project.robot, selected), path.samples, travelHeadings, sampled.curvatures);
   count(path.samples.length, 2, 100000, "Sample count"); count(path.events.length, 0, 2000, "Event count"); count(path.followSections.length, 1, 4096, "Follow section count");
   bounded(path.totalTimeS, 0, Number.MAX_VALUE, "Path duration"); bounded(path.totalDistanceM, 0, Number.MAX_VALUE, "Path distance");
   for (const value of [document.robot.widthM, document.robot.lengthM, document.robot.maxSpeedMps]) if (!(value > 0 && Number.isFinite(value))) throw new Error("BDX robot dimensions and maximum speed must be positive and finite");

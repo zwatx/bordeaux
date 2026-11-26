@@ -508,7 +508,7 @@ export function processPathPreviewJob(
     if (job.mode === 'power') {
       const value = job.segments
         ? analyzeRoutinePower(job.robot, job.segments, job.totalTimeS)
-        : analyzeTrajectoryPower(job.robot, job.trajectory.optimizedPath || job.path, job.trajectory.samples);
+        : analyzeTrajectoryPower(job.robot, job.path, job.trajectory);
       return { id: job.id, value, durationMs: performance.now() - startedAt };
     }
     if (job.mode === 'flip') {

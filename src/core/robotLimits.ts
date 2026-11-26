@@ -1,6 +1,7 @@
 import { directionalAccelerationLimit, GRAVITY_MPS2, resolveCgHeightM, robotLoadModel } from "./loadTransfer";
 import { driveMotorPreset } from "./motorPresets";
 import type { PathConstraints, PlannerInput, RobotConfig } from "./types";
+import { planningRobotForPath } from "./commandLoads";
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
 const DATASHEET_VOLTAGE_V = 12;
@@ -108,7 +109,10 @@ export function hasElectricalDriveModel(model: DriveModel | undefined): boolean 
   return resolveElectricalDriveInputs(model) !== null;
 }
 
-/** Timing must remain feasible even when command timing differs from the local preview. */
+/**
+ * Timing must remain feasible even when command timing differs from the local preview. Command loads are
+ * reserved per path, folded into Other mechanisms by planningRobotForPath before planning.
+ */
 export function peakMechanismCurrent(model: DriveModel): number {
   const bursts = model.loadBursts ?? [];
   const events = bursts.flatMap(burst => [{ t: burst.startTimeS, change: burst.currentA }, { t: burst.endTimeS, change: -burst.currentA }])
@@ -126,7 +130,7 @@ export function electricalConfigurationError(robot: RobotConfig): string | null 
   const windingR = 12 / p.motorStallCurrentA;
   if (p.motorFreeCurrentA * windingR >= 12) return 'Motor free current must be below stall current; review the motor data.';
   if (p.batteryVoltageV - p.batteryResistanceOhm * peakMechanismCurrent(model) <= (model.minimumBusVoltageV ?? 7.25)) {
-    return 'Mechanism loads alone reach the minimum bus voltage; reduce their peak load or review the battery settings.';
+    return 'Mechanism loads alone reach the minimum bus voltage; reduce Other mechanisms or the command loads this path starts, or review the battery settings.';
   }
   if (p.driveCurrentLimitA * (1 - p.controlReserve) <= p.motorFreeCurrentA) {
     return 'The planning current budget does not cover motor loss current; review the current limit and control reserve.';
@@ -334,8 +338,9 @@ export function effectivePathConstraints(constraints: PathConstraints, robot: Ro
 
 /** Plans at the drivetrain's free speed and the stricter of authored and hard limits; returns `input` without a drive model. */
 export function physicalPlannerInput(input: PlannerInput): PlannerInput {
-  const limits = robotHardLimits(input.robot);
-  if (!limits) return input;
-  const robot = { ...input.robot, maxSpeed: limits.maxSpeedMps };
+  const planningRobot = planningRobotForPath(input.robot, input.path);
+  const limits = robotHardLimits(planningRobot);
+  if (!limits) return planningRobot === input.robot ? input : { ...input, robot: planningRobot };
+  const robot = { ...planningRobot, maxSpeed: limits.maxSpeedMps };
   return { ...input, robot, path: { ...input.path, constraints: effectivePathConstraints(input.path.constraints, robot) } };
 }

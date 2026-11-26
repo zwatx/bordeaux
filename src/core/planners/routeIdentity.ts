@@ -1,10 +1,12 @@
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import type { FieldReference, PathDoc, RobotConfig } from "../types";
 import { optimizationIntentKey, physicalPath, stable } from "./acceptedTrajectoryIdentity";
+import { planningRobotForPath } from "../commandLoads";
 
 /** Selection depends on the task, not the seed or retained legacy search settings. */
 export function routeIntentKey(path: PathDoc, robot: RobotConfig, field: FieldReference = ACTIVE_FIELD_REFERENCE): string {
-  const { planning: _planning, footprintPreset: _preset, ...physicalRobot } = robot;
+  // Only this path's mechanism reserve matters, so editing another command's load keeps its applied route.
+  const { planning: _planning, footprintPreset: _preset, ...physicalRobot } = planningRobotForPath(robot, path);
   const task = { ...path, waypoints: path.waypoints.map(({ linked: _linked, corner: _corner, ...waypoint }) => ({ ...waypoint, linked: true })) };
   return stable({ version: "route-selection/5", path: optimizationIntentKey(task), robot: physicalRobot, field });
 }
