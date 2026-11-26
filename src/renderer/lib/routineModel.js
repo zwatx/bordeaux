@@ -793,7 +793,7 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
       for (const node of frame.nodes) {
         if (++count > 100000 || retainedIds.has(node.id)) return fail('This edit would exceed routine size or duplicate step IDs.');
         retainedIds.add(node.id);
-        // Groups only hold commands without branches, waits and groups; an edit never puts anything else inside one.
+        // Groups hold only commands that don't branch, waits and other groups; an edit never puts anything else inside one.
         if (node.type === 'group') {
           const blocked = node.nodes.map(child => routineGroupChildError(child)).find(Boolean);
           if (blocked) return fail(blocked);

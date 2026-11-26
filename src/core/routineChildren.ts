@@ -26,7 +26,8 @@ export function routineChildLists(node: RoutineNode): RoutineChildList[] {
   })) : [];
 }
 
-export const ROUTINE_GROUP_CHILD_RULE = 'Groups hold commands without branches, waits and other groups.';
+/** What a group may hold, in words. Shown in the group inspector and for steps no specific message covers. */
+export const ROUTINE_GROUP_CHILD_RULE = 'A group holds commands, waits and other groups. Paths, repeats and commands that branch stay outside it.';
 
 /**
  * Why `node` cannot sit directly inside a group, or null. Groups never branch, follow paths or change control flow:
@@ -40,7 +41,7 @@ export function routineGroupChildError(node: unknown): string | null {
   if (value.type === 'function' && value.cat === 'command') {
     return value.outputBranch === undefined ? null : 'A command in a group cannot branch on its output.';
   }
-  if (value.type === 'path') return 'Paths cannot run inside a group.';
+  if (value.type === 'path') return "Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths.";
   if (value.type === 'repeat') return 'Repeats cannot go inside a group.';
   if (value.type === 'end') return 'End routine and Exit repeat cannot go inside a group.';
   return ROUTINE_GROUP_CHILD_RULE;

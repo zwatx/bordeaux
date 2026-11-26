@@ -2088,7 +2088,15 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       },
       setOutcome: (id, br) => setRoutineOutcomes((o) => ({ ...o, [id]: br })),
       setPasses: (id, passes) => setRoutinePasses((current) => ({ ...current, [id]: passes })),
-      openInEditor: (id) => { const idx = project.paths.findIndex((path) => path.id === id); if (idx >= 0) { setActive(idx); setPage('plan'); } },
+      // Opens a path in Paths; `{ focus: 'commands' }` then focuses its timeline's Commands lane, where Enter adds a command.
+      openInEditor: (id, options) => {
+        const idx = project.paths.findIndex((path) => path.id === id); if (idx < 0) return;
+        setActive(idx); setPage('plan');
+        if (options?.focus !== 'commands') return;
+        let frames = 0;
+        const focusLane = () => { const lane = document.querySelector('.stage-plan .pt-lane'); if (lane) lane.focus(); else if (++frames < 60) requestAnimationFrame(focusLane); };
+        requestAnimationFrame(focusLane);
+      },
       // A pose jump's fix: link the next path's start to the previous path's end, as Paths links points (its start
       // and any points already linked to it move there), named like a new shared point. One project Undo step.
       linkStart: (jump) => {
