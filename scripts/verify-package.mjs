@@ -31,6 +31,7 @@ const requiredResources = [
   "RIGHTS.md",
   "licenses/OFL-1.1.txt",
   "licenses/ssh2-MIT.txt",
+  "licenses/WPILib-BSD-3-Clause.txt",
   "labview-inspection/InspectCommands.ps1",
 ];
 

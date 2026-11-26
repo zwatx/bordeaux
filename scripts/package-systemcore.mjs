@@ -27,8 +27,8 @@ await fs.cp('dist-systemcore', path.join(app, 'static'), { recursive: true });
 await fs.copyFile(path.join(source, 'package/bordeaux.service'), path.join(data, 'etc/systemd/system/bordeaux.service'));
 // The dashboard crops app images to a wide tile, so the square app icon sits centered on a 16:9 image.
 await fs.copyFile(path.join(source, 'package/bordeaux-tile.png'), path.join(data, 'usr/share/bordeaux.png'));
-// The package redistributes Bordeaux and its fonts, so it carries their notices (RIGHTS.md), as the desktop app does.
-const notices = ['LICENSE', 'NOTICE', 'RIGHTS.md', 'licenses/OFL-1.1.txt'];
+// The package redistributes Bordeaux, its fonts and the WPILib field layout, so it carries their notices (RIGHTS.md), as the desktop app does.
+const notices = ['LICENSE', 'NOTICE', 'RIGHTS.md', 'licenses/OFL-1.1.txt', 'licenses/WPILib-BSD-3-Clause.txt'];
 for (const file of notices) {
   const target = path.join(data, 'usr/share/doc/bordeaux', file);
   await fs.mkdir(path.dirname(target), { recursive: true });
