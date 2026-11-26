@@ -71,20 +71,25 @@ async function snapshotBothSizes(name) {
   win.setContentSize(1440, 900); await delay(120);
 }
 ipcMain.handle('branches:restore', () => ({ project: saved }));
-ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', commands: [], warnings: [] }, bookmarkId: 'fixture' }));
+// One linked command, so command loads offer its label; the path's event starts it.
+const shooter = { id: 'shoot', label: 'Shoot note', member: 'Shoot.vi', ownerType: 'LabVIEW', kind: 'factory', confidence: 'confirmed', source: { file: 'Shoot.vi', line: 1 }, parameters: [] };
+ipcMain.handle('branches:catalog', () => ({ catalog: { runtime: 'labview', projectName: 'Fixture', sourceFileCount: 1, scannedAt: '', commands: [shooter], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
 async function save() { const before = saves; await click('.project-chip'); await click('[role="menuitem"][data-action="save"]'); await wait(() => saves > before, 'save'); }
 app.whenReady().then(async () => {
   try {
     const corpus = JSON.parse(await fs.readFile('benchmarks/planner-corpus/v3/corpus.bordeaux.json', 'utf8'));
     const first = structuredClone(corpus.paths.find((p) => p.id === 'corpus-neutral-stop'));
+    first.markers = [{ id: 'shoot-event', f: 0.3, name: 'Shoot', invocation: { commandId: 'shoot', arguments: {} } }];
+    // A legacy timed load from an older project: listed read-only until removed.
     const driveModel = {
       motorId: 'rev-vortex', motorFreeRpm: 6784, motorMaxTorqueNm: 3.6, motorCount: 4, gearRatio: 5.5, wheelDiameterM: 0.0762,
       massKg: 54.4310844, moiKgM2: 4, wheelbaseM: 0.521, trackwidthM: 0.618, wheelFrictionCoefficient: 1.1,
+      loadBursts: [{ startTimeS: 0.5, endTimeS: 2, currentA: 15 }],
     };
     saved = { ...corpus, robot: { ...corpus.robot, w: 0.84, l: 0.84, maxSpeed: 4.92, driveModel }, paths: [first], pathLinks: [], routines: [{ id: 'power-routine', name: 'Power routine with repeated driving and a cooling wait', nodes: [
       { id: 'power-path-1', type: 'path', ref: first.id }, { id: 'power-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } }, { id: 'power-path-2', type: 'path', ref: first.id },
-    ] }], activeRoutineId: 'power-routine', editor: { activePathId: first.id } };
+    ] }], activeRoutineId: 'power-routine', editor: { activePathId: first.id, robotProjectBookmarkId: 'fixture' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
@@ -169,7 +174,7 @@ app.whenReady().then(async () => {
     assert.equal('motorStallCurrentA' in saved.robot.driveModel, false, 'the preset supplies stall current');
     assert.equal(await fieldText('Battery resistance'), '25.0');
     assert.equal(await labelNote('Drive current limit'), 'Stator current limit for each drive motor.');
-    assert.equal(await labelNote('Other mechanisms'), 'Using the default. Current other mechanisms draw while driving.');
+    assert.equal(await labelNote('Other mechanisms'), 'Using the default. Constant current from everything without a command load, such as controllers and sensors.');
     assert.ok(saved.robot.maxSpeed < 4.9);
     await snapshotBothSizes('edited-metric');
     console.log('PASS Keyboard edits store exact canonical values (A, mΩ to Ω, % to fraction); Escape keeps the default');
@@ -201,10 +206,27 @@ app.whenReady().then(async () => {
 
     // Electrical configuration uses the existing numeric drafts and commits exact canonical values.
     await typeInto('Minimum bus voltage', '8');
-    await click('button', 'Add load burst');
-    await typeInto('Load burst 1 start', '0.5');
-    await typeInto('Load burst 1 end', '2');
-    await typeInto('Load burst 1 additional current', '15');
+    // The legacy load is listed, not editable; command loads are where new loads go.
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.power-legacy .settings-label strong')].map((el) => el.textContent).join('|')), '0.5 s – 2 s');
+    assert.equal(await evaluate(() => document.querySelectorAll('.power-legacy input').length), 0);
+    await click('#robot-command-load-add');
+    await click('[role="option"][data-value="shoot"]');
+    // Choosing a command moves focus to its new current field.
+    await wait(() => evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Shoot note current'), 'new load focus');
+    await win.webContents.insertText('40'); await key('Enter');
+    await typeInto('Shoot note run time', '1.5');
+    assert.equal(await placeholder('Shoot note run time'), 'Until stopped');
+    await save();
+    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40, runTimeS: 1.5 }]);
+    // Emptying the run time returns it to "until stopped".
+    await typeInto('Shoot note run time', '');
+    await save();
+    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40 }]);
+    await typeInto('Shoot note run time', '1.5');
+    assert.equal(await evaluate(() => document.querySelector('#robot-command-load-add')?.disabled), false);
+    await click('#robot-command-load-add');
+    assert.equal(await evaluate(() => document.querySelectorAll('[role="option"][data-value="shoot"]').length), 0, 'a configured command is not offered again');
+    await key('Escape');
     await choose('robot-driveBreaker', 'preset');
     await choose('robot-mainBreaker', 'custom');
     await typeInto('Main breaker rating', '120');
@@ -213,6 +235,7 @@ app.whenReady().then(async () => {
     await save();
     assert.equal(saved.robot.driveModel.minimumBusVoltageV, 8);
     assert.deepEqual(saved.robot.driveModel.loadBursts, [{ startTimeS: 0.5, endTimeS: 2, currentA: 15 }]);
+    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40, runTimeS: 1.5 }]);
     assert.deepEqual(saved.robot.driveModel.driveBreaker, { ratedCurrentA: 40, tripTimeAt2xS: 5, initialHeat: 0 });
     assert.deepEqual(saved.robot.driveModel.mainBreaker, { ratedCurrentA: 120, tripTimeAt2xS: 10, initialHeat: 0.25 });
     await win.reload();
@@ -221,7 +244,8 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Minimum bus voltage"]')), 'power settings restored');
     await wait(async () => await fieldText('Minimum bus voltage') === '8.00', 'restored voltage floor');
     assert.equal(await fieldText('Minimum bus voltage'), '8.00');
-    assert.equal(await fieldText('Load burst 1 additional current'), '15.00');
+    await wait(async () => await fieldText('Shoot note current') === '40.0', 'restored command load');
+    assert.equal(await fieldText('Shoot note run time'), '1.50');
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await snapshot(`power-loads-${width}`, 'Loads and breakers');
@@ -229,7 +253,14 @@ app.whenReady().then(async () => {
       await typeInto('Main breaker cold trip at 2×', '99', 'Escape');
       assert.equal(await fieldText('Main breaker cold trip at 2×'), '10.00');
     }
-    console.log('PASS Voltage floor, load schedule and breaker curves survive save/reload; Escape cancels drafts');
+    await click('.power-legacy button[aria-label="Remove timed load 1"]');
+    await wait(() => evaluate(() => !document.querySelector('.power-legacy')), 'legacy load removed');
+    assert.equal(await evaluate(() => document.activeElement?.id), 'robot-command-load-add', 'removing the last legacy load returns focus to Add command');
+    await save();
+    assert.equal('loadBursts' in saved.robot.driveModel, false);
+    win.setContentSize(1440, 900); await delay(150);
+    await snapshot('power-command-loads-1440', 'Loads and breakers');
+    console.log('PASS Command loads, voltage floor and breaker curves survive save/reload; run time clears; legacy loads list and remove; Escape cancels drafts');
     await click('.places .place', 'Paths');
     await wait(() => evaluate(() => !!document.querySelector('.pp-head-actions button') && [...document.querySelectorAll('.pp-head-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'current power report');
     // The report is a bounded, nonmodal popover anchored to its button; focus stays on Power.
@@ -247,7 +278,8 @@ app.whenReady().then(async () => {
       assert.equal(layout.open, true); assert.equal(layout.modal, false); assert.equal(layout.expanded, 'true');
       assert.equal(layout.alert, false, label + ' report failed');
       assert.equal(layout.focus, 'Power', label + ' report took focus');
-      assert.equal(layout.rows, 5);
+      assert.equal(layout.rows, 6);
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.power-report .power-results > div')].find((row) => row.querySelector('dt').textContent === 'Peak mechanism current')?.querySelector('.power-value').textContent), '40.0 A');
       assert.ok(layout.width <= 320 && layout.height <= 440, `${label} report is unbounded at ${width}: ${layout.width}×${layout.height}`);
       assert.ok(layout.inside && layout.gap < 12 && layout.rightAligned, `${label} report is not anchored to Power at ${width}: ${JSON.stringify(layout)}`);
     }

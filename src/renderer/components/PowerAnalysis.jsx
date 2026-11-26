@@ -22,10 +22,12 @@ const heat = value => value == null ? { value: 'Not set', unset: true } : { valu
 /** The readout itself: problems first, then the five estimated quantities with the limit each is read against. */
 export function PowerReportBody({ report, robot, routine = false, error = '', updating = false, titleId }) {
   const findings = report ? powerFindings(report) : [];
+  const unloaded = report?.commandsWithoutLoad?.length || 0;
   const rows = report ? [
     ['Lowest bus voltage', { value: `${number(report.minimumBusVoltageV, 2)} V`, context: `floor ${number(minimumBusVoltage(robot), 2)} V`, bad: report.brownoutRisk || report.collapsed }],
     ['Peak battery current', { value: `${number(report.peakSupplyCurrentA)} A` }],
     ['Peak drive motor current', { value: `${number(report.peakStatorCurrentA)} A`, context: 'per motor', bad: report.currentOverload, tone: 'warn' }],
+    ['Peak mechanism current', { value: `${number(report.peakMechanismCurrentA)} A` }],
     ['Main breaker heat', heat(report.mainBreakerPeakHeat)],
     ['Drive breaker heat', heat(report.driveBreakerPeakHeat)],
   ] : [];
@@ -46,7 +48,9 @@ export function PowerReportBody({ report, robot, routine = false, error = '', up
         h('dt', null, label),
         h('dd', { className: cell.unset ? 'power-value power-unset' : 'power-value' }, cell.value),
         h('dd', { className: 'power-context' }, cell.context || '')))),
-    h('p', { className: 'power-note' }, 'Uses your battery condition, scheduled mechanism loads and breaker curves. Breaker heat fits one cold-curve point, so it does not certify a no-trip run. Regenerative braking is not credited as extra battery capacity.'));
+    report && !error && unloaded > 0 && h('p', { className: 'power-note power-unloaded' },
+      `${unloaded === 1 ? '1 command' : unloaded + ' commands'} started here ${unloaded === 1 ? 'has' : 'have'} no load set, so ${unloaded === 1 ? 'it adds' : 'they add'} no current. Set command loads on the Robot page.`),
+    h('p', { className: 'power-note' }, 'Uses your battery condition, command loads and breaker curves. Breaker heat fits one cold-curve point, so it does not certify a no-trip run. Regenerative braking is not credited as extra battery capacity.'));
 }
 
 function analyze({ robot, path, trajectory, run }) {

@@ -735,6 +735,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       for (const routine of project.routines || []) AUTO.walk(routine.nodes, node => { if (node.invocation?.commandId) ids.add(node.invocation.commandId); });
       return JSON.stringify([...ids].sort());
     }, [project]);
+    // Command loads can name any command in the linked robot code or already used by this project.
+    const robotCommands = useMemo(() => {
+      const listed = (robotProjectState.catalog?.commands || []).map((command) => ({ id: command.id, label: command.label || command.id }));
+      const ids = new Set(listed.map((command) => command.id));
+      return [...listed, ...JSON.parse(usedCommandKey).filter((id) => !ids.has(id)).map((id) => ({ id, label: id }))];
+    }, [robotProjectState.catalog, usedCommandKey]);
     useEffect(() => {
       const api = window.bordeauxAPI, catalog = robotProjectState.catalog;
       if (!api?.ensureCommandWrappers || !catalog || robotProjectState.status !== 'ready' || robotProjectState.operation) return;
@@ -3107,7 +3113,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
         onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
-        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, unitSystem, mcpEnabled, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
+        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),

@@ -68,7 +68,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
   const isTank = drive === 'tank';
   const headingMode = isTank ? 'tangent' : (doc.headingMode || 'targets');
   const facingOffset = doc.driveBackward ? 180 : 0;
-  const limits = PM.effectiveConstraints(doc.constraints, robot);
+  const limits = PM.effectiveConstraints(doc.constraints, robot, doc);
   const name = (index) => PathLinks.waypointName(project, doc, index);
   const timeAt = (f) => tl.empty ? null : tAtF(tl, f);
   const fractionAt = (t) => fAtT(tl, t);

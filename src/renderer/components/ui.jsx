@@ -110,7 +110,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
    * empty query or an unlisted value activates nothing, so a bare or held Enter never picks.
    */
   function Dropdown({ id, label, ariaLabel, value, items = [], onChange, onChoose, disabled, placeholder, icon, searchThreshold = 7,
-    compact = false, className = '', allowCustom = false, customLabel = 'Enter exact value', customPlaceholder = 'Exact runtime value', defaultOpen, activateFirstMatch }) {
+    compact = false, className = '', allowCustom = false, customLabel = 'Enter exact value', customPlaceholder = 'Exact runtime value', customMaxLength, defaultOpen, activateFirstMatch }) {
     const [open, setOpen] = useState(() => Boolean(defaultOpen) && !disabled);
     const [query, setQuery] = useState('');
     const [activeIndex, setActiveIndex] = useState(0);
@@ -288,7 +288,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
         if (exactValue) choose(exactValue);
       } },
         h('label', { className: 'sr-only', htmlFor: id + '-custom' }, customLabel),
-        h('input', { id: id + '-custom', ref: customRef, value: customDraft, placeholder: customPlaceholder,
+        h('input', { id: id + '-custom', ref: customRef, value: customDraft, placeholder: customPlaceholder, maxLength: customMaxLength,
           autoComplete: 'off', spellCheck: false, 'aria-label': customLabel,
           onKeyDown: (event) => { if (event.key !== 'Escape' && event.key !== 'Tab') event.stopPropagation(); },
           onChange: (event) => setCustomDraft(event.target.value) }),
