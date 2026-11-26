@@ -67,8 +67,8 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   console.log(`Optimizer UI verification artifacts: ${output}`);
   const child = spawn(electron, [path.join(root, 'scripts/verify-optimizer-ui-electron.cjs')], { cwd: root, env, stdio: 'inherit' });
-  // 240 s, up from 150 s: Optimize all now searches five paths, and the flow applies, undoes and re-optimizes a detour.
-  timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 240_000);
+  // Keep the existing total bound and every condition deadline unchanged.
+  timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 150_000);
   status = await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', (code, signal) => resolve({ code, signal, pid: child.pid }));
@@ -79,7 +79,7 @@ try {
   await json('inputs-after.json', after);
   stableInputs = JSON.stringify(before) === JSON.stringify(after);
   assert.ok(stableInputs, 'Source/build/harness changed during native verification');
-  assert.equal(timedOut, false, 'Native process exceeded its 240-second bound');
+  assert.equal(timedOut, false, 'Native process exceeded its existing 150-second bound');
   assert.equal(status.code, 0, 'Native child must exit successfully');
   assert.equal(status.signal, null);
   const result = JSON.parse(await fs.readFile(path.join(output, 'result.json'), 'utf8'));
@@ -112,7 +112,7 @@ try {
     + observerSource + ', args: [' + JSON.stringify(observerSha256) + '] });\n');
   assert.equal(registration.sha256, createHash('sha256').update(preloadSource).digest('hex'));
   assert.equal(evidence.checkpoints.length, 6);
-  assert.equal(new Set(evidence.checkpoints.map(point => point.label)).size, 8);
+  assert.equal(new Set(evidence.checkpoints.map(point => point.label)).size, 6);
   assert.ok(evidence.checkpoints.every(point => point.passed === true && result.checks.includes(point.label)));
   assert.ok(evidence.documents.every(doc => doc.problems.length === 0 && doc.jobs.some(job => job.mode === 'editing')));
   assert.ok(evidence.documents.every(doc => doc.installed === true && doc.installedReadyState === 'loading'
