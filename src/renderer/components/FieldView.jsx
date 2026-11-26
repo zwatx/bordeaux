@@ -14,6 +14,7 @@ import { isWholeIssue, plainProblem } from './planProblems';
 import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
 import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
 import { UnitPrefs } from '../lib/unitPreferences';
+import { sample as sampleGeometry } from '../../core/math/geometry';
 
   const { useRef, useState, useEffect, useMemo, useCallback, useId } = React;
   const h = React.createElement;
@@ -183,7 +184,7 @@ import { UnitPrefs } from '../lib/unitPreferences';
   }
 
   function FieldView(props) {
-    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, showTags, robot, drive, accent, metric, playTime, actions, routine, routinePose, routineJumps, problems, hoverStore, hoverContext } = props;
+    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, showTags, robot, drive, accent, metric, playTime, actions, routine, routinePose, routineJumps, routineGhost, problems, hoverStore, hoverContext } = props;
     const interactionReady = props.interactionReady !== false;
     const showHandles = props.showHandles !== false;
     const svgRef = useRef(null);
@@ -1322,6 +1323,21 @@ import { UnitPrefs } from '../lib/unitPreferences';
             h('text', { x: 0, y: T(3.6), fill: S.col, fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, text)));
       });
     }, [routine, routineJumps, view.w, cw, textUpp]);
+    // A path the routine path library is previewing: its authored shape as a white dashed ghost, unlike the planned
+    // paths, with the robot outlined where the path would start from and a dotted line to the ghost's start.
+    const ghostPoints = useMemo(() => (routine && routineGhost?.path?.waypoints?.length > 1 ? sampleGeometry(routineGhost.path.waypoints, 24).pts.map(W2P) : null), [routine, routineGhost?.path]);
+    const routineGhostEl = ghostPoints && (() => {
+      const d = ghostPoints.map((point, index) => (index ? 'L ' : 'M ') + point.x.toFixed(1) + ' ' + point.y.toFixed(1)).join(' ');
+      const start = ghostPoints[0], end = ghostPoints.at(-1), pose = routineGhost.pose, at = pose && W2P(pose);
+      return h('g', { className: 'routine-ghost', 'data-path': routineGhost.path.id, style: { pointerEvents: 'none' } },
+        h('path', { d, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.1, strokeWidth: P(12), strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        h('path', { d, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.9, strokeWidth: P(2.2), strokeDasharray: `${P(7)} ${P(5)}`, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        at && h('line', { className: 'routine-ghost-gap', x1: at.x, y1: at.y, x2: start.x, y2: start.y, stroke: '#ffffff', strokeOpacity: 0.6, strokeWidth: P(1.4), strokeDasharray: `${P(2)} ${P(4)}`, strokeLinecap: 'round' }),
+        at && h('polygon', { className: 'routine-ghost-robot', transform: `translate(${at.x} ${at.y}) rotate(${-(pose.heading || 0) * 180 / Math.PI})`, points: footprintPoints(robot, 1),
+          fill: 'none', stroke: '#ffffff', strokeOpacity: 0.55, strokeWidth: P(1.6), strokeDasharray: `${P(5)} ${P(4)}`, strokeLinejoin: 'round' }),
+        h('circle', { cx: start.x, cy: start.y, r: P(5), fill: '#0b0c0e', stroke: '#ffffff', strokeWidth: P(1.8) }),
+        h('rect', { x: end.x - P(4.5), y: end.y - P(4.5), width: P(9), height: P(9), rx: P(1.5), fill: '#0b0c0e', stroke: '#ffffff', strokeOpacity: 0.8, strokeWidth: P(1.6) }));
+    })();
     // Step badges above the paths, emphasized ones last. A badge selects its step like the path does.
     const routineBadgeEls = useMemo(() => {
       if (!routineBadges) return null;
@@ -1498,6 +1514,7 @@ import { UnitPrefs } from '../lib/unitPreferences';
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
       routine ? routineJumpEls : null,
+      routine ? routineGhostEl : null,
       routine ? routineBadgeEls : null,
       routine ? routineLabels : null,
       routine ? routineRobot : robotEl,

@@ -3,7 +3,7 @@ import { UI } from './ui';
 import { Glyph } from './routineGlyphs';
 import { modifierName } from '../lib/shortcuts';
 import { commandIndex, markMatches } from '../lib/commandIndex';
-import { commandGroupKey, commandSourceRows, GROUP_LIMIT, pathSourceRows, SEARCH_LIMIT } from '../lib/routineSources';
+import { commandGroupKey, commandSourceRows, GROUP_LIMIT, pathSourceRows, pathStartHint, SEARCH_LIMIT } from '../lib/routineSources';
 
 // Adding a step is two decisions in two places. In the flow, an insertion slot sits exactly where the step will land
 // and carries a small strip of actions: Path and Command open a source library, the routine's own steps (Wait,
@@ -106,9 +106,11 @@ const closedFolders = new Set();
  * chooses another path for an existing step. Rows are buttons with one Tab stop: ↓ from the search enters the list,
  * ↑/↓ move, →/← open and close a group, typing returns to the search, Enter (or a click) picks, and with a search
  * Enter picks the top match. Escape clears the search, then closes. Tab leaves for the strip (or, replacing, closes).
+ * For paths, `startPose` is the robot's pose where the chosen path would start: each row says whether it starts there,
+ * and paths that do are listed first too. `onPreview(pathId | null)` follows the hovered or focused path row.
  */
 export function SourceLibrary({ kind, mode = 'insert', title, dest, paths = [], pathFolders, pathTimes, uses, catalog, usage, current, note, emptyNote,
-  onPick, onClose, onBack, autoFocus, added, onCommandless }) {
+  onPick, onClose, onBack, autoFocus, added, onCommandless, startPose, robot, onPreview }) {
   const ref = useRef(null), search = useRef(null);
   const [query, setQuery] = useState('');
   const [closed, setClosed] = useState(() => new Set(closedFolders));
@@ -122,9 +124,15 @@ export function SourceLibrary({ kind, mode = 'insert', title, dest, paths = [], 
   const [focusKey, setFocusKey] = useState(null);
   const [announcement, setAnnouncement] = useState('');
   useEffect(() => { setLimits((map) => (map.has('') ? new Map([...map].filter(([key]) => key)) : map)); }, [query]);
+  const hints = useMemo(() => new Map(kind === 'path' && startPose ? paths.map((path) => [path.id, pathStartHint(path, startPose, robot)]) : []), [kind, paths, startPose, robot]);
+  const continues = useMemo(() => new Set([...hints].filter(([, hint]) => hint?.here).map(([id]) => id)), [hints]);
+  // The field previews the path under the pointer, else the focused one, and nothing once the library closes.
+  const hovered = useRef(null), focusedPath = useRef(null);
+  const preview = () => onPreview?.(hovered.current ?? focusedPath.current ?? null);
+  useEffect(() => () => onPreview?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(() => (kind === 'path'
-    ? pathSourceRows(paths, { folders: pathFolders, times: pathTimes, uses, query, closed, current })
-    : index ? commandSourceRows(index, { query, usage, open, limits }) : []), [kind, paths, pathFolders, pathTimes, uses, query, closed, current, index, usage, open, limits]);
+    ? pathSourceRows(paths, { folders: pathFolders, times: pathTimes, uses, query, closed, current, continues })
+    : index ? commandSourceRows(index, { query, usage, open, limits }) : []), [kind, paths, pathFolders, pathTimes, uses, query, closed, current, continues, index, usage, open, limits]);
   const focusable = rows.filter((row) => row.type !== 'label');
   const firstItem = rows.find((row) => row.type === 'item');
   // The one Tab stop: the row last focused while it is still listed, else the current choice, else the first row.
@@ -214,11 +222,16 @@ export function SourceLibrary({ kind, mode = 'insert', title, dest, paths = [], 
     if (item.kind === 'path') {
       // Like the Paths library: the name, its time on the right, and only the context that list lacks underneath.
       const used = item.uses === 1 ? 'In this routine' : item.uses > 1 ? 'Used ' + item.uses + '× in this routine' : '';
+      const hint = hints.get(item.ref);
       const note = [item.folder, used].filter(Boolean).join(' · ');
-      const meta = [item.folder, item.time, used].filter(Boolean).join(' · ');
+      const meta = [hint?.text, item.folder, item.time, used].filter(Boolean).join(' · ');
       return h('button', { ...common, className: 'rt-src-item path' + (top ? ' top' : '') + (chosen ? ' chosen' : ''), style: { '--depth': item.depth || 0 }, 'aria-current': chosen || undefined,
-        'aria-label': item.label + (meta ? ', ' + meta : '') + (chosen ? ', current path' : ''), onClick: (event) => pick(item, event.ctrlKey || event.metaKey) },
-        h('span', { className: 'rt-src-text' }, h('span', { className: 'rt-src-name' }, marked(item.label)), note && h('small', null, note)),
+        'aria-label': item.label + (meta ? ', ' + meta : '') + (chosen ? ', current path' : ''), onClick: (event) => pick(item, event.ctrlKey || event.metaKey),
+        onMouseEnter: () => { hovered.current = item.ref; preview(); }, onMouseLeave: () => { hovered.current = null; preview(); },
+        onFocus: () => { setFocusKey(item.key); focusedPath.current = item.ref; preview(); },
+        onBlur: (event) => { if (!event.relatedTarget?.closest?.('.rt-src-item.path')) { focusedPath.current = null; preview(); } } },
+        h('span', { className: 'rt-src-text' }, h('span', { className: 'rt-src-name' }, marked(item.label)),
+          (hint || note) && h('small', null, hint && h('span', { className: 'rt-src-start' + (hint.here ? ' here' : '') }, hint.text), hint && note && ' · ', note)),
         h('span', { className: 'rt-src-time' }, item.time),
         chosen ? h('span', { className: 'rt-src-mark', 'aria-hidden': true }, h(Icon, { name: 'check', size: 13 })) : top ? h('kbd', { className: 'rt-src-enter', 'aria-hidden': true }, '↵') : h('span', { 'aria-hidden': true }));
     }

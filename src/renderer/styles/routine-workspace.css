@@ -367,3 +367,6 @@
 .rt-jump-path{color:var(--txt);font-weight:600}
 .rt-jump-review{margin:0;color:var(--txt-3);font-size:11.5px;line-height:1.45}
 .rt-jump-review.reach{color:var(--txt-2)}
+/* A path row's start relative to the insertion point: "Starts here" reads as good news, a distance stays quiet. */
+.rt-src-start{color:var(--txt-3);font-variant-numeric:tabular-nums}
+.rt-src-start.here{color:var(--good)}

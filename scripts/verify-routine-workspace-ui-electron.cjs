@@ -105,6 +105,16 @@ async function load(expected = 'choice') {
   await click('[data-library-item="routine-workspace-test"]');
   await wait(() => evaluate(expected => Boolean(document.querySelector(expected ? '[data-id="' + expected + '"]' : '.rt-panel')), expected), 'restored flow');
 }
+// The path library's rows while choosing a path: each row's start hint and height, and the field's ghost path.
+const pathPicker = () => evaluate(() => ({
+  rows: [...document.querySelectorAll('#rt-source .rt-src-item.path')].map(el => ({ row: el.dataset.row, hint: el.querySelector('.rt-src-start')?.textContent ?? null, height: el.getBoundingClientRect().height })),
+  labels: [...document.querySelectorAll('#rt-source .rt-src-label')].map(el => el.textContent),
+  ghost: document.querySelector('.routine-workspace-field .routine-ghost')?.dataset.path ?? null,
+  ghostRobot: Boolean(document.querySelector('.routine-workspace-field .routine-ghost-robot')) }));
+async function hoverRow(row) {
+  const point = await evaluate((row) => { const el = document.querySelector('#rt-source [data-row="' + row + '"]'); el.scrollIntoView({ block: 'nearest' }); const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; }, row);
+  win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+}
 const catalog = { runtime: 'labview', authoritative: true, generatedSchemaVersion: '1.3', projectName: 'Routine UI fixture',
   sourceFileCount: 1, scannedAt: '', warnings: [], commands: [],
   conditions: [{ id: 'piece', label: 'Enough game pieces collected', description: 'Illustrative registered condition for the UI fixture.' }],
@@ -274,6 +284,24 @@ app.whenReady().then(async () => {
       assert.deepEqual(slot, { slots: 1, after: true, inRail: true, routinesHidden: true, beside: true, kind: 'Add path', stripFits: true, old: false,
         actions: ['path', 'command', 'wait', 'repeat', 'group:parallel', 'group:sequential', 'end'] }, 'A opens one slot after the step and the path library beside the flow');
       assert.deepEqual(await evaluate(() => [...document.querySelectorAll('#rt-source .rt-src-group, #rt-source .rt-src-label')].map(el => el.textContent)), ['Collection1', 'Not in a folder'], 'Paths are grouped by the project folders');
+      // Each path row says how far its start is from where the robot is at the slot (after "return": the route's end),
+      // in the display units; none starts there, so no "Continues from here" block. Hovering a row draws that path as
+      // a ghost with the robot outlined at the slot, without moving any row; leaving it removes the ghost.
+      const robotWidth = Math.min(published.robot.l, published.robot.w), slotEnd = published.paths.find(p => p.id === route.id).waypoints.at(-1);
+      const hintFor = (id) => {
+        const start = published.paths.find(p => p.id === id).waypoints[0], d = Math.hypot(start.x - slotEnd.x, start.y - slotEnd.y);
+        return d <= robotWidth * 0.1 ? 'Starts here' : (units === 'metric' ? d.toFixed(1) + ' m off' : (d * 3.280839895013123).toFixed(1) + ' ft off');
+      };
+      const picker = await pathPicker();
+      assert.deepEqual(picker.rows.map(r => r.hint), picker.rows.map(r => hintFor(r.row.slice(5))), 'Path rows show their start relative to the slot: ' + JSON.stringify(picker.rows));
+      assert.ok(!picker.labels.includes('Continues from here') && picker.ghost === null, 'No continuing paths and no ghost before hovering');
+      await hoverRow('path:' + spare.id);
+      await wait(async () => (await pathPicker()).ghost === spare.id, 'hovering a path row draws its ghost');
+      const hovered = await pathPicker();
+      assert.ok(hovered.ghostRobot && JSON.stringify(hovered.rows.map(r => r.height)) === JSON.stringify(picker.rows.map(r => r.height)), 'The ghost starts from the robot at the slot and no row moves: ' + JSON.stringify(hovered));
+      await snapshot('path-ghost-' + width);
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: Math.round((await evaluate(() => innerHeight)) - 4) });
+      await wait(async () => (await pathPicker()).ghost === null, 'leaving the row removes the ghost');
       await snapshot('insert-' + width);
       assert.ok(await evaluate(() => {
         const pass = document.querySelector('.rt-timeline-pass-now'), step = document.querySelector('.rt-timeline-step');
@@ -292,11 +320,13 @@ app.whenReady().then(async () => {
       await wait(() => evaluate(() => document.activeElement?.matches('#rt-source input')), 'P moves into the path library search');
       await key('Down');
       assert.equal(await evaluate(() => document.activeElement.dataset.row), 'path:' + route.id, 'Down enters the path list');
+      await wait(async () => (await pathPicker()).ghost === route.id, 'the focused path row draws its ghost');
       await key('Enter');
       await wait(async () => (await source())[0].nodes.length === 3, 'insert a real path after shared continuation');
       const added = (await source())[0].nodes[2];
       assert.equal(added.type, 'path'); assert.equal(added.ref, route.id);
       assert.ok(await evaluate(() => !document.querySelector('#rt-source') && document.activeElement.closest('.rt-step')?.dataset.id), 'A pick closes the library and focuses the new step');
+      assert.equal((await pathPicker()).ghost, null, 'Closing the library removes the ghost');
       await key('z', ['meta']);
       await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'exact undo of inserted path');
       // Shift+A adds before the step; one click on a path in the library inserts it there.
@@ -317,6 +347,8 @@ app.whenReady().then(async () => {
       await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Change path opens the path library');
       assert.deepEqual(await evaluate(() => ({ marked: document.querySelector('[data-id="return"]').classList.contains('replacing'), current: document.querySelector('#rt-source [aria-current="true"]')?.dataset.row,
         title: document.querySelector('#rt-source h2').textContent })), { marked: true, current: 'path:' + route.id, title: 'Change path' });
+      // Change path compares with the pose before the step: the end of "score", the route's end again.
+      assert.deepEqual((await pathPicker()).rows.map(r => r.hint), (await pathPicker()).rows.map(r => hintFor(r.row.slice(5))), 'Change path rows compare with the pose before the step');
       await snapshot('change-path-' + width);
       await key('Escape');
       assert.ok(await evaluate(() => document.activeElement.matches('.routine-change-path') && !document.querySelector('#rt-source, .rt-step.replacing')), 'Escape returns to Change path');
@@ -522,6 +554,11 @@ app.whenReady().then(async () => {
         && Boolean(document.querySelector('.rt-empty .rt-slot.first [data-action="wait"]')) && !document.querySelector('#rt-source')), 'Empty routine shows its first step slot');
       await click('.rt-slot.first [data-action="path"]');
       await wait(() => evaluate(() => document.activeElement?.matches('#rt-source input')), 'Path opens the library from the first step');
+      // The first step has no pose before it: rows have no start hint and the ghost has no robot outline.
+      await hoverRow('path:' + route.id);
+      await wait(async () => (await pathPicker()).ghost === route.id, 'the first step still previews the hovered path');
+      const first = await pathPicker();
+      assert.ok(first.rows.every(r => r.hint === null) && !first.ghostRobot, 'The first step shows the ghost only: ' + JSON.stringify(first));
       await snapshot('empty-library-' + width);
       await key('Escape');
       assert.ok(await evaluate(() => document.activeElement.matches('.rt-slot.first [data-action="path"]') && !document.querySelector('#rt-source') && Boolean(document.querySelector('.rt-slot.first'))),
@@ -705,7 +742,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, self-follow without link, link as one Undo', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

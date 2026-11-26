@@ -1957,6 +1957,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       lastRun.current = nextRun;
       return nextRun;
     }, [page, routine, project.paths, robot, routineOutcomes, routinePasses, plannerId, robotProjectState.catalog, routinePlans]);
+    // The same trace for a trial routine (the path library reads the pose where a chosen path would start).
+    const traceRoutine = useCallback((trial) => AUTO.buildRun(trial, project.paths, robot, routineOutcomes, plannerId, robotProjectState.catalog, routinePlans, { repeatPasses: routinePasses }),
+      [project.paths, robot, routineOutcomes, routinePasses, plannerId, robotProjectState.catalog, routinePlans]);
+    // The path the routine path library is previewing on the field, with the pose it would start from.
+    const [routinePathPreview, setRoutinePathPreview] = useState(null);
     // A changed trace (source, plans or local choices) stops playback so the robot never shows stale geometry.
     useEffect(() => { routinePlaybackStore.reset(); routinePlaybackStore.setTotal(run.total); }, [routinePlaybackStore, run]);
     // Choices belong to one routine in one project.
@@ -3110,9 +3115,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             h('div', { ref: setRoutineSourceHost, className: 'rt-source-host' }),
             h(RoutineWorkspace, {
               routine, run, robot,
-              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource }),
+              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource, traceRoutine, robot, onPathPreview: setRoutinePathPreview }),
               field: h(React.Fragment, null,
-                h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, showTags, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
+                h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, routineGhost: routinePathPreview, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, showTags, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
                 h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: h(React.Fragment, null,
