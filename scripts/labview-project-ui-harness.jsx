@@ -121,4 +121,11 @@ await test('Mac platform fixture retains saved inputs, Refresh and existing comm
   await mount('darwin'); await menu(); assert(!document.querySelector('#project-menu').textContent.includes('Using saved command inputs'),'Successful saved inputs stay quiet'); await pointer('Refresh commands'); assert(calls[0]==='refresh','Mac fixture Refresh callback');
   await pointer(document.querySelector('.choice-change')); assert(document.querySelector('#fixture-command'),'Actual command browser opens'); await key('Escape'); await pointer(document.querySelector('#fixture-speed')); assert(document.activeElement.id==='fixture-speed','Actual parameter editor reachable'); await native({capture:'mac-ready'});
 });
+await test('A newly created wrapper references VI is reported once, under its code', async()=>{
+  await mount(); props.notice='Created Bordeaux Command Wrappers.vi beside the robot project. Place it once on the Autonomous.vi block diagram.'; await render(); await menu();
+  const fact=document.querySelector('#project-menu .project-menu-fact[role="status"]'); assert(fact?.textContent===props.notice,'Notice is shown as a status fact');
+  assert(!document.querySelector('#project-menu [role="alert"]'),'A notice is not an error');
+  const box=fact.getBoundingClientRect(), panel=document.querySelector('#project-menu').getBoundingClientRect(); assert(box.left>=panel.left&&box.right<=panel.right&&box.height<120,'Notice wraps inside the menu');
+  await native({capture:'wrapper-references-created'}); await key('Escape'); assert(document.activeElement.matches('.project-chip'),'Escape returns chip');
+});
 await act(async()=>root.render(<pre id="verification-report">{JSON.stringify(results,null,2)}</pre>));
