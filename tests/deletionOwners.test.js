@@ -189,7 +189,7 @@ describe('actual App command branch owner',()=>{
   let h=branchHarness({...commandNode(),invocation:{commandId:'gone',arguments:{}}});
   expect(h.render()('cmd',{kind:'command',commandId:'nope'}).status).toBe('refused');expect(h.size()).toBe(0);
   expect(h.render()('cmd',{kind:'command',commandId:''}).status).toBe('applied');
-  expect(h.live()).toMatchObject({title:'Robot command',invocation:null});expect(h.state.notice.detail).toBe('Cleared the command. Removed 5 branch steps.');
+  expect(h.live()).toMatchObject({title:'Scan',invocation:null});expect(h.state.notice.detail).toBe('Cleared the command. Removed 5 branch steps.');
   const missing=()=>({...commandNode(),outputBranch:{...commandNode().outputBranch,output:'gone'}});
   h=branchHarness(missing());const b=h.render();
   expect(b('cmd',{kind:'output',output:'gone'}).status).toBe('unchanged');expect(b('cmd',{kind:'rebuild'}).status).toBe('unchanged');expect(b('cmd',{kind:'output',output:'nope'}).status).toBe('refused');

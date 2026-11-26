@@ -2025,7 +2025,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         const carried = branch && AUTO.carryBranch(branch, AUTO.branchOutputs(next).find((output) => output.name === branch.output));
         result = { status: 'applied', removed: carried ? 0 : AUTO.routeSteps(branch?.routes || []) };
         const loop = next ? AUTO.carryLoop(node.invocation?.loop, next) : undefined;
-        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
+        // A name the team gave the step stays; a default title follows the new binding.
+        patch = { title: AUTO.commandOwnName(node, owner.catalog) || AUTO.commandDefaultTitle(next), invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
       } else {
         result = AUTO.branchEdit(branch, outputs, intent);
         patch = { outputBranch: result.branch && clone(result.branch) };

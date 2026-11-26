@@ -26,6 +26,10 @@ describe('routine group and loop validation', () => {
   it('accepts groups of commands, waits and nested groups, with time and output loops', () => {
     expect(validateProject(project([group('g', 'parallel', [cmd('a', timeLoop(5)), group('s', 'sequential', [wait('w'), cmd('b', doneLoop)])], 'Intake and aim')])).issues).toEqual([]);
   });
+  it('accepts a named command step and rejects a name that is not text', () => {
+    expect(messages([{ ...cmd('a'), title: 'Intake on' } as RoutineNode])).toEqual([]);
+    expect(messages([{ ...cmd('a'), title: 7 } as unknown as RoutineNode])).toContain('Step name must be text of at most 1024 characters');
+  });
   it('rejects paths, repeats, ends and branching commands inside a group', () => {
     const pathId = createDemoProject().paths[0].id;
     const branching = { ...cmd('c'), outputBranch: { output: 'finished', schema: boolean, routes: [

@@ -383,6 +383,8 @@ function validateRoutineNodes(
       return;
     }
     if (!["command", "terminate", "sequence", "generate", "velocity"].includes(String(node.cat))) issues.push(issue(`${base}.cat`, "Routine function category is invalid"));
+    // A step's name is display text only; export never reads it.
+    if (node.title !== undefined && (typeof node.title !== "string" || node.title.length > 1024)) issues.push(issue(`${base}.title`, "Step name must be text of at most 1024 characters"));
     if (node.cat === "command" && isRecord(node.invocation) && node.invocation.loop !== undefined) {
       validateCommandLoop(issues, node.invocation.loop, `${base}.invocation.loop`, "routine");
       if (node.outputBranch !== undefined) issues.push(issue(`${base}.invocation.loop`, "A looping command cannot branch on its output"));

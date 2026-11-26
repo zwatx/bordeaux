@@ -247,10 +247,25 @@ import { createRoutineNodeId } from "../../core/project/ids";
       const generator = trajectoryGenerator(catalog, node.generatorId);
       return `${generator ? generator.label : (node.generatorId || 'Generated trajectory')}, Runtime dynamic`;
     }
-    if (node.cat === 'command') return node.title || (node.invocation && node.invocation.commandId) || 'Choose command';
+    if (node.cat === 'command') return (typeof node.title === 'string' && node.title.trim()) || (node.invocation && node.invocation.commandId) || 'Choose command';
     if (node.cat === 'generate') return node.funcRef || 'GeneratePath';
     if (node.cat === 'sequence') { const o = seqOp(node.op); return o.verb + (node.target ? ', ' + node.target : ''); }
     return node.title || (CATS[node.cat] && CATS[node.cat].label) || 'Unknown step';
+  }
+
+  // ---- command step names ----
+  // A command step's title is its name in the flow. Binding gives it a default (the command's label, or "Robot command"
+  // for a placeholder); a team can name it instead, which is how placeholders are told apart before the code exists.
+  // Change command replaces only a default title, so a team's name survives binding. Titles never reach the robot.
+  const PLACEHOLDER_COMMAND_TITLE = 'Robot command';
+  /** The title binding `command` (or none) gives a command step. */
+  function commandDefaultTitle(command) { return (command && command.label) || PLACEHOLDER_COMMAND_TITLE; }
+  /** A command step's own name, or '' when its title is only the default of its current binding. */
+  function commandOwnName(node, catalog) {
+    const title = typeof node?.title === 'string' ? node.title.trim() : '';
+    const commandId = node?.invocation?.commandId;
+    const command = commandId ? catalog?.commands?.find((item) => item.id === commandId) : null;
+    return !title || title === commandDefaultTitle(command) || title === commandId ? '' : title;
   }
 
   // ---- node factory ----
@@ -263,7 +278,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
     if (type === 'decision') return { id, type: 'decision', cond: '', thenLabel: 'Yes', elseLabel: 'No', then: [], else: [] };
     if (type === 'builtin' && cat === 'wait') return { id, type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 1 } };
     const c = cat || 'terminate';
-    if (c === 'command') return { id, type: 'function', cat: 'command', title: 'Robot command', invocation: null };
+    if (c === 'command') return { id, type: 'function', cat: 'command', title: PLACEHOLDER_COMMAND_TITLE, invocation: null };
     if (c === 'generate') return { id, type: 'function', cat: 'generate', funcRef: 'GeneratePath', trigger: 'On entry', params: [], note: '', preview: null };
     if (c === 'sequence') return { id, type: 'function', cat: 'sequence', op: 'skip', target: '', trigger: 'When condition is true', note: '' };
     if (c === 'velocity') return { id, type: 'function', cat: 'velocity', title: 'Velocity rule', trigger: 'When condition is true', scale: 0.5, note: '' };
@@ -607,7 +622,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, stepNumbers, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, walk, findNode, countSteps, stepNumbers, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay, jumpSize,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 

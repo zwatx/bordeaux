@@ -655,7 +655,9 @@ export function RoutinePanel(props) {
     const result = edit(insertOperation(routine, where, node));
     if (!result.changed) { if (adding.anchor?.isConnected) adding.anchor.focus(); else if (adding.navKey) refocusKey.current = adding.navKey; return; }
     const inputs = item.kind === 'command' && (item.command?.parameters || []).some((parameter) => parameter.role === 'argument');
-    if (inputs) focusFirstInput(result.focusId || node.id); else if (result.focusId) focusStep(result.focusId);
+    // A placeholder opens on its name, so a team can tell two apart before the code exists; left empty it keeps the default.
+    if (item.kind === 'command' && !item.command) focusInspector(result.focusId || node.id, '.routine-step-name');
+    else if (inputs) focusFirstInput(result.focusId || node.id); else if (result.focusId) focusStep(result.focusId);
   };
   /** A path chosen for an existing step replaces its reference; the step keeps its place and identity. */
   const replacePath = (item) => {
@@ -835,6 +837,11 @@ export function RoutinePanel(props) {
     }
     return { meta: 'Unsupported step · ignored by the preview', problem: 'warn' };
   }
+  /** The bound command's label when the team gave the step its own name, else ''. */
+  function boundName(node) {
+    if (node.type !== 'function' || node.cat !== 'command' || !A.commandOwnName(node, catalog)) return '';
+    return catalog?.commands?.find((item) => item.id === node.invocation?.commandId)?.label || '';
+  }
   function durationOf(node, seg) {
     if (node.type === 'path') return seg ? fmt(seg.t1 - seg.t0) : '';
     if (node.type === 'builtin') return (node.ends?.endWhen ? '≤ ' : '') + fmt(node.arguments?.durationS);
@@ -907,6 +914,8 @@ export function RoutinePanel(props) {
         h('span', { className: 'rt-step-title' }, title, loop && h('span', { className: 'rt-step-loop', 'aria-hidden': true }, h(Glyph, { name: 'loop', size: 12 }))),
         // A named group still says how it runs; an unnamed one already does in its name.
         node.type === 'group' && node.title?.trim() && h('span', { className: 'rt-step-kind' }, node.mode === 'sequential' ? 'In sequence' : 'In parallel'),
+        // Likewise a command the team named still says which command it runs, so the name never hides the binding.
+        boundName(node) && h('span', { className: 'rt-step-kind runs' }, boundName(node)),
         // A warning is a mark beside the name; its sentence is the tooltip and stays in the accessible name.
         // A pose jump's mark is sized like the jump (AUTO.jumpSize), as on the field and in the inspector.
         info.problem === 'warn' && h('span', { className: 'rt-step-flag', 'data-jump': info.jump, 'aria-hidden': true }),
