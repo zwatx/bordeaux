@@ -42,7 +42,7 @@ import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFo
 import { projectDocuments } from "../src/core/project/folderLayout";
 import { normalizeProject } from "../src/core/project/normalize";
 import { validateProject } from "../src/core/validation";
-import type { BordeauxProject, ConstraintRange, PathDoc, PlannerResult, RobotConfig, Waypoint } from "../src/core/types";
+import type { BordeauxProject, PathDoc, PlannerResult, RobotConfig, Waypoint } from "../src/core/types";
 
 const corpus = normalizeProject(JSON.parse(readFileSync(new URL("../benchmarks/planner-corpus/v2/corpus.bordeaux.json", import.meta.url), "utf8"))) as BordeauxProject;
 

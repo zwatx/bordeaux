@@ -158,8 +158,9 @@ export function routePlanningPath(task: PathDoc, geometry: RouteGeometry): PathD
     const point = task.waypoints[leg];
     if (required && (point.x !== knot.x || point.y !== knot.y)) throw new Error("Route moved a required point");
     const moving = isMoving(required ? point : { stop: false }, index, count);
-    if (moving) {
-      // A moving waypoint is always smooth with collinear handles; a curve the path cannot hold is never applied.
+    // An added waypoint is smooth with collinear handles, as every moving waypoint is; a curve the path cannot
+    // hold is never applied. A required moving waypoint is aligned below exactly as loading aligns it.
+    if (moving && !required) {
       const a = { x: knot.x - knot.prevC.x, y: knot.y - knot.prevC.y };
       const b = { x: knot.nextC.x - knot.x, y: knot.nextC.y - knot.y };
       const lengths = Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y);

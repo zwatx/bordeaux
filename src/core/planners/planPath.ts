@@ -825,8 +825,14 @@ function planPathUnchecked(input: PlannerInput, options: PlanPathOptions): PlanP
  */
 function withFieldCollision(input: PlannerInput, result: PlanPathResult): PlanPathResult {
   const samples = result.trajectory?.samples ?? result.bestEffort?.samples;
-  if (!samples?.length || (input.field !== undefined && stable(input.field) !== stable(ACTIVE_FIELD_REFERENCE))) return result;
-  const range = fieldCollisionRange(input.robot, samples);
+  if (!samples?.length || !input.robot || (input.field !== undefined && stable(input.field) !== stable(ACTIVE_FIELD_REFERENCE))) return result;
+  let range: ReturnType<typeof fieldCollisionRange>;
+  try {
+    range = fieldCollisionRange(input.robot, samples);
+  } catch {
+    // A robot the footprint model cannot read is reported by planning itself.
+    return result;
+  }
   if (!range) return result;
   return { ...result, issues: sortIssues([...result.issues, {
     code: "field-collision", severity: "warning", f0: range.f0, f1: range.f1,

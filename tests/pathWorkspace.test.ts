@@ -62,8 +62,14 @@ describe("plain problem wording", () => {
     const issue = { code: "unreachable-acceleration", severity: "error", f0: 0.2, f1: 0.4, segment: 1, measured: 350, limit: 5.82, unit: "m/s²", constraint: "motor-acceleration", message: "Required 350 m/s²" };
     expect(plainProblem(issue, 4)).toEqual({
       text: "Can’t speed up in time", where: "Segment 2", values: "350 m/s² needed · limit 5.82 m/s²", by: "Motors",
-      engine: "Required 350 m/s²", fixable: true,
+      engine: "Required 350 m/s²", fixable: true, advice: null,
     });
+  });
+
+  it("says how to clear a field collision, which no zone fixes", () => {
+    const issue = { code: "field-collision", severity: "warning", f0: 0.3, f1: 0.5, message: "Robot hits the field" };
+    expect(plainProblem(issue, 3)).toMatchObject({ text: "Robot hits the field", engine: null, fixable: false,
+      advice: "Optimize again or edit the path so the robot clears it." });
   });
 
   it("keeps the engine message for unknown codes and offers no fix for the whole path", () => {

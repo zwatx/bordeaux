@@ -4,10 +4,19 @@ import { buildBdxExportWithPlannerResults } from "../src/core/export/bdx";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { getPlanner } from "../src/core/planners";
 import * as plannerRegistry from "../src/core/planners";
-import { planPath, type PlanPathResult } from "../src/core/planners/planPath";
+import { planPath as planWithField, type PlanPathResult } from "../src/core/planners/planPath";
 import type { PlannerInput, PlannerResult, SegmentType } from "../src/core/types";
 
 type DemoProject = ReturnType<typeof createDemoProject>;
+
+/**
+ * These fixtures drive straight lines through field elements, which planPath reports as a field
+ * collision. That warning has its own tests (optimizeEditsPath.test.ts); here it is set aside.
+ */
+function planPath(...args: Parameters<typeof planWithField>): PlanPathResult {
+  const result = planWithField(...args);
+  return { ...result, issues: result.issues.filter((issue) => issue.code !== "field-collision") };
+}
 
 function project(edit: (path: DemoProject["paths"][number], project: DemoProject) => void): DemoProject {
   const result = createDemoProject();

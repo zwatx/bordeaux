@@ -1061,7 +1061,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const { normal, baselineTime } = useOptimizerComparison({ editing,
       context: { path: planningPath, robot: planningRobot, field: planningField, plannerId, previewDensity: PERSEG, projectionVersion: 1 } });
     const optimizationEntry = optimizationState.paths[doc.id];
-    const candidate = optimizationEntry?.key === planningKey ? optimizationEntry.value : null;
+    const currentSearch = optimizationEntry?.key === planningKey ? optimizationEntry : null;
+    const candidate = currentSearch?.value ?? null;
     const normalReady = normal.status === 'ready';
     const normalError = editing.comparisonError || normal.error;
     const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === planningKey ? comparison.mode : 'selected';
@@ -3173,7 +3174,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               onMore: () => (inspectorOpen ? closeInspector() : openInspector()) }))),
             h('aside', { className: 'rail rail-r' + (inspectorOpen || optimizationOpen ? '' : ' collapsed'), 'aria-label': optimizationOpen ? 'Path optimization' : 'Path inspector' },
               optimizationOpen ? h(OptimizationPanel, {
-                path: doc, paths: project.paths, state: optimizationState, candidate, applied: justApplied,
+                path: doc, paths: project.paths, state: optimizationState, entry: currentSearch, candidate, applied: justApplied,
                 baselineTime, pending: normal.status === 'pending', error: normalError, mode: comparisonMode, unitSystem,
                 searchStatus: candidate?.routeSearch?.status, searchReason: candidate?.routeSearch?.reason,
                 recovery: normal.errorKind === 'timeout' ? { label: 'Try again', onClick: normal.retry }

@@ -10,16 +10,12 @@ import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileF
 import { validateProject } from "../src/core/validation";
 import { planPath } from "../src/core/planners/planPath";
 import { buildBdxExport } from "../src/core/export/bdx";
-import { createAcceptedTrajectory, createAcceptedRouteTrajectory, getAcceptedTrajectory, optimizationInputKey } from "../src/core/planners/acceptedTrajectory";
-import { routeIntentKey } from "../src/core/planners/routeIdentity";
 import { buildRoutineRuntime } from "../src/core/export/routineRuntime";
 import { bdxBindingsFromCatalog } from "../src/electron/bdxBindings";
 import { forceExportRobot } from "./fixtures/forceExportRobot";
 import { getPlanner } from "../src/core/planners";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
-import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import { stationaryTurnDelta, wrapRadians } from "../src/core/math/angles";
 import type { FieldFlipDirection } from "../src/core/project/flipField";
 import type { ConstraintRange } from "../src/core/types";
@@ -121,36 +117,22 @@ describe("fixed center-origin field", () => {
     expect(after).toBe(Math.PI);
   });
 
-  it.each([1, 2] as const)("preserves historical accepted v%i as provenance and requires review before export", (version) => {
+  it.each([1, 2] as const)("drops a historical stored v%i optimization when it migrates the field frame", (version) => {
     const project = createDemoProject(), path = project.paths[0], routine = project.routines[0];
     project.robot = forceExportRobot();
     project.field = { ...BLUE_ORIGIN_FIELD_REFERENCE };
     path.waypoints = buildWaypoints([{ x: 6.5, y: 2, segType: "line" }, { x: 8, y: 2 }]);
     routine.nodes = [{ type: "path", id: "drive", ref: path.id }];
-    const geometry = geometryFromPath(path);
-    const planning = version === 2 ? routePlanningPath(path, geometry) : path;
-    const timed = optimizeFixedGeometryFinal({ path: planning, robot: project.robot });
-    const result = version === 2 ? routeResultToSource(timed, geometry, planning) : timed;
-    const accepted = { version, result, samplesPerSegment: 56,
-      inputKey: (version === 1 ? optimizationInputKey : routeIntentKey)(path, project.robot, project.field) };
-    path.optimization = { corridorM: .15, accepted };
+    (path as unknown as Record<string, unknown>).optimization = { corridorM: .15, accepted: { version, inputKey: "old", samplesPerSegment: 56, result: { samples: [] } } };
 
     const { project: migrated } = decodeProjectValue(project);
+    expect(migrated.paths[0]).not.toHaveProperty("optimization");
     const reopened = decodeProjectValue(encodeProjectFile(migrated).project).project;
-    const selection = reopened.paths[0].optimization?.accepted;
-    expect(selection).toEqual({ ...accepted, requiresFieldReview: true });
-    expect(getAcceptedTrajectory(reopened.paths[0], reopened.robot, reopened.field)).toBeNull();
-    const flipped = flipSelectedPath(reopened);
-    expect(flipped.paths[0].optimization?.accepted).toEqual(selection);
-    expect(() => buildBdxExport(reopened)).toThrow(/previous field frame.*Use normal/);
+    expect(buildBdxExport(reopened).field).toEqual(ACTIVE_FIELD_REFERENCE);
     const binary = bdxBindingsFromCatalog(null);
     const bindings = { binary, commands: {}, definitionJson: binary.definitionJson };
-    expect(() => buildRoutineRuntime(reopened, routine.id, bindings)).toThrow(/previous field frame.*Use normal/);
-    delete reopened.paths[0].optimization;
-    expect(buildBdxExport(reopened).field).toEqual(ACTIVE_FIELD_REFERENCE);
     expect(buildRoutineRuntime(reopened, routine.id, bindings).document.paths).toHaveLength(1);
   });
-
 
   it("flips only the selected path, retaining its local settings, distance anchors and references", () => {
     const project = createDemoProject(), path = project.paths[0];
@@ -276,16 +258,6 @@ describe("fixed center-origin field", () => {
     },
   );
 
-  it("cannot reactivate an outdated applied trajectory when rotating back to its geometry", () => {
-    const project = createDemoProject(), source = project.paths[0];
-    source.waypoints = buildWaypoints([{ x: -1, y: 1, theta: 0, segType: "line" }, { x: 1, y: 1, theta: 0 }]);
-    const destination = flipSelectedPath(project).paths[0];
-    const result = getPlanner("profiledSpline").generate({ path: destination, robot: project.robot });
-    source.optimization = { corridorM: .15, accepted: createAcceptedTrajectory(destination, project.robot, result, project.field) };
-    expect(getAcceptedTrajectory(source, project.robot, project.field)).toBeNull();
-    expect(flipSelectedPath(project).paths[0]).toEqual({ ...destination, optimization: { corridorM: .15 } });
-  });
-
   it("persists and exports the flipped coordinates and heading in the declared centered frame", () => {
     const project = createDemoProject();
     project.paths[0].waypoints = buildWaypoints([{ x: -1, y: 1, theta: 0, segType: "line" }, { x: 1, y: 1, theta: 0 }]);
@@ -299,45 +271,16 @@ describe("fixed center-origin field", () => {
     expect(last.x).toBeCloseTo(-1, 10); expect(first.headingRad).toBeCloseTo(Math.PI, 10);
   });
 
-  it("rotates a validated applied trajectory while retaining timing and its applied status", () => {
+  it("keeps waypoints Optimize added through a flip, which plans the moved curve", () => {
     const project = createDemoProject(), path = project.paths[0];
-    path.waypoints = buildWaypoints([{ x: -1, y: 1, theta: 0, segType: 'line' }, { x: 1, y: 1, theta: 0 }]);
-    const result = getPlanner('profiledSpline').generate({ path, robot: project.robot });
-    path.optimization = { accepted: createAcceptedTrajectory(path, project.robot, result, project.field) };
-    expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
-    const flipped = flipSelectedPath(project), accepted = getAcceptedTrajectory(flipped.paths[0], project.robot, project.field);
-    expect(accepted).not.toBeNull(); expect(accepted?.totalTimeS).toBe(result.totalTimeS);
-    expect(accepted?.samples.map((sample) => sample.t)).toEqual(result.samples.map((sample) => sample.t));
-    expect(accepted?.samples[0].x).toBeCloseTo(1, 12);
-    expect(accepted?.samples[0].headingRad).toBeCloseTo(Math.PI, 12);
-    path.optimization.corridorM = .15;
-    expect(flipSelectedPath(project, "rotate", true).paths[0].optimization).toEqual({ corridorM: .15 });
-    expect(flipSelectedPath(project, "horizontal").paths[0].optimization).toEqual({ corridorM: .15 });
-    expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
-  });
-
-  it("keeps generated solver-knot placeholders aligned with reconstructed route semantics", () => {
-    const project = createDemoProject(), path = project.paths[0];
-    path.waypoints = buildWaypoints([{ x: -1.7705, y: 2, theta: 0 }, { x: 1.7295, y: 2, theta: 0 }]);
-    path.headingMode = 'manual';
-    const knots = buildWaypoints([{ x: -1.7705, y: 2 }, { x: -.2705, y: 2.5 }, { x: 1.7295, y: 2 }]);
-    const geometry = { version: 1 as const, knots: knots.map((point) => ({ ...point, smooth: true })), requiredPointIndices: [0, 2] };
-    const planning = routePlanningPath(path, geometry);
-    const result = routeResultToSource(optimizeFixedGeometryFinal({ path: planning, robot: project.robot }), geometry, planning);
-    path.optimization = { accepted: createAcceptedRouteTrajectory(path, project.robot, result, project.field) };
-    expect(getAcceptedTrajectory(path, project.robot, project.field)).not.toBeNull();
-    const flipped = flipSelectedPath(project);
-    expect(flipped.paths[0].optimization?.accepted?.result.optimizedPath?.waypoints[1].theta).toBe(0);
-    expect(getAcceptedTrajectory(flipped.paths[0], project.robot, project.field)).not.toBeNull();
-    expect(buildBdxExport(flipped).paths[0].samples[0].x).toBeCloseTo(1.7705, 12);
-
-    // Rebuilding solver semantics must not repair a rejected selection implicitly.
-    path.optimization!.accepted!.result.optimizedPath!.waypoints[0].theta = 90;
-    expect(getAcceptedTrajectory(path, project.robot, project.field)).toBeNull();
-    expect(() => buildBdxExport(project)).toThrow(/applied optimization is invalid/);
-    const rejected = structuredClone(project);
-    expect(() => flipSelectedPath(project)).toThrow(/applied optimization is invalid or unverified/);
-    expect(project).toEqual(rejected);
+    path.waypoints = buildWaypoints([{ x: -1, y: 1, theta: 0 }, { x: 0, y: 1.2 }, { x: 1, y: 1, theta: 0 }]);
+    path.waypoints[1].optimizerAdded = true;
+    for (const direction of ["rotate", "horizontal"] as const) {
+      const flipped = flipSelectedPath(project, direction).paths[0];
+      expect(flipped.waypoints.map((waypoint) => Boolean(waypoint.optimizerAdded))).toEqual([false, true, false]);
+      expect(flipped.waypoints[1].x).toBeCloseTo(0, 12);
+      expect(flipped.waypoints[1].y).toBeCloseTo(direction === "rotate" ? -1.2 : 1.2, 12);
+    }
   });
 
   it.each([0, 20, 90, 200, 350, -20])("preserves the signed angular interpolation branch of half-turn headings from %s degrees", (offset) => {
@@ -345,19 +288,16 @@ describe("fixed center-origin field", () => {
     path.waypoints = buildWaypoints([{ x: -1, y: 1, theta: offset, segType: 'line' }, { x: 1, y: 1, theta: offset + 180 }]);
     path.headingMode = 'manual';
     const original = getPlanner('profiledSpline').generate({ path, robot: project.robot });
-    path.optimization = { accepted: createAcceptedTrajectory(path, project.robot, original, project.field) };
     const flipped = flipSelectedPath(project), next = flipped.paths[0];
     expect(next.waypoints.map((waypoint) => waypoint.theta)).toEqual([offset + 180, offset + 360]);
     const normal = getPlanner('profiledSpline').generate({ path: next, robot: project.robot });
-    const accepted = getAcceptedTrajectory(next, project.robot, project.field);
-    expect(accepted).not.toBeNull();
     for (let i = 0; i < normal.samples.length; i++) {
       expect(normal.samples[i].headingRad).toBeCloseTo(original.samples[i].headingRad + Math.PI, 10);
       expect(normal.samples[i].angularVelocityRadps).toBeCloseTo(original.samples[i].angularVelocityRadps, 10);
     }
   });
 
-  it.each([{ version: 1, segType: 'line' }, { version: 1, segType: 'bezier' }, { version: 2, segType: 'bezier' }] as const)("preserves an automatic tangent U-turn and applied v$version $segType through Flip", ({ version, segType }) => {
+  it.each(['line', 'bezier'] as const)("preserves an automatic tangent U-turn on %s segments through Flip", (segType) => {
     const project = createDemoProject(), path = project.paths[0];
     path.headingMode = 'tangent';
     path.waypoints = buildWaypoints([{ x: -1.7705, y: 2, segType }, { x: -.2705, y: 2, stop: true, segType }, { x: -1.7705, y: 2 }]);
@@ -365,15 +305,8 @@ describe("fixed center-origin field", () => {
     Object.assign(path.waypoints[1], { linked: false, prevC: { x: -.7705, y: 2 }, nextC: { x: -.7705, y: 2 } });
     path.waypoints[2].prevC = { x: -1.2705, y: 2 };
     const original = getPlanner('profiledSpline').generate({ path, robot: project.robot });
-    if (version === 1) path.optimization = { corridorM: .15, accepted: createAcceptedTrajectory(path, project.robot, original, project.field) };
-    else {
-      const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
-      const result = routeResultToSource(optimizeFixedGeometryFinal({ path: planning, robot: project.robot }), geometry, planning);
-      path.optimization = { accepted: createAcceptedRouteTrajectory(path, project.robot, result, project.field) };
-    }
     const flipped = flipSelectedPath(project), next = flipped.paths[0];
     const normal = getPlanner('profiledSpline').generate({ path: next, robot: project.robot });
-    expect(getAcceptedTrajectory(next, project.robot, project.field)).not.toBeNull();
     for (let i = 0; i < normal.samples.length; i++) {
       const delta = normal.samples[i].headingRad - original.samples[i].headingRad - Math.PI;
       expect(Math.atan2(Math.sin(delta), Math.cos(delta))).toBeCloseTo(0, 8);
@@ -392,10 +325,7 @@ describe("fixed center-origin field", () => {
       { x: .560307379214091, y: 2.6579798566743316, stop: true }]);
     path.waypoints[1].turnInPlace = { headingDeg: 200, direction };
     const original = getPlanner('profiledSpline').generate({ path, robot: project.robot });
-    path.optimization = { corridorM: .15, accepted: createAcceptedTrajectory(path, project.robot, original, project.field) };
     const flipped = flipSelectedPath(project);
-    expect(getAcceptedTrajectory(flipped.paths[0], project.robot, project.field)).not.toBeNull();
-    delete flipped.paths[0].optimization; // The user's Use normal action must keep the same zero-turn behavior.
     const normal = getPlanner('profiledSpline').generate({ path: flipped.paths[0], robot: project.robot });
     expect(normal.totalTimeS).toBeCloseTo(original.totalTimeS, 9);
     expect(normal.samples).toHaveLength(original.samples.length);

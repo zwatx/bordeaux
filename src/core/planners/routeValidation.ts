@@ -67,7 +67,7 @@ export function routeCandidateIssue(input: PlannerInput, result: PlannerResult, 
         || "The planner did not produce a validated route.");
     }
     const error = result.diagnostics.find((d) => d.severity === "error");
-    if (error) return issue(error.message, true);
+    if (error) return issue(error.message);
     if (result.samples.length < 2 || !(result.totalTimeS > 0)) return issue("Route trajectory is incomplete.");
     if (!result.routeGeometry) return issue("Route geometry is missing.");
     const path = routePlanningPath(routeTask(input.path).task, result.routeGeometry);

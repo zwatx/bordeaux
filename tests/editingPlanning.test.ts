@@ -11,8 +11,6 @@ import { editingGeometry, editingPoseAtTime, projectEditingTiming } from '../src
 import { PathPreview } from '../src/renderer/assets/path-preview';
 import { buildWaypoints, createDemoProject } from '../src/core/project/defaults';
 import { getPlanner } from '../src/core/planners';
-import { optimizeFixedGeometryFinal } from '../src/core/planners/fixedGeometryFinal';
-import { createAcceptedTrajectory } from '../src/core/planners/acceptedTrajectory';
 import { buildBdxExportWithPlannerResults } from '../src/core/export/bdx';
 import { headingAt } from '../src/core/math/headingAnchors';
 import { effectiveRanges } from '../src/core/math/pathRanges';
@@ -76,10 +74,10 @@ describe('production editing planning adapter', () => {
     const response = h.reply(), current = h.render(), strict = current.strictPreview;
     expect(projection).toHaveBeenCalledTimes(1);
     expect(strict).toMatchObject({ path: request.path, robot: request.robot, field: request.field, revision: 1, attempt: 0,
-      acceptedIdentity: null, accepted: false, plannerId: 'profiledSpline', projectionVersion: 1, previewDensity: 56, trajectoryDensity: 56 });
+      plannerId: 'profiledSpline', projectionVersion: 1, previewDensity: 56, trajectoryDensity: 56 });
     expect(strict.path).toBe(request.path); expect(strict.robot).toBe(request.robot); expect(strict.field).toBe(request.field);
     expect(strict.value).toBe(response.value.derived); expect(strict.value).toBe(current.value); expect(strict.trajectory).toBe(response.value.trajectory);
-    expect(strict.value).toEqual({ ...previewForTrajectory(request.path, request.robot, strict.trajectory), trajectorySamples: strict.trajectory.samples, acceptedTrajectory: false });
+    expect(strict.value).toEqual({ ...previewForTrajectory(request.path, request.robot, strict.trajectory), trajectorySamples: strict.trajectory.samples });
     expect(strict.value.effRanges).toEqual(current.value.effRanges); expect(strict.value.wpIdx).toHaveLength(request.path.waypoints.length);
     expect(strict.value.metrics.head).toBe(strict.value.prof.head); expect(current.comparisonError).toBeNull();
     expect(h.render().strictPreview).toBe(strict); expect(h.workers).toHaveLength(1); expect(h.workers[0].jobs).toHaveLength(1);
@@ -121,27 +119,6 @@ describe('production editing planning adapter', () => {
     expect(h.workers[0].jobs[0]).toMatchObject({ quality: 'interactive', perSegment: 14 });
     expect(response.value.comparison).toMatchObject({ status: 'ready', previewDensity: 14 });
     expect(h.render().ready).toBe(true); expect(h.render().strictPreview).toBeNull(); expect(h.render().comparisonError).toBeNull(); h.cleanup();
-  });
-  it('keeps accepted artifact density distinct from final preview density and rejects late artifact replies', () => {
-    const project = createDemoProject(), path = project.paths[0];
-    path.waypoints = buildWaypoints([{ x: 1, y: 1, segType: 'line' }, { x: 2, y: 1 }]);
-    const result = optimizeFixedGeometryFinal({ path, robot: project.robot, samplesPerSegment: 28 });
-    const accepted = createAcceptedTrajectory(path, project.robot, result, project.field, 28);
-    path.optimization = { corridorM: .15, accepted };
-    const h = harness(), input = job(project); h.render(input); const worker = h.workers[0], old = worker.jobs[0];
-    const replacement = { ...input, path: { ...path, optimization: { ...path.optimization, accepted: structuredClone(accepted) } } };
-    expect(h.render(replacement).strictPreview).toBeNull(); h.reply(worker, old); expect(h.render().strictPreview).toBeNull();
-    const active = worker.jobs.at(-1), response = structuredClone(processPathPreviewJob(structuredClone(active)));
-    h.reply(worker, active, response); const strict = h.render().strictPreview;
-    expect(strict.acceptedIdentity).toBe(replacement.path.optimization.accepted); expect(strict.acceptedIdentity).not.toBe(accepted);
-    expect(strict.accepted).toBe(true); expect(strict.trajectoryDensity).toBe(28); expect(strict.previewDensity).toBe(56);
-    expect(strict.value).toBe(response.value.derived); expect(strict.trajectory).toBe(response.value.trajectory);
-    expect(strict.trajectory).not.toBe(replacement.path.optimization.accepted.result); expect(strict.trajectory).toEqual(replacement.path.optimization.accepted.result);
-    const corrupt = structuredClone(replacement.path.optimization.accepted); corrupt.result.samples[1].t = NaN;
-    const invalid = { ...replacement, path: { ...replacement.path, optimization: { ...replacement.path.optimization, accepted: corrupt } } };
-    h.render(invalid); expect(h.render().strictPreview).toBeNull(); h.reply(); expect(h.render().status).toBe('infeasible'); expect(h.render().strictPreview).toBeNull();
-    h.render({ ...invalid, path: { ...invalid.path, startVel: .2 } }); h.reply();
-    expect(h.render().strictPreview).toMatchObject({ accepted: false, trajectoryDensity: 56, previewDensity: 56 }); h.cleanup();
   });
   it('rejects deferred A→B→A and prior-attempt replies while the same immutable inputs return', () => {
     const h = harness(), initial = job(); h.render(initial); const worker = h.workers[0], old = worker.jobs[0];
@@ -255,7 +232,7 @@ describe('production editing planning adapter', () => {
     const h = harness(), request = job(project); h.render(request); const result = h.reply().value, current = h.render();
     expect(result.status).toBe('ok');
     expect(current.strictPreview.value).toBe(result.derived); expect(current.strictPreview.trajectory).toBe(result.trajectory);
-    expect(result.derived).toEqual({ ...previewForTrajectory(path, project.robot, result.trajectory), trajectorySamples: result.bestEffort.samples, acceptedTrajectory: false });
+    expect(result.derived).toEqual({ ...previewForTrajectory(path, project.robot, result.trajectory), trajectorySamples: result.bestEffort.samples });
     expect(result.derived.prof.holds).toHaveLength(1); expect(result.derived.prof.turns.length).toBeGreaterThan(0); expect(result.derived.prof.jiggles).toHaveLength(1);
     expect(result.derived.markers).toBe(result.trajectory.markers); expect(result.derived.markers[0].invocation).toEqual(path.markers[0].invocation);
     expect(result.derived.rev).toBe(reverse); expect(result.derived.wpIdx).toEqual([0, 56]); expect(result.derived.wpFrac).toEqual([0, 1]);
@@ -270,21 +247,6 @@ describe('production editing planning adapter', () => {
     const hold = result.trajectory.stationaryActions.find((a: any) => a.kind === 'wait');
     expect(editingPoseAtTime((hold.startTimeS + hold.endTimeS) / 2, result.bestEffort.samples)).toMatchObject({ x: 4, y: 2, v: 0 });
     expect(h.workers[0].jobs).toHaveLength(1); h.cleanup();
-  });
-  it('uses the accepted trajectory exactly, blocks corrupt current artifacts, and recovers after authored edits', () => {
-    const project = createDemoProject(), path = project.paths[0];
-    path.waypoints = buildWaypoints([{ x: 1, y: 1, theta: 0, segType: 'line' }, { x: 2, y: 1, theta: 0 }]);
-    const strict = optimizeFixedGeometryFinal({ path, robot: project.robot, samplesPerSegment: 56 });
-    path.optimization = { corridorM: 0.15, accepted: createAcceptedTrajectory(path, project.robot, strict, project.field, 56) };
-    let result = processPathPreviewJob(job(project)).value;
-    expect(result.acceptedTrajectory).toBe(true); expect(result.trajectory).toBe(path.optimization.accepted!.result);
-    path.optimization.accepted!.result.samples[1].t = Number.NaN;
-    result = processPathPreviewJob(job(project)).value;
-    expect(result.status).toBe('infeasible'); expect(result.trajectory).toBeNull();
-    expect(result.issues.some((issue: any) => /optimization/.test(issue.message))).toBe(true);
-    path.startVel = 0.2;
-    result = processPathPreviewJob(job(project)).value;
-    expect(result.acceptedTrajectory).toBe(false); expect(result.status).toBe('ok');
   });
   it('coalesces busy revisions, rejects stale results, and shows current coordinates immediately', () => {
     const h = harness(), initial = job(); h.render(initial); h.render();
@@ -337,7 +299,9 @@ describe('production editing planning adapter', () => {
       const changed = { ...input, field: { ...input.field } };
       const pending = h.render(changed); expect(pending.error).toBeNull(); expect(pending.issues).toEqual([]);
       h.restore(); pending.retry(); h.render(); h.reply(); h.render(); h.reply(); const recovered = h.render();
-      expect(recovered.ready).toBe(true); expect(recovered.error).toBeNull(); expect(recovered.issues).toEqual([]); h.cleanup();
+      expect(recovered.ready).toBe(true); expect(recovered.error).toBeNull();
+      // The fixture crosses a field element, which is a warning, not a failure.
+      expect(recovered.issues.map((issue: any) => issue.code)).toEqual(['field-collision']); h.cleanup();
     });
   }
 });

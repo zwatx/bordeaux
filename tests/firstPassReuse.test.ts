@@ -9,11 +9,10 @@ vi.mock("../src/core/planners/reachability", async (original) => {
   return { ...actual, solveReachabilityProfile: vi.fn(actual.solveReachabilityProfile) };
 });
 
-function input(x: number, accepted: boolean) {
+function input(x: number) {
   const project = createDemoProject();
   const path = project.paths[0];
   path.waypoints = buildWaypoints([{ x: 6.5, y: 2 }, { x, y: 2.5 }]);
-  if (accepted) path.optimization = { corridorM: 0.15 };
   return { path, robot: project.robot };
 }
 const solves = () => vi.mocked(reachability.solveReachabilityProfile).mock.calls.length;
@@ -21,15 +20,15 @@ const solves = () => vi.mocked(reachability.solveReachabilityProfile).mock.calls
 describe("first timing pass", () => {
   afterEach(() => { vi.mocked(reachability.solveReachabilityProfile).mockClear(); });
 
-  it("is solved once for a path with an optimization record", () => {
-    const result = optimizedTrajectoryPlanner.generate(input(10, true));
+  it("is solved once for a plan", () => {
+    const result = optimizedTrajectoryPlanner.generate(input(10));
     expect(result.optimization?.status).toBe("optimal");
     expect(result.optimization?.refinementPasses ?? 0).toBe(0);
     expect(solves()).toBe(1);
   });
 
   it("is shared between a first-pass probe and the full plan", () => {
-    const planning = input(10.25, false);
+    const planning = input(10.25);
     expect(fixedGeometryFirstPassTime(planning)).toBeGreaterThan(0);
     const probed = solves();
     expect(probed).toBe(1);

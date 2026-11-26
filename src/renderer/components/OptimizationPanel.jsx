@@ -17,11 +17,11 @@ const seedIssueCopy = (issue) => !issue ? 'The current curve doesn’t meet the 
 // the task is the required waypoints, set headings, stops, and field, and the current curve only seeds it.
 // `candidate.shape` is the search that keeps the current curve's tangents and stays close to it.
 // Apply writes the chosen curve into the path; `applied` is true while the path is the one Apply just wrote.
+// `entry` is the search of this path as it is now; a search of an earlier version of the path is not shown.
 // `error` and `pending` describe the current path's own timing, never a search.
 // `searchStatus`/`searchReason` carry the route search envelope when the worker supplies it.
-export function OptimizationPanel({ path, paths, state, candidate, applied, baselineTime, pending, error, recovery, mode,
+export function OptimizationPanel({ path, paths, state, entry = null, candidate, applied, baselineTime, pending, error, recovery, mode,
   searchStatus, searchReason, unitSystem, onStart, onStartAll, onCancel, onCompare, onApply, onSelectPath, onClose }) {
-  const entry = state.paths[path.id];
   // The controller runs one job at a time; only its searching entry owns progress.
   const activePathId = state.running ? Object.keys(state.paths).find((id) => state.paths[id].status === 'searching') : null;
   const searchingCurrentPath = activePathId === path.id;
