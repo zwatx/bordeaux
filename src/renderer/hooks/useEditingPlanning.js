@@ -4,7 +4,6 @@ import { editingGeometry, editingPoseAtTime } from '../assets/editing-planning';
 
 /** Current drawable edit geometry; strict readiness is separate from display timing. */
 export function useEditingPlanning(path, robot, field, enabled = true) {
-  const acceptedIdentity = path.optimization?.accepted || null;
   const geometry = useMemo(() => editingGeometry(path, 14, robot), [path, robot]);
   const previewer = useMemo(() => PathPreview.create({
     directIsSafe: () => false,
@@ -18,12 +17,12 @@ export function useEditingPlanning(path, robot, field, enabled = true) {
   useEffect(() => {
     if (!enabled) { previewer.cancel(); return; }
     const revision = previewer.request({ path, robot, field, key: path.id, quality: 'final' });
-    setRequest({ path, robot, field, revision, attempt, acceptedIdentity });
-  }, [previewer, path, robot, field, enabled, attempt, acceptedIdentity]);
+    setRequest({ path, robot, field, revision, attempt });
+  }, [previewer, path, robot, field, enabled, attempt]);
   const matching = enabled && request?.path === path && request.robot === robot && request.field === field
-    && request.acceptedIdentity === acceptedIdentity && request.attempt === attempt && snapshot.sourceRevision === request.revision;
+    && request.attempt === attempt && snapshot.sourceRevision === request.revision;
   const failure = enabled && request?.path === path && request.robot === robot && request.field === field
-    && request.acceptedIdentity === acceptedIdentity && request.attempt === attempt && snapshot.status === 'error' && snapshot.errorPath === path && snapshot.sourceRevision === request.revision;
+    && request.attempt === attempt && snapshot.status === 'error' && snapshot.errorPath === path && snapshot.sourceRevision === request.revision;
   const plan = matching && snapshot.status === 'ready' ? snapshot.value : null;
   const status = !enabled ? 'idle' : failure ? 'error' : plan?.status || 'pending';
   const ready = status === 'ok' && Boolean(plan?.trajectory);
@@ -31,11 +30,9 @@ export function useEditingPlanning(path, robot, field, enabled = true) {
     const comparison = plan?.comparison;
     if (!ready || snapshot.quality !== 'final' || comparison?.status !== 'ready' || comparison.projectionVersion !== 1
       || comparison.previewDensity !== PathPreview.samplesForQuality('final') || !plan.derived) return null;
-    const accepted = Boolean(plan.acceptedTrajectory);
-    const trajectoryDensity = accepted ? request.acceptedIdentity?.samplesPerSegment : comparison.previewDensity;
-    if (!Number.isInteger(trajectoryDensity) || trajectoryDensity < 1) return null;
+    const trajectoryDensity = comparison.previewDensity;
     return { value: plan.derived, trajectory: plan.trajectory, path: request.path, robot: request.robot, field: request.field,
-      revision: request.revision, attempt: request.attempt, acceptedIdentity: request.acceptedIdentity, accepted,
+      revision: request.revision, attempt: request.attempt,
       plannerId: 'profiledSpline', projectionVersion: comparison.projectionVersion, previewDensity: comparison.previewDensity, trajectoryDensity };
   }, [ready, plan, snapshot.quality, request]);
   const comparisonError = ready && snapshot.quality === 'final' && plan?.comparison?.status === 'error' ? plan.comparison : null;
@@ -50,6 +47,6 @@ export function useEditingPlanning(path, robot, field, enabled = true) {
     trajectory: ready ? plan.trajectory : null, bestEffort: plan?.bestEffort || null,
     issues,
     error, errorKind: error ? (/timed out/i.test(error.message) ? 'timeout' : 'failure') : null, durationMs: matching ? snapshot.durationMs : 0,
-    acceptedTrajectory: Boolean(plan?.acceptedTrajectory), strictPreview, comparisonError, retry, poseAtTime,
+    strictPreview, comparisonError, retry, poseAtTime,
   };
 }

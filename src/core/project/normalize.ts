@@ -17,7 +17,11 @@ function normalizeWaypoint(raw: unknown, index: number, count: number): unknown 
   if (!isRecord(raw)) return raw;
   const waypoint = { ...raw };
   delete waypoint.headingTransition;
-  if (raw.stop === true || index === 0 || index === count - 1) return waypoint;
+  // Only a moving interior waypoint can be one Optimize added and may later move.
+  if (raw.stop === true || index === 0 || index === count - 1) {
+    delete waypoint.optimizerAdded;
+    return waypoint;
+  }
   waypoint.linked = true;
   waypoint.corner = false;
   if (!finite(waypoint.x) || !finite(waypoint.y) || !isRecord(waypoint.prevC) || !isRecord(waypoint.nextC)
@@ -28,6 +32,11 @@ function normalizeWaypoint(raw: unknown, index: number, count: number): unknown 
     nextC: { x: waypoint.nextC.x, y: waypoint.nextC.y },
   }, true));
   return waypoint;
+}
+
+/** Waypoints exactly as loading a project leaves them: moving waypoints smooth, with collinear handles. */
+export function normalizeWaypoints(waypoints: readonly unknown[]): unknown[] {
+  return waypoints.map((waypoint, index) => normalizeWaypoint(waypoint, index, waypoints.length));
 }
 
 function normalizeNodes(nodes: unknown, paths: readonly unknown[], depth = 0): unknown {
@@ -55,24 +64,6 @@ function normalizeNodes(nodes: unknown, paths: readonly unknown[], depth = 0): u
   });
 }
 
-/**
- * An accepted optimized path is a copy of the edited path document, so it can
- * carry the same selection keys. Strip them from that record alone, copying
- * only the levels that change.
- */
-function withoutAcceptedPathSelection(optimization: unknown): unknown {
-  if (!isRecord(optimization)) return optimization;
-  const accepted = optimization.accepted;
-  if (!isRecord(accepted)) return optimization;
-  const result = accepted.result;
-  if (!isRecord(result)) return optimization;
-  const optimizedPath = result.optimizedPath;
-  if (!isRecord(optimizedPath) || ![...TRANSIENT_EDITOR_KEYS].some((key) => Object.hasOwn(optimizedPath, key))) return optimization;
-  const path = { ...optimizedPath };
-  for (const key of TRANSIENT_EDITOR_KEYS) delete path[key];
-  return { ...optimization, accepted: { ...accepted, result: { ...result, optimizedPath: path } } };
-}
-
 export function normalizeProject(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const source = value;
@@ -90,12 +81,13 @@ export function normalizeProject(value: unknown): unknown {
     // Only path documents carry editor selection; nested authored data such as
     // command arguments may legitimately use the same key names.
     for (const key of TRANSIENT_EDITOR_KEYS) delete path[key];
-    if (path.optimization !== undefined) path.optimization = withoutAcceptedPathSelection(path.optimization);
+    // Earlier versions stored an optimized trajectory beside the path. The path plans on its own waypoints now.
+    delete path.optimization;
     if (isRecord(path.constraints) && path.constraints.maxAngDecel === 0) {
       path.constraints = { ...path.constraints, maxAngDecel: path.constraints.maxAngAccel };
     }
     if (Array.isArray(path.waypoints)) {
-      path.waypoints = path.waypoints.map((waypoint, index, waypoints) => normalizeWaypoint(waypoint, index, waypoints.length));
+      path.waypoints = normalizeWaypoints(path.waypoints);
     }
     if (Array.isArray(path.ranges)) {
       path.ranges = path.ranges.map((rawRange) => {

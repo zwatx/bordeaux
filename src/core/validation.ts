@@ -3,7 +3,6 @@ import { normalizeLabviewProjectPath } from "./project/labviewLink";
 import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField, pointInsideMigratedField } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "./field/rebuilt2026";
-import { acceptedTrajectoryShapeError } from "./planners/acceptedTrajectoryIdentity";
 import { routineGroupChildError } from "./routineChildren";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
 import { MAX_COMMAND_LOADS } from "./commandLoads";
@@ -597,26 +596,6 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
       if (path.folderId !== undefined && (typeof path.folderId !== "string" || !folderIds.has(path.folderId))) issues.push(issue(`${base}.folderId`, "Path folder does not exist"));
       if (path.driveBackward !== undefined && typeof path.driveBackward !== "boolean") issues.push(issue(`${base}.driveBackward`, "Drive backward must be true or false"));
       if (path.exportable !== undefined && typeof path.exportable !== "boolean") issues.push(issue(`${base}.exportable`, "Exportable must be true or false"));
-      if (path.routeRequiredPointIndices !== undefined) issues.push(issue(`${base}.routeRequiredPointIndices`, "Solver point mapping is not authored source"));
-      if (path.optimization !== undefined) {
-        const options = path.optimization;
-        if (!isRecord(options)) issues.push(issue(`${base}.optimization`, "Optimization must be an object"));
-        else {
-          if ((options.corridorM !== undefined || (isRecord(options.accepted) && options.accepted.version === 1) || options.legacyAccepted !== undefined)
-            && (!finite(options.corridorM) || options.corridorM < 0.03 || options.corridorM > 1.5)) {
-            issues.push(issue(`${base}.optimization`, "Optimization corridor must be between 0.03 and 1.5 meters"));
-          }
-          if (options.accepted !== undefined) {
-            const error = acceptedTrajectoryShapeError(options.accepted);
-            if (error) issues.push(issue(`${base}.optimization.accepted`, error));
-          }
-          if (options.legacyAccepted !== undefined) {
-            const error = !isRecord(options.legacyAccepted) || options.legacyAccepted.version !== 1
-              ? "Archived selection must be a legacy version 1 trajectory" : acceptedTrajectoryShapeError(options.legacyAccepted);
-            if (error) issues.push(issue(`${base}.optimization.legacyAccepted`, error));
-          }
-        }
-      }
       if (path.headingMode !== undefined && !["manual", "tangent", "targets"].includes(String(path.headingMode))) issues.push(issue(`${base}.headingMode`, "Heading mode is invalid"));
       if (path.followMode !== undefined && !["time", "position"].includes(String(path.followMode))) issues.push(issue(`${base}.followMode`, "Follow mode must be time or position"));
       validateFinite(issues, path.startVel, `${base}.startVel`, "Start velocity", { nonnegative: true });
@@ -650,6 +629,9 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
             if (typeof waypoint[key] !== "boolean") issues.push(issue(`${wpBase}.${key}`, `${key} must be true or false`));
           });
           if (waypoint.corner !== undefined && typeof waypoint.corner !== "boolean") issues.push(issue(`${wpBase}.corner`, "Corner must be true or false"));
+          if (waypoint.optimizerAdded !== undefined && (waypoint.optimizerAdded !== true || waypoint.stop === true || wi === 0 || wi === waypointCount - 1)) {
+            issues.push(issue(`${wpBase}.optimizerAdded`, "Only a moving interior waypoint can be marked as added by Optimize"));
+          }
           validateOptionalFinite(issues, waypoint.wait, `${wpBase}.wait`, "Waypoint wait", { nonnegative: true });
           if (finite(waypoint.wait) && waypoint.wait > 0 && waypoint.stop !== true) {
             issues.push(issue(`${wpBase}.wait`, "Wait requires a stopped waypoint"));

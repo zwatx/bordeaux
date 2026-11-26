@@ -1,6 +1,5 @@
 import { clone } from "../project/defaults";
 import type { PlannerInput, PlannerOptimizationDiagnostics, PlannerResult, RouteGeometry } from "../types";
-import { authoredPath, stable } from "./acceptedTrajectoryIdentity";
 import type { CorridorSearchStatistics } from "./corridorFinal";
 import { drawnShapeDescent } from "./drawnShapeDescent";
 import { materialGainS } from "./limits";
@@ -14,7 +13,7 @@ import {
   type RouteSeedOutcome,
 } from "./routeCandidateEvaluation";
 import { routeCandidates } from "./routeCandidates";
-import { geometryFromPath, routeUnsupportedReason } from "./routeGeometry";
+import { routeTask, routeUnsupportedReason, stable } from "./routeGeometry";
 
 export interface RouteFinalOptions {
   budgetTier?: "common" | "stress" | "hard";
@@ -89,7 +88,7 @@ function routeSearchState(input: PlannerInput, options: RouteFinalOptions) {
     if (performance.now() - start >= budget - Math.max(100, longestCandidateMs * 1.25)) { termination = "time-budget"; return true; }
     return false;
   };
-  const source = { ...input, path: clone(authoredPath(input.path)) };
+  const source = { ...input, path: clone(input.path) };
   const reject = (reason: string) => {
     rejectedCandidates++;
     const message = reason.slice(0, 240);
@@ -318,7 +317,7 @@ export function optimizeDrawnShapeFinal(input: PlannerInput, limitM: number, opt
     search.recordCandidate(outcome, performance.now() - began);
     return outcome.status === "valid";
   };
-  if (!search.stop()) evaluate(geometryFromPath(search.source.path));
+  if (!search.stop()) evaluate(routeTask(search.source.path).seed);
   if (!search.stop()) search.recordSeed(qualifyRouteSeed(search.source));
   const descent = drawnShapeDescent(search.source, limitM, search.descentPace, SEQUENTIAL_DESCENT_BATCH);
   let step = descent.next();
@@ -351,7 +350,7 @@ export async function optimizeDrawnShapeFinalParallel(
     return { outcome, elapsedMs: performance.now() - began };
   };
   if (search.stop()) return search.finish();
-  const drawn = geometryFromPath(search.source.path);
+  const drawn = routeTask(search.source.path).seed;
   search.take(drawn);
   const drawnCurve = evaluate(drawn);
   const seed = evaluator.qualifySeed(search.source);

@@ -12,9 +12,8 @@ import { PathPreview } from "../assets/path-preview";
 import { liveEditingPreview } from "../assets/editing-planning";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
-import { authoredPath, isOptimizationOutdated, optimizationInputKey } from "../../core/planners/acceptedTrajectoryIdentity";
-import { routeInputKey } from "../../core/planners/routeIdentity";
-import { stageAcceptedRouteTrajectory } from "../../core/planners/acceptedRouteStaging";
+import { pathPlanningKey } from "../../core/planners/planningKey";
+import { applyRoute, settleOptimizerWaypoints } from "../../core/planners/routeGeometry";
 import { durationResult } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
@@ -478,7 +477,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         document.querySelector('.pp-more')?.focus();
       }
     }, [inspectorOpen, optimizationOpen]);
-    const appliedPreview = useRef(null);
+    const [applied, setApplied] = useState(null);
     const [metric, setMetric] = useState('velocity');
     const [tool, setTool] = useState('select');
     const finishPlacement = useCallback((placedTool) => {
@@ -1048,44 +1047,31 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       return () => document.removeEventListener('visibilitychange', pauseHiddenPlayback);
     }, []);
 
-    // A search candidate never owns the selected result. Apply persists that choice.
+    // A search candidate is only a preview. Apply writes the chosen curve into the path.
     const optimizer = useMemo(() => PathOptimization.create({ getProject: () => projectRef.current }), []);
     const optimizationState = useSyncExternalStore(optimizer.subscribe, optimizer.getSnapshot, optimizer.getSnapshot);
     useEffect(() => { optimizer.sync(); }, [optimizer, project]);
     useEffect(() => () => optimizer.cancel(), [optimizer]);
-    const optimizationKey = useMemo(() => optimizationInputKey(doc, robot, project.field), [doc, robot, project.field]);
-    const searchKey = useMemo(() => routeInputKey(doc, robot, project.field), [doc, robot, project.field]);
-    const planningPath = useMemo(() => ({ ...doc }), [projectKey, doc.id, optimizationKey, doc.optimization?.accepted]);
-    const normalPath = useMemo(() => authoredPath(doc), [projectKey, doc.id, optimizationKey]);
-    const planningRobot = useMemo(() => robot, [projectKey, optimizationKey]);
-    const planningField = useMemo(() => project.field, [projectKey, optimizationKey]);
-    // Editing owns the selected solve; comparison reuses only its qualified complete projection.
+    // A rename or an edit to another path's command load leaves planning inputs, and so the plan, as they were.
+    const planningKey = useMemo(() => pathPlanningKey(doc, robot, project.field), [doc, robot, project.field]);
+    const planningPath = useMemo(() => ({ ...doc }), [projectKey, doc.id, planningKey]);
+    const planningRobot = useMemo(() => robot, [projectKey, planningKey]);
+    const planningField = useMemo(() => project.field, [projectKey, planningKey]);
     const editing = useEditingPlanning(planningPath, planningRobot, planningField);
-    const { selected, normal, baselineTime } = useOptimizerComparison({ enabled: optimizationOpen, editing,
-      context: { documentKey: projectKey, pathId: doc.id, inputKey: optimizationKey, path: planningPath,
-        normalPath, robot: planningRobot, field: planningField, plannerId, previewDensity: PERSEG, projectionVersion: 1 } });
-    const outdatedOptimization = useMemo(() => isOptimizationOutdated(doc, robot, project.field), [doc, robot, project.field]);
-    const selectedSettled = !editing.pending && editing.status !== 'idle';
-    const applied = appliedPreview.current;
-    const appliedMatches = applied?.documentKey === projectKey && applied.pathId === doc.id && applied.key === optimizationKey
-      && applied.plannerId === plannerId && applied.previewDensity === PERSEG && applied.projectionVersion === 1
-      && applied.artifact === doc.optimization?.accepted;
-    if (applied && (!appliedMatches || selectedSettled)) appliedPreview.current = null;
-    const justApplied = appliedMatches && editing.pending ? applied.value : null;
-    const acceptedPreview = selected?.accepted ? selected.value : justApplied;
-    const accepted = acceptedPreview?.finalTrajectory || null;
-    const staleOptimization = Boolean(doc.optimization?.accepted && (outdatedOptimization || (selectedSettled && !selected?.accepted)));
+    const { normal, baselineTime } = useOptimizerComparison({ editing,
+      context: { path: planningPath, robot: planningRobot, field: planningField, plannerId, previewDensity: PERSEG, projectionVersion: 1 } });
     const optimizationEntry = optimizationState.paths[doc.id];
-    const candidate = optimizationEntry?.key === searchKey ? optimizationEntry.value : null;
+    const candidate = optimizationEntry?.key === planningKey ? optimizationEntry.value : null;
     const normalReady = normal.status === 'ready';
     const normalError = editing.comparisonError || normal.error;
-    const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === optimizationKey ? comparison.mode : 'selected';
+    const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === planningKey ? comparison.mode : 'selected';
     // One search reply carries both results: its own trajectory is the new route, and `shape` keeps the drawn shape.
-    const comparedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'shape' ? candidate?.shape
+    const selectedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'shape' ? candidate?.shape
       : comparisonMode === 'normal' && normalReady ? normal.value : null;
-    const selectedPreview = comparedPreview || acceptedPreview;
-    // The optimizer replaces the display only with a chosen comparison or accepted preview; otherwise the
-    // editing result stays on screen, so opening or closing it never swaps timing sources.
+    // The path just written by Apply, until it changes again; the panel says so instead of offering a search.
+    const justApplied = applied?.documentKey === projectKey && applied.path === doc;
+    // The optimizer replaces the display only with a chosen comparison; otherwise the editing result stays
+    // on screen, so opening or closing it never swaps timing sources.
     const comparing = optimizationOpen && Boolean(selectedPreview);
     const derivation = comparing
       ? { value: selectedPreview, path: doc, current: true, pending: false, error: null, errorKind: null }
@@ -1109,20 +1095,21 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // Library time is the strict trajectory's; display-only best-effort timing never counts.
     const selectedOutcome = useMemo(() => {
       if (editing.pending) return { status: 'pending' };
-      if (doc.optimization?.accepted && !outdatedOptimization && !editing.acceptedTrajectory) return { status: 'error', message: 'The saved optimization could not be validated.', unvalidated: true };
       return editing.ready ? { status: 'ready', seconds: editing.trajectory.totalTimeS }
         : { status: 'error', message: editingErrorMessage || 'This path has a problem.' };
-    }, [editing.pending, editing.ready, editing.trajectory, editing.acceptedTrajectory, editingErrorMessage, doc, outdatedOptimization]);
+    }, [editing.pending, editing.ready, editing.trajectory, editingErrorMessage]);
     useEffect(() => {
       libraryDurations.update(
-        { paths: project.paths, robot, field: project.field, plannerId, currentPath: doc, currentKey: optimizationKey },
+        { paths: project.paths, robot, field: project.field, plannerId, currentPath: doc, currentKey: planningKey },
         { id: doc.id, ...durationResult(selectedOutcome) },
       );
-    }, [libraryDurations, project.paths, robot, project.field, plannerId, doc, optimizationKey, selectedOutcome]);
+    }, [libraryDurations, project.paths, robot, project.field, plannerId, doc, planningKey, selectedOutcome]);
 
     const writeDoc = useCallback((nd) => {
       setProject((pr) => replaceEditedPath(pr, nd));
     }, []);
+    // An edit, unlike Undo, Redo or Apply, also settles which waypoints still count as added by Optimize.
+    const writeEdit = useCallback((nd) => writeDoc(settleOptimizerWaypoints(docRef.current, nd)), [writeDoc]);
     // Writing a path re-syncs linked positions, so its entry also touches every linked path.
     const beginHistory = useCallback(() => {
       const path = docRef.current;
@@ -1134,7 +1121,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }, [editStore]);
     const finishEdit = useCallback(() => {
       const draft = editStore.getSnapshot();
-      if (draft && JSON.stringify(authoredPath(draft)) === JSON.stringify(authoredPath(docRef.current))) {
+      if (draft && JSON.stringify(draft) === JSON.stringify(docRef.current)) {
         // Cancel unchanged gestures so retained draft previews and history both clear.
         editStore.cancel();
         return;
@@ -1142,8 +1129,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const next = editStore.finish();
       if (!next) return;
       beginHistory();
-      writeDoc(next);
-    }, [beginHistory, editStore, writeDoc]);
+      writeEdit(next);
+    }, [beginHistory, editStore, writeEdit]);
     const deletionEpoch = documentEpoch.current;
     const deletionContext = useRef(null);
     deletionContext.current = { page, projectKey };
@@ -1176,17 +1163,17 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const commit = useCallback((fn) => {
       cancelEdit();
       beginHistory();
-      writeDoc(fn(editablePath(docRef.current)));
-    }, [beginHistory, cancelEdit, writeDoc]);
+      writeEdit(fn(editablePath(docRef.current)));
+    }, [beginHistory, cancelEdit, writeEdit]);
     useEffect(() => {
       const draft = editStore.getSnapshot();
       if (draft && doc && draft.id !== doc.id) cancelEdit();
     }, [doc && doc.id, editStore, cancelEdit]);
     const mutate = useCallback((fn) => {
       const draft = editStore.getSnapshot();
-      if (!draft) { writeDoc(fn(editablePath(docRef.current))); return; }
+      if (!draft) { writeEdit(fn(editablePath(docRef.current))); return; }
       editStore.update(fn(editablePath(draft)));
-    }, [editStore, writeDoc]);
+    }, [editStore, writeEdit]);
 
     // After a project-wide undo or redo, keep the edited path visible when it still exists.
     const showPathAfterProjectChange = (next, preferredId) => {
@@ -1450,8 +1437,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     // Shared-position edits belong to the active path; deletions, library links, and applied
     // proposals are project-wide. Both restore only what they changed.
-    const commitProjectChange = (before, next, scope = PROJECT_SCOPE) => {
-      if (next === before) return;
+    const commitProjectChange = (before, edited, scope = PROJECT_SCOPE) => {
+      if (edited === before) return;
+      // A linked or unlinked added waypoint is an edit to it, as in writeEdit.
+      // A new path, such as a duplicate, keeps its flags.
+      const next = { ...edited, paths: edited.paths.map((path) => {
+        const prior = before.paths.find((item) => item.id === path.id);
+        return prior && prior !== path ? settleOptimizerWaypoints(prior, path) : path;
+      }) };
       const entry = recordUndo({ scope, kind: scope === PROJECT_SCOPE ? 'project' : 'waypoints', ...captureProjectChange(before, next, docRef.current?.id ?? null) });
       projectRef.current = next; setProject(next);
       return entry;
@@ -2118,7 +2111,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const compareTrajectory = (mode) => {
       if (mode === 'normal' && !normalReady) return;
       playbackStore.reset();
-      setComparison({ documentKey: projectKey, id: doc.id, key: optimizationKey, mode });
+      setComparison({ documentKey: projectKey, id: doc.id, key: planningKey, mode });
     };
     const closeOptimization = () => {
       compareTrajectory('selected');
@@ -2139,33 +2132,26 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setComparison(null);
       void optimizer.start(doc.id, deadline);
     };
-    /** Applies one result of the last search: 'shape' for the one that keeps the drawn shape, 'candidate' for the new route. */
+    /**
+     * Applies one result of the last search, 'shape' or 'candidate', by writing its curve into the path as one
+     * undoable edit. Waypoints the route adds are flagged so a later Optimize may move or remove them.
+     */
     const applyOptimization = (kind) => {
       const chosen = kind === 'shape' ? candidate?.shape : candidate;
-      if (!chosen?.finalTrajectory || editStore.getSnapshot()) return;
+      const geometry = chosen?.finalTrajectory?.routeGeometry;
+      if (!geometry || editStore.getSnapshot()) return;
       const current = projectRef.current;
       const currentPath = current.paths.find((path) => path.id === doc.id);
-      if (!currentPath || routeInputKey(currentPath, current.robot, current.field) !== searchKey) return;
+      if (!currentPath || pathPlanningKey(currentPath, current.robot, current.field) !== planningKey) return;
       try {
-        // Search publishes independently qualified output. Keep numerical validation
-        // in workers; selected planning and export revalidate this exact artifact.
-        const nextPath = stageAcceptedRouteTrajectory(currentPath, current.robot, chosen.finalTrajectory, current.field, PERSEG);
-        const result = nextPath.optimization.accepted;
-        appliedPreview.current = { artifact: result, documentKey: projectKey, pathId: doc.id, key: optimizationKey,
-          plannerId, previewDensity: PERSEG, projectionVersion: 1, value: chosen };
+        const nextPath = applyRoute(currentPath, geometry);
         beginHistory();
         playbackStore.reset();
         setComparison(null);
         writeDoc(nextPath);
+        setApplied({ documentKey: projectKey, path: nextPath });
         setApplyError('');
       } catch (error) { setApplyError(error.message || 'The candidate could not be applied.'); }
-    };
-    const useNormalTrajectory = () => {
-      beginHistory();
-      playbackStore.reset();
-      setComparison(null);
-      const { accepted: _accepted, ...retained } = doc.optimization || {};
-      writeDoc({ ...doc, optimization: Object.keys(retained).length ? retained : undefined });
     };
 
     // ---- desktop project workflow ----
@@ -3080,8 +3066,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         action: { label: 'Dismiss', onClick: () => setApplyError('') } },
       editingFailure && { id: 'planning', error: true, label: 'Couldn’t time this path', detail: editingFailure.message,
         action: { label: 'Try again', onClick: editing.retry } },
-      !optimizationOpen && selectedOutcome.unvalidated && { id: 'optimization', error: true, label: 'Optimization unavailable', detail: 'Saved optimization is unverified. Review before use.',
-        action: { label: 'Optimize', onClick: () => setOptimizationOpen(true) } },
     ].filter(Boolean);
 
 
@@ -3097,13 +3081,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       pointLinks && h(PointLinksDialog, { project, request: pointLinks, onApply: applyPointLink, onClose: closePointLinks }),
       flipRequest?.id === doc.id && flipRequest.epoch === documentEpoch.current && page === 'plan' && h(PathFlipDialog, {
         pathName: doc.name, defaultCopyName: uniquePathName(doc.name + ' flipped'),
-        canReplace: linkedPathIds(project, doc.id).length === 1, hasAppliedOptimization: Boolean(doc.optimization?.accepted && !outdatedOptimization),
+        canReplace: linkedPathIds(project, doc.id).length === 1,
         onCancel: closeFlip, onConfirm: applyFlip,
       }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
-        optimizationOpen, toggleOptimization, optimizationApplied: Boolean(editing.ready && editing.acceptedTrajectory),
+        optimizationOpen, toggleOptimization,
         updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck,
         appSettings: h(AppSettings, { unitSystem, setUnitSystem, connection: pushController, updateState: appUpdates.state,
           onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onCheckUpdates: appUpdates.actions.onCheck, onCloseUpdates: appUpdates.actions.onClose }) }),
@@ -3189,14 +3173,14 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               onMore: () => (inspectorOpen ? closeInspector() : openInspector()) }))),
             h('aside', { className: 'rail rail-r' + (inspectorOpen || optimizationOpen ? '' : ' collapsed'), 'aria-label': optimizationOpen ? 'Path optimization' : 'Path inspector' },
               optimizationOpen ? h(OptimizationPanel, {
-                path: doc, paths: project.paths, state: optimizationState, candidate, accepted, stale: staleOptimization,
+                path: doc, paths: project.paths, state: optimizationState, candidate, applied: justApplied,
                 baselineTime, pending: normal.status === 'pending', error: normalError, mode: comparisonMode, unitSystem,
                 searchStatus: candidate?.routeSearch?.status, searchReason: candidate?.routeSearch?.reason,
                 recovery: normal.errorKind === 'timeout' ? { label: 'Try again', onClick: normal.retry }
                   : { label: 'Edit path', onClick: openInspector },
                 onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
-                onCompare: compareTrajectory, onApply: applyOptimization, onNormal: useNormalTrajectory,
+                onCompare: compareTrajectory, onApply: applyOptimization,
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
                 onClose: closeOptimization,
               }) : inspectorOpen

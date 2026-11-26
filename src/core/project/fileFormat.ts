@@ -74,18 +74,13 @@ function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile
   const prepared = migrateFieldProject(value);
   const needsFieldMigration = prepared !== value;
   const routinePromoted = isRecord(prepared) ? promoteRoutineProjectSchema(prepared) : prepared;
-  const hasRouteSelection = isRecord(routinePromoted) && Array.isArray(routinePromoted.paths)
-    && routinePromoted.paths.some((path) => isRecord(path) && isRecord(path.optimization)
-      && isRecord(path.optimization.accepted) && path.optimization.accepted.version === 2);
-  const promoted = hasRouteSelection && isRecord(routinePromoted) && routinePromoted.schemaVersion !== "1.2"
-    ? { ...routinePromoted, schemaVersion: "1.2" } : routinePromoted;
-  const project = normalizeProject(promoted);
+  const project = normalizeProject(routinePromoted);
   const validation = validateProjectSource(project);
   if (!validation.ok) {
     const message = validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n");
     throw new Error(`Invalid Bordeaux project:\n${message}`);
   }
-  return { project: project as BordeauxProject, migrated: migrated || needsFieldMigration || promoted !== prepared };
+  return { project: project as BordeauxProject, migrated: migrated || needsFieldMigration || routinePromoted !== prepared };
 }
 
 export function decodeProjectValue(value: unknown): DecodedProjectFile {
