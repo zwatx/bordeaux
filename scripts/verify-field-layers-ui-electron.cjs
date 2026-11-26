@@ -118,6 +118,8 @@ app.whenReady().then(async () => {
       assert.deepEqual(await menuState(), [['GridG', 'true'], ['AprilTagsT', 'false']]);
       const [menuBox, buttonBox] = await evaluate((m, b) => [document.querySelector(m), document.querySelector(b)].map((el) => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, right: r.right }; }), MENU, LAYERS);
       assert.ok(menuBox.bottom <= buttonBox.top + 1, 'The menu opens above the Layers button');
+      const keyEdges = await evaluate((m) => [...document.querySelectorAll(m + ' .ctxmenu-k:not(:last-child)')].map((key) => key.getBoundingClientRect().right), MENU);
+      assert.ok(keyEdges.length === 2 && Math.abs(keyEdges[0] - keyEdges[1]) < 0.5, `Key hints line up in one column: ${keyEdges}`);
       await snapshot(`menu-${size}`);
       await click(MENU + ' [role="menuitemcheckbox"]', 'AprilTagsT');
       await wait(async () => (await layersShown()).tags, 'AprilTags shown from the menu');
