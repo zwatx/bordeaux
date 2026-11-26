@@ -124,7 +124,7 @@ app.whenReady().then(async () => {
     await typeInto('CG height', '12');
     await save();
     assert.ok(Math.abs(saved.robot.driveModel.cgHeightM - 0.3048) < 1e-12);
-    assert.notEqual(saved.editor?.unitSystem, 'imperial', 'display units stay out of the project');
+    assert.equal(saved.editor?.unitSystem, undefined, 'display units stay out of the project');
     // Reopen as an older file from a teammate whose project stored metric: this machine's imperial choice still wins.
     saved = { ...saved, editor: { ...saved.editor, unitSystem: 'metric' } };
     await win.reload();
