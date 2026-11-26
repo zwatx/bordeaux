@@ -25,6 +25,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
     redo: 'M15 7l5 5-5 5 M20 12H9a5 5 0 0 0 0 10h1',
     trash: 'M5 7h14 M9 7V4h6v3 M7 7l1 13h8l1-13',
     plus: 'M12 5v14M5 12h14',
+    minus: 'M5 12h14',
     chevron: 'M8 10l4 4 4-4',
     gear: 'M9.5 3h5l.6 2.3 1.8 1 2.3-.6 2.5 4.3-1.7 1.7v2.1l1.7 1.7-2.5 4.3-2.3-.6-1.8 1-.6 2.3h-5l-.6-2.3-1.8-1-2.3.6L1.8 15l1.7-1.7v-2.1L1.8 9.5l2.5-4.3 2.3.6 1.8-1L9.5 3z M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
     lock: 'M7 11V8a5 5 0 0 1 10 0v3 M5 11h14v9H5z',

@@ -21,7 +21,7 @@ export type CameraSceneItem =
 
 type Vec = readonly [number, number, number];
 
-/** Height the bumper outline is drawn to, meters. */
+/** Height the bumper outline is drawn to when the robot's height is unknown, meters. */
 const BODY_HEIGHT_M = 0.22;
 /** How far each view volume is drawn from its lens, meters. It shows direction and angle, not how far the camera reads. */
 const VIEW_DEPTH_M = 0.8;
@@ -33,16 +33,20 @@ const DRAWN_FOV_MAX_DEG = 170;
 
 /**
  * The Robot page's 3D drawing of a robot and its cameras, as flat SVG shapes: a floor grid in half meters, the bumper
- * outline raised into a block with an arrow on its front, and each camera's view volume from its lens, with a dashed
+ * outline raised to the robot's height as a see-through block with an arrow on its front, and each camera's view volume from its lens, with a dashed
  * line down to the floor. `items` are ordered far to near, so drawing them in order hides what is behind. Shapes that
  * pass through each other can still draw in the wrong order from some angles.
  */
-export function cameraScene({ footprint, cameras, selectedId, view, width, height }: {
+export function cameraScene({ footprint, heightM = BODY_HEIGHT_M, cameras, selectedId, view, zoom = 1, width, height }: {
   /** Bumper outline in robot-local meters. */
   footprint: readonly ControlPoint[];
+  /** Overall robot height, meters. Omitted while unknown. */
+  heightM?: number;
   cameras: readonly RobotCamera[];
   selectedId: string | null;
   view: CameraSceneView;
+  /** Enlarges the drawing about its middle. 1 fits everything drawn. */
+  zoom?: number;
   width: number;
   height: number;
 }): { grid: Segment[]; items: CameraSceneItem[] } {
@@ -63,10 +67,10 @@ export function cameraScene({ footprint, cameras, selectedId, view, width, heigh
     return { camera, lens, corners: [at(across, along), at(-across, along), at(-across, -along), at(across, -along)], label: at(0, along + 0.1) };
   });
 
-  // One scale for every viewing angle: the farthest drawn point from the target just fits the shorter side.
-  const reach = Math.max(0.6, ...[...footprint.map((point): Vec => [point.x, point.y, 0]), ...volumes.flatMap((volume) => [volume.lens, ...volume.corners])]
+  // One scale for every viewing angle: at zoom 1 the farthest drawn point from the target just fits the shorter side.
+  const reach = Math.max(0.6, ...[...footprint.flatMap((point): Vec[] => [[point.x, point.y, 0], [point.x, point.y, heightM]]), ...volumes.flatMap((volume) => [volume.lens, ...volume.corners])]
     .map((point) => Math.hypot(point[0] - target[0], point[1] - target[1], point[2] - target[2])));
-  const scale = Math.min(width, height) / 2 / reach * 1.25;
+  const scale = Math.min(width, height) / 2 / reach * 1.25 * zoom;
   /** Screen x and y, and distance toward the viewer. */
   const project = (point: Vec): Vec => {
     const x = point[0] - target[0], y = point[1] - target[1], z = point[2] - target[2];
@@ -90,12 +94,12 @@ export function cameraScene({ footprint, cameras, selectedId, view, width, heigh
       item: { kind: "face", tone, selected, points: projected.map((point) => `${round(point[0])},${round(point[1])}`).join(" ") } });
   };
 
-  const floor = footprint.map((point): Vec => [point.x, point.y, 0]), roof = footprint.map((point): Vec => [point.x, point.y, BODY_HEIGHT_M]);
+  const floor = footprint.map((point): Vec => [point.x, point.y, 0]), roof = footprint.map((point): Vec => [point.x, point.y, heightM]);
   face(roof, "bodyTop");
   floor.forEach((point, index) => { const next = (index + 1) % floor.length; face([point, floor[next], roof[next], roof[index]], "body"); });
   const front = Math.max(0.1, ...footprint.map((point) => point.x));
   face(([[0, -0.04], [0.5, -0.04], [0.5, -0.17], [0.85, 0], [0.5, 0.17], [0.5, 0.04], [0, 0.04]] as const)
-    .map(([x, y]): Vec => [x * front, y * front, BODY_HEIGHT_M]), "arrow", false, 0.02);
+    .map(([x, y]): Vec => [x * front, y * front, heightM]), "arrow", false, 0.02);
 
   let labels: CameraSceneItem[] = [];
   for (const { camera, lens, corners, label } of volumes) {

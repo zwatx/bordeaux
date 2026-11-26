@@ -1,5 +1,6 @@
 // The Robot page's Cameras section in the built renderer: add a camera with its starting numbers, edit and clamp them,
-// see the 3D drawing follow each edit, turn the view by drag, keys and named views, rename with a refused repeat,
+// see the 3D drawing follow each edit, turn the view by drag, keys and named views, zoom it by buttons, keys and
+// Ctrl+wheel while a plain wheel still scrolls the page, rename with a refused repeat,
 // keep cameras per robot, save and reopen, delete down to none, and check the open path's time never changes.
 // Screenshots at both supported sizes go to BORDEAUX_ROBOT_CAMERAS_UI_OUTPUT.
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -150,7 +151,12 @@ app.whenReady().then(async () => {
     await typeInto('Camera vertical field of view', '45');
     await typeInto('Camera pitch', '10');
     assert.equal((await section()).bad, false);
-    pass('Each number redraws the picked view volume, and a number outside its range stops at the limit');
+    // The block is the robot: its height in Dimensions sets how tall it is drawn.
+    const short = (await section()).body;
+    await typeInto('Robot height', '1.1');
+    await wait(async () => (await section()).body !== short, 'drawing follows robot height');
+    assert.equal((await section()).bad, false);
+    pass('Each number redraws the picked view volume, a number outside its range stops at the limit, and the robot is drawn at its height');
 
     const before = await section();
     await dragView(120, -40);
@@ -170,9 +176,34 @@ app.whenReady().then(async () => {
     await wait(async () => (await section()).body === before.body, 'the 3D view returns exactly');
     pass('Drag and arrow keys turn the view, and each named view is exact');
 
+    // Zoom enlarges the drawing about its middle: the robot's outline spreads wider on screen.
+    const spread = async () => evaluate(() => { const xs = [...document.querySelectorAll('#settings-cameras .rp-cam-bodyTop')].flatMap((shape) => shape.getAttribute('points').split(' ').map((pair) => Number(pair.split(',')[0]))); return Math.max(...xs) - Math.min(...xs); });
+    const fitted = await spread();
+    await click('.rp-cam-action[aria-label="Zoom in"]');
+    await wait(async () => (await spread()) > fitted * 1.2, 'zoom in button');
+    await click('.rp-cam-stage svg');
+    await key('-'); await key('-');
+    await wait(async () => (await spread()) < fitted * 0.9, 'minus key zooms out');
+    assert.equal((await section()).view, '3D', 'Zoom keeps the named view');
+    const wheelAt = await evaluate(() => { const r = document.querySelector('.rp-cam-stage svg').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
+    const small = await spread(), scrolled = await evaluate(() => document.querySelector('.robotpage').scrollTop);
+    win.webContents.sendInputEvent({ type: 'mouseWheel', ...wheelAt, deltaX: 0, deltaY: 120, modifiers: ['control'] });
+    await wait(async () => (await spread()) > small * 1.2, 'Ctrl+wheel zooms in');
+    assert.equal(await evaluate(() => document.querySelector('.robotpage').scrollTop), scrolled, 'Ctrl+wheel does not scroll the page');
+    const zoomed = await spread();
+    win.webContents.sendInputEvent({ type: 'mouseWheel', ...wheelAt, deltaX: 0, deltaY: -120 });
+    await wait(async () => (await evaluate(() => document.querySelector('.robotpage').scrollTop)) !== scrolled, 'a plain wheel scrolls the page');
+    assert.equal(await spread(), zoomed, 'A plain wheel leaves the zoom');
+    assert.equal(await evaluate(() => getComputedStyle(document.querySelector('.rp-cam-stage svg')).outlineStyle), 'none', 'The focused view shows no ring');
+    for (let press = 0; press < 12; press++) { if (await evaluate(() => document.querySelector('.rp-cam-action[aria-label="Zoom in"]').disabled)) break; await click('.rp-cam-action[aria-label="Zoom in"]'); }
+    assert.equal(await evaluate(() => document.querySelector('.rp-cam-action[aria-label="Zoom in"]').disabled), true, 'Zoom stops at its limit');
+    assert.equal((await section()).bad, false);
+    for (let press = 0; press < 6; press++) await click('.rp-cam-action[aria-label="Zoom out"]');
+    pass('Buttons, the + and - keys and Ctrl+wheel zoom the view, and a plain wheel still scrolls the page');
+
     await click('.rp-cam-pick.new');
     await wait(async () => (await section()).heading === 'Camera 2', 'second camera');
-    await click('.rp-cam-actions .qbtn', 'Rename');
+    await click('.rp-cam-action[aria-label="Rename Camera 2"]');
     await wait(() => evaluate(() => document.activeElement?.matches('input[aria-label="Camera name"]')), 'camera name field');
     await win.webContents.insertText('camera 1'); await key('Enter');
     await wait(() => evaluate(() => document.querySelector('#settings-cameras [role="alert"]')?.textContent === 'Another camera has this name.'), 'refused repeated name');
@@ -221,10 +252,10 @@ app.whenReady().then(async () => {
     assert.equal(saved.robots.find((robot) => robot.name === 'Practice bot').robot.cameras, undefined);
     pass('Cameras belong to their robot and come back after save and reopen');
 
-    await click('.rp-cam-remove');
+    await click('.rp-cam-action[aria-label="Delete Camera 1"]');
     await wait(async () => (await section()).picks.length === 1, 'one camera left');
     assert.deepEqual((await section()).picks, ['Rear left*']);
-    await click('.rp-cam-remove');
+    await click('.rp-cam-action[aria-label="Delete Rear left"]');
     await wait(async () => (await section()).empty === 'No cameras', 'no cameras left');
     await save();
     assert.equal(saved.robot.cameras, undefined, 'A robot without cameras saves no camera list');
