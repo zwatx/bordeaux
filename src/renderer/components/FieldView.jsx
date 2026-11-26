@@ -13,6 +13,7 @@ import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
 import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
 import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
+import { UnitPrefs } from '../lib/unitPreferences';
 
   const { useRef, useState, useEffect, useMemo, useCallback, useId } = React;
   const h = React.createElement;
@@ -182,7 +183,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
   }
 
   function FieldView(props) {
-    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, showTags, robot, drive, accent, metric, playTime, actions, routine, routinePose, problems, hoverStore, hoverContext } = props;
+    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, showTags, robot, drive, accent, metric, playTime, actions, routine, routinePose, routineJumps, problems, hoverStore, hoverContext } = props;
     const interactionReady = props.interactionReady !== false;
     const showHandles = props.showHandles !== false;
     const svgRef = useRef(null);
@@ -1301,6 +1302,26 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       });
       return els;
     }, [routine, accent, view.w, cw]);
+    // Pose jumps: a dashed connector from where the previous path ends to where the next one starts, styled by size
+    // (AUTO.jumpSize). The jump into the selected step is drawn over the others with its distance.
+    const routineJumpEls = useMemo(() => {
+      if (!routine || !routineJumps?.length) return null;
+      const focused = new Set(routine.filter((rp) => rp.state === 'focus' || rp.state === 'genfocus').map((rp) => rp.nodeId));
+      const STYLE = { small: { col: '#8b94a2', w: 1.6, op: 0.6, dash: [2, 4] }, medium: { col: '#cf962f', w: 2, op: 0.85, dash: [7, 5] }, large: { col: '#d2655f', w: 2.6, op: 0.85, dash: [9, 6] } };
+      const order = routineJumps.map((jump, index) => ({ jump, index, focus: focused.has(jump.nodeId) })).sort((a, b) => a.focus - b.focus);
+      return order.map(({ jump, index, focus }) => {
+        const S = STYLE[jump.size] || STYLE.medium, a = W2P(jump.from), b = W2P(jump.to);
+        // The distance sits nearer the previous end, so jumps that meet at one start keep their tags apart.
+        const mid = { x: a.x + (b.x - a.x) * 0.35, y: a.y + (b.y - a.y) * 0.35 }, text = UnitPrefs.format(jump.distanceM, 'm', 2);
+        const tagW = T(fieldTextWidth(text, BADGE_FONT) + 12);
+        return h('g', { key: 'rj' + index, className: 'routine-jump', 'data-size': jump.size, 'data-node': jump.nodeId, style: { pointerEvents: 'none' }, opacity: focused.size && !focus ? 0.55 : 1 },
+          jump.size !== 'small' && h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#05060a', strokeOpacity: 0.6, strokeWidth: P(S.w + 2.5), strokeLinecap: 'round' }),
+          h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: S.col, strokeOpacity: S.op, strokeWidth: P(S.w + (focus ? 0.6 : 0)), strokeDasharray: S.dash.map(P).join(' '), strokeLinecap: 'round' }),
+          focus && jump.distanceM > 0.001 && h('g', { transform: `translate(${mid.x} ${mid.y})` },
+            h('rect', { x: -tagW / 2, y: -T(8), width: tagW, height: T(16), rx: T(3), fill: 'rgba(11,12,14,0.92)', stroke: S.col, strokeWidth: T(1) }),
+            h('text', { x: 0, y: T(3.6), fill: S.col, fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, text)));
+      });
+    }, [routine, routineJumps, view.w, cw, textUpp]);
     // Step badges above the paths, emphasized ones last. A badge selects its step like the path does.
     const routineBadgeEls = useMemo(() => {
       if (!routineBadges) return null;
@@ -1476,6 +1497,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       routine ? null : previewEl,
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
+      routine ? routineJumpEls : null,
       routine ? routineBadgeEls : null,
       routine ? routineLabels : null,
       routine ? routineRobot : robotEl,

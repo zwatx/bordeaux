@@ -454,6 +454,48 @@ app.whenReady().then(async () => {
       await snapshot('playback-' + width);
       await click('[aria-label="Restart routine"]');
       await click('button[aria-label="Close step inspector"]');
+      // Pose jumps: the field's connector, the flow's mark and the inspector agree on the jump's size. A path that
+      // follows itself gets no link; a different previous path links this start to its end as one Undo step.
+      const jumpState = (id) => evaluate((id) => ({
+        field: [...document.querySelectorAll('.routine-workspace-field .routine-jump')].filter(el => el.dataset.node === id).map(el => el.dataset.size),
+        flow: document.querySelector('.rt-step[data-id="' + id + '"] .rt-step-flag')?.dataset.jump ?? null,
+        inspector: [...document.querySelectorAll('.routine-insp .rt-jump')].map(el => el.dataset.size),
+        links: document.querySelectorAll('.routine-insp .rt-jump-link').length,
+        text: document.querySelector('.routine-insp .rt-jump')?.textContent ?? '' }), id);
+      await click('[data-id="return"] .rt-step-body');
+      await wait(async () => (await jumpState('return')).inspector.length === 1, 'the jump into the step shows in its inspector');
+      const selfJump = await jumpState('return');
+      assert.ok(selfJump.links === 0 && selfJump.text.includes('this same path') && selfJump.field.length === 1 && selfJump.field[0] === selfJump.inspector[0] && selfJump.flow === selfJump.inspector[0],
+        'A path following itself shows its jump, sized the same everywhere, without a link: ' + JSON.stringify(selfJump));
+      await click('.routine-change-path');
+      await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Change path opens the path library');
+      await click('#rt-source [data-row="path:' + spare.id + '"]');
+      await wait(async () => (await source())[0].nodes[1].ref === spare.id, 'the step follows the spare path');
+      await planned();
+      await wait(async () => (await jumpState('return')).links === 1, 'a jump from another path offers its link');
+      const jump = await jumpState('return');
+      assert.ok(['medium', 'large'].includes(jump.inspector[0]) && jump.field.join() === jump.inspector.join() && jump.flow === jump.inspector[0] && jump.text.includes(route.name),
+        'The jump names the previous path and has one size on the field, in the flow and in the inspector: ' + JSON.stringify(jump));
+      await snapshot('pose-jump-' + width);
+      const pathsBefore = structuredClone(published.paths);
+      await click('.routine-insp .rt-jump-link');
+      await wait(() => {
+        const start = published.paths.find(p => p.id === spare.id).waypoints[0], end = published.paths.find(p => p.id === route.id).waypoints.at(-1);
+        return start.x === end.x && start.y === end.y && start.positionLink && start.positionLink === end.positionLink;
+      }, 'the link moves the spare path\'s start to the previous end and links them');
+      assert.equal(published.paths.find(p => p.id === spare.id).waypoints[0].theta, pathsBefore.find(p => p.id === spare.id).waypoints[0].theta, 'The start keeps its own facing');
+      assert.deepEqual((await source())[0].nodes.map(n => n.id), baseline[0].nodes.map(n => n.id), 'Linking does not edit the routine');
+      await wait(() => evaluate(() => document.activeElement?.classList.contains('rt-jump-done') && !document.querySelector('.rt-jump-link')), 'a note takes the link\'s place and focus');
+      await planned();
+      const linked = await jumpState('return');
+      assert.ok(linked.links === 0 && linked.field.every(size => size === 'small') && (linked.flow === null || linked.flow === 'small'), 'After the link only a facing difference can remain: ' + JSON.stringify(linked));
+      await snapshot('pose-jump-linked-' + width);
+      await key('z', ['meta']);
+      await wait(() => JSON.stringify(published.paths) === JSON.stringify(pathsBefore), 'one Undo restores both paths');
+      assert.equal((await source())[0].nodes[1].ref, spare.id, 'That Undo keeps the changed path step');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(baseline), 'the next Undo restores the step');
+      await click('button[aria-label="Close step inspector"]');
       const beforeSave = saves;
       await click('.project-chip'); await click('[role="menuitem"][data-action="save"]');
       await wait(() => saves > beforeSave, 'explicit local save');
@@ -663,7 +705,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, self-follow without link, link as one Undo', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

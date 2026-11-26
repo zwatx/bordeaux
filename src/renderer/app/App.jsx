@@ -354,7 +354,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const overlayRef = useRef(null);
     const overlay = overlayRef.current = stableRoutineOverlay(overlayRef.current, AUTO.fieldOverlay(run, { time: playback.time, running, selectedId }));
     const pose = AUTO.poseAt(run, playback.time, robot);
-    return h(FieldView, { ...props, robot, playTime: 0, routine: overlay, routinePose: pose });
+    const jumps = useMemo(() => (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity'), [run]);
+    return h(FieldView, { ...props, robot, playTime: 0, routine: overlay, routinePose: pose, routineJumps: jumps });
   }
   function RoutineTransportPlayback({ store, run }) {
     const playback = usePlayback(store), running = playback.playing || playback.time > 0.001;
@@ -2083,6 +2084,15 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       setOutcome: (id, br) => setRoutineOutcomes((o) => ({ ...o, [id]: br })),
       setPasses: (id, passes) => setRoutinePasses((current) => ({ ...current, [id]: passes })),
       openInEditor: (id) => { const idx = project.paths.findIndex((path) => path.id === id); if (idx >= 0) { setActive(idx); setPage('plan'); } },
+      // A pose jump's fix: link the next path's start to the previous path's end, as Paths links points (its start
+      // and any points already linked to it move there), named like a new shared point. One project Undo step.
+      linkStart: (jump) => {
+        const before = materializeProject(), from = before.paths.find((path) => path.id === jump.fromPathId);
+        if (!from?.waypoints.length || from.id === jump.toPathId || !before.paths.find((path) => path.id === jump.toPathId)?.waypoints.length) return 'unchanged';
+        let next = PathLinks.linkPosition(before, jump.toPathId, 0, from.id, from.waypoints.length - 1, pathLinkId());
+        if (next !== before) next = PathLinks.nameNewSharedPoint(next, jump.toPathId, 0);
+        return commitProjectChange(before, next, PROJECT_SCOPE) ? 'applied' : 'unchanged';
+      },
     }), [routineOutcomes, routinePasses, routine, project.paths, robotProjectState.catalog, preflightDeletion, deletionEpoch, branchGeneration.current]);
     const selectRoutineStep = useCallback((id) => { commitFocusedDraft(); setRoutineSel(id); }, []);
     const autoFieldActions = useMemo(() => ({ selectNode: (id) => { commitFocusedDraft(); setRoutineSel((s) => s === id ? null : id); }, deleteNode: acq.del, select: () => selectRoutineStep(null) }), [selectRoutineStep, acq]);
@@ -3114,7 +3124,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   run.planningError && h('span', null, run.planningError)))),
               transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathLinks: project.pathLinks, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,

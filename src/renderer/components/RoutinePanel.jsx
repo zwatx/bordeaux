@@ -478,7 +478,8 @@ export function RoutinePanel(props) {
   const pct = (t) => (100 * t / run.total) + '%';
   // Local readiness (AUTO.analyze) and the chosen trace's reference jumps (run.issues) stay distinct facts.
   const jumpByNode = new Map();
-  (run.issues || []).forEach((issue) => { if (issue.code === 'reference-discontinuity' && !jumpByNode.has(issue.nodeId)) jumpByNode.set(issue.nodeId, issue); });
+  // A step reached from several previous paths (repeat passes, routes) shows its largest jump.
+  (run.issues || []).forEach((issue) => { if (issue.code === 'reference-discontinuity' && !(jumpByNode.get(issue.nodeId)?.distanceM >= issue.distanceM)) jumpByNode.set(issue.nodeId, issue); });
   const issueByNode = new Map();
   issues.forEach((issue) => { const prior = issueByNode.get(issue.nodeId); if (!prior || (prior.severity !== 'error' && issue.severity === 'error')) issueByNode.set(issue.nodeId, issue); });
 
@@ -780,7 +781,7 @@ export function RoutinePanel(props) {
     // A saved runtime-generation definition: no desktop generation, no supported delivery.
     if (node.type === 'generatedTrajectory') return { meta: 'Unsupported saved definition · Bordeaux cannot generate or preview it', problem: 'warn' };
     const jump = jumpByNode.get(node.id);
-    const warning = jump ? { meta: continuityText(jump), problem: 'warn' } : issue ? { meta: issue.message, problem: 'warn' } : null;
+    const warning = jump ? { meta: continuityText(jump), problem: 'warn', jump: jump.size } : issue ? { meta: issue.message, problem: 'warn' } : null;
     if (node.type === 'path') {
       if (!paths.some((path) => path.id === node.ref)) return { meta: node.ref ? 'The referenced path is unavailable.' : 'Choose a path', problem: 'bad' };
       if (seg) return warning ? { ...warning, dur: fmt(seg.t1 - seg.t0) } : { meta: UnitPrefs.format(seg.deriv.sample.length, 'm', 2), dur: fmt(seg.t1 - seg.t0) };
@@ -879,7 +880,8 @@ export function RoutinePanel(props) {
         // A named group still says how it runs; an unnamed one already does in its name.
         node.type === 'group' && node.title?.trim() && h('span', { className: 'rt-step-kind' }, node.mode === 'sequential' ? 'In sequence' : 'In parallel'),
         // A warning is a mark beside the name; its sentence is the tooltip and stays in the accessible name.
-        info.problem === 'warn' && h('span', { className: 'rt-step-flag', 'aria-hidden': true }),
+        // A pose jump's mark is sized like the jump (AUTO.jumpSize), as on the field and in the inspector.
+        info.problem === 'warn' && h('span', { className: 'rt-step-flag', 'data-jump': info.jump, 'aria-hidden': true }),
         h('span', { className: 'rt-step-meta' + (info.problem ? ' ' + info.problem : '') },
           isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
       h('span', { className: 'rt-step-time', 'aria-hidden': true }, (spans.get(node.id) || []).map((step) => h('i', { key: step.occurrenceId || step.t0,

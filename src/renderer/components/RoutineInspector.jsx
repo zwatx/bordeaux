@@ -7,9 +7,10 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
-import { continuityText, describeStop, stepTitle } from "./RoutinePanel";
+import { describeStop, stepTitle } from "./RoutinePanel";
 import { Glyph } from "./routineGlyphs";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";
+import { PathLinks } from "../lib/pathLinks";
 import { commandChoiceItems, commandChoiceRows, commandIndex, commandUsage, openSubsystem } from "../lib/commandIndex";
 import { labelWidth, layoutCommandLane, niceStep } from "./pathTimelineModel";
 import { ChipGlyph, LOOP_GLYPH } from "./PathTimeline";
@@ -172,14 +173,54 @@ function LoopSection({ node, command, set }) {
       Hint('Checked after each completed run. Starts again until it matches.')));
 }
 
-function Problems({ issues, jumps }) {
+function Problems({ issues, jumps, jump }) {
   const errors = issues.filter((issue) => issue.severity === 'error');
   const warnings = issues.filter((issue) => issue.severity !== 'error');
   if (!errors.length && !warnings.length && !jumps.length) return null;
   return h('div', { className: 'rt-insp-problems', role: 'status' },
     errors.map((issue, index) => h('p', { key: 'e' + index, className: 'rt-insp-problem' }, issue.message)),
     warnings.map((issue, index) => h('p', { key: 'w' + index, className: 'rt-insp-warning' }, issue.message)),
-    jumps.slice(0, 1).map((issue, index) => h('p', { key: 'j' + index, className: 'rt-insp-warning' }, continuityText(issue) + ' in this preview. Reference poses only.')));
+    jumps.length > 0 && h(PoseJumps, { jumps, ...jump }));
+}
+
+const JUMP_WORD = { small: 'Small jump', medium: 'Pose jump', large: 'Large jump' };
+const degrees = (rad) => Math.round(rad * 180 / Math.PI);
+/**
+ * The pose jumps into this path step (one per previous path the preview reaches it from), each sized like the field's
+ * connector and the flow's mark (AUTO.jumpSize). Each offers to link this path's start to that previous path's end,
+ * the way Paths links points: the start, and any points already linked to it, move there as one Undo step and stay
+ * linked. Headings belong to each waypoint, so the start keeps its own facing; a remaining difference is still shown.
+ * What else the move reaches (linked points, other uses of this path) is said once, under the actions.
+ */
+function PoseJumps({ jumps, paths, pathLinks, routine, routines, onLink }) {
+  const to = paths.find((path) => path.id === jumps[0].toPathId);
+  // What else moves with this start: points already linked to it, and this path wherever else it is followed.
+  const movable = to && onLink && jumps.some((issue) => issue.distanceM >= 5e-4 && issue.fromPathId !== to.id && paths.some((path) => path.id === issue.fromPathId));
+  const members = to ? PathLinks.positionMembers({ paths, pathLinks }, to.id, 0).length : 0;
+  const usesHere = to ? routinePathUses(routine).get(to.id) || 0 : 0;
+  const elsewhere = to ? (routines || []).filter((other) => other.id !== routine.id && routinePathUses(other).has(to.id)).length : 0;
+  const linkLabel = members ? 'Link start and ' + plural(members, 'linked point') + ' to the previous end' : 'Link start to the previous end';
+  const rows = jumps.map((issue) => {
+    const from = paths.find((path) => path.id === issue.fromPathId), fromName = from?.name || 'the previous path', turn = degrees(issue.headingRad);
+    const moves = issue.distanceM >= 5e-4, distance = UnitPrefs.format(issue.distanceM, 'm', 2);
+    return h('div', { key: issue.fromNodeId + ':' + issue.nodeId, className: 'rt-jump', 'data-size': issue.size },
+      h('p', { className: 'rt-jump-text' }, h('span', { className: 'rt-step-flag', 'data-jump': issue.size, 'aria-hidden': true }),
+        h('span', null, h('strong', null, moves ? JUMP_WORD[issue.size] : 'Facing jump'), '. ',
+          moves ? 'Starts ' + distance + (turn ? ' and ' + turn + '°' : '') + ' from where ' : 'Starts where ', h('span', { className: 'rt-jump-path' }, fromName),
+          moves ? ' ends in this preview.' : ' ends, facing ' + turn + '° differently.')),
+      // Linking a path's start to its own end would fold it onto itself; that edit belongs in Paths.
+      moves && from && to && from.id === to.id && h('p', { className: 'rt-jump-review' }, 'The previous path is this same path; move its start or end in Paths.'),
+      moves && from && to && from.id !== to.id && onLink && h(React.Fragment, null,
+        h('button', { type: 'button', className: 'qbtn wide rt-jump-link', onClick: () => onLink(issue) }, linkLabel),
+        h('p', { className: 'rt-jump-review' }, 'Moves this path\u2019s start ' + distance + ' to the end of ' + fromName + '. The two points stay linked; '
+          + (turn ? 'the start keeps its own facing, ' + turn + '° different.' : 'facing stays local.'))));
+  });
+  const reach = !movable ? [] : [
+    members && plural(members, 'point') + ' linked to this start ' + (members === 1 ? 'moves' : 'move') + ' with it.',
+    elsewhere && to.name + ' is also used in ' + plural(elsewhere, 'other routine') + '; ' + (elsewhere === 1 ? 'it starts' : 'they start') + ' there too.',
+    usesHere > 1 && 'This routine follows ' + to.name + ' ' + usesHere + ' times; each starts there.',
+  ].filter(Boolean);
+  return h(React.Fragment, null, rows, reach.map((line, index) => h('p', { key: 'reach' + index, className: 'rt-jump-review reach' }, line)));
 }
 
 export function StepInspector(props) {
@@ -188,6 +229,16 @@ export function StepInspector(props) {
   const catalog = robotProject && robotProject.catalog;
   const [unwrapReason, setUnwrapReason] = React.useState('');
   React.useEffect(() => setUnwrapReason(''), [node?.id]);
+  // After a pose jump's link, a note takes the pressed button's place and focus, so keyboard users keep their place.
+  const [linked, setLinked] = React.useState(null);
+  const linkedNote = React.useRef(null);
+  React.useEffect(() => { if (linked && linkedNote.current) linkedNote.current.focus({ preventScroll: true }); }, [linked]);
+  React.useEffect(() => setLinked(null), [node?.id]);
+  const linkStart = (issue) => {
+    if (acq.linkStart(issue) !== 'applied') return;
+    const from = paths.find((path) => path.id === issue.fromPathId);
+    setLinked({ nodeId: issue.nodeId, text: 'Start linked to the end of ' + (from?.name || 'the previous path') + '.' });
+  };
   // Change command ranks and groups commands exactly like Add, including use in this routine and project.
   const usage = React.useMemo(() => commandUsage(props.routines, paths, routine), [props.routines, paths, routine]);
   if (!node) return null;
@@ -381,7 +432,9 @@ export function StepInspector(props) {
     closeLabel: 'Close step inspector', closeTitle: 'Close', onClose: () => acq.select(null), remove: removal,
     // Keyed by step so an unfinished draft never moves to another step.
     bodyKey: node.id },
-    h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id) }),
+    linked?.nodeId === node.id && h('p', { ref: linkedNote, className: 'rt-insp-note rt-jump-done', role: 'status', tabIndex: -1 }, linked.text),
+    h(Problems, { issues, jumps: (run?.issues || []).filter((issue) => issue.code === 'reference-discontinuity' && issue.nodeId === node.id),
+      jump: { paths, pathLinks: props.pathLinks, routine, routines: props.routines, onLink: acq.linkStart && linkStart } }),
     body);
 }
 
