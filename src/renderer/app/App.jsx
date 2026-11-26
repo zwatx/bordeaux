@@ -1161,13 +1161,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const cancelEdit = useCallback(() => {
       return editStore.cancel();
     }, [editStore]);
-    const commit = useCallback((fn, { wholePathTransform = false } = {}) => {
+    const commit = useCallback((fn) => {
       cancelEdit();
       beginHistory();
-      const path = fn(editablePath(docRef.current));
-      if (wholePathTransform) writeDoc(path);
-      else writeEdit(path);
-    }, [beginHistory, cancelEdit, writeDoc, writeEdit]);
+      writeEdit(fn(editablePath(docRef.current)));
+    }, [beginHistory, cancelEdit, writeEdit]);
     useEffect(() => {
       const draft = editStore.getSnapshot();
       if (draft && doc && draft.id !== doc.id) cancelEdit();
@@ -1739,7 +1737,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       ] });
     }, [faceWaypoint, select]);
     const duplicateWp = useCallback((i) => commit((d) => duplicateWaypoint(d, i)), [commit]);
-    const reversePath = useCallback(() => reverseDistance == null || docRef.current.waypoints.length < 2 ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }, { wholePathTransform: true }), [commit, reverseDistance]);
+    const reversePath = useCallback(() => reverseDistance == null || docRef.current.waypoints.length < 2 ? undefined : commit((path) => { reversePathDraft(path); return PM.reversePathAnchors(path, reverseDistance); }), [commit, reverseDistance]);
     const reorderWp = useCallback((from, to) => commit((d) => reorderWaypoint(d, from, to)), [commit]);
     const insertWp = useCallback((i) => {
       const pts = derived.sample.pts;
