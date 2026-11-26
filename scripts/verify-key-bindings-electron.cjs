@@ -42,6 +42,8 @@ async function key(keyCode, modifiers = []) {
 }
 async function snapshot(name) { await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG()); }
 const pressed = (label) => evaluate((label) => document.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-pressed'), label);
+// Whether a field layer is drawn on the visible Paths field.
+const layer = (name) => evaluate((name) => !!document.querySelector('.fieldsvg .field-' + name), name);
 const attr = (selector, name) => evaluate((selector, name) => document.querySelector(selector)?.getAttribute(name), selector, name);
 const playing = () => evaluate(() => document.querySelector('.pt-play').getAttribute('aria-label').startsWith('Pause'));
 // The open modal's accessible name, from aria-label or aria-labelledby, or null when none is open.
@@ -87,10 +89,13 @@ async function defaultChecks(first) {
   await key('1');
   console.log('PASS tool keys 1-5, V W R M C, Shift+W');
 
-  // Grid, fit and the path list.
-  const grid = await pressed('Toggle field grid');
-  await key('g'); assert.notEqual(await pressed('Toggle field grid'), grid, 'G toggles the grid');
-  await key('g'); assert.equal(await pressed('Toggle field grid'), grid);
+  // Grid, AprilTags, fit and the path list.
+  const grid = await layer('grid');
+  await key('g'); assert.notEqual(await layer('grid'), grid, 'G toggles the grid');
+  await key('g'); assert.equal(await layer('grid'), grid);
+  const tags = await layer('apriltags');
+  await key('t'); assert.notEqual(await layer('apriltags'), tags, 'T toggles AprilTags');
+  await key('t'); assert.equal(await layer('apriltags'), tags);
   const fit = await evaluate(() => document.querySelector('.vc-pct').textContent);
   await click('[aria-label="Zoom in"]'); await click('[aria-label="Zoom in"]');
   assert.notEqual(await evaluate(() => document.querySelector('.vc-pct').textContent), fit);
@@ -99,11 +104,11 @@ async function defaultChecks(first) {
   assert.equal(await pathListTitle(), 'Hide path list  (\\)');
   await key('\\'); await wait(async () => (await pathListTitle()) === 'Show path list  (\\)', '\\ hides the path list');
   await key('\\'); await wait(async () => (await pathListTitle()) === 'Hide path list  (\\)', '\\ shows the path list');
-  console.log('PASS G, F and \\');
+  console.log('PASS G, T, F and \\');
 
   // Typing keeps its keys: G in the library search does not toggle the grid.
   await click('.library-search'); await key('g');
-  assert.equal(await pressed('Toggle field grid'), grid, 'Typing G in search leaves the grid');
+  assert.equal(await layer('grid'), grid, 'Typing G in search leaves the grid');
   await key('Escape'); await click('.vc-pct');
   console.log('PASS text input owns G');
 
@@ -145,7 +150,11 @@ async function defaultChecks(first) {
   assert.equal(await attr('[aria-label="Undo"]', 'title'), 'Undo  (' + M('Z') + ')');
   assert.equal(await attr('[aria-label="Redo"]', 'title'), 'Redo  (' + M('Z', true) + ')');
   assert.equal(await attr('.vc-pct', 'title'), 'Fit field  (F)');
-  assert.equal(await attr('[aria-label="Toggle field grid"]', 'title'), 'Toggle field grid  (G)');
+  // The Layers menu labels each layer with its current key.
+  await click('[aria-label="Field layers"]');
+  assert.deepEqual(await evaluate(() => [...document.querySelectorAll('[role="menu"][aria-label="Field layers"] [role="menuitemcheckbox"]')]
+    .map((item) => [item.querySelector('span:not(.ctxmenu-ic):not(.ctxmenu-k)').textContent, item.querySelector('.ctxmenu-k')?.textContent])), [['Grid', 'G'], ['AprilTags', 'T']]);
+  await key('Escape');
   assert.equal(await attr('.push-button', 'aria-keyshortcuts'), (mac ? 'Meta' : 'Control') + '+Shift+P');
   assert.equal(await attr('.push-button', 'data-shortcut'), M('P', true));
   console.log('PASS tooltips, rail digits and Push labels');
@@ -153,7 +162,7 @@ async function defaultChecks(first) {
   // The shortcuts dialog lists every command from the registry, then the fixed keys.
   const expected = [
     ['Select / move', '1 or V'], ['Place waypoint', '2 or W'], ['Place rotation', '3 or R'], ['Place command', '4 or M'], ['Create zone', '5 or C'],
-    ['Fit field', 'F'], ['Toggle grid', 'G'], ['Toggle path list', '\\'], ['Next pass through a point', ']'], ['Previous pass through a point', '['],
+    ['Fit field', 'F'], ['Toggle grid', 'G'], ['Toggle AprilTags', 'T'], ['Toggle path list', '\\'], ['Next pass through a point', ']'], ['Previous pass through a point', '['],
     ['Play / pause', 'Space'], ['Undo', M('Z')], ['Redo', M('Z', true) + ' or ' + M('Y')],
     ['New project', M('N')], ['Projects', M('O')], ['Open project file', M('O', true)], ['Save project and BDX files', M('S')], ['Save copy', M('S', true)],
     ['Export selected path as BDX', M('E')], ['Push selected paths', M('P', true)],

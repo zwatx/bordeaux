@@ -1,5 +1,6 @@
 import { KeyboardHelp } from './KeyboardHelp';
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { PM } from "../lib/pathMath";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { keyLabel, keyLabels, useKeyRules } from "../lib/keyBindings";
@@ -112,8 +113,25 @@ import { deletionInput } from "./DeletionNotice";
   }
 
   // Hiding the path list lives on the library's own header (and its key); the restore strip brings it back.
-  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, graphOpen, onFlip, flipDisabled }) {
+  // The Layers button opens a menu of field layers (grid, AprilTags), each checkable and labelled with its current key.
+  function ViewControls({ zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, graphOpen, onFlip, flipDisabled }) {
     useKeyRules();
+    const [layersMenu, setLayersMenu] = React.useState(null);
+    // The menu closes on any press outside it, including a press on its own button. That press only closes the menu:
+    // the menu hands over the pointer event that closed it, and the click that follows the same press is skipped.
+    const closingPress = React.useRef(null), skipClick = React.useRef(false);
+    const openLayers = (event) => {
+      const skip = skipClick.current;
+      skipClick.current = false;
+      if (skip && event.detail > 0) return; // Keyboard clicks (detail 0) always open.
+      const button = event.currentTarget, box = button.getBoundingClientRect();
+      setLayersMenu({ x: box.right - 184, y: box.top - 6, returnFocus: button });
+    };
+    const closeLayers = React.useCallback((event) => { closingPress.current = event ?? null; setLayersMenu(null); }, []);
+    const layerItems = [
+      { label: 'Grid', icon: 'grid', checked: showGrid, hint: keyLabel('view.grid'), onClick: () => setShowGrid(!showGrid) },
+      { label: 'AprilTags', icon: 'apriltag', checked: showTags, hint: keyLabel('view.tags'), onClick: () => setShowTags(!showTags) },
+    ];
     return h('div', { className: 'viewctl' + (graphOpen ? ' graph-open' : '') },
       onFlip && h('button', { className: 'vc-text field-flip', type: 'button', disabled: flipDisabled, ...deletionInput(onFlip),
         title: 'Mirror or rotate this path', 'aria-label': 'Flip path', 'aria-haspopup': 'dialog' }, 'Flip'),
@@ -122,8 +140,12 @@ import { deletionInput } from "./DeletionNotice";
       h('button', { className: 'vc-pct', type: 'button', title: withKey('Fit field', 'view.fit'), onClick: onFit }, zoomPct + '%'),
       h('button', { className: 'vc-btn', type: 'button', title: 'Zoom in', 'aria-label': 'Zoom in', onClick: () => zoomBy(1 / 1.18) }, h(Icon, { name: 'zoomin', size: 16 })),
       h('div', { className: 'vc-div' }),
-      h('button', { className: 'vc-btn' + (showGrid ? ' active' : ''), type: 'button', title: withKey('Toggle field grid', 'view.grid'), 'aria-label': 'Toggle field grid', 'aria-pressed': showGrid, onClick: () => setShowGrid(!showGrid) }, h(Icon, { name: 'grid', size: 16 })),
-      h('button', { className: 'vc-btn', type: 'button', title: withKey('Fit field', 'view.fit'), 'aria-label': 'Fit field to view', onClick: onFit }, h(Icon, { name: 'fit', size: 16 })));
+      h('button', { className: 'vc-btn' + (layersMenu ? ' active' : ''), type: 'button', title: 'Field layers', 'aria-label': 'Field layers',
+        'aria-haspopup': 'menu', 'aria-expanded': Boolean(layersMenu), onPointerDown: (event) => { skipClick.current = event.nativeEvent === closingPress.current; }, onClick: openLayers }, h(Icon, { name: 'layers', size: 16 })),
+      h('button', { className: 'vc-btn', type: 'button', title: withKey('Fit field', 'view.fit'), 'aria-label': 'Fit field to view', onClick: onFit }, h(Icon, { name: 'fit', size: 16 })),
+      // The field tools blur their backdrop, which would make a fixed menu inside them position against the tools.
+      layersMenu && createPortal(h(UI.ContextMenu, { x: layersMenu.x, y: layersMenu.y, above: true, label: 'Field layers', items: layerItems,
+        returnFocus: layersMenu.returnFocus, onClose: closeLayers }), document.body));
   }
 
 export const Panels = { Toolbar, ToolRail, MetricControl, ViewControls };

@@ -12,6 +12,7 @@ import { wheelZoomFactor } from "../lib/zoom";
 import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
 import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
+import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
 
   const { useRef, useState, useEffect, useMemo, useCallback, useId } = React;
   const h = React.createElement;
@@ -20,9 +21,14 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
   const { width: IMG_W, height: IMG_H, left: X0, right: X1, top: Y0, bottom: Y1 } = FIELD_IMAGE;
   const { x: SX, y: SY } = FIELD_IMAGE_SCALE;
   const { x: CX, y: CY } = FIELD_IMAGE_CENTER;
+  /** The fitted view, shown as 100%: the field image with a 90 px margin. */
+  const FIT_VIEW = { x: X0 - 90, y: Y0 - 90, w: X1 - X0 + 180, h: Y1 - Y0 + 180 };
 
   // muted semantic colors (reserved for meaning, low saturation)
   const C_START = '#4bbf86', C_END = '#d2655f', C_NODE = '#8b94a2', C_NEUTRAL = '#9aa3b0';
+  // Tag numbers appear from 150% zoom; at fit they would crowd the hubs.
+  const TAG_LABEL_MIN_ZOOM = 1.5;
+  const CARD_FONT = '12px "Space Grotesk", system-ui, sans-serif';
   function rangeLabelIndexes(rangeCount, selectedIndex, maximum = 80) {
     const limit = Math.max(0, Math.floor(maximum));
     const indexes = new Set();
@@ -131,7 +137,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
   }
 
   function FieldView(props) {
-    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, robot, drive, accent, metric, playTime, actions, routine, routinePose, problems, hoverStore, hoverContext } = props;
+    const { doc, derived, editStore, insertionPreview, proposalPreviews, sel, tool, view, setView, alliance, showGrid, showTags, robot, drive, accent, metric, playTime, actions, routine, routinePose, problems, hoverStore, hoverContext } = props;
     const interactionReady = props.interactionReady !== false;
     const showHandles = props.showHandles !== false;
     const svgRef = useRef(null);
@@ -234,7 +240,18 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       hoverStore?.clear('field', hoverContext);
       return () => { hoverProducer.current = null; hoverStore?.clear('field', hoverContext); };
     }, [hoverStore, hoverContext, visitsAt, visitTolerance, clientToWorld, routine, interactionReady, view.x, view.y, view.w, view.h, cw, alliance]);
+    const [hoverTag, setHoverTag] = useState(null);
+    const hoverTagRef = useRef(null);
+    const setTagHover = useCallback((id) => { if (hoverTagRef.current !== id) { hoverTagRef.current = id; setHoverTag(id); } }, []);
+    useEffect(() => { if (!showTags) setTagHover(null); }, [showTags, setTagHover]);
+    const tagAtClient = (clientX, clientY) => {
+      const svg = svgRef.current, ctm = svg?.getScreenCTM();
+      if (!ctm) return null;
+      const pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY;
+      return tagMarkAt(pt.matrixTransform(ctm.inverse()), P(10))?.id ?? null;
+    };
     const onHoverMove = event => {
+      if (showTags) setTagHover(event.buttons ? null : tagAtClient(event.clientX, event.clientY));
       if (!hoverStore) return;
       if (event.buttons) { hoverStore.clear(undefined, hoverContext); return; }
       const { clientX, clientY } = event;
@@ -766,7 +783,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
         const g = [];
         for (let m = Math.ceil(FIELD_X_MIN); m <= FIELD_X_MAX; m++) { const x = CX + m * SX; g.push(h('line', { key: 'gx' + m, x1: x, y1: Y0, x2: x, y2: Y1, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
         for (let m = Math.ceil(FIELD_Y_MIN); m <= FIELD_Y_MAX; m++) { const y = CY - m * SY; g.push(h('line', { key: 'gy' + m, x1: X0, y1: y, x2: X1, y2: y, stroke: '#ffffff', strokeOpacity: 0.045, strokeWidth: P(1) })); }
-        els.push(h('g', { key: 'grid' }, g));
+        els.push(h('g', { key: 'grid', className: 'field-grid' }, g));
       }
 
       // thin CAD centerline: subtle casing + metric-colored body + invisible insert hit-line
@@ -1269,15 +1286,62 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
 
     const snapEl = (snap && doc.waypoints[snap.idx]) ? (function () { const c = W2P(doc.waypoints[snap.idx]); return h('g', { transform: `translate(${c.x} ${c.y - P(34)})`, style: { pointerEvents: 'none' } }, h('rect', { x: -P(37), y: -P(11), width: P(74), height: P(20), rx: P(4), fill: 'rgba(11,12,14,0.95)', stroke: accent, strokeWidth: P(1) }), h('text', { x: 0, y: P(4), fill: accent, fontSize: P(11), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, snap.label)); })() : null;
 
+    // ---------- APRILTAGS (field layer, under paths and the HTML tool rail) ----------
+    // A bar along each tag face and an arrow the way it faces; numbers only once zoomed in. No pointer input:
+    // a waypoint placed on a tag lands there, and hover is found by distance in onHoverMove.
+    const tagLabels = FIT_VIEW.w / view.w >= TAG_LABEL_MIN_ZOOM - 1e-9;
+    // One tag's face bar, arrow and (when zoomed in) number. Like command markers and rotation targets, tags rest in
+    // C_NEUTRAL and the one under the pointer is drawn again on top, larger and in the accent. Only that tag changes;
+    // a ring would cover close neighbors.
+    const tagMark = ({ id, point: c, facing: d }, className, hovered = false) => {
+      const scale = hovered ? 1.3 : 1, color = hovered ? accent : C_NEUTRAL;
+      const half = Math.max(TAG_WIDTH_M / 2 * SX, P(5)) * scale, across = { x: -d.y * half, y: d.x * half };
+      const at = (distance, side = 0) => (c.x + d.x * distance - d.y * side).toFixed(1) + ',' + (c.y + d.y * distance + d.x * side).toFixed(1);
+      const face = { x1: c.x - across.x, y1: c.y - across.y, x2: c.x + across.x, y2: c.y + across.y };
+      // The number keeps its place, so the hovered copy covers the resting one exactly.
+      const label = { x: c.x + d.x * P(20), y: c.y + d.y * P(20) };
+      return h('g', { key: id, className, 'data-tag': id },
+        h('line', { ...face, stroke: '#05060a', strokeOpacity: 0.8, strokeWidth: P(hovered ? 6 : 4.5), strokeLinecap: 'round' }),
+        h('line', { ...face, className: 'field-apriltag-face', stroke: color, strokeWidth: P(hovered ? 3 : 2), strokeLinecap: 'round' }),
+        h('polygon', { points: [at(P(8 * scale)), at(P(3), P(2.6 * scale)), at(P(3), -P(2.6 * scale))].join(' '), fill: color,
+          stroke: '#05060a', strokeOpacity: 0.6, strokeWidth: P(1), paintOrder: 'stroke' }),
+        tagLabels && h('text', { className: 'field-apriltag-id', x: label.x, y: label.y, fill: color, stroke: '#05060a', strokeOpacity: 0.85, strokeWidth: P(3), paintOrder: 'stroke',
+          fontSize: P(11), fontFamily: 'JetBrains Mono, monospace', fontWeight: hovered ? 700 : 500, textAnchor: 'middle', dominantBaseline: 'central' }, id));
+    };
+    const tagLayer = useMemo(() => showTags
+      ? h('g', { className: 'field-apriltags', 'aria-hidden': true, style: { pointerEvents: 'none' } }, FIELD_TAG_MARKS.map((tag) => tagMark(tag, 'field-apriltag')))
+      : null, [showTags, view.w, cw, accent]);
+
+    // The hovered tag's card: its number, from the official layout.
+    const tagCard = useMemo(() => {
+      const tag = showTags && hoverTag != null ? FIELD_TAG_MARKS.find((item) => item.id === hoverTag) : null;
+      if (!tag) return null;
+      const title = 'Tag ' + tag.id;
+      const width = P(fieldTextWidth(title, '600 ' + CARD_FONT) + 18), height = P(26);
+      // Keep the card off every tag (its bar, arrow and number), so close neighbors stay readable. The pad covers half
+      // the enlarged bar or half a number, whichever is wider.
+      const pad = Math.max(Math.max(TAG_WIDTH_M / 2 * SX, P(5)) * 1.3, P(9)) + P(4);
+      const tagBoxes = FIELD_TAG_MARKS.map(({ point: c, facing: d }) => {
+        const front = { x: c.x + d.x * P(20), y: c.y + d.y * P(20) };
+        return { x: Math.min(c.x, front.x) - pad, y: Math.min(c.y, front.y) - pad, w: Math.abs(front.x - c.x) + pad * 2, h: Math.abs(front.y - c.y) + pad * 2 };
+      });
+      const box = placeFieldLabel(tag.point, width, height, problemBounds, upp, [...tagBoxes, ...(toolRailObstacle ? [toolRailObstacle] : [])]);
+      const text = { fontSize: P(12), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 500 };
+      return h('g', { className: 'field-apriltag-card', style: { pointerEvents: 'none' } },
+        tagMark(tag, 'field-apriltag-hover', true),
+        h('rect', { className: 'field-apriltag-card-box', x: box.x, y: box.y, width, height, rx: P(6), style: { fill: 'var(--bg-3)', stroke: 'var(--line-3)' }, strokeWidth: P(1) }),
+        h('text', { ...text, x: box.x + P(9), y: box.y + P(17), fontWeight: 600, style: { fill: 'var(--txt)' } }, title));
+    }, [showTags, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
+
     const vb = `${view.x} ${view.y} ${view.w} ${view.h}`;
 
     const cursor = drag.current && drag.current.moved && drag.current.role === 'bg' ? 'grabbing' : undefined;
 
     return h('svg', {
       ref: svgRef, className: 'fieldsvg', tabIndex: routine ? undefined : 0, 'aria-label': 'Path field', onKeyDown: onFieldKeyDown, viewBox: vb, preserveAspectRatio: 'xMidYMid meet',
-      onPointerDown: onDown, onPointerMove: onHoverMove,
-      onPointerLeave: () => hoverStore?.clear('field', hoverContext),
-      onPointerCancel: () => hoverStore?.clear('field', hoverContext),
+      onPointerDown: (event) => { setTagHover(null); onDown(event); }, onPointerMove: onHoverMove,
+      onPointerLeave: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
+      onPointerCancel: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
       onLostPointerCapture: () => hoverStore?.clear('field', hoverContext),
       onWheel: onWheel, onDoubleClick: onDbl,
       style: { cursor, userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' },
@@ -1288,6 +1352,7 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       h('foreignObject', { x: 0, y: 0, width: IMG_W, height: IMG_H, 'data-role': 'bg', style: { pointerEvents: 'none' } },
         h('img', { src: fieldImage, width: IMG_W, height: IMG_H, draggable: false, style: { width: IMG_W + 'px', height: IMG_H + 'px', display: 'block', opacity: 0.9, filter: 'brightness(0.38) saturate(0.32) contrast(1.06)', WebkitUserDrag: 'none', userSelect: 'none', pointerEvents: 'none' } })),
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
+      tagLayer,
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),
@@ -1306,8 +1371,10 @@ import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexe
       !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
       routine ? null : snapEl,
       routine ? null : problemBadgeEls,
+      tagCard,
     );
   }
 
 export const FIELD_DIMS = { IMG_W, IMG_H };
+export { FIT_VIEW };
 export { FieldView, rangeLabelIndexes, toolRailLabelObstacle, createFieldGestureOwner, fieldRangeEndpoint };

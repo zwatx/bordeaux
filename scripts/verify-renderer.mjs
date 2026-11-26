@@ -56,7 +56,9 @@ import path from "node:path";
 // 895 KiB keeps about 2 KiB of headroom.
 // Routine step dragging as lifted cards, Shift-click step deletion and footer alignment measure 917,066 B against
 // 914,458 B before them (2026-11-25); 898 KiB keeps about 2 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 898 * 1024;
+// The official AprilTag layout (the vendored WPILib JSON, 5,070 B minified), the field Layers menu and the tag layer
+// measure 928,759 B (2026-11-25); 910 KiB keeps about 3 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 910 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -71,7 +73,9 @@ const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 898 * 1024;
 // The parallel route search (candidate pool, warm-up and a persistent optimizer worker) measures 243,763 B;
 // 239 KiB keeps ~1 KiB headroom.
 // Preserve mirrored stationary turns when a constraint boundary inserts a heading sample (244,970 B).
-const WORKER_JAVASCRIPT_BUDGET_BYTES = 240 * 1024;
+// The planner reads the field pack, which now carries the vendored WPILib AprilTag layout (5,070 B): 248,696 B
+// (2026-11-25); 245 KiB keeps about 2 KiB of headroom.
+const WORKER_JAVASCRIPT_BUDGET_BYTES = 245 * 1024;
 // Native Windows chrome and the stable project/section header use a bounded 148 KiB CSS allowance.
 // Preserve the reviewed 4 KiB increment for point links and the inset Windows menu.
 // Direction controls, the routine scrubber and compact-label fixes measure 157,863 B.

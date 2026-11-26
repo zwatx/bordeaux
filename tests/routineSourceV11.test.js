@@ -114,7 +114,7 @@ describe('hard routine boundary and independent path binary', () => {
     project.routines[0].nodes = [repeat()]; project.schemaVersion = '1.1';
     const actual = buildRobotBinary(project, selection, bindings); expect(actual.bytes).toEqual(expected.bytes); expect(actual.document.paths).toEqual(expected.document.paths);
     const root = await directory(), worker = path.join(root, 'worker.cjs');
-    await fs.writeFile(worker, `const ts=require(${JSON.stringify(require.resolve('typescript'))});const fs=require('node:fs');require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);require(${JSON.stringify(path.resolve('src/electron/bdxWorker.ts'))});`);
+    await fs.writeFile(worker, `const ts=require(${JSON.stringify(require.resolve('typescript'))});const fs=require('node:fs');require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);require(${JSON.stringify(path.resolve('src/electron/bdxWorker.ts'))});`);
     const results = await runWorkerTask(worker, { project, selections: [selection], bindings }, 'Routine 1.1 path BDX', new AbortController().signal, { waitForTermination: true });
     expect(Buffer.from(results[0].bytes)).toEqual(Buffer.from(expected.bytes));
   }, 10000);

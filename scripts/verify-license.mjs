@@ -67,6 +67,15 @@ if (createHash("sha256").update(ssh2License.trimEnd()).digest("hex") !== "d06b5d
   throw new Error("licenses/ssh2-MIT.txt must match the license shipped by ssh2 1.17.0");
 }
 
+if (digestRequiredFile("licenses/WPILib-BSD-3-Clause.txt") !== "fb89d94504564dc7c78694c5f4291e23cda05ecfe45a003ca4911d493009115d") {
+  throw new Error("licenses/WPILib-BSD-3-Clause.txt must match the allwpilib LICENSE.md");
+}
+const wpilibLayout = "src/core/field/wpilib/2026-rebuilt-andymark.json";
+const wpilibLayoutDigest = digestRequiredFile(wpilibLayout);
+if (!rights.includes(wpilibLayout) || !rights.includes(wpilibLayoutDigest)) {
+  throw new Error(`RIGHTS.md has stale provenance for ${wpilibLayout}`);
+}
+
 const fontDigests = {
   "5212942a-e8a9-49c9-9687-e590adce5f6e.woff2": "d44eb1936043a56038eb02dd70b243f379bef65783f94ec12f277550720411f1",
   "70a5258e-5ffc-4ab8-9e26-eb5a1dc45e1d.woff2": "9c38cb2d0d2d93c1ee6e21fa78db76f13ea7e15e15cc64214c7ca89b6aaa35c4",
@@ -105,7 +114,7 @@ if (manifest.dependencies?.ssh2 !== "1.17.0" || lockfile.packages?.["node_module
 }
 
 const packagedRightsFiles = new Set((manifest.build?.extraResources ?? []).map((resource) => resource.from));
-for (const relativePath of ["LICENSE", "NOTICE", "RIGHTS.md", "licenses/OFL-1.1.txt", "licenses/ssh2-MIT.txt"]) {
+for (const relativePath of ["LICENSE", "NOTICE", "RIGHTS.md", "licenses/OFL-1.1.txt", "licenses/ssh2-MIT.txt", "licenses/WPILib-BSD-3-Clause.txt"]) {
   if (!packagedRightsFiles.has(relativePath)) {
     throw new Error(`package.json must include ${relativePath} in build.extraResources`);
   }

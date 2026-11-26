@@ -14,7 +14,7 @@ beforeAll(async () => {
   worker = path.join(root, "worker.cjs");
   // Transpile the real worker and its real shared dependencies without a standard build or a replacement planner.
   await fs.writeFile(worker, `const ts=require(${JSON.stringify(require.resolve("typescript"))});const fs=require('node:fs');
-    require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
+    require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,file);
     require(${JSON.stringify(path.resolve("src/electron/bdxWorker.ts"))});`);
 });
 afterAll(async () => { await fs.rm(root, { recursive: true, force: true }); });

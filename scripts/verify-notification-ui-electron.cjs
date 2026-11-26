@@ -159,14 +159,14 @@ app.whenReady().then(async () => {
       await load(width, height, units);
 
       // Space plays and pauses while the pointer holds a hover tooltip open.
-      await hover('[aria-label="Toggle field grid"]');
+      await hover('[aria-label="Field layers"]');
       await wait(() => evaluate(() => document.querySelector('#app-tooltip')?.matches(':popover-open')), 'hover tooltip');
       assert.equal(await active(), 'body');
-      const grid = await evaluate(() => document.querySelector('[aria-label="Toggle field grid"]').getAttribute('aria-pressed'));
+      const layers = await evaluate(() => document.querySelector('[aria-label="Field layers"]').getAttribute('aria-expanded'));
       await key('Space');
       await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause trajectory playback"]'))), 'Space plays under a hover tooltip');
       assert.equal(await evaluate(() => document.querySelector('#app-tooltip').matches(':popover-open')), true, 'tooltip still shown');
-      assert.equal(await evaluate(() => document.querySelector('[aria-label="Toggle field grid"]').getAttribute('aria-pressed')), grid, 'Space does not toggle the hovered Grid');
+      assert.equal(await evaluate(() => document.querySelector('[aria-label="Field layers"]').getAttribute('aria-expanded')), layers, 'Space does not open the hovered Layers menu');
       await snapshot('space-under-tooltip-' + width);
       await key('Space');
       await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Space pauses under a hover tooltip');

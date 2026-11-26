@@ -8,7 +8,7 @@ import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { filterPickerItems } from "../lib/pickerSearch";
 
 // Bordeaux shared UI primitives.
-  const { useState, useRef, useEffect, useId, useMemo } = React;
+  const { useState, useRef, useEffect, useLayoutEffect, useId, useMemo } = React;
   const h = React.createElement;
 
   const PATHS = {
@@ -67,6 +67,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
     check: 'M5 13l4 4L19 7',
     bolt: 'M13 3L5 13h6l-1 8 8-10h-6z',
     layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
+    apriltag: 'M4 4h16v16H4z M8 8h4v4H8z M12 12h4v4h-4z',
     pin: 'M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z M12 9a2 2 0 1 0 0 0z',
     ruler: 'M4 14L14 4l6 6L10 20z M8 10l2 2M11 7l2 2M14 10l2 2',
     sliders: 'M4 6h5M15 6h5M9 3v6M4 12h9M19 12h1M13 9v6M4 18h3M13 18h7M7 15v6',
@@ -574,16 +575,20 @@ import { filterPickerItems } from "../lib/pickerSearch";
     return chosen ? { text: chosen.text(chosen.value), ariaLabel: chosen.aria(chosen.value), key: chosen.key } : null;
   }
 
-  // floating context menu — items: [{label,icon,onClick,danger,sep,hint,checked}]; `checked` makes a checkbox item
-  function ContextMenu({ x, y, items, onClose, returnFocus, label = 'Heading actions' }) {
+  // floating context menu — items: [{label,icon,onClick,danger,sep,hint,checked}]; `checked` makes a checkbox item.
+  // `above` puts the menu's bottom edge at y, for a menu opened from a control near the bottom of the window.
+  // A press outside the menu closes it and passes that pointer event to onClose, so the control that opened the menu
+  // can tell its own closing press from a press that should open it.
+  function ContextMenu({ x, y, items, onClose, returnFocus, label = 'Heading actions', above = false }) {
     const ref = useRef(null);
     const origin = useRef(returnFocus || null);
     const [pos, setPos] = useState({ x, y });
-    useEffect(() => {
+    useLayoutEffect(() => {
       const el = ref.current; if (!el) return;
       const r = el.getBoundingClientRect();
-      setPos({ x: Math.max(8, Math.min(x, window.innerWidth - r.width - 8)), y: Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) });
-    }, [x, y]);
+      const top = above ? y - r.height : y;
+      setPos({ x: Math.max(8, Math.min(x, window.innerWidth - r.width - 8)), y: Math.max(8, Math.min(top, window.innerHeight - r.height - 8)) });
+    }, [x, y, above]);
     useEffect(() => {
       const el = ref.current;
       if (!origin.current) origin.current = document.activeElement;
@@ -593,11 +598,11 @@ import { filterPickerItems } from "../lib/pickerSearch";
       };
     }, []);
     useEffect(() => {
-      const close = () => {
+      const close = (event) => {
         if (ref.current?.contains(document.activeElement) && origin.current?.isConnected) origin.current.focus();
-        onClose();
+        onClose(event);
       };
-      const away = (event) => { if (ref.current && !ref.current.contains(event.target)) close(); };
+      const away = (event) => { if (ref.current && !ref.current.contains(event.target)) close(event); };
       const key = (event) => {
         if (event.key === 'Escape') {
           event.preventDefault(); event.stopPropagation(); close(); return;
@@ -626,7 +631,7 @@ import { filterPickerItems } from "../lib/pickerSearch";
             it.icon && h('span', { className: 'ctxmenu-ic' }, h(Icon, { name: it.icon, size: 14 })),
             h('span', null, it.label),
             it.hint && h('span', { className: 'ctxmenu-k' }, it.hint),
-            it.checked && h('span', { className: 'ctxmenu-k', 'aria-hidden': true }, h(Icon, { name: 'check', size: 14 })))));
+            it.checked != null && h('span', { className: 'ctxmenu-k', 'aria-hidden': true, style: it.checked ? undefined : { visibility: 'hidden' } }, h(Icon, { name: 'check', size: 14 })))));
   }
 
 export const UI = { Icon, IconBtn, Dropdown, ChoiceBrowser, Num, DraftText, Section, Toggle, Seg, TurnDirection, ContextMenu, constraintRangeSummary };

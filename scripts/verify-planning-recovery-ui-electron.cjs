@@ -86,10 +86,11 @@ app.whenReady().then(async () => {
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await key('Tab'); // The original failure only appeared after keyboard navigation.
-      const grid = await evaluate(() => { const button = document.querySelector('[aria-label="Toggle field grid"]'); button.focus(); return button.getAttribute('aria-pressed'); });
+      // A plain toolbar button (Zoom in) leaves Space to playback. Menu buttons such as Field layers keep it from the keyboard.
+      const zoom = await evaluate(() => { document.querySelector('[aria-label="Zoom in"]').focus(); return document.querySelector('.vc-pct').textContent; });
       await key('Space');
       await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Pause trajectory playback"]'))), 'Space plays from focused field toolbar');
-      assert.equal(await evaluate(() => document.querySelector('[aria-label="Toggle field grid"]').getAttribute('aria-pressed')), grid, 'Space does not activate focused Grid');
+      assert.equal(await evaluate(() => document.querySelector('.vc-pct').textContent), zoom, 'Space does not activate the focused Zoom in');
       await key('Space');
       await wait(() => evaluate(() => Boolean(document.querySelector('[aria-label="Play trajectory"]'))), 'Space pauses from focused toolbar');
       await click('#band-path-name');

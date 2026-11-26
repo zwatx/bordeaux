@@ -61,6 +61,15 @@ The desktop application uses `ssh2` 1.17.0 for its constrained SFTP client.
 transitive dependency versions and integrity digests remain recorded in
 `package-lock.json`.
 
+## Field data
+
+`src/core/field/wpilib/2026-rebuilt-andymark.json` is the unmodified WPILib
+AndyMark field layout for 2026 REBUILT, obtained from the allwpilib
+`v2027.0.0-alpha-8` tag. Its SHA-256 is
+`5225a3c49bf403e920a353ed46639691ae2f12e93af4309ff5e3c1044de3d8fb`.
+It remains under the WPILib BSD 3-Clause License, reproduced in
+[`licenses/WPILib-BSD-3-Clause.txt`](licenses/WPILib-BSD-3-Clause.txt).
+
 ## Provenance records
 
 This file is the distribution-level rights index. Font provenance is recorded

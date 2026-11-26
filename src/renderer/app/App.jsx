@@ -19,8 +19,7 @@ import { durationResult } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
 import { ContextInspector, commandArguments } from "../components/ContextInspector";
-import { FIELD_DIMS, FieldView } from "../components/FieldView";
-import { FIELD_IMAGE } from "../../core/field/imageCalibration";
+import { FIELD_DIMS, FIT_VIEW, FieldView } from "../components/FieldView";
 import { Panels } from "../components/Panels";
 import { ProjectChip, firstFact, shortFact } from "../components/ProjectChip";
 import { DepartureHint, ProjectDeparture, ProjectPending, ProjectsDialog } from "../components/ProjectsDialog";
@@ -169,7 +168,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
   // Editor tools by the key command that selects them (see src/core/keyBindings.ts).
   const TOOL_FOR_COMMAND = { 'tool.select': 'select', 'tool.waypoint': 'waypoint', 'tool.rotation': 'rotation', 'tool.command': 'marker', 'tool.zone': 'range' };
-  const FIT = { x: FIELD_IMAGE.left - 90, y: FIELD_IMAGE.top - 90, w: FIELD_IMAGE.right - FIELD_IMAGE.left + 180, h: FIELD_IMAGE.bottom - FIELD_IMAGE.top + 180 };
+  const FIT = FIT_VIEW;
 
   const usePlayback = (store) => useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   /**
@@ -395,6 +394,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     useEffect(() => { if (page !== 'robot') setEditorPage(page); }, [page]);
     const alliance = 'blue';
     const [showGrid, setShowGrid] = useState(true);
+    // Official AprilTag poses on the field; off until asked for, so the field reads as before.
+    const [showTags, setShowTags] = useState(false);
     const deletionAction = useRef(null), deletionSequence = useRef(0);
     const [deletionNotice, setDeletionNotice] = useState(null);
     useEffect(() => () => {
@@ -2966,8 +2967,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
           setTool(tool);
           return;
         }
-        if (command === 'view.grid' || command === 'view.fit') {
-          e.preventDefault(); command === 'view.grid' ? setShowGrid(s => !s) : setView(FIT); return;
+        if (command === 'view.grid' || command === 'view.tags' || command === 'view.fit') {
+          e.preventDefault();
+          if (command === 'view.grid') setShowGrid(s => !s);
+          else if (command === 'view.tags') setShowTags(s => !s);
+          else setView(FIT);
+          return;
         }
         if (e.target.closest?.('.editor-library,.library-divider')) return;
         if (command === 'edit.undo' || command === 'edit.redo') { e.preventDefault(); command === 'edit.redo' ? redo() : undo(); return; }
@@ -3100,8 +3105,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               routine, run, robot,
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource }),
               field: h(React.Fragment, null,
-                h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid })),
+                h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, showTags, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: h(React.Fragment, null,
                 (bdxNotice || exportError) && h('div', { className: 'routine-export-notices' }, h(FieldStatus, { notices: fieldNotices.filter(notice => ['bdx-export', 'export'].includes(notice.id)) })),
@@ -3122,7 +3127,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
               h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
               h(Panels.ToolRail, { tool, setTool }),
-              h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
+              h(EditablePlaybackField, { ...scene, store: playbackStore, editStore, robot, insertionPreview: waypointPreview, proposalPreviews: agentProposal && agentProposal.status === 'ready' ? agentProposalPreview.previews : [], sel, tool, view, setView, alliance, showGrid, showTags, drive: robot.drive, accent, metric, actions: fieldActions, showHandles: true })),
               h('div', { className: 'field-notices' },
               h(FieldStatus, { key: doc.id, notices: fieldNotices }),
               unfinishedPath && !waypointPreview && h('div', { className: 'stage-hint' },
@@ -3157,7 +3162,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
                 h('div', { className: 'field-view-tools' },
                   h(Panels.MetricControl, { metric, setMetric, derived: scene.derived, robot }),
-                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),
+                  h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),
             h(BandDivider, { height: bandHeight, max: bandMax, onChange: setBandOverride }),
             h(PathBand, { ...scene, robot, sel, project, drive: robot.drive,
               actions: bandActions, edit: { begin: beginEdit, mutate, finish: finishEdit, cancel: cancelEdit, draft: editStore.getSnapshot, flushDraft: flushProjectDraft },

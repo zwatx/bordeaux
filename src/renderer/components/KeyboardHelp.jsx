@@ -7,7 +7,7 @@ const h = React.createElement;
 
 // Commands by where they work, in dialog order.
 const GROUPS = [
-  ['Paths editor', ['tool.select', 'tool.waypoint', 'tool.rotation', 'tool.command', 'tool.zone', 'view.fit', 'view.grid', 'view.focusField', 'visit.next', 'visit.previous']],
+  ['Paths editor', ['tool.select', 'tool.waypoint', 'tool.rotation', 'tool.command', 'tool.zone', 'view.fit', 'view.grid', 'view.tags', 'view.focusField', 'visit.next', 'visit.previous']],
   ['Paths and routines', ['playback.toggle', 'edit.undo', 'edit.redo']],
   ['Project and robot', ['project.new', 'project.list', 'project.openFile', 'project.save', 'project.saveCopy', 'export.bdx', 'robot.push']],
 ];
