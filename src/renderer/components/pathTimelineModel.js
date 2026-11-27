@@ -1,5 +1,6 @@
 import { effectiveRanges } from '../../core/math/pathRanges';
 import { PM } from '../lib/pathMath';
+import { tagsSeenAt } from '../lib/tagCoverage';
 
 // Time <-> path-fraction mapping for the path timeline, built from the displayed planning result.
 // Stops and waits are flat stretches: time advances while the fraction does not.
@@ -7,8 +8,10 @@ import { PM } from '../lib/pathMath';
 const clamp01 = (f) => Math.max(0, Math.min(1, f));
 const R2D = 180 / Math.PI;
 
-/** Uses the planner's own trace when there is one, else the preview's sampled profile. */
-export function buildTimeline(derived) {
+/** Uses the planner's own trace when there is one, else the preview's sampled profile. With `cameras`, each point also
+ * carries `tags`, how many AprilTags the robot reads there. */
+export function buildTimeline(derived, cameras) {
+  const seen = (x, y, heading) => cameras?.length ? { tags: tagsSeenAt({ x, y, heading }, cameras) } : {};
   const wpFrac = derived?.wpFrac || [];
   const trace = derived?.trajectorySamples?.length > 1 ? derived.trajectorySamples
     : derived?.finalTrajectory?.samples?.length > 1 ? derived.finalTrajectory.samples : null;
@@ -17,12 +20,12 @@ export function buildTimeline(derived) {
     const points = [];
     // Authoritative per-sample values, including turning while stopped.
     const point = (sample) => ({ t: sample.t, f: clamp01(sample.f), s: Number.isFinite(sample.s) ? sample.s : undefined, v: Math.max(0, sample.velocityMps || 0),
-      a: sample.accelerationMps2 || 0, w: (sample.angularVelocityRadps || 0) * R2D, k: sample.curvatureInvM || 0 });
+      a: sample.accelerationMps2 || 0, w: (sample.angularVelocityRadps || 0) * R2D, k: sample.curvatureInvM || 0, ...seen(sample.x, sample.y, sample.headingRad) });
     for (let i = 0; i < trace.length; i += step) points.push(point(trace[i]));
     const last = trace[trace.length - 1];
     if (points[points.length - 1].t < last.t) points.push(point(last));
     const total = Math.max(derived.prof?.totalTime || 0, last.t, 0.01);
-    if (total > last.t + 1e-6) points.push({ t: total, f: 1, s: points[points.length - 1].s, v: 0, a: 0, w: 0, k: 0 });
+    if (total > last.t + 1e-6) points.push({ ...points[points.length - 1], t: total, f: 1, v: 0, a: 0, w: 0, k: 0 });
     return { points, total, empty: false, wpFrac };
   }
   const pts = derived?.sample?.pts || [];
@@ -38,14 +41,16 @@ export function buildTimeline(derived) {
   for (let i = 0; i < n; i++) {
     const f = pts[i].s / length;
     const hold = holdAt.get(i);
-    const extra = { a: metrics.accel?.[i] || 0, w: (metrics.omega?.[i] || 0) * R2D, k: metrics.curv?.[i] || 0 };
+    // The preview's headings leave out the half turn of a path driven backward.
+    const extra = { a: metrics.accel?.[i] || 0, w: (metrics.omega?.[i] || 0) * R2D, k: metrics.curv?.[i] || 0,
+      ...seen(pts[i].x, pts[i].y, (metrics.head?.[i] || 0) + (derived.rev ? Math.PI : 0)) };
     if (hold) {
       points.push({ t: hold.t0, f, s: pts[i].s, v: 0, ...extra, a: 0 });
       points.push({ t: hold.t1, f, s: pts[i].s, v: 0, ...extra, a: 0 });
     } else points.push({ t: prof.t[i], f, s: pts[i].s, v: Math.max(0, v[i] || 0), ...extra });
   }
   const total = Math.max(prof.totalTime || 0, points[points.length - 1].t, 0.01);
-  if (total > points[points.length - 1].t + 1e-6) points.push({ t: total, f: 1, s: points[points.length - 1].s, v: 0, a: 0, w: 0, k: 0 });
+  if (total > points[points.length - 1].t + 1e-6) points.push({ ...points[points.length - 1], t: total, f: 1, v: 0, a: 0, w: 0, k: 0 });
   return { points, total, empty: false, wpFrac };
 }
 

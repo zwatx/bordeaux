@@ -4,7 +4,12 @@
 // Each stop sits just inside the sRGB gamut edge for its lightness, and so does the ramp between them.
 const HEATMAP = [[0.52, 0.190, 12], [0.64, 0.222, 24], [0.76, 0.140, 35]] as const;
 
-export function metricColor(_mode: string, value: number) {
+/** "Tags seen" has three states, not a ramp: no tags, one tag, two or more. */
+const TAGS_SEEN = ["#d2655f", "#cf962f", "#4bbf86"] as const;
+
+/** The path color for a metric value from 0 to 1. For `tags`, 0 is no tags, 0.5 is one and 1 is two or more. */
+export function metricColor(mode: string, value: number) {
+  if (mode === "tags") return TAGS_SEEN[value >= 1 ? 2 : value >= 0.5 ? 1 : 0];
   const t = Math.max(0, Math.min(1, Number.isNaN(value) ? 0 : value)) * 2;
   const index = Math.min(1, Math.floor(t));
   const before = HEATMAP[index], after = HEATMAP[index + 1];
@@ -12,6 +17,7 @@ export function metricColor(_mode: string, value: number) {
 }
 
 export function metricGradient(mode: string) {
+  if (mode === "tags") return 'linear-gradient(90deg,' + TAGS_SEEN.map((color, i) => `${color} ${i * 100 / 3}% ${(i + 1) * 100 / 3}%`).join(',') + ')';
   return 'linear-gradient(90deg in oklch,' + [0, 0.5, 1].map(t => `${metricColor(mode, t)} ${t * 100}%`).join(',') + ')';
 }
 
@@ -20,4 +26,6 @@ export const METRICS = [
   { id: 'accel', label: 'Acceleration', unit: 'm/s\u00b2', kind: 'div' },
   { id: 'angvel', label: 'Angular velocity', unit: '\u00b0/s', kind: 'div' },
   { id: 'curvature', label: 'Curvature', unit: '1/m', kind: 'seq' },
+  // How many AprilTags the robot's cameras read. Choosing it also draws the tags and the sight lines.
+  { id: 'tags', label: 'Tags seen', unit: 'tags', kind: 'count' },
 ];

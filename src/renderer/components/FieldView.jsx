@@ -13,6 +13,7 @@ import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
 import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
 import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
+import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
 
   const { useRef, useState, useEffect, useMemo, useCallback, useId } = React;
   const h = React.createElement;
@@ -25,6 +26,8 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
   const FIT_VIEW = { x: X0 - 90, y: Y0 - 90, w: X1 - X0 + 180, h: Y1 - Y0 + 180 };
 
   // muted semantic colors (reserved for meaning, low saturation)
+  /** Length of each camera wedge drawn at the playhead, meters. It shows direction, not how far the camera reads. */
+  const TAG_SIGHT_WEDGE_M = 1.2;
   const C_START = '#4bbf86', C_END = '#d2655f', C_NODE = '#8b94a2', C_NEUTRAL = '#9aa3b0';
   // Tag numbers appear from 150% zoom; at fit they would crowd the hubs.
   const TAG_LABEL_MIN_ZOOM = 1.5;
@@ -243,7 +246,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     const [hoverTag, setHoverTag] = useState(null);
     const hoverTagRef = useRef(null);
     const setTagHover = useCallback((id) => { if (hoverTagRef.current !== id) { hoverTagRef.current = id; setHoverTag(id); } }, []);
-    useEffect(() => { if (!showTags) setTagHover(null); }, [showTags, setTagHover]);
+    useEffect(() => { if (!showTags && metric !== 'tags') setTagHover(null); }, [showTags, metric, setTagHover]);
     const tagAtClient = (clientX, clientY) => {
       const svg = svgRef.current, ctm = svg?.getScreenCTM();
       if (!ctm) return null;
@@ -251,7 +254,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       return tagMarkAt(pt.matrixTransform(ctm.inverse()), P(10))?.id ?? null;
     };
     const onHoverMove = event => {
-      if (showTags) setTagHover(event.buttons ? null : tagAtClient(event.clientX, event.clientY));
+      if (showTags || metric === 'tags') setTagHover(event.buttons ? null : tagAtClient(event.clientX, event.clientY));
       if (!hoverStore) return;
       if (event.buttons) { hoverStore.clear(undefined, hoverContext); return; }
       const { clientX, clientY } = event;
@@ -771,7 +774,11 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
         }
         return waypoint.theta || 0;
       };
+      // Tags seen at each drawn point. The preview's headings leave out the half turn of a path driven backward.
+      const tagsSeen = metric === 'tags' && Array.isArray(M.head) && M.head.length === pts.length
+        ? pts.map((point, i) => tagsSeenAt({ x: point.x, y: point.y, heading: M.head[i] + (derived.rev ? Math.PI : 0) }, robot.cameras)) : null;
       const colAt = (i) => {
+        if (metric === 'tags') return PM.metricColor('tags', Math.min(TAGS_SEEN_FULL, tagsSeen ? tagsSeen[i] : 0) / TAGS_SEEN_FULL);
         if (metric === 'accel') return PM.metricColor('accel', 0.5 + 0.5 * (M.accel[i] / (M.aMax || 1)));
         if (metric === 'angvel') return PM.metricColor('angvel', 0.5 + 0.5 * (M.omega[i] / (M.wMax || 1)));
         if (metric === 'curvature') return PM.metricColor('curvature', M.curv[i] / (M.kMax || 1));
@@ -1308,12 +1315,14 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
         tagLabels && h('text', { className: 'field-apriltag-id', x: label.x, y: label.y, fill: color, stroke: '#05060a', strokeOpacity: 0.85, strokeWidth: P(3), paintOrder: 'stroke',
           fontSize: P(11), fontFamily: 'JetBrains Mono, monospace', fontWeight: hovered ? 700 : 500, textAnchor: 'middle', dominantBaseline: 'central' }, id));
     };
-    const tagLayer = useMemo(() => showTags
+    // Coloring the path by tags seen draws the tags too, whether or not the AprilTags layer is on.
+    const tagsShown = showTags || (metric === 'tags' && !routine);
+    const tagLayer = useMemo(() => tagsShown
       ? h('g', { className: 'field-apriltags', 'aria-hidden': true, style: { pointerEvents: 'none' } }, FIELD_TAG_MARKS.map((tag) => tagMark(tag, 'field-apriltag')))
-      : null, [showTags, view.w, cw, accent]);
+      : null, [tagsShown, view.w, cw, accent]);
 
     // The hovered tag is drawn just above the resting tags, under the path and its handles; only its card sits on top.
-    const hoveredTag = showTags && hoverTag != null ? FIELD_TAG_MARKS.find((item) => item.id === hoverTag) : null;
+    const hoveredTag = tagsShown && hoverTag != null ? FIELD_TAG_MARKS.find((item) => item.id === hoverTag) : null;
     const tagHover = hoveredTag && h('g', { style: { pointerEvents: 'none' } }, tagMark(hoveredTag, 'field-apriltag-hover', true));
     // The hovered tag's card: its number, from the official layout.
     const tagCard = useMemo(() => {
@@ -1333,7 +1342,32 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       return h('g', { className: 'field-apriltag-card', style: { pointerEvents: 'none' } },
         h('rect', { className: 'field-apriltag-card-box', x: box.x, y: box.y, width, height, rx: P(6), style: { fill: 'var(--bg-3)', stroke: 'var(--line-3)' }, strokeWidth: P(1) }),
         h('text', { ...text, x: box.x + P(9), y: box.y + P(17), fontWeight: 600, style: { fill: 'var(--txt)' } }, title));
-    }, [showTags, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
+    }, [tagsShown, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
+
+    // With the path colored by tags seen, the robot at the playhead shows why: each camera's horizontal view as a
+    // dashed wedge, a line from its lens to every tag it reads, and those tags drawn bright.
+    const tagSight = useMemo(() => {
+      if (metric !== 'tags' || routine || !robot.cameras?.length) return null;
+      const pose = displayedPoseAtTime(playTime, derived, doc);
+      if (!pose) return null;
+      const cos = Math.cos(pose.heading), sin = Math.sin(pose.heading);
+      const lensOf = new Map(robot.cameras.map((camera) => [camera.id,
+        { x: pose.x + camera.positionM.x * cos - camera.positionM.y * sin, y: pose.y + camera.positionM.x * sin + camera.positionM.y * cos }]));
+      const at = (point) => { const c = W2P(point); return c.x.toFixed(1) + ' ' + c.y.toFixed(1); };
+      const sightings = tagSightingsAt(pose, robot.cameras), read = new Set(sightings.map((sighting) => sighting.tagId));
+      return h('g', { className: 'field-tag-sight', 'data-tags-read': [...read].sort((a, b) => a - b).join(' '), style: { pointerEvents: 'none' } },
+        robot.cameras.map((camera) => {
+          const lens = lensOf.get(camera.id), facing = pose.heading + camera.yawDeg * Math.PI / 180, half = Math.min(camera.horizontalFovDeg, 170) / 2 * Math.PI / 180;
+          const edge = (angle) => at({ x: lens.x + Math.cos(angle) * TAG_SIGHT_WEDGE_M, y: lens.y + Math.sin(angle) * TAG_SIGHT_WEDGE_M });
+          return h('path', { key: camera.id, className: 'field-tag-wedge', d: `M ${at(lens)} L ${edge(facing + half)} L ${edge(facing - half)} Z`,
+            fill: '#ffffff', fillOpacity: 0.06, stroke: C_NEUTRAL, strokeWidth: P(1), strokeDasharray: `${P(4)} ${P(4)}`, strokeLinejoin: 'round' });
+        }),
+        sightings.map((sighting) => {
+          const from = W2P(lensOf.get(sighting.cameraId)), to = FIELD_TAG_MARKS.find((tag) => tag.id === sighting.tagId).point;
+          return h('line', { key: sighting.cameraId + ':' + sighting.tagId, className: 'field-tag-sightline', x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: '#e8ecf2', strokeOpacity: 0.7, strokeWidth: P(1.2) });
+        }),
+        FIELD_TAG_MARKS.filter((tag) => read.has(tag.id)).map((tag) => tagMark(tag, 'field-apriltag-read', true)));
+    }, [metric, routine, robot.cameras, playTime, derived, doc, view.w, cw, accent]);
 
     const vb = `${view.x} ${view.y} ${view.w} ${view.h}`;
 
@@ -1356,6 +1390,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
       tagLayer,
       tagHover,
+      tagSight,
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),

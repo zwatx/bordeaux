@@ -64,7 +64,9 @@ import path from "node:path";
 // limits above the robot's measure 938,040 B against 928,105 B before them (2026-11-26); 918 KiB keeps about 2 KiB.
 // Robot cameras (their validation, the Robot page's Cameras section and its 3D drawing) measure 947,675 B against
 // 938,040 B before them (2026-11-26); 928 KiB keeps about 2.5 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 928 * 1024;
+// Tag visibility and the Tags seen path color (the count on the path and graph, and the sight lines at the playhead)
+// measure 952,097 B (2026-11-26); 932 KiB keeps about 2 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 932 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

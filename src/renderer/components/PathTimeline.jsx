@@ -5,6 +5,7 @@ import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
 import { UnitPrefs } from '../lib/unitPreferences';
 import { commandExtent, fAtT, featureFraction, featurePositionPatch, labelWidth as textWidth, layoutCommandLane, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
+import { TAGS_SEEN_FULL } from '../lib/tagCoverage';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
@@ -27,6 +28,8 @@ const SERIES = {
   accel: { key: 'a', unit: 'm/s²', label: 'Accel', signed: true },
   angvel: { key: 'w', unit: '°/s', label: 'Turn', signed: true },
   curvature: { key: 'k', unit: '1/m', label: 'Curve', signed: false },
+  // A count from the timeline's `tags` points, drawn on the same 0 to 2 scale as the field's three colors.
+  tags: { key: 'tags', unit: 'tags', label: 'Seen', signed: false, digits: 0, full: TAGS_SEEN_FULL },
 };
 
 const invocationLabel = (id, catalog) => (id && catalog?.commands?.find((candidate) => candidate.id === id)?.label) || 'Command';
@@ -124,7 +127,7 @@ export function PathHoverReadout({ store, context, tl, metric }) {
   const sampled = hover.source === 'timeline' && SERIES[metric];
   const unit = sampled ? sampled.unit : 'm/s';
   const text = times.map(t => fmt(t)).join(' · ') + ' s · '
-    + fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled && sampled.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit);
+    + fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled ? sampled.digits ?? (sampled.key === 'k' ? 2 : 1) : 1) + ' ' + UnitPrefs.label(unit);
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
@@ -271,7 +274,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const shown = (value) => series ? UnitPrefs.fromCanonical(value, series.unit) : speed(value);
   const valueOf = (point) => series ? point[series.key] || 0 : point.v;
   const peak = tl.points.reduce((value, point) => Math.max(value, Math.abs(shown(valueOf(point)))), 0);
-  const span = series ? Math.max(peak, series.key === 'k' ? 0.1 : 0.5) : Math.max(speed(robot.maxSpeed || 1), peak, speed(c.maxVel || 0));
+  const span = series ? Math.max(peak, series.full || (series.key === 'k' ? 0.1 : 0.5)) : Math.max(speed(robot.maxSpeed || 1), peak, speed(c.maxVel || 0));
   // A signed axis spends half its height on each side of zero.
   const vStep = niceStep(span, Math.max(1, Math.min(10, graphH / (series?.signed ? 52 : 26))));
   const vTop = Math.max(vStep, Math.ceil(span / vStep - 1e-9) * vStep);
@@ -296,7 +299,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     // Each line segment takes the field path's color for the same value, on the field's scale for this path.
     const M = derived?.metrics;
     const fieldPeak = series && M && { a: M.aMax, w: M.wMax * 180 / Math.PI, k: M.kMax }[series.key];
-    const scale = series ? fieldPeak || p.reduce((value, point) => Math.max(value, Math.abs(valueOf(point))), 0) || 1 : Math.max(0.1, robot.maxSpeed);
+    const scale = series ? series.full || fieldPeak || p.reduce((value, point) => Math.max(value, Math.abs(valueOf(point))), 0) || 1 : Math.max(0.1, robot.maxSpeed);
     const colorOf = (value) => PM.metricColor(metric, series?.signed ? 0.5 + 0.5 * value / scale : value / scale);
     let area = 'M' + x(kept[0].t).toFixed(1) + ' ' + base;
     const segments = [];

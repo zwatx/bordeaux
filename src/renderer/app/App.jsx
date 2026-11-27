@@ -220,7 +220,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // Authored values follow the live draft; timing follows what the field shows for it.
     const source = draft || doc;
     const value = displayed.value || derived;
-    const fresh = useMemo(() => buildTimeline(value), [value]);
+    const fresh = useMemo(() => buildTimeline(value, robot.cameras), [value, robot.cameras]);
     // While a change is re-timed, the last timing and problems for this path stay drawn, dimmed. They are
     // display only: status, durations and push never read them. Another path never inherits them, and a
     // failed timing job shows no timing rather than an older one.

@@ -90,6 +90,7 @@ jobs:
               scripts/verify-command-search-ui.mjs
               scripts/verify-app-updates-ui.mjs
               scripts/verify-field-layers-ui.mjs
+              scripts/verify-tag-coverage-ui.mjs
     env:
       ELECTRON_DISABLE_SECURITY_WARNINGS: "true"
       BORDEAUX_UPDATE_QUIT_OUTPUT: .ui-artifacts/update-quit
@@ -103,6 +104,7 @@ jobs:
       BORDEAUX_ROBOT_ELECTRICAL_UI_OUTPUT: .ui-artifacts/robot-electrical
       BORDEAUX_ROBOT_LIST_UI_OUTPUT: .ui-artifacts/robot-list
       BORDEAUX_ROBOT_CAMERAS_UI_OUTPUT: .ui-artifacts/robot-cameras
+      BORDEAUX_TAG_COVERAGE_UI_OUTPUT: .ui-artifacts/tag-coverage
       BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
       BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer
