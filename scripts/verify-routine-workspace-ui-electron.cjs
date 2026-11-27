@@ -818,7 +818,7 @@ app.whenReady().then(async () => {
       };
       await bind('later-a'); await bind('later-b');
       const bound = (await source())[0].nodes;
-      assert.deepEqual(bound.map(node => node.title), ['Shoot', 'Check whether collection is finished'], 'Change command keeps a team name and replaces a default title');
+      assert.deepEqual(bound.map(node => [node.title, node.titleIsCustom]), [['Shoot', true], ['Check whether collection is finished', undefined]], 'Change command keeps a team name and replaces a default title');
       assert.deepEqual(await evaluate(() => ['later-a', 'later-b'].map(id => { const kind = document.querySelector('[data-id="' + id + '"] .rt-step-kind'); return kind && kind.getBoundingClientRect().width > 0 ? kind.textContent : null; })),
         ['Check whether collection is finished', null], 'A named step shows the command it runs; a default one does not repeat it');
       await selectStep('later-a');
@@ -844,7 +844,7 @@ app.whenReady().then(async () => {
         { id: 'polish-later', type: 'function', cat: 'command', title: 'Robot command', invocation: null },
         { id: 'polish-return', type: 'path', ref: spare.id },
         { id: 'polish-loop', type: 'repeat', times: 2, until: { source: 'output', nodeId: 'polish-check', output: 'finished', schema: bool, operator: 'eq', value: true },
-          nodes: [{ id: 'polish-check', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} } }] },
+          nodes: [{ id: 'polish-check', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} }, ends: { timeoutS: 1, onTimeout: 'endRoutine' } }] },
         { id: 'polish-group', type: 'group', mode: 'parallel', nodes: [] }] }];
       await load('polish-drive'); await planned();
       const polishBaseline = await source();
@@ -855,7 +855,7 @@ app.whenReady().then(async () => {
           tools: tools ? [...tools.querySelectorAll('button')].map(button => button.getAttribute('aria-label') || button.textContent) : null };
       });
       assert.deepEqual(chrome, { header: false, fieldAtTop: true, tools: ['Power', 'About preview'] }, 'No header row: Power and About lead the field view controls');
-      assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step').textContent), '5 steps', 'Before playback the transport counts the flow rows');
+      assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step').textContent), '6 steps', 'Before playback the transport counts the flow rows');
       // Item 2: an empty parallel group says plainly that it has nothing to wait for.
       assert.equal(await evaluate(() => document.querySelector('[data-id="polish-group"]').parentElement.querySelector('.rt-close-t').textContent), 'No steps yet, so it finishes the routine', 'An empty group closing has no "it"');
       // Item 4 and 3: the path inspector adds facts the row lacks; every step's footer says Delete step.
@@ -885,10 +885,19 @@ app.whenReady().then(async () => {
           fits: summary.scrollWidth <= summary.clientWidth + 1, apart: summary.getBoundingClientRect().right <= step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) + 1,
           text: shown?.textContent, full: summary.title };
       });
-      assert.equal(counts.transport, counts.row + ' of 5', 'The transport counts the flow\'s numbered rows: ' + JSON.stringify(counts));
+      assert.equal(counts.transport, counts.row + ' of 6', 'The transport counts the flow\'s numbered rows: ' + JSON.stringify(counts));
       assert.ok(counts.inspector && counts.fits && counts.apart && /untimed/.test(counts.text) && counts.full.includes('not counted'), 'Transport facts are readable beside the playing step: ' + JSON.stringify(counts));
       assert.ok(counts.full.includes('1 pose jump') && counts.text.includes('1 pose jump'), 'The pose jump count is shown, not cut off: ' + JSON.stringify(counts));
       await snapshot('polish-playing-' + width);
+      const nestedSpan = await evaluate(() => {
+        const bar = document.querySelector('[data-id="polish-check"] .rt-step-time i');
+        const lane = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
+        const middle = (parseFloat(bar.style.left) + parseFloat(bar.style.width) / 2) / 100;
+        return { x: Math.round(lane.left + 10 + (lane.width - 20) * middle), y: Math.round(lane.top + 30) };
+      });
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...nestedSpan });
+      await wait(() => evaluate(() => document.querySelector('.rt-step.active')?.dataset.id === 'polish-check'), 'seek into the nested command');
+      assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step small').textContent), '5 of 6');
       await click('[aria-label="Restart routine"]');
       // Item 7: with a step selected, an open slot replaces the inspector's step in the same rail; Escape or the rail's
       // close returns it. The flow keeps its width.
