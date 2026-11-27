@@ -137,36 +137,71 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     const r = Math.max(0, Math.min(1, (distance - len[k - 1]) / span)), dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1;
     return { x: a.x + dx * r, y: a.y + dy * r, tx: dx / n, ty: dy / n };
   }
-  const BADGE_FONT = '600 10.5px "JetBrains Mono", monospace', NAME_FONT = '600 11.5px "Space Grotesk", system-ui, sans-serif';
-  /**
-   * Where each routine path's step badge sits, in step order: near the path's start, slid along the path (then to its
-   * side) until it clears earlier badges and every path's end squares. `items` are { key, geometry, text }; `P` turns
-   * screen pixels into field units, so placement follows zoom. `obstacles` are boxes to keep clear as well (the robot
-   * where the routine starts). Returns key -> { x, y, w, h }.
-   */
-  function placeRoutineBadges(items, P, obstacles = []) {
-    const placed = [...obstacles], out = new Map(), ends = items.flatMap((item) => [item.geometry.start, item.geometry.end]);
-    const h = P(16), gap = P(3);
-    const clearance = (box) => Math.min(
-      ...placed.map((other) => Math.max(Math.abs(box.x - other.x) - (box.w + other.w) / 2, Math.abs(box.y - other.y) - (box.h + other.h) / 2)),
-      ...ends.map((end) => Math.max(Math.abs(box.x - end.x) - box.w / 2, Math.abs(box.y - end.y) - box.h / 2) - P(5)));
-    for (const item of items) {
-      const w = P(Math.max(18, fieldTextWidth(item.text, BADGE_FONT) + 9)), total = item.geometry.len.at(-1) || 0;
-      const along = [24, 44, 64, 88, 116, 150].map(P).filter((distance, index) => !index || distance < total * 0.7).map((distance) => Math.min(distance, total / 2));
-      const candidates = [];
-      for (const side of [0, 1, -1]) for (const distance of along) {
-        const point = routePointAt(item.geometry, distance);
-        candidates.push({ x: point.x - point.ty * side * P(17), y: point.y + point.tx * side * P(17), w, h });
-      }
-      let best = null, bestClearance = -Infinity;
-      for (const box of candidates) {
-        const room = clearance(box);
-        if (room >= gap) { best = box; break; }
-        if (room > bestClearance) { best = box; bestClearance = room; }
-      }
-      placed.push(best); out.set(item.key, best);
+  /** A route's direction chevrons as one SVG path: `size` long, `every` apart, the first half a spacing in. */
+  function routeChevrons(geometry, every, size) {
+    const total = geometry.len.at(-1) || 0;
+    let d = '';
+    for (let at = every / 2, count = 0; at < total && count < 400; at += every, count++) {
+      const { x, y, tx, ty } = routePointAt(geometry, at), bx = x - size * tx, by = y - size * ty, sx = size * 0.8 * ty, sy = size * 0.8 * tx;
+      d += `M ${(bx + sx).toFixed(1)} ${(by - sy).toFixed(1)} L ${x.toFixed(1)} ${y.toFixed(1)} L ${(bx - sx).toFixed(1)} ${(by + sy).toFixed(1)} `;
     }
-    return out;
+    return d;
+  }
+  /**
+   * How a routine preview draws, from AUTO.fieldOverlay's path occurrences in run order. The mode is 'idle' (one quiet
+   * route), 'focus' (a step is selected: it, the occurrence before and the one after stay readable, the rest fades) or
+   * 'play' (done, active and pending occurrences). Each drawn occurrence gets a role in that mode and its pass number.
+   */
+  function routineRouteModel(routine) {
+    const focus = routine.some((rp) => rp.state === 'focus' || rp.state === 'genfocus');
+    const mode = focus ? 'focus' : routine.some((rp) => rp.state === 'active' || rp.state === 'pending') ? 'play' : 'idle';
+    const drawn = routine.filter((rp) => rp.pts && rp.pts.length > 1);
+    const selected = (rp) => rp?.state === 'focus' || rp?.state === 'genfocus';
+    const passes = new Map(), seen = new Map();
+    drawn.forEach((rp) => passes.set(rp.nodeId, (passes.get(rp.nodeId) || 0) + 1));
+    const items = drawn.map((rp, index) => {
+      let role;
+      if (mode === 'focus') role = selected(rp) ? 'selected' : selected(drawn[index + 1]) ? 'before' : selected(drawn[index - 1]) ? 'after' : 'faded';
+      else if (mode === 'play') role = rp.state === 'active' ? 'active' : rp.state === 'pending' ? 'pending' : 'done';
+      else role = 'route';
+      seen.set(rp.nodeId, (seen.get(rp.nodeId) || 0) + 1);
+      return { rp, index, role, geometry: routineRouteGeometry(rp.pts), pass: seen.get(rp.nodeId), passes: passes.get(rp.nodeId) };
+    });
+    return { mode, items };
+  }
+  // Route strokes in screen pixels (the field draws under them at any zoom). Gray is --txt-3; the selected or running
+  // path is --txt with a soft glow and dark chevrons. Rank orders drawing and hit testing: emphasized paths last.
+  const ROUTE_STYLE = {
+    route:    { stroke: 'var(--txt-3)', w: 1.6, op: 0.7, chevrons: 90, rank: 1 },
+    done:     { stroke: 'var(--txt-3)', w: 1.6, op: 0.75, chevrons: 90, rank: 1 },
+    pending:  { stroke: 'var(--txt-3)', w: 1.6, op: 0.45, dash: [4, 5], chevrons: 90, rank: 1 },
+    faded:    { stroke: 'var(--txt-3)', w: 1.4, op: 0.12, rank: 0 },
+    before:   { stroke: 'var(--txt-3)', w: 1.6, op: 0.7, rank: 2 },
+    after:    { stroke: 'var(--txt-3)', w: 1.6, op: 0.55, dash: [5, 5], rank: 2 },
+    selected: { stroke: 'var(--txt)', w: 3.2, op: 1, glow: true, chevrons: 70, chevronSize: 4, chevronStroke: 'var(--bg)', rank: 5 },
+    active:   { stroke: 'var(--txt)', w: 3.2, op: 1, glow: true, chevrons: 70, chevronSize: 4, chevronStroke: 'var(--bg)', rank: 5 },
+  };
+  const PILL_FONT = '600 11px "Space Grotesk", system-ui, sans-serif', NUMBER_FONT = '700 9px "JetBrains Mono", monospace';
+  /**
+   * Where a name pill sits beside the number dot at `anchor`: right and below, else left, else above, inside `visible`
+   * and clear of `obstacles` (field units). `T` turns screen pixels into field units. A name too long for either side
+   * ends in an ellipsis. Returns { x, y, w, h, text } with x, y the pill's top left.
+   */
+  function placeRoutinePill(anchor, text, T, visible, obstacles) {
+    const h = T(20), gap = T(12), pad = T(16), width = (value) => T(fieldTextWidth(value, PILL_FONT)) + pad;
+    const roomRight = visible.x1 - (anchor.x + gap), roomLeft = anchor.x - gap - visible.x0;
+    let shown = text;
+    if (width(shown) > Math.max(roomRight, roomLeft)) {
+      while (shown.length > 1 && width(shown + '\u2026') > Math.max(roomRight, roomLeft)) shown = shown.slice(0, -1);
+      shown = shown.trimEnd() + '\u2026';
+    }
+    const w = width(shown);
+    const boxes = [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([side, below]) => ({
+      x: side > 0 ? anchor.x + gap : anchor.x - gap - w, y: anchor.y + below * T(19) - h / 2, w, h }));
+    const inside = (box) => box.x >= visible.x0 && box.x + box.w <= visible.x1 && box.y >= visible.y0 && box.y + box.h <= visible.y1;
+    const clear = (box) => obstacles.every((o) => box.x >= o.x + o.w || box.x + box.w <= o.x || box.y >= o.y + o.h || box.y + box.h <= o.y);
+    const box = boxes.find((b) => inside(b) && clear(b)) || boxes.find(inside) || boxes[roomRight >= roomLeft ? 0 : 1];
+    return { ...box, y: Math.max(visible.y0, Math.min(visible.y1 - h, box.y)), text: shown };
   }
 
   function HoverGhost({ store, context, derived, doc, robot, W2P, P }) {
@@ -192,7 +227,7 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     const [preview, setPreview] = useState(null);
     const [snap, setSnap] = useState(null);
     const [visitFocus, setVisitFocus] = useState(null);
-    // The routine step whose path or badge is under the pointer; its name shows beside its badge.
+    // The routine step whose path or number is under the pointer; it brightens and shows its name.
     const [routineHover, setRoutineHover] = useState(null);
     const visitFocusRef = useRef(null);
     const actionsRef = useRef(actions);
@@ -219,7 +254,8 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
 
     useEffect(() => {
       const svg = svgRef.current; if (!svg) return;
-      const field = svg.closest('.fieldcol'), rail = field?.querySelector('.toolrail');
+      // Labels keep clear of the controls over the field: the tool rail on Paths, the view controls on a routine preview.
+      const field = svg.closest('.fieldcol'), rail = field?.querySelector(routine ? '.viewctl' : '.toolrail');
       const measure = () => {
         const box = svg.getBoundingClientRect(), railBox = rail?.getBoundingClientRect();
         const next = { width: box.width, height: box.height, clientWidth: svg.clientWidth || 1200,
@@ -1245,106 +1281,96 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
     }, [playTime, pts, derived, drive, robot, view.w, cw, doc.waypoints]);
 
     // ---------- ROUTINE OVERLAY (Autonomous Routine / Auto mode) ----------
-    // One badge per path step, numbered like its row in the flow; repeated passes share their step's badge.
-    const routineBadges = useMemo(() => {
-      if (!routine) return null;
-      const rank = (s) => ({ focus: 5, genfocus: 5, active: 4, generated: 3, done: 1, pending: 1, dim: 0 }[s] || 0);
-      const steps = new Map();
-      routine.forEach((rp) => {
-        if (!rp.pts || rp.pts.length < 2) return;
-        const known = steps.get(rp.nodeId);
-        if (!known) steps.set(rp.nodeId, { key: rp.nodeId, geometry: routineRouteGeometry(rp.pts), text: rp.step == null ? '?' : String(rp.step), step: rp.step, label: rp.label, state: rp.state, kind: rp.kind });
-        else if (rank(rp.state) > rank(known.state)) known.state = rp.state;
-      });
-      const items = [...steps.values()].sort((a, b) => (a.step ?? Infinity) - (b.step ?? Infinity));
-      // The robot rests where the routine starts and draws over the badges, so the first badge keeps clear of it.
-      const first = routine.find((rp) => rp.pts && rp.pts.length > 1), reach = Math.max(...localFootprint(robot).map((p) => Math.hypot(p.x, p.y))) * 2 * SX;
-      const rest = first ? [{ ...routineRouteGeometry(first.pts).start, w: reach, h: reach }] : [];
-      const boxes = placeRoutineBadges(items, T, rest);
-      return { items: items.map((item) => ({ ...item, box: boxes.get(item.key) })), rest: rest[0] };
-    }, [routine, robot, textUpp]);
+    // The previewed run draws as one quiet route in run order (routineRouteModel): thin gray paths with direction
+    // chevrons, a numbered dot at each step's start where it has room, and a flag where the routine ends. A selected
+    // step focuses the route on it; playback lights the running path. Sizes are screen pixels (T).
+    const routineRoute = useMemo(() => routine ? routineRouteModel(routine) : null, [routine]);
     const routineLayers = useMemo(() => {
-      if (!routine) return null;
+      if (!routineRoute) return null;
       const els = [];
-      const STYLE = {
-        done:      { col: '#5b636e', w: 2.6, op: 0.5, dash: null },
-        pending:   { col: '#474e59', w: 2.2, op: 0.5, dash: `${P(8)} ${P(7)}` },
-        dim:       { col: '#3b424b', w: 2, op: 0.32, dash: null },
-        active:    { col: accent, w: 3.4, op: 1, dash: null, glow: true },
-        focus:     { col: accent, w: 3.7, op: 1, dash: null, glow: true },
-        generated: { col: '#f6a93a', w: 3.1, op: 0.97, dash: `${P(10)} ${P(7)}`, gen: true },
-        genfocus:  { col: '#ffb347', w: 3.7, op: 1, dash: `${P(10)} ${P(7)}`, gen: true, glow: true },
-      };
-      // order: dim/done/pending first, active + generated + focus on top
-      const rank = (s) => ({ focus: 5, genfocus: 5, active: 4, generated: 3, done: 1, pending: 1, dim: 0 }[s] || 0);
-      const order = routine.map((_, i) => i).sort((a, b) => rank(routine[a].state) - rank(routine[b].state));
-      order.forEach((ri) => {
-        const rp = routine[ri]; if (!rp.pts || rp.pts.length < 2) return;
-        const S = STYLE[rp.state] || STYLE.pending;
-        const { d, start: a, end: b } = routineRouteGeometry(rp.pts);
-        // glow / casing under emphasized paths
-        if (S.glow) els.push(h('path', { key: 'rg' + ri, d, fill: 'none', stroke: S.col, strokeOpacity: 0.22, strokeWidth: P(S.w + 9), strokeLinecap: 'round', strokeLinejoin: 'round', style: { pointerEvents: 'none' } }));
-        if (rp.state === 'active' || rp.state === 'focus') els.push(h('path', { key: 'rc' + ri, d, fill: 'none', stroke: '#05060a', strokeOpacity: 0.7, strokeWidth: P(S.w + 2.5), strokeLinecap: 'round', strokeLinejoin: 'round', style: { pointerEvents: 'none' } }));
-        els.push(h('path', { key: 'rp' + ri, className: S.gen ? 'acq-genpath' : undefined, d, fill: 'none', stroke: S.col, strokeOpacity: S.op, strokeWidth: P(S.w), strokeLinecap: 'round', strokeLinejoin: 'round', strokeDasharray: S.dash || undefined, style: { pointerEvents: 'none' } }));
-        els.push(h('path', { key: 'rh' + ri, d, fill: 'none', stroke: 'transparent', strokeWidth: P(16), strokeLinecap: 'round', 'data-role': 'rpath', 'data-idx': rp.nodeId, style: { cursor: 'pointer' } }));
-        // endpoint nodes
-        const endCol = S.gen ? S.col : null;
-        [[a, '#4bbf86'], [b, '#d2655f']].forEach(([c, dc], di) => {
-          els.push(h('rect', { key: 'rn' + ri + di, x: c.x - P(4.5), y: c.y - P(4.5), width: P(9), height: P(9), rx: S.gen ? P(4.5) : P(1.5), fill: '#14161a', stroke: rp.state === 'pending' || rp.state === 'dim' ? '#5b636e' : (endCol || dc), strokeWidth: P(1.8), style: { pointerEvents: 'none' } }));
-        });
-        // runtime bolt marker for generated paths (start)
-        if (S.gen && rp.state !== 'dim') {
-          els.push(h('g', { key: 'rb' + ri, transform: `translate(${a.x} ${a.y - P(20)})`, style: { pointerEvents: 'none' } },
-            h('circle', { r: P(8.5), fill: 'rgba(20,16,10,0.92)', stroke: S.col, strokeWidth: P(1.4) }),
-            h('path', { d: `M ${P(1.5)} ${-P(4.5)} L ${-P(3)} ${P(0.8)} L ${P(0.2)} ${P(0.8)} L ${-P(1.5)} ${P(4.5)} L ${P(3)} ${-P(0.8)} L ${P(0.2)} ${-P(0.8)} Z`, fill: S.col })));
-        }
+      const order = [...routineRoute.items].sort((a, b) => ROUTE_STYLE[a.role].rank - ROUTE_STYLE[b.role].rank);
+      order.forEach(({ rp, index, role, geometry }) => {
+        const S = ROUTE_STYLE[role], { d } = geometry, line = { d, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', style: { pointerEvents: 'none' } };
+        // A generated (runtime) path keeps a long dash so it reads apart from planned paths.
+        const dash = S.dash || (rp.kind === 'gen' ? [8, 6] : null);
+        if (S.glow) els.push(h('path', { key: 'rg' + index, ...line, stroke: S.stroke, strokeOpacity: 0.16, strokeWidth: T(11) }));
+        els.push(h('path', { key: 'rp' + index, ...line, className: 'routine-route', 'data-node': rp.nodeId, 'data-role-state': role,
+          stroke: S.stroke, strokeOpacity: S.op, strokeWidth: T(S.w), strokeDasharray: dash ? dash.map(T).join(' ') : undefined }));
+        if (S.chevrons) els.push(h('path', { key: 'rv' + index, ...line, className: 'routine-chevrons', d: routeChevrons(geometry, T(S.chevrons), T(S.chevronSize || 3.6)),
+          stroke: S.chevronStroke || S.stroke, strokeOpacity: S.chevronStroke ? 1 : S.op, strokeWidth: T(1.6) }));
+        els.push(h('path', { key: 'rh' + index, d, fill: 'none', stroke: 'transparent', strokeWidth: T(16), strokeLinecap: 'round', 'data-role': 'rpath', 'data-idx': rp.nodeId, style: { cursor: 'pointer' } }));
       });
       return els;
-    }, [routine, accent, view.w, cw]);
-    // Step badges above the paths, emphasized ones last. A badge selects its step like the path does.
-    const routineBadgeEls = useMemo(() => {
-      if (!routineBadges) return null;
-      const rank = (s) => ({ focus: 5, genfocus: 5, active: 4, generated: 3, done: 1, pending: 1, dim: 0 }[s] || 0), els = [];
-      [...routineBadges.items].sort((x, y) => rank(x.state) - rank(y.state)).forEach((badge) => {
-        const { box } = badge, strong = badge.state === 'active' || badge.state === 'focus' || badge.state === 'genfocus';
-        const gen = badge.kind === 'gen', col = strong ? (gen ? '#ffb347' : accent) : gen ? '#f6a93a' : null;
-        els.push(h('g', { key: 'rs' + badge.key, className: 'routine-step-badge', 'data-role': 'rpath', 'data-idx': badge.key, 'data-step': badge.text,
-          transform: `translate(${box.x} ${box.y})`, opacity: badge.state === 'dim' || badge.state === 'pending' ? 0.55 : 1, style: { cursor: 'pointer' } },
-          h('rect', { x: -box.w / 2, y: -box.h / 2, width: box.w, height: box.h, rx: box.h / 2, fill: '#0b0c0e', stroke: col || '#3a3f47', strokeWidth: T(strong ? 1.6 : 1) }),
-          h('text', { x: 0, y: T(3.6), fill: col || '#aeb5bf', fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, badge.text)));
+    }, [routineRoute, textUpp]);
+    // Step numbers: one dot per step at its first drawn start (slid past the robot resting there), in the flow's
+    // numbering, skipped where it would sit within 30 px of one already placed. Idle shows every step that has room,
+    // focus the selected step and its neighbors, playback only the running step. A dot selects its step like its path.
+    const routineMarks = useMemo(() => {
+      if (!routineRoute?.items.length) return null;
+      const { mode, items } = routineRoute, first = items[0].geometry.start;
+      const reach = Math.max(...localFootprint(robot).map((p) => Math.hypot(p.x, p.y))) * SX;
+      const rest = mode === 'play' ? null : { x: first.x - reach, y: first.y - reach, w: reach * 2, h: reach * 2 };
+      const anchors = new Map();
+      for (const item of items) {
+        if (anchors.has(item.rp.nodeId)) continue;
+        const { geometry } = item, start = geometry.start, total = geometry.len.at(-1) || 0;
+        const covered = rest && Math.hypot(start.x - first.x, start.y - first.y) < reach + T(10);
+        anchors.set(item.rp.nodeId, covered ? routePointAt(geometry, Math.min(total / 2, reach + T(22))) : start);
+      }
+      const strong = (role) => role === 'selected' || role === 'active';
+      const numbered = mode === 'idle' ? () => true : mode === 'focus' ? (role) => role !== 'faded' : strong;
+      const placed = [], numbers = [];
+      for (const item of [...items.filter((i) => strong(i.role)), ...items.filter((i) => !strong(i.role))]) {
+        const { rp, role } = item, at = anchors.get(rp.nodeId);
+        if (!numbered(role) || numbers.some((n) => n.rp.nodeId === rp.nodeId)) continue;
+        if (!strong(role) && placed.some((q) => Math.hypot(q.x - at.x, q.y - at.y) < T(30))) continue;
+        placed.push(at); numbers.push({ rp, at, strong: strong(role) });
+      }
+      const els = numbers.map(({ rp, at, strong: on }) => {
+        const text = rp.step == null ? '?' : String(rp.step), r = T(on ? 7.5 : 6.5), w = Math.max(r * 2, T(fieldTextWidth(text, NUMBER_FONT) + 6));
+        return h('g', { key: 'rn' + rp.nodeId, className: 'routine-step-number' + (on ? ' on' : ''), 'data-role': 'rpath', 'data-idx': rp.nodeId, 'data-step': text,
+          transform: `translate(${at.x} ${at.y})`, style: { cursor: 'pointer' } },
+          h('rect', { x: -w / 2, y: -r, width: w, height: r * 2, rx: r, strokeWidth: T(1.1), style: { fill: on ? 'var(--txt)' : 'var(--bg-1)', stroke: on ? 'var(--txt)' : 'var(--txt-3)' } }),
+          h('text', { x: 0, y: T(3.2), fontSize: T(9), fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, textAnchor: 'middle', style: { fill: on ? 'var(--on-accent)' : 'var(--txt-2)' } }, text));
       });
-      return els;
-    }, [routineBadges, accent, textUpp]);
-    // The full name, beside its badge, only for the selected step, the running step and the path under the pointer.
+      // A small flag where the routine ends; the robot marks where it starts.
+      const end = items.at(-1).geometry.end;
+      els.push(h('g', { key: 'rend', className: 'routine-end', transform: `translate(${end.x} ${end.y})`, opacity: mode === 'focus' ? 0.4 : 0.85, style: { pointerEvents: 'none' } },
+        h('line', { x1: 0, y1: 0, x2: 0, y2: -T(16), strokeWidth: T(1.5), style: { stroke: 'var(--txt-3)' } }),
+        h('path', { d: `M 0 ${-T(16)} L ${T(10)} ${-T(12.5)} L 0 ${-T(9)} Z`, style: { fill: 'var(--txt-3)' } })));
+      return { els, anchors, rest };
+    }, [routineRoute, robot, textUpp]);
+    // The path under the pointer, brightened over the route (every pass of its step).
+    const routineHoverEls = useMemo(() => {
+      if (!routineRoute || routineHover == null) return null;
+      return routineRoute.items.filter((item) => item.rp.nodeId === routineHover && item.role !== 'selected' && item.role !== 'active').map(({ index, geometry }) =>
+        h('path', { key: 'rhv' + index, className: 'routine-hover', d: geometry.d, fill: 'none', strokeWidth: T(2.6), strokeLinecap: 'round', strokeLinejoin: 'round', style: { stroke: 'var(--txt-2)', pointerEvents: 'none' } }));
+    }, [routineRoute, routineHover, textUpp]);
+    // One name pill for the selected or running step (with its pass when the step repeats) and one, darker, for the
+    // path under the pointer. Each sits beside its number dot inside the visible field, clear of the resting robot and
+    // the view controls.
     const routineLabels = useMemo(() => {
-      if (!routineBadges) return null;
-      const { rest } = routineBadges;
-      const shown = routineBadges.items.filter((badge) => badge.key === routineHover || badge.state === 'focus' || badge.state === 'genfocus' || badge.state === 'active');
-      return shown.map((badge) => {
-        const { box } = badge, gen = badge.kind === 'gen', strong = ['focus', 'genfocus', 'active'].includes(badge.state);
-        // Hover stays neutral; the selected or running step keeps the path's emphasis color.
-        const col = gen ? '#ffb347' : strong ? accent : '#c3c9d2';
-        // Extend right from the badge where the whole name fits clear of the resting robot, else left; otherwise the
-        // side with more room in the visible field, where a long name ends in an ellipsis (the flow and the inspector
-        // carry it in full).
-        const half = (canvasLayout.width || cw) * textUpp / 2, center = view.x + view.w / 2;
-        const roomRight = center + half - T(8) - (box.x - box.w / 2), roomLeft = box.x + box.w / 2 - (center - half + T(8));
-        const full = box.w + T(fieldTextWidth((gen ? '\u26a1 ' : '') + (badge.label || ''), NAME_FONT) + 10);
-        const clear = (x0) => !rest || x0 >= rest.x + rest.w / 2 || x0 + full <= rest.x - rest.w / 2 || Math.abs(box.y - rest.y) >= (rest.h + box.h) / 2;
-        const fitsRight = roomRight >= full, fitsLeft = roomLeft >= full;
-        const toRight = fitsRight && clear(box.x - box.w / 2) ? true : fitsLeft && clear(box.x + box.w / 2 - full) ? false : fitsRight || (!fitsLeft && roomRight >= roomLeft);
-        let name = (gen ? '\u26a1 ' : '') + (badge.label || '');
-        const fits = (text) => box.w + T(fieldTextWidth(text, NAME_FONT) + 10) <= (toRight ? roomRight : roomLeft);
-        if (!fits(name)) { while (name.length > 1 && !fits(name + '\u2026')) name = name.slice(0, -1); name = name.trimEnd() + '\u2026'; }
-        const numberW = box.w, nameW = T(fieldTextWidth(name, NAME_FONT) + 10), w = numberW + nameW;
-        const left = toRight ? box.x - box.w / 2 : box.x + box.w / 2 - w;
-        const numberX = toRight ? left : left + nameW;
-        return h('g', { key: 'rl' + badge.key, className: 'routine-step-label', 'data-step': badge.text, style: { pointerEvents: 'none' } },
-          h('rect', { x: left, y: box.y - box.h / 2 - T(1), width: w, height: box.h + T(2), rx: (box.h + T(2)) / 2, fill: 'rgba(11,12,14,0.95)', stroke: col, strokeWidth: T(1.4) }),
-          h('text', { x: numberX + numberW / 2, y: box.y + T(3.6), fill: col, fontSize: T(10.5), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle' }, badge.text),
-          h('text', { x: toRight ? left + numberW + T(2) : left + T(8), y: box.y + T(4), fill: '#e8ecf2', fontSize: T(11.5), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 600 }, name));
+      if (!routineMarks) return null;
+      const halfW = (canvasLayout.width || cw) * textUpp / 2, halfH = (canvasLayout.height || 0) * textUpp / 2 || view.h / 2;
+      const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+      const visible = { x0: cx - halfW + T(6), x1: cx + halfW - T(6), y0: cy - halfH + T(6), y1: cy + halfH - T(6) };
+      const obstacles = [routineMarks.rest, toolRailObstacle].filter(Boolean);
+      const name = (rp) => (rp.kind === 'gen' ? '\u26a1 ' : '') + (rp.label || '');
+      const strong = routineRoute.items.find((item) => item.role === 'selected' || item.role === 'active');
+      const pills = [];
+      if (strong) pills.push({ item: strong, light: true, text: name(strong.rp) + (strong.role === 'active' && strong.passes > 1 ? ' \u00b7 pass ' + strong.pass : '') });
+      const hovered = routineHover != null && routineHover !== strong?.rp.nodeId && routineRoute.items.find((item) => item.rp.nodeId === routineHover);
+      if (hovered) pills.push({ item: hovered, light: false, text: (hovered.rp.step ?? '?') + ' \u00b7 ' + name(hovered.rp) });
+      return pills.map(({ item, light, text }) => {
+        const box = placeRoutinePill(routineMarks.anchors.get(item.rp.nodeId), text, T, visible, obstacles);
+        obstacles.push(box);
+        return h('g', { key: 'rl' + item.rp.nodeId, className: 'routine-step-name' + (light ? ' on' : ''), 'data-step': item.rp.step ?? '?', 'data-node': item.rp.nodeId, style: { pointerEvents: 'none' } },
+          h('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: box.h / 2, strokeWidth: T(1),
+            style: light ? { fill: 'var(--txt)', stroke: 'none' } : { fill: 'var(--bg-1)', stroke: 'var(--line-3)' } }),
+          h('text', { x: box.x + box.w / 2, y: box.y + box.h / 2 + T(3.8), fontSize: T(11), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 600, textAnchor: 'middle',
+            style: { fill: light ? 'var(--on-accent)' : 'var(--txt)' } }, box.text));
       });
-    }, [routineBadges, routineHover, accent, view.x, view.w, textUpp, canvasLayout.width, cw]);
+    }, [routineRoute, routineMarks, toolRailObstacle, routineHover, view.x, view.y, view.w, view.h, textUpp, canvasLayout.width, canvasLayout.height, cw]);
 
     const routineRobot = useMemo(() => {
       if (!routine || !routinePose) return null;
@@ -1476,9 +1502,10 @@ import { FIELD_TAG_MARKS, TAG_WIDTH_M, tagMarkAt } from '../lib/fieldTags';
       routine ? null : previewEl,
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
-      routine ? routineBadgeEls : null,
-      routine ? routineLabels : null,
+      routine ? routineHoverEls : null,
+      routine ? routineMarks?.els : null,
       routine ? routineRobot : robotEl,
+      routine ? routineLabels : null,
       !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
       routine ? null : snapEl,
       routine ? null : problemBadgeEls,
