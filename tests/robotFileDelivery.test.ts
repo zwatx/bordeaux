@@ -527,6 +527,24 @@ describe("project robot addresses", () => {
     expect(persist).not.toHaveBeenCalled();
   });
 
+  it("retries a host-key write after the profile storage becomes writable", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-known-hosts-retry-"));
+    try {
+      const blocker = path.join(directory, "profile");
+      const file = path.join(blocker, "robot-known-hosts.json");
+      const known = await openKnownHosts(file);
+      const key = "systemcore|robot.local|22";
+      await fs.writeFile(blocker, "not a directory");
+      await expect(known.set(key, fingerprint)).rejects.toThrow();
+      expect(known.get(key)).toBeUndefined();
+      await fs.unlink(blocker);
+      await known.set(key, fingerprint);
+      expect((await openKnownHosts(file)).get(key)).toBe(fingerprint);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("remembers host keys reviewed on this computer across restarts", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bordeaux-known-hosts-"));
     const knownFile = path.join(directory, "robot-known-hosts.json");

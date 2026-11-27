@@ -68,15 +68,17 @@ const MAX_KNOWN_HOSTS = 64;
 const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{20,128}$/;
 export const knownHostKey = (endpoint: RobotFileEndpoint): string => `${endpoint.target}|${endpoint.host.toLowerCase()}|${endpoint.port}`;
 function knownHosts(initial: Iterable<[string, string]>, write: (hosts: Record<string, string>) => Promise<void>): KnownRobotHosts {
-  const hosts = new Map(initial);
+  let hosts = new Map(initial);
   return {
     get: (key) => hosts.get(key),
     async set(key, fingerprint) {
       if (!FINGERPRINT.test(fingerprint) || hosts.get(key) === fingerprint) return;
-      hosts.delete(key); hosts.set(key, fingerprint);
+      const next = new Map(hosts);
+      next.delete(key); next.set(key, fingerprint);
       // The oldest review goes first once the list is full.
-      while (hosts.size > MAX_KNOWN_HOSTS) hosts.delete(hosts.keys().next().value!);
-      await write(Object.fromEntries(hosts));
+      while (next.size > MAX_KNOWN_HOSTS) next.delete(next.keys().next().value!);
+      await write(Object.fromEntries(next));
+      hosts = next;
     },
   };
 }
