@@ -72,7 +72,7 @@ export interface HostInvokes {
   "robotFiles:password": { method: "getRobotFilePassword"; call: () => Promise<RobotPasswordStatus> };
   "robotFiles:save": { method: "saveRobotFileSettings"; call: (endpoint: RobotFileEndpoint, password?: RobotPasswordChange) => Promise<RobotFileSettings> };
   /** Makes a project robot's address the active one without contacting it; a host key reviewed here before is trusted again. Null clears it. */
-  "robotFiles:use": { method: "useRobotFileEndpoint"; call: (endpoint: RobotFileEndpoint | null) => Promise<RobotFileSettings | null> };
+  "robotFiles:use": { method: "useRobotFileEndpoint"; call: (endpoint?: RobotFileEndpoint | null) => Promise<RobotFileSettings | null> };
   "robotFiles:probe": { method: "probeRobotFiles"; call: (endpoint: RobotFileEndpoint, password?: RobotPasswordChange) => Promise<RobotFileConnection> };
   "robotFiles:trust": { method: "trustRobotFiles"; call: (fingerprint: string) => Promise<RobotFileConnection> };
   "robotFiles:prepare": { method: "prepareRobotFiles"; call: (project: BordeauxProject, pathIds: string[]) => Promise<RobotFilePreview> };

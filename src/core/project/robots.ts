@@ -78,10 +78,10 @@ const sameEndpoint = (a: RobotFileEndpoint | undefined, b: RobotFileEndpoint) =>
  * may. A listed robot pushes only through its own address, so a switch that failed cannot send its files to the robot
  * selected before. A project without a list uses whatever connection this computer has.
  */
-export function pushConnectionProblem(project: BordeauxProject, active: RobotFileEndpoint | null): string | null {
+export function pushConnectionProblem(project: BordeauxProject, active: RobotFileEndpoint | null, action = "pushing"): string | null {
   if (!project.robots?.length) return null;
   const selected = project.robots.find((robot) => robot.id === project.activeRobotId);
-  if (!selected?.connection) return `Set up ${selected?.name ?? "this robot"}’s connection before pushing.`;
+  if (!selected?.connection) return `Set up ${selected?.name ?? "this robot"}’s connection before ${action}.`;
   return active && sameEndpoint(selected.connection, active) ? null
     : `${selected.name}’s connection is not the active one. Open its connection on the Robot page and save it again.`;
 }

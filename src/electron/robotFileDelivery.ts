@@ -119,8 +119,8 @@ interface RobotFileTransport {
 export class RobotFileDelivery {
   private trusted: RobotFileConnection | null;
   private saved: RobotFileSettings | null;
-  /** True while the saved file may still name a robot that was cleared in memory. */
-  private unsavedClear = false;
+  /** The saved connection while the selected project robot has no usable address. */
+  private suspended: RobotFileSettings | null = null;
   private observed: RobotFileConnection | null = null;
   private observedPassword: string | null = null;
   private observedNeedsLogin = false;
@@ -148,18 +148,21 @@ export class RobotFileDelivery {
   current(): RobotFileConnection | null { return structuredClone(this.trusted); }
   settings(): RobotFileSettings | null { return structuredClone(this.saved); }
   private get busy(): boolean { return Boolean(this.active || this.reading || this.trusting || this.savingCopy); }
-  passwordStatus(): RobotPasswordStatus { return { custom: this.passwords.current() !== null, persistent: this.passwords.persistent }; }
+  passwordStatus(): RobotPasswordStatus { return { custom: this.saved !== null && this.passwords.current() !== null, persistent: this.passwords.persistent }; }
   /** The password a login to `endpoint` uses after `change`; null means the robot type's default. */
   private passwordFor(endpoint: RobotFileEndpoint, change: RobotPasswordChange): string | null {
     if (change.kind === "custom") {
       if (!allowsCustomPassword(endpoint.target)) throw new Error(`${ROBOT_TARGETS[endpoint.target].label} logs in without a password`);
       return change.password;
     }
-    if (change.kind === "keep" && allowsCustomPassword(endpoint.target) && this.passwords.current() !== null
-      && (this.saved?.endpoint.host !== endpoint.host || this.saved.endpoint.port !== endpoint.port || this.saved.endpoint.target !== endpoint.target)) {
+    if (change.kind !== "keep" || !allowsCustomPassword(endpoint.target)) return null;
+    const saved = this.saved ?? this.suspended;
+    const password = this.passwords.current();
+    if (saved && password !== null && knownHostKey(saved.endpoint) === knownHostKey(endpoint)) return password;
+    if (this.saved && password !== null) {
       throw new Error("Enter the SSH password or choose the default before connecting a different robot");
     }
-    return change.kind === "keep" && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
+    return null;
   }
   private async commitPassword(password: string | null): Promise<void> {
     await this.passwords.replace(password);
@@ -214,42 +217,49 @@ export class RobotFileDelivery {
    * Makes `rawEndpoint` the active robot, as when a project's selected robot changes. It never contacts the robot. A
    * host key reviewed on this computer for the same robot type, host and port is trusted again; any other address waits
    * for a review before Push. A custom password stays only while the robot type, host and port stay the same.
-   * Null is a selected robot without an address: nothing is active, so Push asks for that robot's address first. An
-   * invalid address also leaves nothing active, then throws.
+   * Null suspends the connection for a selected robot without a usable address. Undefined restores this computer's
+   * connection when returning to a project without a robot list.
    */
   async use(rawEndpoint: unknown): Promise<RobotFileSettings | null> {
-    if (rawEndpoint === null && !this.saved && !this.unsavedClear) return null;
     if (this.busy) throw new Error("Finish the current robot operation before switching robots");
-    if (rawEndpoint === null) {
-      this.generation++;
-      this.observed = null; this.observedPassword = null; this.pending = null; this.compared = null;
-      this.trusting = true;
-      // Nothing stays active in memory even when a write below fails; the saved file is cleared on the next try.
-      const trusted = this.trusted;
-      this.saved = null; this.trusted = null; this.unsavedClear = true;
-      try {
-        try { if (trusted) await this.known.set(knownHostKey(trusted.endpoint), trusted.hostKeyFingerprint); }
-        finally { try { await this.commitPassword(null); } finally { await this.persist(null); } }
-        this.unsavedClear = false;
-        return null;
-      } finally { this.trusting = false; }
+    if (rawEndpoint === undefined && !this.suspended) return this.settings();
+    let endpoint: RobotFileEndpoint | null;
+    try {
+      endpoint = rawEndpoint === null ? null : validateRobotFileEndpoint(rawEndpoint ?? this.suspended?.endpoint);
+    } catch (error) {
+      this.suspend();
+      throw error;
     }
-    let endpoint: RobotFileEndpoint;
-    // An address this computer cannot use must not leave the robot selected before as the active one.
-    try { endpoint = validateRobotFileEndpoint(rawEndpoint); }
-    catch (error) { await this.use(null); throw error; }
-    if (this.saved && JSON.stringify(this.saved.endpoint) === JSON.stringify(endpoint)) return structuredClone(this.saved);
-    const key = knownHostKey(endpoint);
-    const fingerprint = this.trusted && knownHostKey(this.trusted.endpoint) === key ? this.trusted.hostKeyFingerprint : this.known.get(key);
-    const password = this.saved && knownHostKey(this.saved.endpoint) === key && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
+    if (!endpoint) { this.suspend(); return null; }
+    if (this.saved && JSON.stringify(this.saved.endpoint) === JSON.stringify(endpoint)) return this.settings();
+    if (this.suspended && JSON.stringify(this.suspended.endpoint) === JSON.stringify(endpoint)) {
+      this.saved = this.suspended;
+      this.suspended = null;
+      this.trusted = this.saved.hostKeyFingerprint ? connection(this.saved) : null;
+      this.invalidateReview();
+      return this.settings();
+    }
+    const prior = this.saved ?? this.suspended;
+    const key = knownHostKey(endpoint), sameHost = prior && knownHostKey(prior.endpoint) === key;
+    const fingerprint = (sameHost && prior.hostKeyFingerprint) || this.known.get(key);
+    const password = sameHost && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
     const value: RobotFileSettings = { endpoint, ...(fingerprint ? { hostKeyFingerprint: fingerprint } : {}) };
-    this.generation++;
-    this.observed = null; this.observedPassword = null; this.pending = null; this.compared = null;
+    this.invalidateReview();
     this.trusting = true;
     try {
       await this.commitSettings(value, password);
       return structuredClone(value);
     } finally { this.trusting = false; }
+  }
+  private invalidateReview(): void {
+    this.generation++;
+    this.observed = null; this.observedPassword = null; this.pending = null; this.compared = null;
+  }
+  private suspend(): void {
+    this.invalidateReview();
+    if (this.saved) this.suspended = this.saved;
+    this.saved = null;
+    this.trusted = null;
   }
   async probe(endpoint: RobotFileEndpoint, rawPassword?: unknown): Promise<RobotFileConnection> {
     if (this.busy) throw new Error("Finish the current robot operation before connecting another robot");
@@ -283,13 +293,14 @@ export class RobotFileDelivery {
   }
   private async commitSettings(value: RobotFileSettings, password: string | null): Promise<void> {
     // The identity being replaced was reviewed here, so a project robot at that address can be trusted again later.
-    if (this.trusted) await this.known.set(knownHostKey(this.trusted.endpoint), this.trusted.hostKeyFingerprint);
+    const prior = this.saved ?? this.suspended;
+    if (prior?.hostKeyFingerprint) await this.known.set(knownHostKey(prior.endpoint), prior.hostKeyFingerprint);
     // Revoke the old identity before replacing credentials. Clear its password before moving
     // the saved endpoint, so a crash or rejected write cannot associate an old secret with a new robot.
-    const previous = this.saved ? { endpoint: this.saved.endpoint } : null;
+    const previous = prior ? { endpoint: prior.endpoint } : null;
     if (previous) {
       await this.persist(previous);
-      this.saved = previous; this.trusted = null;
+      this.saved = previous; this.trusted = null; this.suspended = null;
     }
     await this.commitPassword(null);
     const unverified = { endpoint: value.endpoint };

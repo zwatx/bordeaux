@@ -79,6 +79,7 @@ ipcMain.handle('branches:catalog', () => ({ catalog: { projectName: 'Fixture', c
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
 ipcMain.handle('branches:use-endpoint', (_event, endpoint) => { used.push(endpoint); return endpoint ? { endpoint } : null; });
 ipcMain.handle('branches:connection', () => computerConnection);
+ipcMain.handle('branches:save-endpoint', (_event, endpoint) => (computerConnection = { endpoint }));
 ipcMain.on('branches:published', () => {});
 ipcMain.on('branches:confirm', (_event, message) => errors.push('confirm: ' + message));
 ipcMain.handle('branches:robot-call', (_event, name) => { errors.push('robot call: ' + name); throw new Error('No robot in this check'); });
@@ -91,7 +92,7 @@ app.whenReady().then(async () => {
     const driveModel = { motorId: 'custom', motorFreeRpm: 6000, motorMaxTorqueNm: 4, motorCount: 4, gearRatio: 5.5, wheelDiameterM: 0.1016,
       massKg: 50, moiKgM2: 5, wheelbaseM: 0.6, trackwidthM: 0.6, wheelFrictionCoefficient: 1.2 };
     saved = { ...corpus, robot: { ...corpus.robot, w: 0.84, l: 0.84, driveModel }, paths: [first], pathLinks: [], routines: [], editor: { activePathId: first.id } };
-    win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
+    win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true, webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), additionalArguments: ['--robot-list-ui-fixture'], sandbox: false, contextIsolation: true, backgroundThrottling: false } });
     win.webContents.on('console-message', (details) => { if (details.level === 'error' && !details.message.startsWith("Loading the font 'data:")) errors.push(details.message); });
     await win.loadFile(path.resolve('dist-renderer/index.html'));
     win.focus(); win.webContents.focus();
@@ -311,6 +312,14 @@ app.whenReady().then(async () => {
     await robotPage();
     await wait(async () => (await cards())[0]?.summary === '10.24.68.3', 'the single robot shows this computer\'s connection');
     assert.deepEqual(used, [], 'Opening an older project changes no connection');
+    await click('.robot-connection .settings-control button');
+    await click('.robot-push-dialog button', 'Edit');
+    await click('.robot-push-dialog button', 'Save');
+    await wait(() => evaluate(() => !document.querySelector('.robot-push-dialog .rfp-fields input')), 'saved the computer connection');
+    await key('Escape');
+    await save();
+    assert.equal(saved.robots, undefined, 'Saving a connection does not upgrade an unnamed single-robot project');
+
     await click('.robot-card-new');
     await wait(() => evaluate(() => document.activeElement?.matches('.robot-card input[aria-label="Robot name"]')), 'second robot name field');
     await key('Escape');

@@ -756,7 +756,7 @@ export interface ProjectRobot {
   name: string;
   /** This robot's details. Omitted on the selected robot, whose details are `BordeauxProject.robot`. */
   robot?: RobotConfig;
-  /** Where Push sends this robot's files. Omitted until set: the robot then uses this computer's current connection.
+  /** Where Push sends this robot's files. Required before a listed robot can Push.
    * Host keys and passwords never live in the project; each computer keeps them. Robots may share an address. */
   connection?: RobotFileEndpoint;
 }

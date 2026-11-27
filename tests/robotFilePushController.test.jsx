@@ -235,6 +235,19 @@ describe('SFTP file push controller', () => {
     await render().requestPush({ kind: 'paths', pathIds: ['A'] });
     expect(render().preview).toMatchObject(preview);
   });
+  it('refuses inventory and Compare when the active address belongs to another robot', async () => {
+    project = { ...project, activeRobotId: 'practice', robots: [{ id: 'practice', name: 'Practice bot',
+      connection: { ...connection.endpoint, host: 'practice.local' } }] };
+    bridge.listRobotPaths = vi.fn();
+    bridge.compareRobotPath = vi.fn();
+    await ready();
+    await render().openRobotFiles();
+    expect(render()).toMatchObject({ phase: 'list-failed', error: expect.stringContaining('Practice bot') });
+    await render().requestPush({ kind: 'compare', pathIds: ['A'] });
+    expect(render()).toMatchObject({ phase: 'compare-failed', error: expect.stringContaining('Practice bot') });
+    expect(bridge.listRobotPaths).not.toHaveBeenCalled();
+    expect(bridge.compareRobotPath).not.toHaveBeenCalled();
+  });
   it('waits for a running upload before switching robot addresses', async () => {
     bridge.useRobotFileEndpoint = vi.fn(async (endpoint) => ({ endpoint }));
     const upload = deferred(); bridge.confirmRobotFiles = vi.fn(() => upload.promise);
