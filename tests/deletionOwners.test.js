@@ -188,10 +188,10 @@ describe('actual App command branch owner',()=>{
  it('changes a catalog-generated title after a rename, and keeps an explicitly authored title',()=>{
   const legacy = {...commandNode(), title:'Old catalog name', outputBranch:undefined};
   const generated=branchHarness(legacy);
-  expect(generated.render()('cmd',{kind:'command',commandId:'scan2'}).status).toBe('applied');
-  expect(generated.live().title).toBe('Scan again');
+  expect(generated.render()('cmd',{kind:'command',commandId:'aim'}).status).toBe('applied');
+  expect(generated.live().title).toBe('Aim');
   const named=branchHarness({...legacy,title:'Scan',titleIsCustom:true});
-  expect(named.render()('cmd',{kind:'command',commandId:'scan2'}).status).toBe('applied');
+  expect(named.render()('cmd',{kind:'command',commandId:'aim'}).status).toBe('applied');
   expect(named.live()).toMatchObject({title:'Scan',titleIsCustom:true});
  });
  it('keeps missing saved commands and outputs recoverable and refuses only an unavailable requested choice',()=>{
