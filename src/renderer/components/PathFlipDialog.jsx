@@ -179,9 +179,9 @@ export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewC
           h('span', { className: 'pf-target-note' }, pathCount === 1 ? 'A copy of the path the routine follows, named “… flipped” and placed after the original.'
             : 'One copy of each path the routine follows, named “… flipped” and placed after its original. Points they share stay joined.')),
         h('p', { className: 'pf-target-note rf-keeps' }, 'This routine and its paths stay as they are. Undo removes what this creates.'),
-        reviewCount > 0 && h('p', { className: 'pf-optimization' },
+        reviewCount > 0 && h('p', { className: 'pf-target-note' },
           countOf(reviewCount, 'path') + (reviewCount === 1 ? ' needs' : ' need') + ' saved optimization review. The copies need review before export too.'),
-        generatedCount > 0 && h('p', { className: 'pf-optimization' },
+        generatedCount > 0 && h('p', { className: 'pf-target-note' },
           countOf(generatedCount, 'generated trajectory step') + ' keep' + (generatedCount === 1 ? 's its' : ' their') + ' arguments. Check them for the new side.')),
       h('div', { className: 'pf-error', role: 'alert' }, error),
       h('div', { className: 'pj-foot' },
