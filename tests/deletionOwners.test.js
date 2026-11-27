@@ -185,11 +185,20 @@ describe('actual App command branch owner',()=>{
   expect(h.render()('cmd',{kind:'command',commandId:'scan'})).toMatchObject({status:'applied',removed:0});
   expect(h.live().invocation).toEqual({commandId:'scan',arguments:{count:'9007199254740993',gain:0}});expect(h.state.notice).toBeNull();expect(h.size()).toBe(1);
  });
+ it('changes a catalog-generated title after a rename, and keeps an explicitly authored title',()=>{
+  const legacy = {...commandNode(), title:'Old catalog name', outputBranch:undefined};
+  const generated=branchHarness(legacy);
+  expect(generated.render()('cmd',{kind:'command',commandId:'scan2'}).status).toBe('applied');
+  expect(generated.live().title).toBe('Scan again');
+  const named=branchHarness({...legacy,title:'Scan',titleIsCustom:true});
+  expect(named.render()('cmd',{kind:'command',commandId:'scan2'}).status).toBe('applied');
+  expect(named.live()).toMatchObject({title:'Scan',titleIsCustom:true});
+ });
  it('keeps missing saved commands and outputs recoverable and refuses only an unavailable requested choice',()=>{
   let h=branchHarness({...commandNode(),invocation:{commandId:'gone',arguments:{}}});
   expect(h.render()('cmd',{kind:'command',commandId:'nope'}).status).toBe('refused');expect(h.size()).toBe(0);
   expect(h.render()('cmd',{kind:'command',commandId:''}).status).toBe('applied');
-  expect(h.live()).toMatchObject({title:'Scan',invocation:null});expect(h.state.notice.detail).toBe('Cleared the command. Removed 5 branch steps.');
+  expect(h.live()).toMatchObject({title:'Robot command',invocation:null});expect(h.state.notice.detail).toBe('Cleared the command. Removed 5 branch steps.');
   const missing=()=>({...commandNode(),outputBranch:{...commandNode().outputBranch,output:'gone'}});
   h=branchHarness(missing());const b=h.render();
   expect(b('cmd',{kind:'output',output:'gone'}).status).toBe('unchanged');expect(b('cmd',{kind:'rebuild'}).status).toBe('unchanged');expect(b('cmd',{kind:'output',output:'nope'}).status).toBe('refused');

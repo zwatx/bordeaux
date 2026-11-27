@@ -818,7 +818,7 @@ app.whenReady().then(async () => {
       };
       await bind('later-a'); await bind('later-b');
       const bound = (await source())[0].nodes;
-      assert.deepEqual(bound.map(node => node.title), ['Shoot', 'Check whether collection is finished'], 'Change command keeps a team name and replaces a default title');
+      assert.deepEqual(bound.map(node => [node.title, node.titleIsCustom]), [['Shoot', true], ['Check whether collection is finished', undefined]], 'Change command keeps a team name and replaces a default title');
       assert.deepEqual(await evaluate(() => ['later-a', 'later-b'].map(id => { const kind = document.querySelector('[data-id="' + id + '"] .rt-step-kind'); return kind && kind.getBoundingClientRect().width > 0 ? kind.textContent : null; })),
         ['Check whether collection is finished', null], 'A named step shows the command it runs; a default one does not repeat it');
       await selectStep('later-a');

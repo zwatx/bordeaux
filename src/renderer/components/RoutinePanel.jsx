@@ -854,7 +854,7 @@ export function RoutinePanel(props) {
   }
   /** The bound command's label when the team gave the step its own name, else ''. */
   function boundName(node) {
-    if (node.type !== 'function' || node.cat !== 'command' || !A.commandOwnName(node, catalog)) return '';
+    if (node.type !== 'function' || node.cat !== 'command' || !A.commandOwnName(node)) return '';
     return catalog?.commands?.find((item) => item.id === node.invocation?.commandId)?.label || '';
   }
   function durationOf(node, seg) {
