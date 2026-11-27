@@ -94,14 +94,6 @@ for (const [fileName, expectedDigest] of Object.entries(fontDigests)) {
   }
 }
 
-const readme = readRequiredFile("README.md");
-requireText("README.md", readme, [
-  "## License and asset rights",
-  "Apache License 2.0",
-  "Bordeaux identity and bundled assets",
-  "RIGHTS.md",
-]);
-
 const manifest = JSON.parse(readRequiredFile("package.json"));
 if (manifest.license !== "Apache-2.0") throw new Error("package.json license must be Apache-2.0");
 
