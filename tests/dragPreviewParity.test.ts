@@ -136,4 +136,26 @@ describe('drag preview parity with the release profile', () => {
     const release = releaseValue(draft, project.robot, project.field);
     expect(Math.abs(shown.prof.totalTime - release.prof.totalTime)).toBeLessThan(0.1);
   });
+
+  // At the old 14 points per segment a pending frame looked faceted, then snapped smooth when the solve landed.
+  it('draws a pending draft at least half as densely as its release value', () => {
+    const project = representativeProject();
+    const solvedPath = project.paths[0];
+    const solved = processPathPreviewJob(dragMessage(solvedPath, project.robot, project.field)).value.derived;
+    const draft = moved(solvedPath, 1, 0.05, 0);
+    const shown = liveEditingPreview(draft, project.robot, solvedPath, solved);
+    const density = PathPreview.samplesForQuality('final') / 2;
+    shown.wpIdx.slice(1).forEach((end: number, i: number) => expect(end - shown.wpIdx[i]).toBeGreaterThanOrEqual(density));
+  });
+
+  // The UI-thread geometry has a point budget. Exceeding it at drag density must not drop to straight waypoint lines.
+  it('keeps a long pending draft on its curves within the geometry budget', () => {
+    const project = representativeProject();
+    const points = Array.from({ length: 90 }, (_, i) => ({ x: -7 + i * 0.16, y: Math.sin(i * 0.5) * 2, theta: 0 }));
+    const draft = { ...project.paths[0], targets: [], ranges: [], waypoints: buildWaypoints(points as any) };
+    const shown = liveEditingPreview(draft, project.robot, null, null);
+    const segments = draft.waypoints.length - 1;
+    expect(shown.sample.pts.length).toBeGreaterThan(segments * 20);
+    expect(shown.sample.pts.length).toBeLessThanOrEqual(2000);
+  });
 });

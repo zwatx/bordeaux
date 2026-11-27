@@ -2,14 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { ACTIVE_FIELD_REFERENCE } from "../src/core/field/rebuilt2026";
 import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { applyRoute, geometryFromPath } from "../src/core/planners/routeGeometry";
+import { getPlanner } from "../src/core/planners";
 import { routeCandidateFailure } from "../src/core/planners/routeValidation";
 import { routeSafetyFailure } from "../src/core/planners/routeSafety";
 import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
 import { buildBdxExport } from "../src/core/export/bdx";
 import { PM } from "../src/core/math/pm";
-import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import { effectiveRanges } from "../src/core/planners/rotationPriority";
 import type { PlannerResult } from "../src/core/types";
 
@@ -61,22 +60,13 @@ describe("route field safety and authored timing", () => {
     expect(path).toEqual(original);
   });
 
-  it("retains exact v2 project and standalone reopen and BDX export", () => {
+  it("writes the route into the path, which reopens and exports exactly, standalone too", () => {
     const { project, path, robot, candidate } = solve();
-    const sourceWaypoints = structuredClone(path.waypoints);
-    path.optimization = { corridorM: 0.4 };
-    const legacy = createAcceptedTrajectory(path, robot, optimizeFixedGeometryFinal({ path, robot }));
-    path.optimization.accepted = legacy;
-    project.paths = [applyAcceptedRouteTrajectory(path, robot, candidate)];
-    expect(project.paths[0].waypoints).toEqual(sourceWaypoints);
-    expect(project.paths[0].optimization!.legacyAccepted).toEqual(legacy);
+    project.paths = [applyRoute(path, candidate.routeGeometry!)];
     const reopened = decodeProjectFile(encodeProjectFile(project).contents).project;
-    expect(reopened.paths[0].optimization!.legacyAccepted).toEqual(legacy);
-    const selected = getAcceptedTrajectory(reopened.paths[0], reopened.robot, reopened.field)!;
-    expect(selected).toEqual(candidate);
+    expect(reopened.paths[0].waypoints).toEqual(project.paths[0].waypoints);
     expect(buildBdxExport(reopened).paths[0].samples).toEqual(candidate.samples);
-    const standalone = decodeProjectFile(JSON.stringify({ ...project.paths[0], version: "2.1", field: project.field, robot })).project;
-    expect(getAcceptedTrajectory(standalone.paths[0], standalone.robot, standalone.field)).toEqual(candidate);
+    const standalone = decodeProjectFile(JSON.stringify({ ...project.paths[0], version: "2.0", field: project.field, robot })).project;
     expect(buildBdxExport(standalone).paths[0].samples).toEqual(candidate.samples);
   });
 
@@ -92,9 +82,6 @@ describe("route field safety and authored timing", () => {
     expect(progress).toEqual([]);
     expect(routeCandidateFailure({ path, robot, field }, candidate)).toMatch(/field revision/);
     expect(routeCandidateFailure({ path, robot, field }, candidate, ACTIVE_FIELD_REFERENCE)).toMatch(/field revision/);
-    const selected = applyAcceptedRouteTrajectory(path, robot, candidate);
-    expect(getAcceptedTrajectory(selected, robot, field)).toBeNull();
-    expect(() => applyAcceptedRouteTrajectory(path, robot, candidate, field)).toThrow(/field revision/);
   });
 
 
@@ -106,20 +93,20 @@ describe("route field safety and authored timing", () => {
     const original = structuredClone(path);
     const expanded = { ...path, waypoints: buildWaypoints([{ x: 7.0705, y: 1.4345 }, { x: 1.7705, y: 1.4345 }, { x: -1.7295, y: 1.4345 }]) };
     const geometry = { ...geometryFromPath(expanded), requiredPointIndices: [0, 2] };
-    const planning = routePlanningPath(path, geometry);
-    const raw = optimizeFixedGeometryFinal({ path: planning, robot });
-    const candidate = routeResultToSource(raw, geometry, planning);
+    const planning = applyRoute(path, geometry);
+    const raw = getPlanner("profiledSpline").generate({ path: planning, robot });
+    const candidate = { ...raw, routeGeometry: geometry, optimizedPath: planning };
     expect(routeCandidateFailure({ path, robot }, candidate)).toBeUndefined();
     expect(candidate.samples.filter((s) => s.f > 0.81).every((s) => Math.abs(s.velocityMps) <= 0.8 + 1e-6)).toBe(true);
     expect(candidate.samples.filter((s) => s.f < 0.99).every((s) => Math.abs(Math.abs(s.headingRad) - Math.PI) < 1e-6)).toBe(true);
     expect(candidate.markers[0]).toMatchObject({ command: "intake.collect", fraction: 4 / candidate.totalDistanceM });
     const turn = candidate.stationaryActions!.find((a) => a.kind === "turn")!;
     const wait = candidate.stationaryActions!.find((a) => a.kind === "wait")!;
-    expect(turn.waypointIndex).toBe(1);
+    // The stop is the path's third waypoint after Apply inserts one before it.
+    expect(turn.waypointIndex).toBe(2);
     expect(turn.endTimeS - turn.startTimeS).toBeGreaterThanOrEqual(5.625);
-    expect(wait.waypointIndex).toBe(1);
+    expect(wait.waypointIndex).toBe(2);
     expect(wait.endTimeS - wait.startTimeS).toBeCloseTo(0.137, 9);
-    expect(getAcceptedTrajectory(applyAcceptedRouteTrajectory(path, robot, candidate), robot)).toEqual(candidate);
     expect(path).toEqual(original);
   });
 
@@ -128,13 +115,16 @@ describe("route field safety and authored timing", () => {
     path.ranges = [{ anchor: "wp", w0: 0, t0: 0.8, w1: 1, f0: 0, f1: 1, maxVel: 0.8, maxAngVel: 30 }];
     const expanded = { ...path, waypoints: buildWaypoints([{ x: 7.0705, y: 1.4345 }, { x: 1.7705, y: 1.4345 }, { x: -1.7295, y: 1.4345 }]) };
     const geometry = { ...geometryFromPath(expanded), requiredPointIndices: [0, 2] };
-    const planning = routePlanningPath(path, geometry);
+    const planning = applyRoute(path, geometry);
     const sampled = PM.sample(planning.waypoints, 56);
     const ranges = PM.effectiveRanges(planning, sampled);
-    expect(ranges[0]).toMatchObject({ f0: 0.8, f1: 1, maxVel: 0.8, maxAngVel: 30 });
+    // 80% of the way along the leg by distance, now inside the inserted waypoint's second segment.
+    expect(ranges[0]).toMatchObject({ f1: 1, maxVel: 0.8, maxAngVel: 30 });
+    expect(ranges[0].f0).toBeCloseTo(0.8, 4);
     const generated = sampled.pts.map((p, i) => ({ i, f: p.s / sampled.length, s: p.s, x: p.x, y: p.y, t: i, headingRad: 0, velocityMps: 0, accelerationMps2: 0, angularVelocityRadps: 0, curvatureInvM: 0 }));
     const timed = effectiveRanges(planning, generated, sampled.length, [0, 56, 112]);
-    expect(timed[0]).toMatchObject({ start: 0.8, end: 1 });
+    expect(timed[0].start).toBeCloseTo(0.8, 4);
+    expect(timed[0].end).toBe(1);
     expect(timed.slice(1).map(({ start, end, maxVel }) => ({ f0: start, f1: end, maxVel })))
       .toEqual(ranges.slice(1).map(({ f0, f1, maxVel }) => ({ f0, f1, maxVel })));
     expect(timed.slice(1).every((r) => r.end < 0.8)).toBe(true);
