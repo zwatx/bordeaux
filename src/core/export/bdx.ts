@@ -1,4 +1,4 @@
-import { selectPathTrajectory } from "../planners/acceptedTrajectory";
+import { pathTrajectory } from "../planners/pathTrajectory";
 import { clone } from "../project/defaults";
 import { activeRoutine } from "../project/routines";
 import type {
@@ -27,7 +27,10 @@ export function buildBdxExportWithPlannerResults(project: BordeauxProject): Buil
 
   const plannerResults: PlannerResult[] = [];
   const paths: BdxPath[] = exportablePaths(project).map((path) => {
-    const result = selectPathTrajectory(path, project.robot, project.field);
+    if (path.optimizationNeedsReview) {
+      throw new Error(`${path.name}: The saved optimization needs review. Open Optimize and apply a new result or choose Use drawn path.`);
+    }
+    const result = pathTrajectory(path, project.robot);
     if (result.samples.length < 2) {
       throw new Error(`Path "${path.name}" generated fewer than two samples`);
     }

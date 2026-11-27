@@ -76,20 +76,12 @@ export function flipRequest({ direction, target, copyName }) {
   return name ? { direction, copyName: name } : null;
 }
 
-/** How an applied optimization fares: a half turn keeps the robot's dynamics, a mirror may not. */
-export function optimizationNote({ direction, replace }) {
-  if (!replace) return 'The copy plans from its waypoints. This path keeps its applied optimization.';
-  return direction === 'rotate' ? 'The applied optimization turns with the path.'
-    : 'Mirroring clears the applied optimization, since the robot may not behave the same mirrored. Optimize again after.';
-}
-
 /**
  * Flips one path. Nothing changes until the primary action: `onConfirm({ direction, copyName })`
  * resolves to an error string to keep the dialog open, or undefined when the parent closes it.
  * A path that shares points with other paths can only be copied, so those paths stay put.
- * With an applied optimization, one line says whether the chosen result keeps it.
  */
-export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = true, hasAppliedOptimization = false, onCancel, onConfirm }) {
+export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = true, onCancel, onConfirm }) {
   const ref = React.useRef(null), nameRef = React.useRef(null), cancelRef = React.useRef(null), live = useFlipSheet(ref);
   const [direction, setDirection] = React.useState('horizontal');
   const [target, setTarget] = React.useState('copy');
@@ -140,9 +132,7 @@ export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = tr
           h('input', { type: 'radio', name: 'pf-target', value: 'replace', checked: replace, disabled: !canReplace, 'aria-describedby': 'path-flip-replace-note',
             onChange: () => { setTarget('replace'); setError(''); } }),
           h('span', { className: 'pf-target-text' }, h('span', { className: 'pf-target-label' }, 'Change this path'),
-            h('span', { id: 'path-flip-replace-note', className: 'pf-target-note' }, canReplace ? 'Undo restores it.' : 'It shares points with other paths. Save a copy so they stay where they are.'))),
-        hasAppliedOptimization && h('p', { className: 'pf-optimization', 'aria-live': 'polite', 'data-clears': replace && direction !== 'rotate' ? true : undefined },
-          optimizationNote({ direction, replace }))),
+            h('span', { id: 'path-flip-replace-note', className: 'pf-target-note' }, canReplace ? 'Undo restores it.' : 'It shares points with other paths. Save a copy so they stay where they are.')))),
       h('div', { className: 'pf-error', role: 'alert' }, error),
       h('div', { className: 'pj-foot' },
         h('span', { className: 'pj-foot-actions' },
@@ -157,7 +147,7 @@ const countOf = (count, noun) => count + ' ' + noun + (count === 1 ? '' : 's');
  * of each path it follows) and keeps the routine and its paths unchanged. `onConfirm({ direction, name })` returns an
  * error string to keep the dialog open, or undefined when the parent closes it.
  */
-export function RoutineFlipDialog({ routineName, defaultName, pathCount, optimizedCount = 0, generatedCount = 0, onCancel, onConfirm }) {
+export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewCount = 0, generatedCount = 0, onCancel, onConfirm }) {
   const ref = React.useRef(null), nameRef = React.useRef(null), live = useFlipSheet(ref);
   const [direction, setDirection] = React.useState('horizontal');
   const [name, setName] = React.useState(defaultName);
@@ -189,8 +179,8 @@ export function RoutineFlipDialog({ routineName, defaultName, pathCount, optimiz
           h('span', { className: 'pf-target-note' }, pathCount === 1 ? 'A copy of the path the routine follows, named “… flipped” and placed after the original.'
             : 'One copy of each path the routine follows, named “… flipped” and placed after its original. Points they share stay joined.')),
         h('p', { className: 'pf-target-note rf-keeps' }, 'This routine and its paths stay as they are. Undo removes what this creates.'),
-        optimizedCount > 0 && h('p', { className: 'pf-optimization' },
-          countOf(optimizedCount, 'path') + (optimizedCount === 1 ? ' has' : ' have') + ' an applied optimization. The copies plan from their waypoints.'),
+        reviewCount > 0 && h('p', { className: 'pf-optimization' },
+          countOf(reviewCount, 'path') + (reviewCount === 1 ? ' needs' : ' need') + ' saved optimization review. The copies need review before export too.'),
         generatedCount > 0 && h('p', { className: 'pf-optimization' },
           countOf(generatedCount, 'generated trajectory step') + ' keep' + (generatedCount === 1 ? 's its' : ' their') + ' arguments. Check them for the new side.')),
       h('div', { className: 'pf-error', role: 'alert' }, error),

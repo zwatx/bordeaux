@@ -10,7 +10,7 @@ import { buildWaypoints, createDemoProject } from "../src/core/project/defaults"
 import { getPlanner } from "../src/core/planners";
 import { routeCandidates } from "../src/core/planners/routeCandidates";
 import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { routePlanningPath, routeTask } from "../src/core/planners/routeGeometry";
 import { routeCandidateIssue } from "../src/core/planners/routeValidation";
 import type { PathDoc, PlannerInput, PlannerResult, RouteGeometry } from "../src/core/types";
 
@@ -46,13 +46,15 @@ const tangentPaths = corpus.paths.filter((p) => p.headingMode === "tangent");
 const robot = createDemoProject().robot;
 const corpusInput = (id: string): PlannerInput => ({ path: structuredClone(corpus.paths.find((p) => p.id === `corpus-${id}`)!), robot });
 
-function normal(input: PlannerInput) {
-  const raw = getPlanner("profiledSpline").generate(input);
-  const geometry = geometryFromPath(input.path);
-  return routeResultToSource({ ...raw, optimization: {
+/** The current curve as a route candidate: its Normal plan, with the path Apply would write. */
+function normal(input: PlannerInput): PlannerResult {
+  const { task, seed } = routeTask(input.path);
+  const path = routePlanningPath(task, seed);
+  const raw = getPlanner("profiledSpline").generate({ ...input, path });
+  return { ...raw, routeGeometry: seed, optimizedPath: path, optimization: {
     plannerUsed: raw.planner, totalTimeS: raw.totalTimeS, maxVelocityMps: 0, maxAccelerationMps2: 0,
     constraintViolations: 0, solveTimeMs: 0, fallback: false, ...raw.optimization, status: "feasible",
-  } }, geometry, routePlanningPath(input.path, geometry));
+  } };
 }
 
 function straight(mode: PathDoc["headingMode"] = "manual", historical = false): PlannerInput {

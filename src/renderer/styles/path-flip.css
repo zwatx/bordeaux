@@ -43,8 +43,6 @@
 .pf-name{padding:0 0 8px 26px}
 .pf-name .textinput:disabled{color:var(--txt-3);opacity:.6}
 .pf-name .textinput[aria-invalid="true"]{border-color:var(--bad)}
-.pf-optimization{margin:6px 0 0;padding-top:10px;border-top:1px solid var(--line);color:var(--txt-3);font-size:12px;line-height:1.45;text-wrap:pretty}
-.pf-optimization[data-clears]{color:var(--warn-txt)}
 .pf-error{padding:0 16px 12px;color:var(--bad-txt);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .pf-error:empty{display:none}
 .path-flip .pj-foot{justify-content:flex-end;margin-top:auto;padding:10px 12px}

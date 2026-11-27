@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDemoProject } from '../src/core/project/defaults';
-import type { PathDoc, RobotConfig } from '../src/core/types';
+import type { PathDoc } from '../src/core/types';
 
 const identity = vi.hoisted(() => ({ keys: 0 }));
-vi.mock('../src/core/planners/acceptedTrajectoryIdentity', async (original) => {
-  const actual = await original<typeof import('../src/core/planners/acceptedTrajectoryIdentity')>();
-  return { ...actual, optimizationInputKey: (...args: Parameters<typeof actual.optimizationInputKey>) => { identity.keys += 1; return actual.optimizationInputKey(...args); } };
+vi.mock('../src/core/planners/planningKey', async (original) => {
+  const actual = await original<typeof import('../src/core/planners/planningKey')>();
+  return { ...actual, pathPlanningKey: (...args: Parameters<typeof actual.pathPlanningKey>) => { identity.keys += 1; return actual.pathPlanningKey(...args); } };
 });
-const { optimizationInputKey } = await import('../src/core/planners/acceptedTrajectoryIdentity');
+const { pathPlanningKey } = await import('../src/core/planners/planningKey');
 // @ts-expect-error Library duration scheduling remains a JavaScript module.
 const { createLibraryDurations } = await import('../src/renderer/lib/libraryDurations');
 
-type Result = { status: string; value?: { prof: { totalTime: number }; finalTrajectory: object; acceptedTrajectory?: boolean }; fallbackReason?: string; error?: { message: string } };
+type Result = { status: string; value?: { prof: { totalTime: number }; finalTrajectory: object }; fallbackReason?: string; error?: { message: string } };
 type Job = { id: string; input: Record<string, unknown>; resolve(result: Result): void; cancel: ReturnType<typeof vi.fn> };
-const success = (seconds: number, acceptedTrajectory?: boolean): Result => ({ status: 'success', value: { prof: { totalTime: seconds }, finalTrajectory: {}, ...(acceptedTrajectory ? { acceptedTrajectory } : {}) } });
+const success = (seconds: number): Result => ({ status: 'success', value: { prof: { totalTime: seconds }, finalTrajectory: {} } });
 const flush = () => new Promise<void>((done) => queueMicrotask(done));
 
 function setup() {
@@ -33,10 +33,6 @@ function library(count = 3) {
   const base = project.paths[0];
   const paths: PathDoc[] = Array.from({ length: count }, (_, index) => ({ ...structuredClone(base), id: String.fromCharCode(97 + index), name: 'Path ' + index }));
   return { robot: project.robot, field: project.field, paths };
-}
-
-function withAccepted(path: PathDoc, robot: RobotConfig, field: unknown, inputKey = optimizationInputKey(path, robot, field as never)): PathDoc {
-  return { ...path, optimization: { corridorM: 0.15, accepted: { version: 1, inputKey, samplesPerSegment: 56, result: {} as never } } };
 }
 
 beforeEach(() => { identity.keys = 0; });
@@ -81,7 +77,7 @@ describe('library trajectory durations', () => {
 
     const edit = (path: PathDoc) => ({ ...path, waypoints: path.waypoints.map((waypoint, index) => index === 1 ? { ...waypoint, x: waypoint.x + 0.2 } : waypoint) });
     const edited = edit(paths[7]);
-    const currentKey = optimizationInputKey(edited, robot, field);
+    const currentKey = pathPlanningKey(edited, robot, field);
     identity.keys = 0;
     controller.update({ paths: paths.map((path) => path.id === edited.id ? edited : path), robot, field, plannerId, currentPath: edited, currentKey }, { id: edited.id, status: 'pending' });
     expect(identity.keys).toBe(0);
@@ -123,24 +119,6 @@ describe('library trajectory durations', () => {
     expect(jobs[2].input.field).toBe(movedField);
   });
 
-  it('invalidates a replaced accepted artifact even for the same input key', async () => {
-    const { controller, jobs } = setup();
-    const { paths, robot, field } = library(2);
-    const applied = [paths[0], withAccepted(paths[1], robot, field)];
-    controller.update({ paths: applied, robot, field, plannerId: 'profiledSpline' }, { id: 'a', status: 'ready', seconds: 3 });
-    jobs[0].resolve(success(4, true)); await flush();
-    expect(controller.getSnapshot().b).toEqual({ status: 'ready', seconds: 4 });
-
-    const sameArtifact = [paths[0], { ...applied[1], name: 'Same output' }];
-    controller.update({ paths: sameArtifact, robot, field, plannerId: 'profiledSpline' }, { id: 'a', status: 'ready', seconds: 3 });
-    expect(jobs).toHaveLength(1);
-
-    const replaced = [paths[0], withAccepted(paths[1], robot, field, applied[1].optimization!.accepted!.inputKey)];
-    controller.update({ paths: replaced, robot, field, plannerId: 'profiledSpline' }, { id: 'a', status: 'ready', seconds: 3 });
-    expect(controller.getSnapshot().b).toEqual({ status: 'pending' });
-    expect(jobs).toHaveLength(2);
-  });
-
   it('cancels replaced or newly selected work and ignores obsolete results', async () => {
     const { controller, jobs } = setup();
     const { paths, robot, field } = library();
@@ -157,18 +135,6 @@ describe('library trajectory durations', () => {
 
     controller.update({ paths: [paths[2]], robot, field, plannerId: 'profiledSpline' }, { id: 'c', status: 'ready', seconds: 2 });
     expect(Object.keys(controller.getSnapshot())).toEqual(['c']);
-  });
-
-  it('uses the normal duration for an outdated optimization and fails closed for a current unvalidated one', async () => {
-    const { controller, jobs } = setup();
-    const { paths, robot, field } = library(3);
-    const outdated = withAccepted(paths[1], robot, field, 'older inputs');
-    const current = withAccepted(paths[2], robot, field);
-    controller.update({ paths: [paths[0], outdated, current], robot, field, plannerId: 'profiledSpline' }, { id: 'a', status: 'ready', seconds: 3 });
-    jobs[0].resolve(success(4.25)); await flush();
-    expect(controller.getSnapshot().b).toEqual({ status: 'ready', seconds: 4.25 });
-    jobs[1].resolve(success(5)); await flush();
-    expect(controller.getSnapshot().c).toEqual({ status: 'error', message: 'The selected optimization could not be validated. Review this path.' });
   });
 
   it('reports failures without retry loops or blocking later paths', async () => {

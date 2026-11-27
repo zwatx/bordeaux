@@ -25,7 +25,7 @@ export function routineFlipSummary(project: PathSource, routine: AutonomousRouti
     if (node.type === "generatedTrajectory") generated += 1;
   });
   const sources = [...paths.values()];
-  return { paths: sources, generated, optimized: sources.filter((path) => path.optimization?.accepted).length };
+  return { paths: sources, generated, needsReview: sources.filter((path) => path.optimizationNeedsReview).length };
 }
 
 /**
@@ -72,9 +72,9 @@ export function flipRoutine(project: BordeauxProject, routineId: string, directi
     taken.push({ name: copyName });
     return copyName;
   });
-  // Copies plan from their waypoints: flipPath drops an applied optimization from a copy, so nothing is qualified.
+  // Applied curves are part of the path. Flip their waypoints along with the rest of each copy.
   const copies = copyPathsForFlip(sources, names).map((copy, index) => {
-    try { return flipPath(copy, direction, project, () => false, true); }
+    try { return flipPath(copy, direction, project.robot); }
     catch (error) { throw new Error(sources[index].name + ": " + (error instanceof Error ? error.message : String(error))); }
   });
   const copyOf = new Map(sources.map((path, index) => [path.id, copies[index]]));
