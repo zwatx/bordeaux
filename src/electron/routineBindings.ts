@@ -1,7 +1,7 @@
 import type { XElement } from 'builder-util-runtime/out/xml';
 import type { BinaryBindings } from '../core/export/robotBinary';
 import { encodeBdxArgument } from '../core/export/robotBinary';
-import type { RoutineRuntimeBindings, RuntimeScalar, RuntimeOutput } from '../core/export/routineRuntime';
+import { CONTROLLER_OUTPUT_TERMINAL, type RoutineRuntimeBindings, type RuntimeScalar, type RuntimeOutput } from '../core/export/routineRuntime';
 import type { RobotValueSchema } from '../core/types';
 import { parseLabviewXml } from './labviewProjectDiscovery';
 import { statusCluster, typedefs } from './labviewNiTypes';
@@ -60,6 +60,12 @@ export function routineBindingsFromBinary(binary: BinaryBindings, selectedComman
     });
     if (command.parameters.some(item => item.role !== 'argument') || inputs.length !== command.parameters.length || new Set(inputs.map(item => item.name)).size !== inputs.length) throw new Error(`${command.label}: unsupported or ambiguous command inputs`);
     const outputs: RuntimeOutput[] = (command.outputs ?? []).map(output => {
+      if (output.labviewControllerBoolean) {
+        if (output.terminalNumber !== undefined || output.schema.kind !== 'boolean' || output.schema.valueType !== 'Boolean') {
+          throw new Error(`${command.label}.${output.name}: invalid controller Boolean binding`);
+        }
+        return { name: output.name, terminal: CONTROLLER_OUTPUT_TERMINAL, niType: 'Boolean', tag: tags.Boolean, choices: [], fieldPath: [output.name] };
+      }
       const matches = terminals.filter(item => item.direction === 1 && item.terminal === output.terminalNumber);
       if (matches.length !== 1) throw new Error(`${command.label}.${output.name}: missing output terminal evidence`);
       const terminal = matches[0], fieldPath = output.fieldPath ?? [terminal.name];
