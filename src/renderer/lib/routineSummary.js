@@ -29,9 +29,20 @@ export function routineSummary(routine, paths, times, robot, catalog) {
     if (issue.code === 'unreachable') continue;
     flag(AUTO.nodeTitle(AUTO.findNode(routine, issue.nodeId), paths, catalog) + ': ' + issue.message, issue.severity === 'error' ? 'bad' : 'warn');
   }
+  AUTO.walk(routine.nodes, (node) => {
+    const deployment = AUTO.nodeDeploymentState(node, catalog);
+    if (deployment.legacy) flag(AUTO.nodeTitle(node, paths, catalog) + ': Legacy step', 'warn');
+    else if (node.type === 'generatedTrajectory') flag(AUTO.nodeTitle(node, paths, catalog) + ': Unsupported saved definition', 'warn');
+  });
   const values = {};
+  const libraryPaths = new Set(paths);
   let pending = false, untimed = false;
   for (const path of AUTO.planningPaths(routine, paths)) {
+    if (!libraryPaths.has(path)) {
+      untimed = true;
+      flag(path.name + ': Its saved reference path is timed in the routine preview.', 'warn');
+      continue;
+    }
     const time = times?.[path.id];
     if (time?.status === 'ready' && time.ends) {
       const sample = (pose, t) => ({ t, x: pose.x, y: pose.y, headingRad: pose.heading, velocityMps: 0, s: 0, f: 0 });
