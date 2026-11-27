@@ -135,7 +135,7 @@ describe('bounded chosen preview and freshness intent', () => {
     });
     expect(AUTO.commandTiming(loopWithTimeout, robot.driveModel)).toEqual({ durS: 2, timing: 'upperBound' });
     const group = (nodes) => estimate([{ id: 'g', type: 'group', mode: 'parallel', nodes }]);
-    expect(group([command('a'), slow('b')])).toMatchObject({ total: 3, groupSpans: [{ timing: 'estimate', t0: 0, t1: 3 }], duration: { maxS: 3, unknownCount: 0 } });
+    expect(group([command('a'), slow('b')])).toMatchObject({ total: 3, groupSpans: [{ timing: 'estimate', t0: 0, t1: 3 }], duration: { maxS: null, unknownCount: 0 } });
     expect(group([command('a'), command('b', { invocation: { commandId: 'Unset', arguments: {} } })]).groupSpans[0].timing).toBe('unknown');
     expect(AUTO.timingPrefix('estimate') + AUTO.timingPrefix('upperBound') + AUTO.timingPrefix('exact')).toBe('≈ ≤ ');
   });
