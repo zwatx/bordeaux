@@ -129,6 +129,11 @@ describe('bounded chosen preview and freshness intent', () => {
     // A time loop counts the runs that start before its limit, as command load windows do.
     expect(AUTO.commandTiming({ invocation: { commandId: 'Acquire', loop: { until: { kind: 'time', seconds: 0.9 } } } }, robot.driveModel).durS).toBeCloseTo(0.9, 9);
     expect(AUTO.commandTiming(command('x'), undefined)).toEqual({ durS: 0, timing: 'unknown' });
+    const loopWithTimeout = command('bounded', {
+      invocation: { commandId: 'Unset', arguments: {}, loop: { until: { kind: 'time', seconds: 4 } } },
+      ends: { timeoutS: 2, onTimeout: 'continue' },
+    });
+    expect(AUTO.commandTiming(loopWithTimeout, robot.driveModel)).toEqual({ durS: 2, timing: 'upperBound' });
     const group = (nodes) => estimate([{ id: 'g', type: 'group', mode: 'parallel', nodes }]);
     expect(group([command('a'), slow('b')])).toMatchObject({ total: 3, groupSpans: [{ timing: 'estimate', t0: 0, t1: 3 }], duration: { maxS: 3, unknownCount: 0 } });
     expect(group([command('a'), command('b', { invocation: { commandId: 'Unset', arguments: {} } })]).groupSpans[0].timing).toBe('unknown');

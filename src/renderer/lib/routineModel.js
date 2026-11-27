@@ -58,8 +58,8 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
    * A command step's preview time, `{ durS, timing, runTimeS }`. `driveModel` is `robot.driveModel`; its command loads
    * may give the command a run time (set on the Robot page). With one, the step is an estimate: one run, or for a time
    * loop the whole runs that start before its limit, counted as command load windows count them (loopRunsSpanS). A
-   * time limit still wins: when the estimate reaches it, the step is drawn up to the limit. Without a run time, a time
-   * loop draws its limit but stays untimed (its last run may finish later), a limit is an upper bound, and anything
+   * time limit still wins: when the estimate reaches it or the run time is unknown, the step uses the upper bound.
+   * Without a run time or time limit, a time loop draws its limit but stays untimed (its last run may finish later). Anything
    * else is untimed. An output loop's run count is unknown, so a run time never estimates it. Estimates are preview
    * only: they never reach the robot.
    */
@@ -71,8 +71,8 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
     const runTimeS = Number.isFinite(saved) && saved > 0 ? saved : undefined;
     const estimateS = runTimeS === undefined ? undefined : !until ? runTimeS : loopS !== undefined ? loopRunsSpanS(loopS, runTimeS) : undefined;
     if (estimateS !== undefined) return limitS !== undefined && limitS <= estimateS ? { durS: limitS, timing: 'upperBound', runTimeS } : { durS: estimateS, timing: 'estimate', runTimeS };
-    if (loopS !== undefined) return { durS: loopS, timing: 'unknown' };
     if (limitS !== undefined) return { durS: limitS, timing: 'upperBound' };
+    if (loopS !== undefined) return { durS: loopS, timing: 'unknown' };
     return { durS: 0, timing: 'unknown' };
   }
 
