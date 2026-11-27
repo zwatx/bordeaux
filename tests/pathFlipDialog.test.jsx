@@ -1,7 +1,9 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FLIP_DIRECTIONS, PathFlipDialog, flipRequest } from '../src/renderer/components/PathFlipDialog';
+import { FLIP_DIRECTIONS, PathFlipDialog, RoutineFlipDialog, flipRequest } from '../src/renderer/components/PathFlipDialog';
+
+import { routineFlipSummary } from '../src/renderer/lib/routineFlip';
 
 const h = React.createElement;
 const render = (props = {}) => renderToStaticMarkup(h(PathFlipDialog, {
@@ -55,4 +57,16 @@ describe('flipRequest', () => {
     expect(flipRequest({ direction: 'horizontal', target: 'copy', copyName: '   ' })).toBeNull();
     expect(flipRequest({ direction: 'horizontal', target: 'copy', copyName: undefined })).toBeNull();
   });
+});
+
+it('warns that saved preview paths keep their original field positions in a routine flip', () => {
+  const routine = { nodes: [
+    { type: 'function', cat: 'generate', preview: { id: 'legacy-path' } },
+    { type: 'function', cat: 'generate', preview: null },
+  ] };
+  const { savedPreviews } = routineFlipSummary({ paths: [] }, routine);
+  expect(savedPreviews).toBe(1);
+  expect(text(renderToStaticMarkup(h(RoutineFlipDialog, {
+    routineName: 'Routine', defaultName: 'Routine flipped', pathCount: 1, savedPreviewCount: savedPreviews,
+  })))).toContain('1 saved preview path keeps its original field position.');
 });

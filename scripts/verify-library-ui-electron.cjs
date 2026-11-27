@@ -2202,6 +2202,153 @@ app.whenReady().then(async () => {
       assert.deepEqual(await layout(), unfiled, 'Screenshot drags were cancelled');
       check('save and reopen keep folders, order and membership');
     }
+    // Flip routine: one flipped copy of each path the routine follows (once each, in branches, routes, repeats and
+    // groups), a new routine on the copies, endpoint and shared-point links kept among the copies, one Undo step.
+    {
+      const corpusPath = (id, next) => ({ ...structuredClone(corpus.paths.find((item) => item.id === id)), ...next });
+      const routeStart = corpusPath('corpus-blue-table-trench', { id: 'flip-p1', name: 'Start to trench', folderId: 'flip-left', markers: [{ id: 'flip-marker', f: 0.5, name: 'Intake' }] });
+      const sweep = corpusPath('corpus-neutral-slalom', { id: 'flip-p2', name: 'Trench sweep', folderId: 'flip-left' });
+      const score = corpusPath('corpus-neutral-stop', { id: 'flip-p3', name: 'Score at hub' });
+      const outside = corpusPath('corpus-blue-away-bump', { id: 'flip-p4', name: 'Outside path' });
+      const fallback = corpusPath('corpus-red-away-trench', { id: 'flip-p5', name: 'Fallback return' });
+      // Sweep's end, Score's start and Outside's start share one named point; Start's end is linked to Sweep's start.
+      sweep.waypoints.at(-1).positionLink = 'flip-shared'; sweep.waypoints.at(-1).positionName = 'Midfield';
+      score.waypoints[0].positionLink = 'flip-shared'; outside.waypoints[0].positionLink = 'flip-shared';
+      const boolean = { kind: 'boolean', valueType: 'Boolean' };
+      const command = (id, title, extra = {}) => ({ id, type: 'function', cat: 'command', title, invocation: { commandId: id, arguments: {} }, ...extra });
+      const flipSource = { id: 'flip-routine', name: 'Left three piece', nodes: [
+        { id: 'f-start', type: 'path', ref: 'flip-p1' },
+        { id: 'f-group', type: 'group', mode: 'parallel', nodes: [command('f-intake', 'Intake start'), { id: 'f-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 0.2 } }] },
+        { id: 'f-repeat', type: 'repeat', until: { source: 'output', nodeId: 'f-check', output: 'hasPiece', schema: boolean, operator: 'eq', value: true },
+          nodes: [{ id: 'f-sweep', type: 'path', ref: 'flip-p2' }, command('f-check', 'Check piece')] },
+        command('f-shoot', 'Shoot note', { outputBranch: { output: 'hasPiece', schema: boolean, routes: [
+          { id: 'f-yes', label: 'Still holding', operator: 'eq', value: true, nodes: [{ id: 'f-score', type: 'path', ref: 'flip-p3' }] },
+          { id: 'f-no', label: 'Empty', operator: 'eq', value: false, nodes: [{ id: 'f-fallback', type: 'path', ref: 'flip-p5' }, { id: 'f-again', type: 'path', ref: 'flip-p1' }] }] } }),
+        { id: 'f-end', type: 'path', ref: 'flip-p3' },
+      ] };
+      saved = { ...corpus, schemaVersion: '1.1', name: 'Routine flip', paths: [routeStart, sweep, score, outside, fallback],
+        pathFolders: [{ id: 'flip-left', name: 'Left side' }], pathLinks: [{ id: 'flip-link', fromPathId: 'flip-p1', toPathId: 'flip-p2' }],
+        routines: [flipSource, { id: 'flip-other', name: 'Other routine', nodes: [{ id: 'o-start', type: 'path', ref: 'flip-p1' }] }, { id: 'flip-empty', name: 'Empty routine', nodes: [] }],
+        activeRoutineId: 'flip-routine', editor: { activePathId: 'flip-p1' } };
+      await win.loadFile(rendererHtml);
+      await wait(() => evaluate(() => !!document.querySelector('[data-library-item="flip-p1"]')), 'flip fixture');
+      win.setContentSize(1440, 900); win.show(); win.focus(); win.webContents.focus(); await delay(150);
+      await click('.place', 'Routines');
+      await wait(() => evaluate(() => !!document.querySelector('[data-library-item="flip-routine"]')), 'flip routine row');
+      await click('[aria-label="Save project"]');
+      const beforeFlip = structuredClone(saved);
+      // Native pointer press on the visible element whose text is `text`.
+      const pressText = async (selector, text) => {
+        const point = await evaluate((selector, text) => {
+          const el = [...document.querySelectorAll(selector)].find((item) => item.getClientRects().length && item.textContent.trim() === text);
+          if (!el || el.disabled) throw new Error('Unavailable: ' + selector + ' ' + text);
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        }, selector, text);
+        win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+        win.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+        win.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+        await delay(100);
+      };
+      const flipItem = () => evaluate(() => {
+        const item = [...document.querySelectorAll('.library-menu [role="menuitem"]')].find((el) => el.textContent.trim() === 'Flip…');
+        return item && { disabled: item.disabled, title: item.title };
+      });
+      await pointerClick('[aria-label="Actions for Empty routine"]');
+      assert.deepEqual(await flipItem(), { disabled: true, title: 'Add a path step first' }, 'A routine without path steps cannot be flipped');
+      await key('Escape');
+      await pointerClick('[aria-label="Actions for Left three piece"]');
+      assert.equal((await flipItem()).disabled, false);
+      await pressText('.library-menu [role="menuitem"]', 'Flip…');
+      await wait(() => evaluate(() => document.querySelector('dialog.routine-flip')?.open), 'Flip routine dialog');
+      const dialog = await evaluate(() => {
+        const sheet = document.querySelector('dialog.routine-flip');
+        return { title: sheet.querySelector('h2').textContent, routine: sheet.querySelector('.pf-path').textContent, name: sheet.querySelector('[aria-label="New routine name"]').value,
+          text: sheet.textContent, focused: document.activeElement?.value, primary: sheet.querySelectorAll('.qbtn.primary').length };
+      });
+      assert.equal(dialog.title, 'Flip routine'); assert.equal(dialog.routine, 'Left three piece');
+      assert.equal(dialog.name, 'Left three piece flipped', 'The new routine is named after the original');
+      assert.ok(dialog.text.includes('4 flipped paths'), 'The dialog counts each path the routine follows once: ' + dialog.text);
+      assert.ok(dialog.text.includes('This routine and its paths stay as they are.'));
+      assert.equal(dialog.focused, 'horizontal', 'Focus starts on the chosen direction'); assert.equal(dialog.primary, 1);
+      for (const [width, height] of [[1440, 900], [1100, 720]]) {
+        win.setContentSize(width, height); await delay(150);
+        await fs.writeFile(path.join(output, 'routine-flip-dialog-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
+      }
+      win.setContentSize(1440, 900); await delay(150);
+      // Escape leaves everything as it was and returns focus to the row's actions.
+      await key('Escape');
+      await wait(() => evaluate(() => !document.querySelector('dialog.routine-flip')), 'Flip routine dialog closed');
+      assert.equal(await evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Actions for Left three piece', 'Escape returns focus to the row actions');
+      await click('[aria-label="Save project"]');
+      assert.deepEqual(saved, beforeFlip, 'Cancel changes nothing');
+      await pointerClick('[aria-label="Actions for Left three piece"]');
+      await pressText('.library-menu [role="menuitem"]', 'Flip…');
+      await wait(() => evaluate(() => document.querySelector('dialog.routine-flip')?.open && document.activeElement?.value === 'horizontal'), 'Flip routine dialog reopened');
+      await key('Right');
+      assert.equal(await evaluate(() => document.querySelector('dialog.routine-flip input[name="pf-direction"]:checked')?.value), 'vertical', 'Arrow keys choose the direction');
+      await pressText('dialog.routine-flip .pf-commit', 'Create routine');
+      await wait(() => evaluate(() => !document.querySelector('dialog.routine-flip')), 'Flip routine created');
+      await wait(() => evaluate(() => document.activeElement?.closest('[data-library-item]')?.querySelector('.library-name')?.textContent === 'Left three piece flipped'), 'focus on the new routine row');
+      await click('[aria-label="Save project"]');
+      const afterFlip = structuredClone(saved);
+      await evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await fs.writeFile(path.join(output, 'routine-flip-library-after.png'), (await win.webContents.capturePage()).toPNG());
+
+      // The original routine and paths are unchanged; the new routine is active right after the original.
+      const byId = (project) => new Map(project.paths.map((item) => [item.id, item]));
+      for (const original of beforeFlip.paths) assert.deepEqual(byId(afterFlip).get(original.id), original, 'Flip leaves ' + original.name + ' unchanged');
+      assert.deepEqual(afterFlip.routines.filter((item) => item.id !== afterFlip.activeRoutineId), beforeFlip.routines, 'Other routines are unchanged');
+      const flipped = afterFlip.routines[1];
+      assert.equal(flipped.name, 'Left three piece flipped'); assert.equal(afterFlip.activeRoutineId, flipped.id);
+      const copies = afterFlip.paths.filter((item) => !byId(beforeFlip).has(item.id));
+      assert.deepEqual(afterFlip.paths.map((item) => item.name), ['Start to trench', 'Start to trench flipped', 'Trench sweep', 'Trench sweep flipped', 'Score at hub', 'Score at hub flipped', 'Outside path', 'Fallback return', 'Fallback return flipped'],
+        'Each path the routine follows gets one copy, right after its original');
+      const copyOf = new Map(copies.map((copy) => [beforeFlip.paths.find((item) => item.name + ' flipped' === copy.name).id, copy]));
+      for (const [id, copy] of copyOf) {
+        const original = byId(beforeFlip).get(id);
+        assert.equal(copy.folderId, original.folderId, 'A copy stays in its original folder');
+        copy.waypoints.forEach((point, index) => {
+          assert.ok(Math.abs(point.x - original.waypoints[index].x) < 1e-9 && Math.abs(point.y + original.waypoints[index].y) < 1e-9, 'Flip vertical mirrors ' + copy.name + ' top to bottom');
+        });
+      }
+      assert.equal(copyOf.get('flip-p1').markers.length, 1); assert.notEqual(copyOf.get('flip-p1').markers[0].id, 'flip-marker');
+      assert.equal(copyOf.get('flip-p1').markers[0].name, 'Intake', 'Path commands carry over with new ids');
+      // Joined paths stay joined among the copies; the outside path keeps its point and is not joined to them.
+      assert.deepEqual(afterFlip.pathLinks.map(({ fromPathId, toPathId }) => [fromPathId, toPathId]), [['flip-p1', 'flip-p2'], [copyOf.get('flip-p1').id, copyOf.get('flip-p2').id]]);
+      const copiedPoint = copyOf.get('flip-p2').waypoints.at(-1).positionLink;
+      assert.ok(copiedPoint && copiedPoint !== 'flip-shared');
+      assert.equal(copyOf.get('flip-p3').waypoints[0].positionLink, copiedPoint, 'Shared points stay shared among the copies');
+      assert.equal(byId(afterFlip).get('flip-p4').waypoints[0].positionLink, 'flip-shared');
+      // The new routine has the same shape with new ids; its steps follow the copies, and its stop rule its own command.
+      // `shape` hides ids and references; `named` lists every id and path reference in source order.
+      const shape = (nodes) => JSON.stringify(nodes, (name, value) => ['id', 'ref', 'nodeId'].includes(name) ? name : value);
+      const named = (nodes) => { const found = { ids: [], refs: [] }; JSON.stringify(nodes, (name, value) => { if (name === 'id') found.ids.push(value); if (name === 'ref') found.refs.push(value); return value; }); return found; };
+      const original = named(beforeFlip.routines.find((item) => item.id === 'flip-routine').nodes), copied = named(flipped.nodes);
+      assert.equal(shape(flipped.nodes), shape(beforeFlip.routines.find((item) => item.id === 'flip-routine').nodes), 'Commands, conditions and routes carry over');
+      assert.equal(new Set(copied.ids).size, copied.ids.length);
+      assert.ok(copied.ids.every((id) => !JSON.stringify(beforeFlip).includes('"' + id + '"')), 'Steps and routes get new ids');
+      assert.equal(new Set(original.refs).size, 4, 'The fixture follows four paths, two of them twice');
+      assert.deepEqual(copied.refs, original.refs.map((id) => copyOf.get(id).id), 'Every step follows the flipped copy');
+      const repeat = flipped.nodes.find((node) => node.type === 'repeat');
+      assert.equal(repeat.until.nodeId, repeat.nodes.find((node) => node.title === 'Check piece').id, 'The repeat stops on its own copied command');
+
+      // One Undo removes everything Flip made; Redo brings it back; save and reopen keep it.
+      await keyboardUndo(); await click('[aria-label="Save project"]');
+      assert.deepEqual(saved, beforeFlip, 'One Undo restores the project exactly');
+      assert.equal(await evaluate(() => !!document.querySelector('.library-name') && [...document.querySelectorAll('.library-name')].some((el) => el.textContent === 'Left three piece flipped')), false);
+      await evaluate(() => document.activeElement?.blur());
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control', 'shift'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control', 'shift'] });
+      await delay(80); await inputSettled(); await click('[aria-label="Save project"]');
+      assert.deepEqual(saved, afterFlip, 'Redo restores the flipped routine and its copies');
+      await win.loadFile(rendererHtml);
+      await wait(() => evaluate(() => [...document.querySelectorAll('.library-name')].some((el) => el.textContent === 'Start to trench flipped')), 'flipped project reopened');
+      await click('.place', 'Routines');
+      await wait(() => evaluate(() => document.querySelector('[aria-current="true"] .library-name')?.textContent === 'Left three piece flipped'), 'flipped routine reopened active');
+      await click('[aria-label="Save project"]');
+      assert.deepEqual(saved, afterFlip, 'Save and reopen keep the flipped routine and its copies');
+      check('Flip routine copies each path the routine follows once, flipped, keeps links among them, builds the routine on the copies with new ids, and Undo/Redo/reopen restore exactly');
+    }
     // The project retains one editable empty object when its last library item is removed.
     const sole = { ...structuredClone(source), id: 'sole-path', name: 'Last authored path' };
     saved = { ...corpus, paths: [sole], pathFolders: [], pathLinks: [], routines: [{ id: 'sole-routine', name: 'Last routine', nodes: [{ id: 'sole-step', type: 'path', ref: sole.id }] }], activeRoutineId: 'sole-routine', editor: { activePathId: sole.id } };

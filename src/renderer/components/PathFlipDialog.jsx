@@ -30,6 +30,45 @@ function Glyph({ direction }) {
     h('circle', { cx: after[0][0], cy: after[0][1], r: 2.6, className: 'pf-after-dot' }));
 }
 
+/**
+ * Opens a flip sheet as a modal with focus on the chosen direction. It closes while still in the document, so the
+ * browser returns focus to its opener; layout cleanup runs before React removes it. Falls back to the opener if focus
+ * was lost. `live` is false once the sheet is gone.
+ */
+function useFlipSheet(ref) {
+  const live = React.useRef(true);
+  React.useEffect(() => {
+    live.current = true;
+    ref.current.showModal();
+    ref.current.querySelector('input[name="pf-direction"]:checked')?.focus();
+    return () => { live.current = false; };
+  }, []);
+  React.useLayoutEffect(() => {
+    const opener = document.activeElement !== document.body ? document.activeElement : null;
+    const dialog = ref.current;
+    return () => {
+      if (dialog.open) dialog.close();
+      const active = document.activeElement;
+      if ((!active || active === document.body || dialog.contains(active)) && opener?.isConnected) opener.focus();
+    };
+  }, []);
+  return live;
+}
+
+/** The three direction cards and one line on what the chosen one does. Flip path and Flip routine share it. */
+function FlipDirections({ id, direction, disabled, onChange }) {
+  const chosen = FLIP_DIRECTIONS.find(item => item.v === direction);
+  return h('fieldset', { className: 'pf-group', disabled },
+    h('legend', null, 'Direction'),
+    h('div', { className: 'pf-directions' }, FLIP_DIRECTIONS.map(item => h('label', { key: item.v, className: 'pf-direction' },
+      h('input', { type: 'radio', name: 'pf-direction', value: item.v, checked: direction === item.v, className: 'sr-only',
+        'aria-describedby': direction === item.v ? id : undefined, onChange: () => onChange(item.v) }),
+      h(Glyph, { direction: item.v }),
+      h('span', { className: 'pf-direction-label' }, item.label),
+      h('span', { className: 'pf-direction-axis' }, item.axis)))),
+    h('p', { id, className: 'pf-detail' }, chosen.detail));
+}
+
 /** What Confirm sends: a trimmed copy name, or null to change the path in place. */
 export function flipRequest({ direction, target, copyName }) {
   if (target !== 'copy') return { direction, copyName: null };
@@ -43,32 +82,13 @@ export function flipRequest({ direction, target, copyName }) {
  * A path that shares points with other paths can only be copied, so those paths stay put.
  */
 export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = true, onCancel, onConfirm }) {
-  const ref = React.useRef(null), nameRef = React.useRef(null), cancelRef = React.useRef(null), live = React.useRef(true);
+  const ref = React.useRef(null), nameRef = React.useRef(null), cancelRef = React.useRef(null), live = useFlipSheet(ref);
   const [direction, setDirection] = React.useState('horizontal');
   const [target, setTarget] = React.useState('copy');
   const [copyName, setCopyName] = React.useState(defaultCopyName);
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const replace = target === 'replace' && canReplace;
-  const chosen = FLIP_DIRECTIONS.find(item => item.v === direction);
-
-  React.useEffect(() => {
-    live.current = true;
-    ref.current.showModal();
-    ref.current.querySelector('input[name="pf-direction"]:checked')?.focus();
-    return () => { live.current = false; };
-  }, []);
-  // The dialog must close while it is still in the document for the browser to return focus;
-  // layout cleanup runs before React removes it. Fall back to the opener if focus was lost.
-  React.useLayoutEffect(() => {
-    const opener = document.activeElement !== document.body ? document.activeElement : null;
-    const dialog = ref.current;
-    return () => {
-      if (dialog.open) dialog.close();
-      const active = document.activeElement;
-      if ((!active || active === document.body || dialog.contains(active)) && opener?.isConnected) opener.focus();
-    };
-  }, []);
 
   // Cancel stays live while busy: the parent abandons the pending work and closes the dialog.
   const cancel = () => onCancel();
@@ -97,15 +117,7 @@ export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = tr
       h('header', { className: 'pf-head' },
         h('h2', { id: 'path-flip-title' }, 'Flip path'),
         h('p', { id: 'path-flip-path', className: 'pf-path', title: pathName }, pathName)),
-      h('fieldset', { className: 'pf-group', disabled: busy },
-        h('legend', null, 'Direction'),
-        h('div', { className: 'pf-directions' }, FLIP_DIRECTIONS.map(item => h('label', { key: item.v, className: 'pf-direction' },
-          h('input', { type: 'radio', name: 'pf-direction', value: item.v, checked: direction === item.v, className: 'sr-only',
-            'aria-describedby': direction === item.v ? 'path-flip-detail' : undefined, onChange: () => { setDirection(item.v); setError(''); } }),
-          h(Glyph, { direction: item.v }),
-          h('span', { className: 'pf-direction-label' }, item.label),
-          h('span', { className: 'pf-direction-axis' }, item.axis)))),
-        h('p', { id: 'path-flip-detail', className: 'pf-detail' }, chosen.detail)),
+      h(FlipDirections, { id: 'path-flip-detail', direction, disabled: busy, onChange: (value) => { setDirection(value); setError(''); } }),
       h('fieldset', { className: 'pf-group pf-targets', disabled: busy },
         h('legend', null, 'Result'),
         h('label', { className: 'pf-target' },
@@ -126,4 +138,56 @@ export function PathFlipDialog({ pathName, defaultCopyName = '', canReplace = tr
         h('span', { className: 'pj-foot-actions' },
           h('button', { ref: cancelRef, type: 'button', className: 'qbtn quiet', onClick: cancel }, 'Cancel'),
           h('button', { type: 'submit', className: 'qbtn primary pf-commit', disabled: busy }, busy ? 'Working…' : action)))));
+}
+
+const countOf = (count, noun) => count + ' ' + noun + (count === 1 ? '' : 's');
+
+/**
+ * Flips a routine into a new one. It lists what Confirm creates (the routine by its editable name and a flipped copy
+ * of each path it follows) and keeps the routine and its paths unchanged. `onConfirm({ direction, name })` returns an
+ * error string to keep the dialog open, or undefined when the parent closes it.
+ */
+export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewCount = 0, generatedCount = 0, savedPreviewCount = 0, onCancel, onConfirm }) {
+  const ref = React.useRef(null), nameRef = React.useRef(null), live = useFlipSheet(ref);
+  const [direction, setDirection] = React.useState('horizontal');
+  const [name, setName] = React.useState(defaultName);
+  const [error, setError] = React.useState('');
+  const confirm = async () => {
+    const clean = name.trim();
+    if (!clean) { setError('Name the new routine.'); nameRef.current?.focus(); return; }
+    let problem;
+    try { problem = await onConfirm({ direction, name: clean }); }
+    catch (failure) { problem = failure?.message || 'Nothing was created.'; }
+    if (live.current && typeof problem === 'string' && problem) { setError(problem); nameRef.current?.focus(); }
+  };
+  return h('dialog', { ref, className: 'pj-sheet path-flip routine-flip', 'aria-labelledby': 'routine-flip-title', 'aria-describedby': 'routine-flip-routine',
+    onCancel: event => { event.preventDefault(); onCancel(); }, onKeyDown: event => event.stopPropagation() },
+    h('form', { className: 'pf-form', noValidate: true, onSubmit: event => { event.preventDefault(); confirm(); } },
+      h('header', { className: 'pf-head' },
+        h('h2', { id: 'routine-flip-title' }, 'Flip routine'),
+        h('p', { id: 'routine-flip-routine', className: 'pf-path', title: routineName }, routineName)),
+      h(FlipDirections, { id: 'routine-flip-detail', direction, onChange: (value) => { setDirection(value); setError(''); } }),
+      h('fieldset', { className: 'pf-group pf-targets' },
+        h('legend', null, 'Creates'),
+        h('label', { className: 'rf-item' },
+          h('span', { className: 'pf-target-label' }, 'New routine'),
+          h('input', { ref: nameRef, type: 'text', className: 'textinput', value: name, 'aria-label': 'New routine name',
+            'aria-invalid': error && !name.trim() ? true : undefined, spellCheck: false, autoComplete: 'off', maxLength: 5000,
+            onFocus: event => event.target.select(), onChange: event => { setName(event.target.value); setError(''); } })),
+        h('div', { className: 'rf-item' },
+          h('span', { className: 'pf-target-label' }, countOf(pathCount, 'flipped path')),
+          h('span', { className: 'pf-target-note' }, pathCount === 1 ? 'A copy of the path the routine follows, named “… flipped” and placed after the original.'
+            : 'One copy of each path the routine follows, named “… flipped” and placed after its original. Points they share stay joined.')),
+        h('p', { className: 'pf-target-note rf-keeps' }, 'This routine and its paths stay as they are. Undo removes what this creates.'),
+        reviewCount > 0 && h('p', { className: 'pf-target-note' },
+          countOf(reviewCount, 'path') + (reviewCount === 1 ? ' needs' : ' need') + ' saved optimization review. The copies need review before export too.'),
+        generatedCount > 0 && h('p', { className: 'pf-target-note' },
+          countOf(generatedCount, 'generated trajectory step') + ' keep' + (generatedCount === 1 ? 's its' : ' their') + ' arguments. Check them for the new side.'),
+        savedPreviewCount > 0 && h('p', { className: 'pf-target-note' },
+          countOf(savedPreviewCount, 'saved preview path') + (savedPreviewCount === 1 ? ' keeps its' : ' keep their') + ' original field position.')),
+      h('div', { className: 'pf-error', role: 'alert' }, error),
+      h('div', { className: 'pj-foot' },
+        h('span', { className: 'pj-foot-actions' },
+          h('button', { type: 'button', className: 'qbtn quiet', onClick: onCancel }, 'Cancel'),
+          h('button', { type: 'submit', className: 'qbtn primary pf-commit' }, 'Create routine')))));
 }

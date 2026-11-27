@@ -1,7 +1,8 @@
 import { createLibraryDurations } from "../lib/libraryDurations";
 import { DeletionNotice } from "../components/DeletionNotice";
 import { FieldStatus } from "../components/FieldStatus";
-import { PathFlipDialog } from "../components/PathFlipDialog";
+import { PathFlipDialog, RoutineFlipDialog } from "../components/PathFlipDialog";
+import { copyPathsForFlip, flipRoutine, routineFlipSummary } from "../lib/routineFlip";
 import * as React from "react";
 import { flushSync } from "react-dom";
 import { FinalPlanning } from "../assets/final-planning";
@@ -95,25 +96,6 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     duplicate.markers = duplicate.markers.map((marker) => ({ ...marker, id: markerId() }));
     return duplicate;
   }
-  function duplicatePathForFlip(source, name) {
-    const duplicate = duplicatePathForLibrary(source, name), groups = new Map();
-    for (const point of duplicate.waypoints) {
-      if (!point.positionLink) continue;
-      const members = groups.get(point.positionLink) || [];
-      members.push(point);
-      groups.set(point.positionLink, members);
-    }
-    // Close the copy's position groups over the new path only.
-    for (const members of groups.values()) {
-      if (members.length === 1) delete members[0].positionLink;
-      else {
-        const id = pathLinkId();
-        members.forEach((point) => { point.positionLink = id; });
-      }
-    }
-    return duplicate;
-  }
-
   function currentPathLength(derivation) {
     const length = derivation?.current ? derivation.value?.sample?.length : null;
     return Number.isFinite(length) ? length : null;
@@ -1195,13 +1177,16 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
       const applied = applyProjectEntry(current, entry, docRef.current?.id ?? null);
       if (!applied) return null;
+      // A removed path blocks the step only while a routine that stays still uses it.
       const removed = current.paths.filter((path) => !applied.project.paths.some((candidate) => candidate.id === path.id));
-      const referenced = removed.find((path) => referencingRoutines(routineState(current).routines, path.id).length);
+      const staying = routineState(applied.project).routines;
+      const referenced = removed.find((path) => referencingRoutines(staying, path.id).length);
       if (referenced) {
-        alert('“' + referenced.name + '” is used by ' + referencingRoutines(routineState(current).routines, referenced.id).map((item) => item.name).join(', ') + '. Remove those steps before deleting the path.');
+        alert('“' + referenced.name + '” is used by ' + referencingRoutines(staying, referenced.id).map((item) => item.name).join(', ') + '. Remove those steps before deleting the path.');
         return null;
       }
       setProject(applied.project);
+      if (entry.change?.routines) { branchGeneration.current += 1; resetForRoutine(); }
       // Shared-position, folder and library entries keep the current path; project entries show the path they changed.
       if (entry.kind === 'project') showPathAfterProjectChange(applied.project, entry.change.activePathId);
       else if (entry.kind === 'library') keepOpenPath(applied.project);
@@ -1464,7 +1449,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       if (!copy && linkedPathIds(before, source.id).length > 1) return 'This path shares waypoints with another path. Create a copy or unlink the shared waypoints.';
       if (copy && !name) return 'Enter a name for the new path.';
       if (copy && uniqueItemName(before.paths, name) !== name) return 'A path with that name already exists.';
-      const path = copy ? duplicatePathForFlip(source, name) : source;
+      const path = copy ? copyPathsForFlip([source], [name])[0] : source;
       request.job = flipPlanning.request({ mode: 'flip', path, direction, copy, robot: before.robot, field: before.field },
         { deadline: 'hard', failureNote: 'The path was not changed.' });
       const result = await request.job.promise;
@@ -1871,6 +1856,22 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const created = { ...clone(source), id: routineId(), name: uniqueRoutineName(source.name + ' copy') };
       commitRoutineState((state) => { const index = state.routines.findIndex((candidate) => candidate.id === id); const next = state.routines.slice(); next.splice(index + 1, 0, created); return { routines: next, activeRoutineId: created.id }; });
       resetForRoutine(); return created;
+    };
+    // Flip routine: a flipped copy of each path it follows and a new routine on them, as one project-wide Undo step.
+    const [routineFlipId, setRoutineFlipId] = useState(null);
+    useEffect(() => { setRoutineFlipId(null); }, [page, projectKey]);
+    const applyRoutineFlip = ({ direction, name }) => {
+      const before = projectRef.current, id = routineFlipId;
+      if (projectTransitionRef.current || !before.routines.some((candidate) => candidate.id === id)) return 'The routine is no longer in the project.';
+      if (uniqueItemName(before.routines, name) !== name) return 'A routine with that name already exists.';
+      let next;
+      try { next = flipRoutine(before, id, direction, name); }
+      catch (error) { return error.message + ' Nothing was created.'; }
+      finishEdit(); playbackStore.reset();
+      commitProjectChange(before, next);
+      branchGeneration.current += 1; resetForRoutine(); setRoutineFlipId(null);
+      // The new routine's row takes focus from the dialog's opener once the dialog has closed.
+      requestAnimationFrame(() => focusIfAvailable(document.querySelector('[data-library-item="' + next.activeRoutineId + '"]')));
     };
     const deleteRoutine = (id) => {
       if (!preflightDeletion()) return false;
@@ -3058,11 +3059,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onPath: (id) => { const index = pathIndex(id); if (index >= 0) setActive(index); }, onRoutine: setActiveRoutine,
       controller: pushActions,
       deletionNotice: h(DeletionNotice, { notice: deletionNotice, onUndo: undoDeletion, onDismiss: (action) => { if (deletionAction.current === action) retireDeletion(); } }),
-      actions: { preflight: preflightDeletion, addPath, appendPath, addRoutine, duplicateRoutine, deleteRoutine, renameRoutine, exportPath: onExportBdx,
+      actions: { preflight: preflightDeletion, addPath, appendPath, addRoutine, duplicateRoutine, flipRoutine: setRoutineFlipId, deleteRoutine, renameRoutine, exportPath: onExportBdx,
         duplicatePath: (id) => dupPath(pathIndex(id)), deletePath: delPath, deletePaths: delPaths, renamePath: (id, name) => renamePath(pathIndex(id), name),
         addFolder: addPathFolder, renameFolder: renamePathFolder, deleteFolder: deletePathFolder, arrangePaths, arrangeFolder },
     }, structure);
 
+    const routineFlipSource = page === 'auto' ? routines.find((candidate) => candidate.id === routineFlipId) : null;
+    const routineFlipPlan = routineFlipSource && routineFlipSummary(project, routineFlipSource);
     const bandActions = { ...inspActions, renamePath: (name) => renamePath(activeIdx, name), setRangeEnd, addRangeAt, addSlowZone, moveRangeHandle, addMarkerAt, addWaypoint, escapeSelection, setWaypointPositionLink, openPointLinks };
     const selNode = (page === 'auto' && routineSel) ? AUTO.findNode(routine, routineSel) : null;
     const fieldNotices = [
@@ -3091,6 +3094,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         pathName: doc.name, defaultCopyName: uniquePathName(doc.name + ' flipped'),
         canReplace: linkedPathIds(project, doc.id).length === 1,
         onCancel: closeFlip, onConfirm: applyFlip,
+      }),
+      routineFlipSource && h(RoutineFlipDialog, {
+        routineName: routineFlipSource.name, defaultName: uniqueRoutineName(routineFlipSource.name + ' flipped'),
+        pathCount: routineFlipPlan.paths.length, reviewCount: routineFlipPlan.needsReview, generatedCount: routineFlipPlan.generated, savedPreviewCount: routineFlipPlan.savedPreviews,
+        onCancel: () => setRoutineFlipId(null), onConfirm: applyRoutineFlip,
       }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
         push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
