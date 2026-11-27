@@ -2,6 +2,7 @@ import { routineChildLists as childLists, routineGroupChildError } from "../../c
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { PM } from "./pathMath";
+import { UnitPrefs } from "./unitPreferences";
 import { createRoutineNodeId } from "../../core/project/ids";
 import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
 
@@ -90,6 +91,30 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
 
   /** The mark before a preview time: "≈ " for an estimate, "≤ " for an upper bound. */
   function timingPrefix(timing) { return timing === 'estimate' ? '≈ ' : timing === 'upperBound' ? '≤ ' : ''; }
+
+  const countOf = (count, singular) => count + ' ' + singular + (count === 1 ? '' : 's');
+  /** A trace's total time as the transport and the routine library show it: any estimate makes it "≈", else a limit "≤". */
+  function previewTotalLabel(run) {
+    const duration = run.duration || { maxS: run.total, unknownCount: 0, estimateCount: 0, usesLimits: false };
+    const prefix = duration.estimateCount > 0 ? '≈ ' : duration.maxS !== null && duration.usesLimits ? '≤ ' : '';
+    return prefix + UnitPrefs.format(run.total || 0, 's', 2);
+  }
+  /**
+   * What a trace's total counts, as [sentence, short form] pairs; the short form fits a narrow transport. Untimed steps
+   * add no preview time; that is not a claim that they take none.
+   */
+  function durationFacts(run) {
+    const duration = run.duration || {};
+    return [
+      duration.usesLimits && ['Using time limits', 'Time limits'],
+      duration.estimateCount > 0 && [countOf(duration.estimateCount, 'step') + ' estimated from run times', duration.estimateCount + ' estimated'],
+      duration.unknownCount > 0 && [countOf(duration.unknownCount, 'untimed step') + ' not counted', duration.unknownCount + ' untimed'],
+    ].filter(Boolean);
+  }
+  /** What a trace's total counts, in short phrases (durationFacts' sentences). */
+  function durationNotes(run) {
+    return durationFacts(run).map(([sentence]) => sentence);
+  }
 
   /** The loop a replacement command can keep: a time loop always; an output condition only on an equal output type. */
   function carryLoop(loop, command) {
@@ -662,7 +687,7 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, commandTiming, groupTiming, timingPrefix, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, duplicateNode, walk, findNode, countSteps, stepNumbers, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, commandTiming, groupTiming, timingPrefix, previewTotalLabel, durationFacts, durationNotes, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, duplicateNode, walk, findNode, countSteps, stepNumbers, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay, jumpSize,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 

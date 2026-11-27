@@ -161,8 +161,8 @@ it("follows the existing legacy workspace continuation rule", async () => {
 
 it("reveals only the regular managed document in the admitted physical folder", async () => {
   const f = await fixture();
-  expect(await revealProjectSource(f.context, "Paths/NewPath.path", f.revealDeps)).toEqual({ revealed: true });
-  expect(f.reveal).toHaveBeenCalledExactlyOnceWith(path.join(f.folder, "Paths/NewPath.path"));
+  expect(await revealProjectSource(f.context, "Paths/New path.path", f.revealDeps)).toEqual({ revealed: true });
+  expect(f.reveal).toHaveBeenCalledExactlyOnceWith(path.join(f.folder, "Paths/New path.path"));
 });
 
 it.each(["/tmp/A.path", "../A.path", "Paths/../A.path", "Paths/A.routine", "Routines/A.path", "Paths/A\\B.path", "Paths/A\0.path"])("refuses an invalid reveal path %j", async file => {
@@ -172,18 +172,18 @@ it.each(["/tmp/A.path", "../A.path", "Paths/../A.path", "Paths/A.routine", "Rout
 });
 
 it.each(["parent-link", "file-link", "directory", "missing", "root-replaced"])("refuses reveal of %s", async kind => {
-  const f = await fixture(), file = path.join(f.folder, "Paths/NewPath.path"), parent = path.dirname(file);
+  const f = await fixture(), file = path.join(f.folder, "Paths/New path.path"), parent = path.dirname(file);
   if (kind === "parent-link") { await fs.rename(parent, path.join(f.root, "Outside")); await fs.symlink(path.join(f.root, "Outside"), parent); }
   if (kind === "file-link") { await fs.rename(file, path.join(f.root, "Outside.path")); await fs.symlink(path.join(f.root, "Outside.path"), file); }
   if (kind === "directory" || kind === "missing") { await fs.unlink(file); if (kind === "directory") await fs.mkdir(file); }
   if (kind === "root-replaced") { await fs.rename(f.folder, path.join(f.root, "Old")); await fs.mkdir(f.folder); }
-  const result = await revealProjectSource(f.context, "Paths/NewPath.path", f.revealDeps);
+  const result = await revealProjectSource(f.context, "Paths/New path.path", f.revealDeps);
   expect(result).toMatchObject({ revealed: false, code: kind === "missing" ? "missing" : kind === "root-replaced" ? "folder-changed" : kind === "parent-link" ? "invalid" : "not-file" });
   expect(f.reveal).not.toHaveBeenCalled();
 });
 
 it.each(["root", "parent", "canonical", "file"])("rechecks context after the %s reveal await", async phase => {
-  const f = await fixture(), context = { ...f.context }, parent = path.join(f.folder, "Paths"), file = path.join(parent, "NewPath.path");
+  const f = await fixture(), context = { ...f.context }, parent = path.join(f.folder, "Paths"), file = path.join(parent, "New path.path");
   let once = true;
   if (phase === "canonical") {
     const realpath = fs.realpath.bind(fs);
@@ -192,7 +192,7 @@ it.each(["root", "parent", "canonical", "file"])("rechecks context after the %s 
     const lstat = fs.lstat.bind(fs), target = phase === "root" ? f.folder : phase === "parent" ? parent : file;
     vi.spyOn(fs, "lstat").mockImplementation(async (...args: Parameters<typeof fs.lstat>) => { const result = await lstat(...args); if (once && String(args[0]) === target) { once = false; f.detach(); } return result; });
   }
-  expect(await revealProjectSource(context, "Paths/NewPath.path", f.revealDeps)).toMatchObject({ revealed: false, code: "stale" });
+  expect(await revealProjectSource(context, "Paths/New path.path", f.revealDeps)).toMatchObject({ revealed: false, code: "stale" });
   expect(f.reveal).not.toHaveBeenCalled();
 });
 
@@ -201,7 +201,7 @@ it("checks the initiating native window again after asynchronous file work", asy
   const lstat = fs.lstat.bind(fs);
   vi.spyOn(fs, "lstat").mockImplementation(async (...args: Parameters<typeof fs.lstat>) => { const result = await lstat(...args); current = false; return result; });
   f.revealDeps.assertWindowCurrent = () => { if (!current) throw new ReloadStale(); };
-  expect(await revealProjectSource(f.context, "Paths/NewPath.path", f.revealDeps)).toMatchObject({ revealed: false, code: "stale" });
+  expect(await revealProjectSource(f.context, "Paths/New path.path", f.revealDeps)).toMatchObject({ revealed: false, code: "stale" });
   expect(f.reveal).not.toHaveBeenCalled();
 });
 

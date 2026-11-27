@@ -55,7 +55,7 @@ describe("activation completion ownership", () => {
     openedB.project.paths[0].name = "Editing B";
     await autosaveProjectFolder(state.location.folderPath!, state.rendered!.project, state.location.projectPath);
     expect((await readProject(b.projectPath!)).project.paths[0].name).toBe("Editing B");
-    expect((await readProject(a.projectPath!)).project.paths[0].name).toBe("NewPath");
+    expect((await readProject(a.projectPath!)).project.paths[0].name).toBe("New path");
   });
 
   it("also refuses an activation superseded by the compatibility New/reset operation", async () => {

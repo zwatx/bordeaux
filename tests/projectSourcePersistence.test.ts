@@ -105,9 +105,9 @@ describe("captured source persistence authority", () => {
     const project = createDemoProject(), capture = source.capture(project, current, 4), pending = source.persist(capture, { folderPath: directory, projectPath: null, sourceOwner: owner });
     project.paths[0].name = "Late caller edit";
     const saved = await pending;
-    expect(saved.project.name).toBe(path.basename(directory)); expect(saved.project.paths[0].name).toBe("NewPath");
+    expect(saved.project.name).toBe(path.basename(directory)); expect(saved.project.paths[0].name).toBe("New path");
     expect(saved.context.documentSessionId).toBe("document"); expect(saved.context.targetGeneration).toBe(2);
-    expect((await openProjectFolder(directory)).project?.paths[0].name).toBe("NewPath");
+    expect((await openProjectFolder(directory)).project?.paths[0].name).toBe("New path");
   });
 
   it("checks a revoked lease at actual folder queue entry before source, legacy or mirror effects", async () => {
@@ -131,7 +131,7 @@ describe("captured source persistence authority", () => {
     await vi.advanceTimersByTimeAsync(21); await failed; expect(await source.isBusy(directory)).toBe(true);
     release.resolve(); await prior; await source.whenSettled(directory);
     expect(commits).toEqual([]);
-    const opened = await openProjectFolder(directory); expect(opened.project?.paths[0].name).toBe("NewPath"); expect(opened.project?.paths[0].waypoints[0].x).toBe(project.paths[0].waypoints[0].x);
+    const opened = await openProjectFolder(directory); expect(opened.project?.paths[0].name).toBe("New path"); expect(opened.project?.paths[0].waypoints[0].x).toBe(project.paths[0].waypoints[0].x);
     expect(await fs.readdir(path.join(directory, "Paths"))).not.toContain("Queued write.path");
     expect(spy.mock.calls.filter(([, target]) => String(target) === projectWorkspacePath(directory))).toHaveLength(2);
   });

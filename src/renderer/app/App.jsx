@@ -14,7 +14,7 @@ import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
 import { pathPlanningKey } from "../../core/planners/planningKey";
 import { applyRoute, settleOptimizerWaypoints } from "../../core/planners/routeGeometry";
-import { durationResult } from "../lib/finalPlanningResult";
+import { durationResult, trajectoryEnds } from "../lib/finalPlanningResult";
 import { editablePath } from "../lib/editablePath";
 import { createAgentSessionSync } from "../lib/agentSessionSync";
 import { ContextInspector, commandArguments } from "../components/ContextInspector";
@@ -1079,7 +1079,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     // Library time is the strict trajectory's; display-only best-effort timing never counts.
     const selectedOutcome = useMemo(() => {
       if (editing.pending) return { status: 'pending' };
-      return editing.ready ? { status: 'ready', seconds: editing.trajectory.totalTimeS }
+      return editing.ready ? { status: 'ready', seconds: editing.trajectory.totalTimeS, ends: trajectoryEnds(editing.trajectory) }
         : { status: 'error', message: editingErrorMessage || 'This path has a problem.' };
     }, [editing.pending, editing.ready, editing.trajectory, editingErrorMessage]);
     useEffect(() => {
@@ -3054,7 +3054,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     };
     const renderLibrary = (mode, structure) => h(LibraryRail, {
       key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, hidden: mode === 'paths' && fieldFocus, onRestore: toggleFieldFocus, onHide: mode === 'paths' ? toggleFieldFocus : undefined, project, routines,
-      activePathId: doc.id, activeRoutineId: routine.id, times, selection: pushSelection,
+      activePathId: doc.id, activeRoutineId: routine.id, times, catalog: robotProjectState.catalog, selection: pushSelection,
       onPath: (id) => { const index = pathIndex(id); if (index >= 0) setActive(index); }, onRoutine: setActiveRoutine,
       controller: pushActions,
       deletionNotice: h(DeletionNotice, { notice: deletionNotice, onUndo: undoDeletion, onDismiss: (action) => { if (deletionAction.current === action) retireDeletion(); } }),

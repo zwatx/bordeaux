@@ -25,6 +25,9 @@
 .library-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:0;overflow:hidden;color:var(--txt-2);font-size:13px;font-weight:400;line-height:16px;white-space:normal;overflow-wrap:anywhere}
 .library-row:is(.selected,:has([aria-current="true"])) .library-name{color:var(--txt)}
 .library-meta{flex:0 0 auto;color:var(--txt-3);font:11px/16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* A routine with problems in its flow: a dot before its time, amber for warnings and red for errors. */
+.library-flag{display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--warn);vertical-align:1px}
+.library-flag.bad{background:var(--bad)}
 /* Center the visible glyphs, whose ink sits above the line-box midpoint. */
 .library-name,.library-meta{transform:translateY(1px)}
 /* Row actions keep their column and appear on hover, keyboard focus, or selection. */

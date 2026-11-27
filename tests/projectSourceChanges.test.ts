@@ -106,8 +106,8 @@ it.each(["workspace", "legacy"])("refuses a %s appearing after a truly empty-fol
 });
 it("advances only owned source heads across first/unchanged/edit/revert saves", async () => {
   const f = await fixture({ empty: true }), original = structuredClone(f.project);
-  expect((await f.checkpoint()).source).toBe("saved"); const stable = await fs.stat(path.join(f.folder, "Paths/NewPath.path"));
-  expect((await f.checkpoint()).source).toBe("saved"); expect((await fs.stat(path.join(f.folder, "Paths/NewPath.path"))).ino).toBe(stable.ino);
+  expect((await f.checkpoint()).source).toBe("saved"); const stable = await fs.stat(path.join(f.folder, "Paths/New path.path"));
+  expect((await f.checkpoint()).source).toBe("saved"); expect((await fs.stat(path.join(f.folder, "Paths/New path.path"))).ino).toBe(stable.ino);
   f.project.paths[0].constraints.maxVel = .5; expect((await f.checkpoint()).source).toBe("saved");
   expect((await f.checkpoint(original)).source).toBe("saved"); expect(f.commits).toBe(4);
 });
@@ -119,12 +119,12 @@ it.each([false, true])("keeps its exact source journal retryable, external repla
     return rename(from, to);
   });
   expect(await f.checkpoint()).toMatchObject({ source: "failed", recovery: "saved" }); expect(f.persistence.getSession().latestSource).toBeUndefined();
-  const first = await fs.stat(path.join(f.folder, "Paths/NewPath.path"));
+  const first = await fs.stat(path.join(f.folder, "Paths/New path.path"));
   if (external) { const project = structuredClone(f.project); project.paths[0].waypoints[0].x += .3; await autosaveProjectFolder(f.folder, project, projectWorkspacePath(f.folder)); }
   const before = await bytes(f.folder); const retry = await f.checkpoint();
   expect(retry.source).toBe(external ? "failed" : "saved");
   if (external) expect(await bytes(f.folder)).toEqual(before);
-  else expect((await fs.stat(path.join(f.folder, "Paths/NewPath.path"))).ino).toBe(first.ino);
+  else expect((await fs.stat(path.join(f.folder, "Paths/New path.path"))).ino).toBe(first.ino);
 });
 it("acknowledges own legacy unlink before a failed final commit, allowing exact Retry", async () => {
   const f = await fixture({ legacy: "Autos.bordeaux" }), rename = fs.rename.bind(fs); let workspaceRenames = 0;
@@ -182,7 +182,7 @@ it("confirms busy saved source after BDX bookkeeping, but refuses source ownersh
   await writeProjectFolderBdx(f.folder, [{ fileName: "Test.bdx", bytes: Buffer.from("generated") }]);
   const release = await f.source.holdExport(f.folder), commits = f.commits;
   expect((await f.checkpoint()).source).toBe("saved"); expect(f.commits).toBe(commits);
-  const workspace = projectWorkspacePath(f.folder), state = JSON.parse(await fs.readFile(workspace, "utf8")); state.files["Paths/NewPath.path"] = "0".repeat(64);
+  const workspace = projectWorkspacePath(f.folder), state = JSON.parse(await fs.readFile(workspace, "utf8")); state.files["Paths/New path.path"] = "0".repeat(64);
   await fs.writeFile(workspace, JSON.stringify(state)); const before = await bytes(f.folder);
   expect((await f.checkpoint()).source).toBe("failed"); expect(await bytes(f.folder)).toEqual(before); expect(f.commits).toBe(commits); release();
 });
@@ -221,7 +221,7 @@ it("rechecks foreign source changes after asynchronous mirror preflight and befo
   const f = await fixture(), read = fs.readFile.bind(fs), workspace = projectWorkspacePath(f.folder); let once = true, changed: Record<string, string> | undefined;
   vi.spyOn(fs, "readFile").mockImplementation(async (...args: any[]) => {
     const result = await (read as any)(...args);
-    if (once && String(args[0]).endsWith(path.join("Paths", "NewPath.path"))) {
+    if (once && String(args[0]).endsWith(path.join("Paths", "New path.path"))) {
       once = false; const state = JSON.parse(await read(workspace, "utf8")); state.foreignUnknownSource = true;
       await fs.writeFile(workspace, JSON.stringify(state)); changed = await bytes(f.folder);
     }
@@ -240,11 +240,11 @@ it("does not overwrite a foreign workspace change discovered at the final commit
 });
 
 it("reports the exact changed managed document and clears the typed fact after an explicit successful Retry", async () => {
-  const f = await fixture(), file = path.join(f.folder, "Paths/NewPath.path");
+  const f = await fixture(), file = path.join(f.folder, "Paths/New path.path");
   await fs.appendFile(file, "\n"); const before = await bytes(f.folder);
   const failed = await f.checkpoint();
-  expect(failed).toMatchObject({ source: "failed", recovery: "saved", sourceChange: { scope: "document", file: "Paths/NewPath.path" } });
-  expect(failed.sourceFact).toContain("NewPath.path changed outside Bordeaux");
+  expect(failed).toMatchObject({ source: "failed", recovery: "saved", sourceChange: { scope: "document", file: "Paths/New path.path" } });
+  expect(failed.sourceFact).toContain("New path.path changed outside Bordeaux");
   expect(await bytes(f.folder)).toEqual(before); expect(f.commits).toBe(0);
   await fs.unlink(file);
   const retried = await f.checkpoint();

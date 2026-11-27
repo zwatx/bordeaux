@@ -4,6 +4,7 @@ import {describe,it,expect,vi} from 'vitest';
 import {deletionInput,shiftDeletionInput} from '../src/renderer/components/DeletionNotice';
 import {AUTO} from '../src/renderer/lib/routineModel';
 import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
+import {routineSummary} from '../src/renderer/lib/routineSummary';
 import {moveFolder,movePaths} from '../src/renderer/lib/libraryOrder';
 const event=(patch={})=>({button:0,detail:1,type:'pointerdown',preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{getBoundingClientRect:()=>({left:1,bottom:2})},...patch});
 const source=ts.createSourceFile('EditorLibrary.jsx',readFileSync(new URL('../src/renderer/components/EditorLibrary.jsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
@@ -14,7 +15,7 @@ function harness(){
  const useRef=value=>cells[cursor++]||={current:value};
  const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(c=>c!==false&&c!=null)});
  const drag={drag:null,begin:vi.fn()};
- const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','useLibraryDrag','movePaths','moveFolder','LibraryMenu','document','requestAnimationFrame',component+';return EditorLibrary;')({useId:()=> 'library-test',Fragment:'Fragment'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,()=>drag,movePaths,moveFolder,'LibraryMenu',doc,()=>{});
+ const renderFn=new Function('React','useState','useRef','useEffect','h','Icon','AUTO','referencingRoutines','deletionInput','useLibraryDrag','movePaths','moveFolder','LibraryMenu','document','requestAnimationFrame','routineSummary',component+';return EditorLibrary;')({useId:()=> 'library-test',useMemo:fn=>fn(),Fragment:'Fragment'},useState,useRef,()=>{},h,'Icon',AUTO,referencingRoutines,deletionInput,()=>drag,movePaths,moveFolder,'LibraryMenu',doc,()=>{},routineSummary);
  props={mode:'paths',prefs:{query:'',collapsed:{},scroll:0},update:vi.fn(),project:{paths:[{id:'a',name:'A',waypoints:[{},{}]},{id:'b',name:'B',waypoints:[{},{}]},{id:'c',name:'C',waypoints:[{},{}]}],pathFolders:[]},routines:[],activePathId:'a',onPath:vi.fn(),onRoutine:vi.fn(),actions:{preflight:vi.fn(()=>true),deletePath:vi.fn(()=>true),deletePaths:vi.fn(()=>true)},times:{},controller:{itemStatus:()=>({detail:'Local'}),fileTransfer:true},selection:{selected:['a'],set:vi.fn(),clear:vi.fn()},deletionNotice:'reserved footer'};
  const find=(n,predicate)=>{if(!n||typeof n!=='object')return null;if(predicate(n))return n;for(const c of n.children){const r=find(c,predicate);if(r)return r;}return null;};
  const render=()=>{cursor=0;tree=renderFn(props);};render();return{props,doc,render,drag,find:predicate=>find(tree,predicate),pick:id=>find(tree,n=>n.props['data-library-item']===id),more:()=>find(tree,n=>n.props['aria-label']==='Actions for A'),menu:()=>find(tree,n=>n.type==='LibraryMenu')};
@@ -34,10 +35,11 @@ describe('actual library deletion entry points',()=>{
   expect(ui.props.selection.set).toHaveBeenLastCalledWith(['a','b','c']);
   expect(ui.props.actions.deletePath).not.toHaveBeenCalled();expect(ui.props.actions.deletePaths).not.toHaveBeenCalled();expect(ui.props.onPath).not.toHaveBeenCalled();
  });
- it('shows routine rows by name with their actions and no step count',()=>{
-  const ui=harness();Object.assign(ui.props,{mode:'routines',routines:[{id:'r',name:'Auto',nodes:[{id:'w',type:'builtin'},{id:'x',type:'builtin'}]}],activeRoutineId:'r'});ui.render();
+ it('shows routine rows by name and preview time with their actions and no step count',()=>{
+  const ui=harness();Object.assign(ui.props,{mode:'routines',routines:[{id:'r',name:'Auto',nodes:[{id:'w',type:'builtin',builtinId:'bordeaux.wait',arguments:{durationS:1}},{id:'x',type:'builtin',builtinId:'bordeaux.wait',arguments:{durationS:0.5}}]}],activeRoutineId:'r'});ui.render();
   const row=ui.find(n=>n.props.className?.startsWith('library-row'));
-  expect(ui.pick('r').children.map(c=>c.props?.className)).toEqual(['library-mark','library-name']);
+  expect(ui.pick('r').children.map(c=>c.props?.className)).toEqual(['library-mark','library-name','library-meta']);
+  expect(ui.find(n=>n.props.className==='library-meta').children).toEqual(['1.50 s']);
   expect(JSON.stringify(row)).not.toMatch(/\d+ steps?/);
   expect(ui.find(n=>n.props['aria-label']==='Actions for Auto')).toBeTruthy();
  });

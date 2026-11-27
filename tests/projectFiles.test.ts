@@ -294,14 +294,14 @@ describe("saved size stays within what Bordeaux can reopen", () => {
   it("saves a path document at its byte limit and rejects a larger one before replacing anything", async () => {
     const directory = await folder(), project = createDemoProject();
     await autosaveProjectFolder(directory, withPayload(project, [""]), null);
-    const document = path.join(directory, "Paths/NewPath.path");
+    const document = path.join(directory, "Paths/New path.path");
     const fill = "x".repeat(MAX_PROJECT_FILE_BYTES - (await fs.stat(document)).size);
     await autosaveProjectFolder(directory, withPayload(project, [fill]), null);
     expect((await fs.stat(document)).size).toBe(MAX_PROJECT_FILE_BYTES);
     const saved = await folderDigests(directory);
 
     await expect(autosaveProjectFolder(directory, withPayload(project, [`${fill.slice(1)}é`]), null))
-      .rejects.toThrow("Paths/NewPath.path would be 16.1 MiB, over the 16 MiB limit");
+      .rejects.toThrow("Paths/New path.path would be 16.1 MiB, over the 16 MiB limit");
     expect(await folderDigests(directory)).toEqual(saved);
     expect(payloadLengths((await openProjectFolder(directory)).project)).toEqual([fill.length]);
     // The saved boundary document remains replaceable by later saves.

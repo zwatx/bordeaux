@@ -66,7 +66,7 @@ export function defaultPathConstraints(robot?: RobotConfig): PathConstraints {
   return robot ? robotDefaultConstraints(constraints, robot) : constraints;
 }
 
-export function blankPath(name = "NewPath", robot?: RobotConfig): PathDoc {
+export function blankPath(name = "New path", robot?: RobotConfig): PathDoc {
   return {
     id: createPathId(),
     name,
@@ -88,10 +88,10 @@ export function blankPath(name = "NewPath", robot?: RobotConfig): PathDoc {
 export function createDemoProject(): BordeauxProject {
   const routine = {
     id: createRoutineId(),
-    name: "Autonomous Routine",
+    name: "New routine",
     nodes: [],
   };
-  const path = blankPath("NewPath");
+  const path = blankPath("New path");
   return {
     schemaVersion: "1.0",
     field: { ...ACTIVE_FIELD_REFERENCE },

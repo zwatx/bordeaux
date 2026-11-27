@@ -126,7 +126,7 @@ describe("named project creation before activation", () => {
     vi.restoreAllMocks();
     const selected = await loadProjectFolderSelection(path.join(directory, "Saved"));
     expect(selected.project.name).toBe("Saved"); expect(selected.project.paths).toHaveLength(1);
-    expect(await fs.readdir(path.join(selected.folderPath, "Paths"))).toEqual(["NewPath.path"]);
+    expect(await fs.readdir(path.join(selected.folderPath, "Paths"))).toEqual(["New path.path"]);
   });
 });
 
