@@ -155,6 +155,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
             const encoded = encodeBdxArgument(input, value);
             return { ...input, tag: encoded.tag, valueHex: hex(encoded.bytes) };
           }) };
+        if (command.outputs.length > 64) throw new Error(`${descriptor.label}: runtime routines support up to 64 outputs per invocation`);
         target.command = document.commands.length; document.commands.push(command);
         const until = node.invocation!.loop?.until;
         if (until?.kind === 'time') { target.loop = RUNTIME_LOOP.time; target.limit = until.seconds; }

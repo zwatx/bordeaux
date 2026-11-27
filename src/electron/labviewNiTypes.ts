@@ -105,7 +105,24 @@ export const VALIDATED_LABVIEW_VERSION = /^(25|26)\./;
 export const VALIDATED_WRAPPER_LABVIEW_VERSION = /^25\./;
 export const WRAPPER_LABVIEW_VERSION_ERROR = "Bordeaux creates command wrappers only in LabVIEW 2025. Create the wrapper in LabVIEW 2025, or add it to the project by hand.";
 
-export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sources: LabviewNiSource[]): {
+/** The subsystem's Commands folder and Implementation controller share a parent. */
+export function labviewControllerForCommand(file: string): string | undefined {
+  const subsystem = /^(.+)\/Commands\/.+\.vi$/i.exec(file)?.[1];
+  return subsystem && `${subsystem}/Implementation/${path.posix.basename(subsystem)} Controller.vi`;
+}
+
+export function isLabviewControllerFile(file: string): boolean {
+  const match = /^(.+)\/Implementation\/([^/]+)\.vi$/i.exec(file);
+  return !!match && match[2].endsWith(" Controller")
+    && match[2].toLowerCase() === `${path.posix.basename(match[1])} Controller`.toLowerCase();
+}
+
+export function labviewControllerOutputName(file: string, terminal: string): string {
+  return `${path.posix.basename(file).replace(/\.vi$/i, "")}/${terminal}`;
+}
+
+export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sources: LabviewNiSource[],
+  verifiedControllers?: ReadonlySet<string>): {
   commands: RobotCommandDescriptor[]; inspection: Inspection; cacheable: boolean; dependencyPaths: string[];
 } {
   const report = record(raw, "NI inspection report");
@@ -119,6 +136,7 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
   if (rows.length !== requested.size) throw new Error("NI inspection did not return every requested VI");
   const seen = new Set<string>();
   const commands: RobotCommandDescriptor[] = [];
+  const controllers = new Map<string, RobotCommandOutput[]>();
   const unsupported: Inspection["unsupported"] = [];
   const dependencyPaths = new Set<string>();
   const cacheBlockers = new Set<string>();
@@ -170,34 +188,49 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
         return { name, xml, direction: directions[index], type, caption: captions[index] as string, terminalNumber: numbers[index] as number };
       });
       const statuses = terminals.filter((terminal) => terminal.type.root && path.win32.basename(terminal.type.root) === "Command Status Info.ctl");
-      if (statuses.length !== 2) continue;
-      if (!statuses.some((terminal) => terminal.direction === 0) || !statuses.some((terminal) => terminal.direction === 1) || !statuses.every((terminal) => statusCluster(terminal.xml))) throw new Error("Legacy status terminals do not match the observed input/output completion lifecycle");
-      const defaults = record(row.defaults, "NI saved defaults");
-      const parameters = terminals.filter((terminal) => terminal.direction === 0 && !statuses.includes(terminal)).map((terminal) => {
-        const schema = parameterSchema(terminal.xml);
-        return { name: terminal.name, schema, ...unsignedBounds(terminal.xml), ...(Object.hasOwn(defaults, terminal.name) ? { defaultValue: scalarDefault(defaults[terminal.name], schema) } : {}) };
-      });
       const id = `labview.legacy.${createHash("sha256").update(key).digest("hex").slice(0, 24)}`;
       const label = path.posix.basename(file, path.posix.extname(file));
-      // Reuse the canonical catalog parser for parameter schemas and saved default validation.
-      const checked = compileLabviewCatalog({ schemaVersion: "bordeaux-labview-catalog/1", catalogId: "ni-source-preview", commands: [{ id, label, vi: "Handler.vi", parameters }] }).catalog.commands[0];
+      const isController = isLabviewControllerFile(file);
+      if (isController) {
+        // Live and cached catalogs supply uniqueness from the current project inventory.
+        if (verifiedControllers ? !verifiedControllers.has(key)
+          : sources.filter((item) => item.target === target && path.posix.basename(item.file).toLowerCase() === path.posix.basename(file).toLowerCase()).length !== 1) continue;
+      } else if (statuses.length !== 2) continue;
       const outputs: RobotCommandOutput[] = [];
       const outputTerminals = terminals.filter((terminal) => terminal.direction === 1 && !statuses.includes(terminal));
       for (const terminal of outputTerminals) {
         try {
-          if (outputTerminals.filter((candidate) => candidate.name === terminal.name).length !== 1) throw new Error("NI outputs require unique terminal names");
+          if ((isController ? terminals : outputTerminals).filter((candidate) => candidate.name === terminal.name).length !== 1) throw new Error("NI outputs require unique terminal names");
           const schema = parameterSchema(terminal.xml);
           if (!["boolean", "enum", "number", "integer", "integerString"].includes(String(schema.kind))) throw new Error(`NI ${terminal.xml.name} outputs are not supported for branching; use a Boolean, enum, or numeric output`);
           // Outputs share value types with inputs, but saved indicator values are not result defaults.
           const bounds = unsignedBounds(terminal.xml);
           const output = compileLabviewCatalog({ schemaVersion: "bordeaux-labview-catalog/1", catalogId: "ni-output-preview",
             commands: [{ id, label, vi: "Handler.vi", parameters: [{ name: terminal.name, schema, ...bounds }] }] }).catalog.commands[0].parameters[0];
-          outputs.push({ name: terminal.name, schema: output.schema, ...bounds, terminalNumber: terminal.terminalNumber,
+          if (isController) {
+            const name = labviewControllerOutputName(file, terminal.name);
+            if (Buffer.byteLength(name) > 256) throw new Error("Qualified controller output names must fit in 256 UTF-8 bytes");
+            if (output.schema.kind === "enum" && output.schema.enumValues!.length > 255) throw new Error("Controller branch enums support at most 255 choices");
+            const typeXml = dataTypes[numbers.indexOf(terminal.terminalNumber)] as string;
+            outputs.push({ name, label: `${label} / ${terminal.caption.trim() || terminal.name}`, schema: output.schema, ...bounds,
+              labviewController: { file, terminal: terminal.name, typeXml } });
+          } else outputs.push({ name: terminal.name, schema: output.schema, ...bounds, terminalNumber: terminal.terminalNumber,
             ...(terminal.caption.trim() && terminal.caption !== terminal.name ? { label: terminal.caption } : {}) });
         } catch (error) {
           unsupported.push({ file, target, reason: `Output ${terminal.name} (terminal ${terminal.terminalNumber}): ${error instanceof Error ? error.message : String(error)}` });
         }
       }
+      if (isController) {
+        controllers.set(`${target}\0${file.toLowerCase()}`, outputs);
+        continue;
+      }
+      if (!statuses.some((terminal) => terminal.direction === 0) || !statuses.some((terminal) => terminal.direction === 1) || !statuses.every((terminal) => statusCluster(terminal.xml))) throw new Error("Legacy status terminals do not match the observed input/output completion lifecycle");
+      const defaults = record(row.defaults, "NI saved defaults");
+      const parameters = terminals.filter((terminal) => terminal.direction === 0 && !statuses.includes(terminal)).map((terminal) => {
+        const schema = parameterSchema(terminal.xml);
+        return { name: terminal.name, schema, ...unsignedBounds(terminal.xml), ...(Object.hasOwn(defaults, terminal.name) ? { defaultValue: scalarDefault(defaults[terminal.name], schema) } : {}) };
+      });
+      const checked = compileLabviewCatalog({ schemaVersion: "bordeaux-labview-catalog/1", catalogId: "ni-source-preview", commands: [{ id, label, vi: "Handler.vi", parameters }] }).catalog.commands[0];
       // Status is a useful completed-command result, while Name/notifier remain framework plumbing.
       const completion = statuses.find((terminal) => terminal.direction === 1)!;
       const completionName = `${completion.name}.Status`;
@@ -206,21 +239,7 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
       } else outputs.push({ name: completionName, label: "Completion status", terminalNumber: completion.terminalNumber,
         fieldPath: [completion.name, "Status"], schema: { kind: "enum", valueType: "Enum", enumValues: ["Successful", "Aborted", "Incomplete"] } });
       const description = text(row.description, "NI VI description", 16384);
-      const prefix = "Bordeaux controller Boolean: ";
-      const lines = description.split(/\r\n|\r|\n/);
-      const summary = lines.filter((line) => {
-        if (!line.startsWith(prefix)) return true;
-        const [name, display, ...extra] = line.slice(prefix.length).split("|").map((field) => field.trim());
-        if (!name || !display || extra.length || Buffer.byteLength(name) > 256 || Buffer.byteLength(display) > 256
-          || /[\x00-\x1f]/.test(name + display) || outputs.some((output) => output.name === name)) {
-          unsupported.push({ file, target, reason: "A Bordeaux controller Boolean needs a unique output name and a display label." });
-        } else {
-          outputs.push({ name, label: display, schema: { kind: "boolean", valueType: "Boolean" }, labviewControllerBoolean: true });
-        }
-        return false;
-      });
-      commands.push({ ...checked, description: summary.length === lines.length ? description : summary.join("\n").trimEnd(),
-        outputs, ownerType: `LabVIEW (${target})`, member: file,
+      commands.push({ ...checked, description, outputs, ownerType: `LabVIEW (${target})`, member: file,
         source: { file, line: 1 }, labviewLegacy: true, runtimeReady: false,
         labviewConnector: { labviewVersion, applicationContext: "My Computer", target, file,
           terminalNumbers: numbers as number[], directions: directions as number[], requirements: requirements as number[],
@@ -228,6 +247,24 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
     } catch (error) {
       unsupported.push({ file, target, reason: error instanceof Error ? error.message : String(error) });
     }
+  }
+  for (const command of commands) {
+    const connector = command.labviewConnector!;
+    const file = labviewControllerForCommand(connector.file);
+    if (!file) continue;
+    const prefix = labviewControllerOutputName(file, "").toLowerCase();
+    const reserved = new Set<string>();
+    command.outputs = command.outputs!.filter((output) => {
+      const name = output.name.toLowerCase();
+      if (!name.startsWith(prefix)) return true;
+      // A missing controller indicator must never make a saved branch read a command output.
+      reserved.add(name);
+      unsupported.push({ file: connector.file, target: connector.target,
+        reason: `Output ${output.name}: this qualified name is reserved for controller outputs` });
+      return false;
+    });
+    command.outputs.push(...(controllers.get(`${connector.target}\0${file.toLowerCase()}`) ?? [])
+      .filter(output => !reserved.has(output.name.toLowerCase())));
   }
   commands.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   return { commands, cacheable, dependencyPaths: [...dependencyPaths].sort(), inspection: { status: "available", applicationContext: "My Computer", inspectedAt, commandCount: commands.length, unsupported,

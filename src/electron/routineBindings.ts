@@ -4,7 +4,7 @@ import { encodeBdxArgument } from '../core/export/robotBinary';
 import { CONTROLLER_OUTPUT_TERMINAL, type RoutineRuntimeBindings, type RuntimeScalar, type RuntimeOutput } from '../core/export/routineRuntime';
 import type { RobotValueSchema } from '../core/types';
 import { parseLabviewXml } from './labviewProjectDiscovery';
-import { statusCluster, typedefs } from './labviewNiTypes';
+import { labviewControllerForCommand, labviewControllerOutputName, statusCluster, typedefs } from './labviewNiTypes';
 
 const basename = (value: string) => value.split(/[\\/]/).at(-1) ?? '';
 const tags: Record<string, number> = { Boolean: 1, I8: 2, U8: 3, I16: 4, U16: 5, I32: 6, U32: 7, I64: 8, U64: 9, SGL: 10, DBL: 11, String: 12, EB: 13, EW: 14, EL: 15 };
@@ -60,11 +60,15 @@ export function routineBindingsFromBinary(binary: BinaryBindings, selectedComman
     });
     if (command.parameters.some(item => item.role !== 'argument') || inputs.length !== command.parameters.length || new Set(inputs.map(item => item.name)).size !== inputs.length) throw new Error(`${command.label}: unsupported or ambiguous command inputs`);
     const outputs: RuntimeOutput[] = (command.outputs ?? []).map(output => {
-      if (output.labviewControllerBoolean) {
-        if (output.terminalNumber !== undefined || output.schema.kind !== 'boolean' || output.schema.valueType !== 'Boolean') {
-          throw new Error(`${command.label}.${output.name}: invalid controller Boolean binding`);
+      if (output.labviewController) {
+        const { file, terminal, typeXml } = output.labviewController;
+        const xml = parseLabviewXml(typeXml);
+        if (file.toLowerCase() !== labviewControllerForCommand(raw.file)?.toLowerCase() || terminal !== xml.elementValueOrEmpty('Name')
+          || output.name !== labviewControllerOutputName(file, terminal)) {
+          throw new Error(`${command.label}.${output.name}: invalid controller output binding`);
         }
-        return { name: output.name, terminal: CONTROLLER_OUTPUT_TERMINAL, niType: 'Boolean', tag: tags.Boolean, choices: [], fieldPath: [output.name] };
+        checkSchema(xml, output.schema);
+        return { ...scalar(xml, output.name, CONTROLLER_OUTPUT_TERMINAL), fieldPath: [output.name] };
       }
       const matches = terminals.filter(item => item.direction === 1 && item.terminal === output.terminalNumber);
       if (matches.length !== 1) throw new Error(`${command.label}.${output.name}: missing output terminal evidence`);
@@ -79,7 +83,7 @@ export function routineBindingsFromBinary(binary: BinaryBindings, selectedComman
       checkSchema(xml, output.schema);
       return { ...scalar(xml, output.name, terminal.terminal), fieldPath };
     });
-    if (new Set(outputs.map(item => item.name)).size !== outputs.length || outputs.length > 64) throw new Error(`${command.label}: ambiguous outputs`);
+    if (new Set(outputs.map(item => item.name)).size !== outputs.length) throw new Error(`${command.label}: ambiguous outputs`);
     commands[command.id] = { vi, statusInput: inputStatus.terminal, statusOutput: outputStatus.terminal,
       statusInputName: inputStatus.name, statusOutputName: outputStatus.name, inputs, outputs };
   }

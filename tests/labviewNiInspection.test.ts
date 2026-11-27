@@ -16,6 +16,8 @@ import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 const statusXml = (name: string) => `<Cluster><Name>${name}</Name><NumElts>3</NumElts><String><Name>Name</Name><Val/></String><EW><Name>Status</Name><Choice>Successful</Choice><Choice>Aborted</Choice><Choice>Incomplete</Choice><Val>0</Val></EW><Refnum><Name>notifier out</Name><RefKind>Notifier</RefKind><Val>0x00000000</Val></Refnum></Cluster>`;
 const statusMetadata = (name: string) => [[[[name], "C:\\NI\\Framework\\Command Status Info.ctl", false, 0, []]]];
 const source = { file: "Intake/Commands/Start.vi", target: "Robot" };
+const controllerSource = { file: "Intake/Implementation/Intake Controller.vi", target: "Robot" };
+const controllerReadyXml = "<Boolean><Name>Ready</Name><Val>0</Val></Boolean>";
 const completionOutput = { name: "Command Info Out.Status", label: "Completion status", terminalNumber: 0,
   fieldPath: ["Command Info Out", "Status"], schema: { kind: "enum", valueType: "Enum", enumValues: ["Successful", "Aborted", "Incomplete"] } };
 function row(extraXml = "<DBL><Name>Setpoint</Name><Val>0</Val></DBL>") {
@@ -39,25 +41,124 @@ function addOutput(vi: ReturnType<typeof row>, name: string, xml: string, termin
   vi.connector.captions.push(name); vi.connector.wireRequirements.push(1); vi.connector.ioStatus.push(1); vi.connector.conNum.push(terminalNumber);
   vi.connector.dataTypes.push(xml); vi.connector.extendedInformation.push([[]]);
 }
+function controllerRow(ready = true): ReturnType<typeof row> {
+  const vi = {
+    ...row(), ...controllerSource, name: "Intake Controller.vi", description: "Intake control loop", defaults: {},
+    connector: { numConnections: 1, captions: ["Target"], wireRequirements: [1], ioStatus: [0], conNum: [8],
+      dataTypes: ["<DBL><Name>Target</Name><Val>0</Val></DBL>"], extendedInformation: [[[]]] },
+  };
+  if (ready) addOutput(vi, "Ready", controllerReadyXml, 0);
+  return vi;
+}
 function report(vi = row()) {
   return { schemaVersion: "bordeaux-ni-inspection/1", projectFile: "C:\\Robot\\Robot.lvproj", labviewVersion: "25.3.3f3", inspectedAt: "2026-09-07T12:00:00.000Z", dirtyContext: false, vis: [vi] };
 }
 function decode(value = report()) { return decodeLabviewNiInspection(value, "C:\\Robot\\Robot.lvproj", [source]); }
 
-it.each(["\n", "\r", "\r\n"])("discovers and binds controller Booleans without an output connector (%j)", (lineEnding) => {
+it("does not infer outputs from the former description declaration", () => {
   const vi = row();
-  vi.description += lineEnding + "Bordeaux controller Boolean: Ready Out | Intake Controller / Ready";
+  vi.description += "\nBordeaux controller Boolean: Ready Out | Intake Controller / Ready";
   const { commands } = decode(report(vi));
-  expect(commands[0].description).toBe("Immediate subsystem action");
+  expect(commands[0].outputs).toEqual([completionOutput]);
+});
+
+it("discovers and binds actual output connectors on the command's subsystem controller", () => {
+  const vi = controllerRow();
+  const iterationsXml = "<I32><Name>Iterations</Name><Val>0</Val></I32>";
+  const phaseXml = "<EW><Name>Phase</Name><Choice>Idle</Choice><Choice>Active</Choice><Val>0</Val></EW>";
+  addOutput(vi, "Loop count", iterationsXml, 1);
+  addOutput(vi, "Phase", phaseXml, 2);
+  addOutput(vi, "Debug text", "<String><Name>Debug text</Name><Val/></String>", 3);
+  const inspection = decodeLabviewNiInspection({ ...report(), vis: [vi, row()] },
+    "C:\\Robot\\Robot.lvproj", [source, controllerSource]);
+  const { commands } = inspection;
+  expect(commands).toHaveLength(1);
   expect(commands[0].outputs).toEqual([completionOutput, {
-    name: "Ready Out", label: "Intake Controller / Ready", schema: { kind: "boolean", valueType: "Boolean" }, labviewControllerBoolean: true,
+    name: "Intake Controller/Ready", label: "Intake Controller / Ready", schema: { kind: "boolean", valueType: "Boolean" },
+    labviewController: { file: controllerSource.file, terminal: "Ready", typeXml: controllerReadyXml },
+  }, {
+    name: "Intake Controller/Iterations", label: "Intake Controller / Loop count", schema: { kind: "integer", valueType: "I32" },
+    labviewController: { file: controllerSource.file, terminal: "Iterations", typeXml: iterationsXml },
+  }, {
+    name: "Intake Controller/Phase", label: "Intake Controller / Phase", schema: { kind: "enum", valueType: "Enum", enumValues: ["Idle", "Active"] },
+    labviewController: { file: controllerSource.file, terminal: "Phase", typeXml: phaseXml },
   }]);
+  expect(inspection.inspection.unsupported).toMatchObject([{ file: controllerSource.file, reason: expect.stringContaining("Debug text") }]);
   const binary = binaryWriterFixture().bindings;
   const bindings = routineBindingsFromBinary({ ...binary, catalog: { ...binary.catalog, commands } });
-  expect(bindings.commands[commands[0].id].outputs[1]).toEqual({
-    name: "Ready Out", terminal: -1, fieldPath: ["Ready Out"], niType: "Boolean", tag: 1, choices: [],
+  expect(bindings.commands[commands[0].id].outputs.slice(1)).toEqual([
+    { name: "Intake Controller/Ready", terminal: -1, fieldPath: ["Intake Controller/Ready"], niType: "Boolean", tag: 1, choices: [] },
+    { name: "Intake Controller/Iterations", terminal: -1, fieldPath: ["Intake Controller/Iterations"], niType: "I32", tag: 6, choices: [] },
+    { name: "Intake Controller/Phase", terminal: -1, fieldPath: ["Intake Controller/Phase"], niType: "EW", tag: 14, choices: ["Idle", "Active"] },
+  ]);
+});
+
+it("does not attach controller outputs across targets or from ambiguous VI basenames", () => {
+  const controller = controllerRow();
+  const otherTarget = { ...controller, target: "Other" };
+  const sameBasename = { ...controller, file: "Legacy/Intake Controller.vi" };
+  for (const controllers of [[otherTarget], [controller, sameBasename]]) {
+    const metadata = { ...report(), vis: [row(), ...controllers] };
+    const result = decodeLabviewNiInspection(metadata, metadata.projectFile, [source, ...controllers]);
+    expect(result.commands[0].outputs).toEqual([completionOutput]);
+  }
+});
+
+it("omits an output that shares the label of a controller input", () => {
+  const controller = controllerRow(false);
+  addOutput(controller, "Target", "<Boolean><Name>Target</Name><Val>0</Val></Boolean>", 0);
+  const metadata = { ...report(), vis: [row(), controller] };
+  const result = decodeLabviewNiInspection(metadata, metadata.projectFile, [source, controllerSource]);
+  expect(result.commands[0].outputs).toEqual([completionOutput]);
+  expect(result.inspection.unsupported[0].reason).toContain("unique terminal names");
+});
+
+it("does not substitute a same-named command output for a saved controller selection", () => {
+  const name = "Intake Controller/Ready";
+  const command = row();
+  const inspect = (controller: ReturnType<typeof row>) => {
+    const metadata = { ...report(), vis: [command, controller] };
+    return decodeLabviewNiInspection(metadata, metadata.projectFile, [source, controllerSource]);
+  };
+  expect(inspect(controllerRow()).commands[0].outputs?.map(output => output.name)).toContain(name);
+  addOutput(command, name, `<Boolean><Name>${name}</Name><Val>0</Val></Boolean>`, 12);
+  for (const controller of [controllerRow(), controllerRow(false)]) {
+    const result = inspect(controller);
+    expect(result.commands[0].outputs).toEqual([completionOutput]);
+    expect(result.inspection.unsupported).toMatchObject([{
+      file: source.file, reason: expect.stringContaining("reserved for controller outputs"),
+    }]);
+  }
+});
+
+it("reports controller output names and enums that exceed branch limits", () => {
+  const controller = controllerRow(false);
+  const maxLabel = "x".repeat(256 - "Intake Controller/".length);
+  for (const [name, terminal] of [[maxLabel, 0], [maxLabel + "y", 1]] as const) {
+    addOutput(controller, name, `<Boolean><Name>${name}</Name><Val>0</Val></Boolean>`, terminal);
+  }
+  const choices = Array.from({ length: 256 }, (_, index) => `<Choice>Choice ${index}</Choice>`).join("");
+  addOutput(controller, "Phase", `<EW><Name>Phase</Name>${choices}<Val>0</Val></EW>`, 2);
+  const metadata = { ...report(), vis: [row(), controller] };
+  const result = decodeLabviewNiInspection(metadata, metadata.projectFile, [source, controllerSource]);
+  expect(result.commands[0].outputs?.map(output => output.name)).toEqual([completionOutput.name, `Intake Controller/${maxLabel}`]);
+  expect(result.inspection.unsupported.map(item => item.reason)).toEqual([
+    expect.stringContaining("256 UTF-8 bytes"), expect.stringContaining("255 choices"),
+  ]);
+});
+
+it("discovers and binds the controller with different folder capitalization", () => {
+  const command = { ...row(), file: "Intake/commands/Start.vi" };
+  const controller = { ...controllerRow(), file: "Intake/implementation/Intake Controller.vi" };
+  const metadata = { ...report(), vis: [command, controller] };
+  const { commands } = decodeLabviewNiInspection(metadata, metadata.projectFile, [command, controller]);
+  const binary = binaryWriterFixture().bindings;
+  const bindings = routineBindingsFromBinary({ ...binary, catalog: { ...binary.catalog, commands } });
+  expect(bindings.commands[commands[0].id].outputs[1]).toMatchObject({
+    name: "Intake Controller/Ready", terminal: -1, fieldPath: ["Intake Controller/Ready"],
   });
 });
+
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true }))); });
 async function cacheFixture() {
@@ -407,6 +508,47 @@ describe("NI legacy connector discovery", () => {
     const restored = await restore();
     expect(restored.labviewDiscovery?.inspection?.status).toBe("cached");
     expect(restored.commands.map(command => command.labviewConnector?.file)).toEqual([source.file]);
+  });
+
+  it("drops stale controller outputs from saved evidence and observes terminal removal on refresh", async () => {
+    const fixture = await cacheFixture();
+    const controllerPath = path.join(fixture.root, controllerSource.file);
+    await fs.mkdir(path.dirname(controllerPath), { recursive: true });
+    await fs.writeFile(controllerPath, "saved controller with a Ready output");
+    let ready = true;
+    const requests: string[][] = [];
+    const adapter = async (requestFile: string, responseFile: string) => {
+      const request = JSON.parse(await fs.readFile(requestFile, "utf8"));
+      const files: string[] = request.sources.map((item: { file: string }) => item.file);
+      requests.push(files);
+      const rows = files.map(file => file === source.file ? fixtureRow(fixture.typedef) : controllerRow(ready));
+      await fs.writeFile(responseFile, JSON.stringify({ ...report(), projectFile: fixture.project, vis: rows }));
+    };
+    await inspectLabviewCommands(fixture.project, fixture.cache, adapter);
+    vi.resetModules();
+    const fresh = await import("../src/electron/labviewNiInspection");
+    const restore = async () => fresh.withCachedLabviewCommands(fixture.project, await discoverLabviewProject(fixture.project), fixture.cache);
+    const cached = await restore();
+    expect(cached.labviewDiscovery?.inspection?.status).toBe("cached");
+    expect(cached.commands[0].outputs?.map(output => output.name)).toEqual([completionOutput.name, "Intake Controller/Ready"]);
+
+    const incomplete = await discoverLabviewProject(fixture.project);
+    incomplete.labviewDiscovery!.truncated = true;
+    const partial = await fresh.withCachedLabviewCommands(fixture.project, incomplete, fixture.cache);
+    expect(partial.commands[0].outputs).toEqual([completionOutput]);
+
+    const duplicate = path.join(fixture.root, "Intake", "Legacy", "Intake Controller.vi");
+    await fs.mkdir(path.dirname(duplicate));
+    await fs.writeFile(duplicate, "new duplicate added to the linked target");
+    expect((await restore()).commands[0].outputs).toEqual([completionOutput]);
+    await fs.unlink(duplicate);
+
+    ready = false;
+    await fs.writeFile(controllerPath, "saved controller after disconnecting Ready from the connector");
+    expect((await restore()).commands[0].outputs).toEqual([completionOutput]);
+    const refreshed = await fresh.refreshLabviewCommands(fixture.project, fixture.cache, adapter);
+    expect(refreshed?.commands[0].outputs).toEqual([completionOutput]);
+    expect(requests).toEqual([[source.file, controllerSource.file], [controllerSource.file]]);
   });
 
   it("restores confirmed commands alongside clean unsupported sources on passive refresh", async () => {
