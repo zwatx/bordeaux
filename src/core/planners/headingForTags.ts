@@ -1,3 +1,5 @@
+import { featureFraction } from "../math/pathRanges";
+import { waypointHeadingSemantics } from "../math/waypointHeading";
 import { deriveHeadingGeometry } from "../math/pm";
 import { visibleTags, type FieldTag } from "../tagVisibility";
 import type { PathDoc, PlannerInput, PlannerResult, RobotCamera, RotationTarget } from "../types";
@@ -25,8 +27,8 @@ export interface HeadingForTagsResult {
 const SLOT_SPACING_M = 0.6, MIN_SLOTS = 3, MAX_SLOTS = 12;
 /** A new heading stays this share of the path away from every heading the user set. */
 const ANCHOR_CLEARANCE = 0.04;
-/** Turns tried at each place, degrees from the drawn heading there. The second set is the retry when the first is too slow. */
-const TURNS_DEG = [[-90, -60, -45, -30, -15, 15, 30, 45, 60, 90], [-30, -15, 15, 30]] as const;
+/** Turns tried at each place, degrees from the drawn heading there. Smaller sets are fallbacks when the full plan rejects a stronger turn. */
+const TURNS_DEG = [[-90, -60, -45, -30, -15, 15, 30, 45, 60, 90], [-30, -15, 15, 30], [-15, 15]] as const;
 const ROUNDS = 3;
 /** A second with exactly one tag counts as this share of a second with none: one tag gives a much worse pose than two. */
 const ONE_TAG_LACK = 0.5;
@@ -34,8 +36,8 @@ const ONE_TAG_LACK = 0.5;
 const MATERIAL_GAIN_S = 0.1;
 /** A turn between two headings must fit the drawn path's time between them with this much room. */
 const TURN_TIME_ROOM = 1.15;
-/** The result may be this much slower than the drawn path, as a share plus a fixed allowance in seconds. */
-const SLOWER_SHARE = 0.1, SLOWER_ALLOWANCE_S = 0.05;
+/** The result may be this much slower than the drawn path, as a share of the drawn path’s time. */
+const SLOWER_SHARE = 0.1;
 
 /**
  * Seconds a path goes without enough tags: every second with none, and part of every second with exactly one. Lower
@@ -88,8 +90,12 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
   const reverse = path.driveBackward ? Math.PI : 0;
   /** The drawn plan's clock at a share of the path, for weighting each drawn point by the time spent near it. */
   const timeAt = (fraction: number) => {
-    let after = 1;
-    while (after < drawnSamples.length - 1 && drawnSamples[after].f < fraction) after += 1;
+    let after = drawnSamples.length - 1, first = 1;
+    while (first < after) {
+      const middle = (first + after) >> 1;
+      if (drawnSamples[middle].f < fraction) first = middle + 1;
+      else after = middle;
+    }
     const a = drawnSamples[after - 1], b = drawnSamples[after], span = b.f - a.f;
     return span > 1e-9 ? a.t + (b.t - a.t) * Math.max(0, Math.min(1, (fraction - a.f) / span)) : b.t;
   };
@@ -114,10 +120,22 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
     while (segment < path.waypoints.length - 2 && fraction >= drawn.wpFrac[segment + 1]) segment += 1;
     return segment;
   };
-  const set = [...drawn.wpFrac, ...path.targets.map((target) => (target.anchor === "dist" && target.d != null ? target.d / lengthM : target.f))];
+  const modes = path.waypoints.slice(0, -1).map((_, index) => modeOf(index));
+  const targets = path.targets.map((target) => ({ ...target, f: featureFraction(target, drawn.sample) }));
+  const pinned = [
+    ...path.waypoints.flatMap((waypoint, index) => waypointHeadingSemantics(waypoint, index, modes).targets
+      ? [{ f: drawn.wpFrac[index], deg: waypoint.theta || 0, rotationDirection: waypoint.rotationDirection }] : []),
+    ...targets,
+  ].sort((a, b) => a.f - b.f);
+  // An explicit turn is relative to the preceding anchor. Inserting an anchor in that span can reverse its net turn.
+  const directedSpans = pinned.flatMap((anchor, index) => index > 0 && (anchor.rotationDirection === "cw" || anchor.rotationDirection === "ccw")
+    ? [{ from: pinned[index - 1].f, to: anchor.f }] : []);
+  const set = [...drawn.wpFrac, ...targets.map((target) => target.f)];
   const count = Math.max(MIN_SLOTS, Math.min(MAX_SLOTS, Math.round(lengthM / SLOT_SPACING_M)));
   const slots = Array.from({ length: count }, (_, index) => Math.round((index + 1) / (count + 1) * 1e4) / 1e4)
-    .filter((fraction) => modeOf(segmentAt(fraction)) === "targets" && set.every((other) => Math.abs(other - fraction) >= ANCHOR_CLEARANCE));
+    .filter((fraction) => modeOf(segmentAt(fraction)) === "targets"
+      && set.every((other) => Math.abs(other - fraction) >= ANCHOR_CLEARANCE)
+      && directedSpans.every(({ from, to }) => fraction <= from || fraction >= to));
   if (!slots.length) return null;
   /** The drawn heading at each place, in degrees, which the tried turns start from. */
   const drawnDeg = slots.map((fraction) => {
@@ -126,12 +144,6 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
     return drawn.head[after] * 180 / Math.PI;
   });
   const wrap = (deg: number) => { const turned = Math.round(deg) % 360; return turned > 180 ? turned - 360 : turned <= -180 ? turned + 360 : turned; };
-  // Every heading that pins the robot on a "targets" stretch: the two ends, waypoints with a set angle, and the path's
-  // own rotation targets. A try's turns are checked between neighbors in this list plus its added headings.
-  const pinned = [
-    ...path.waypoints.flatMap((waypoint, index) => index === 0 || index === path.waypoints.length - 1 || waypoint.thetaOn ? [{ f: drawn.wpFrac[index], deg: waypoint.theta || 0 }] : []),
-    ...path.targets.map((target) => ({ f: target.anchor === "dist" && target.d != null ? target.d / lengthM : target.f, deg: target.deg })),
-  ];
   const limits = path.constraints, speed = limits.maxAngVel, pickup = Math.min(limits.maxAngAccel, limits.maxAngDecel ?? limits.maxAngAccel);
   /** Shortest time to turn `deg` from rest to rest at the path's angular limits. */
   const turnSeconds = (deg: number) => !(speed > 0) || !(pickup > 0) ? 0 : deg <= speed * speed / pickup ? 2 * Math.sqrt(deg / pickup) : deg / speed + speed / pickup;
@@ -179,7 +191,7 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
     const plan = planPath({ ...input, path: candidate.path });
     if (plan.status !== "ok" || !plan.trajectory) continue;
     const after = tagCoverageOf(plan.trajectory.samples, cameras, tags);
-    if (after.totalS > before.totalS * (1 + SLOWER_SHARE) + SLOWER_ALLOWANCE_S) continue;
+    if (after.totalS > before.totalS * (1 + SLOWER_SHARE)) continue;
     if (lack(after) > lack(before) - MATERIAL_GAIN_S) continue;
     return { path: candidate.path, addedTargets: candidate.added, before, after, trajectory: plan.trajectory };
   }

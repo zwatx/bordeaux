@@ -85,7 +85,7 @@ describe("heading for tags", () => {
   });
 
   it("stays close to the drawn path's time", () => {
-    expect(result!.after.totalS).toBeLessThanOrEqual(result!.before.totalS * 1.1 + 0.05);
+    expect(result!.after.totalS).toBeLessThanOrEqual(result!.before.totalS * 1.1);
   });
 
   it("keeps the drawn curve and every heading the user set", () => {
@@ -133,6 +133,15 @@ describe("heading for tags", () => {
     expect(optimizeHeadingForTags(input(drawn, robot({ cameras: undefined })), tags)).toBeNull();
     expect(optimizeHeadingForTags(input(drawn), [])).toBeNull();
     expect(optimizeHeadingForTags(input(drawn, robot({ drive: "tank" })), tags)).toBeNull();
+  });
+
+  it("does not split a user-directed turn between heading anchors", () => {
+    const directed = diagonal();
+    directed.waypoints.at(-1)!.rotationDirection = "ccw";
+    // The direction matches the original quarter turn. The original path offers a result, but every slot
+    // in this path would insert a new predecessor into the authored turn.
+    expect(result).not.toBeNull();
+    expect(optimizeHeadingForTags(input(directed), tags)).toBeNull();
   });
 
   it("adds no heading where the heading rule is not targets", () => {
