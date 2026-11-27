@@ -147,7 +147,7 @@ const countOf = (count, noun) => count + ' ' + noun + (count === 1 ? '' : 's');
  * of each path it follows) and keeps the routine and its paths unchanged. `onConfirm({ direction, name })` returns an
  * error string to keep the dialog open, or undefined when the parent closes it.
  */
-export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewCount = 0, generatedCount = 0, onCancel, onConfirm }) {
+export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewCount = 0, generatedCount = 0, savedPreviewCount = 0, onCancel, onConfirm }) {
   const ref = React.useRef(null), nameRef = React.useRef(null), live = useFlipSheet(ref);
   const [direction, setDirection] = React.useState('horizontal');
   const [name, setName] = React.useState(defaultName);
@@ -182,7 +182,9 @@ export function RoutineFlipDialog({ routineName, defaultName, pathCount, reviewC
         reviewCount > 0 && h('p', { className: 'pf-target-note' },
           countOf(reviewCount, 'path') + (reviewCount === 1 ? ' needs' : ' need') + ' saved optimization review. The copies need review before export too.'),
         generatedCount > 0 && h('p', { className: 'pf-target-note' },
-          countOf(generatedCount, 'generated trajectory step') + ' keep' + (generatedCount === 1 ? 's its' : ' their') + ' arguments. Check them for the new side.')),
+          countOf(generatedCount, 'generated trajectory step') + ' keep' + (generatedCount === 1 ? 's its' : ' their') + ' arguments. Check them for the new side.'),
+        savedPreviewCount > 0 && h('p', { className: 'pf-target-note' },
+          countOf(savedPreviewCount, 'saved preview path') + (savedPreviewCount === 1 ? ' keeps its' : ' keep their') + ' original field position.')),
       h('div', { className: 'pf-error', role: 'alert' }, error),
       h('div', { className: 'pj-foot' },
         h('span', { className: 'pj-foot-actions' },

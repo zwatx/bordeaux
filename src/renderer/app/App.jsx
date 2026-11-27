@@ -3097,7 +3097,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }),
       routineFlipSource && h(RoutineFlipDialog, {
         routineName: routineFlipSource.name, defaultName: uniqueRoutineName(routineFlipSource.name + ' flipped'),
-        pathCount: routineFlipPlan.paths.length, reviewCount: routineFlipPlan.needsReview, generatedCount: routineFlipPlan.generated,
+        pathCount: routineFlipPlan.paths.length, reviewCount: routineFlipPlan.needsReview, generatedCount: routineFlipPlan.generated, savedPreviewCount: routineFlipPlan.savedPreviews,
         onCancel: () => setRoutineFlipId(null), onConfirm: applyRoutineFlip,
       }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,

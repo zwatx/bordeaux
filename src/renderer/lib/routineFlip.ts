@@ -18,14 +18,15 @@ function eachNode(nodes: readonly RoutineNode[], visit: (node: RoutineNode) => v
 export function routineFlipSummary(project: PathSource, routine: AutonomousRoutine) {
   const byId = new Map(project.paths.map((path) => [path.id, path]));
   const paths = new Map<string, PathDoc>();
-  let generated = 0;
+  let generated = 0, savedPreviews = 0;
   eachNode(routine.nodes, (node) => {
     const path = node.type === "path" ? byId.get(node.ref) : undefined;
     if (path) paths.set(path.id, path);
     if (node.type === "generatedTrajectory") generated += 1;
+    if (node.type === "function" && node.cat === "generate" && "preview" in node && node.preview) savedPreviews += 1;
   });
   const sources = [...paths.values()];
-  return { paths: sources, generated, needsReview: sources.filter((path) => path.optimizationNeedsReview).length };
+  return { paths: sources, generated, savedPreviews, needsReview: sources.filter((path) => path.optimizationNeedsReview).length };
 }
 
 /**
