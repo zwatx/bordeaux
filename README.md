@@ -135,6 +135,10 @@ You can hide the path list from its header. A slim strip at the left edge brings
 
 Choose a `.lvproj` or the folder that contains it. Bordeaux reads the project XML, and NI inspection supplies each VI's saved connector types and parameter defaults. The resulting command catalog has stable command and condition IDs. Discovery never runs robot VIs.
 
+Commands under `<Subsystem>/Commands` can branch on scalar output terminals of `<Subsystem>/Implementation/<Subsystem> Controller.vi` on the same target. Bordeaux uses the saved Boolean, numeric, and enum connector types. Command descriptions do not declare outputs. Removed terminals disappear from the picker, and saved branches that used them need a new source.
+
+The LabVIEW routine runtime reads each referenced controller indicator after the command completes, then reuses the sample for its comparisons. Keep the running controller's front panel in the robot build. An unavailable or incompatible controller value stops the routine with an error.
+
 ### Export paths and routines
 
 Saving a path writes a local `.bdx` file. Exporting a path with command events needs saved NI type evidence for each command parameter. Paths without events export without a linked catalog.

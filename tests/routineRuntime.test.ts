@@ -107,24 +107,39 @@ describe('self-contained runtime routine compiler', () => {
     commandNode.outputBranch!.routes.pop();
     expect(() => buildRoutineRuntime(f.project, 'routine', routineBindingsFromBinary(f.binary))).toThrow(/2 to 256 routes/);
   });
-  it('retains saved branch routes and only exports controller sources used by a comparison', () => {
+  it('exports typed controller comparisons and skips unused controller connectors without shifting route indices', () => {
     const f = routineRuntimeFixture();
-    const name = 'Very cool condition Out', schema = { kind: 'boolean' as const, valueType: 'Boolean' };
-    f.command.outputs!.push({ name, schema, labviewControllerBoolean: true });
+    const file = 'Intake/Implementation/Intake Controller.vi';
+    f.command.labviewConnector!.file = 'Intake/Commands/Inspect.vi';
+    const name = 'Intake Controller/Speed', schema = { kind: 'number' as const, valueType: 'DBL' };
+    f.command.outputs!.push({
+      name: 'Intake Controller/Ready',
+      schema: { kind: 'boolean', valueType: 'Boolean' },
+      labviewController: { file, terminal: 'Ready', typeXml: '<Boolean><Name>Ready</Name></Boolean>' },
+    }, {
+      name, schema,
+      labviewController: { file, terminal: 'Speed', typeXml: '<DBL><Name>Speed</Name></DBL>' },
+    });
     f.project.routines[0].nodes = [
       { id: 'a', type: 'function', cat: 'command', invocation: f.invocation(), outputBranch: { output: name, schema, routes: [
-        { id: 'true', label: 'True', operator: 'eq', value: true, nodes: [] },
-        { id: 'false', label: 'False', operator: 'eq', value: false, nodes: [] },
+        { id: 'fast', label: 'At speed', operator: 'gte', value: 3.5, nodes: [] },
+        { id: 'slow', label: 'Otherwise', operator: 'otherwise', nodes: [] },
       ] } },
       { id: 'b', type: 'function', cat: 'command', invocation: f.invocation() },
-      { id: 'repeat', type: 'repeat', times: 2, until: { source: 'output', nodeId: 'c', output: name, schema, operator: 'eq', value: true }, nodes: [
+      { id: 'repeat', type: 'repeat', times: 2, until: { source: 'output', nodeId: 'c', output: name, schema, operator: 'lt', value: 1.25 }, nodes: [
         { id: 'c', type: 'function', cat: 'command', invocation: f.invocation() },
       ] },
     ];
     const { commands, nodes, comparisons } = buildRoutineRuntime(f.project, 'routine', routineBindingsFromBinary(f.binary)).document;
-    expect(nodes.map((node) => node.id)).toEqual(['a', 'true', 'false', 'b', 'repeat', 'c']);
-    expect(comparisons.map(({ producer, output, valueHex }) => [producer, output, valueHex])).toEqual([[0, 2, '01'], [0, 2, '00'], [5, 2, '01']]);
-    expect(commands.map((command) => command.outputs.find((output) => output.name === name)?.terminal)).toEqual([-1, undefined, -1]);
+    expect(nodes.map((node) => node.id)).toEqual(['a', 'fast', 'slow', 'b', 'repeat', 'c']);
+    expect(comparisons.map(({ producer, output, tag, valueHex }) => [producer, output, tag, valueHex])).toEqual([
+      [0, 2, 11, '400c000000000000'], [0, 2, 0, ''], [5, 2, 11, '3ff4000000000000'],
+    ]);
+    const speed = { name, terminal: -1, fieldPath: [name], niType: 'DBL', tag: 11, choices: [] };
+    expect(commands.map(command => command.outputs.filter(output => output.terminal === -1))).toEqual([[speed], [], [speed]]);
+
+    f.command.outputs = f.command.outputs!.filter(output => output.name !== name);
+    expect(() => buildRoutineRuntime(f.project, 'routine', routineBindingsFromBinary(f.binary))).toThrow(/output is missing or its type changed/);
   });
   it('bounds the complete node graph and rejects invalid scalar input/default evidence', () => {
     const f = routineRuntimeFixture();

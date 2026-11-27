@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import type { RobotCommandCatalog, RobotCommandDescriptor, RobotCommandParameter, LabviewProjectDiscovery } from "../core/types";
 import { discoverLabviewProject, resolveLabviewProject } from "./labviewProject";
 import { writeJsonAtomically } from "./projectFiles";
-import { decodeLabviewNiInspection } from "./labviewNiTypes";
+import { decodeLabviewNiInspection, isLabviewControllerFile, typedefs } from "./labviewNiTypes";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 
 /*
@@ -171,8 +171,41 @@ async function readBoundedJson(file: string): Promise<unknown> {
 
 const reportSources = (report: NiReport): LabviewNiSource[] => report.vis.map((row) => ({ file: String(row.file), target: String(row.target) }));
 /** Definitions from evidence, merged with the project's current declarations. */
-function catalogFromEvidence(discovered: RobotCommandCatalog, evidence: Evidence, status: "available" | "cached"): RobotCommandCatalog {
-  const decoded = decodeLabviewNiInspection(evidence.report, evidence.projectFile, reportSources(evidence.report));
+async function catalogFromEvidence(discovered: RobotCommandCatalog, evidence: Evidence, status: "available" | "cached"): Promise<RobotCommandCatalog> {
+  const saved = new Map(evidence.sources.map((source) => [sourceKey(source), source]));
+  const rows = new Map(evidence.report.vis.map(row => [sourceKey({ file: String(row.file), target: String(row.target) }), row]));
+  const knownTypes = new Map(evidence.dependencies.map(dependency => [identityPath(dependency.path), dependency]));
+  const verifiedControllers = new Set<string>();
+  const reader = new FileReader();
+  const present = (discovered.labviewDiscovery?.items ?? []).filter(item => item.file && item.status === "present");
+  const basenames = new Map<string, Set<string>>();
+  for (const item of present) {
+    const key = sourceKey({ target: item.target, file: path.posix.basename(item.file!).toLowerCase() });
+    const files = basenames.get(key) ?? new Set();
+    files.add(item.file!);
+    basenames.set(key, files);
+  }
+  const candidates = present.filter(item => isLabviewControllerFile(item.file!));
+  await parallelFiles(candidates, async (item) => {
+    const key = sourceKey({ target: item.target, file: item.file! });
+    const previous = saved.get(key);
+    const basenameKey = sourceKey({ target: item.target, file: path.posix.basename(item.file!).toLowerCase() });
+    if (!previous?.sha256 || previous.unsaved || basenames.get(basenameKey)?.size !== 1) return;
+    try {
+      const current = await reader.record(path.resolve(path.dirname(evidence.projectFile), item.file!), previous);
+      if (current.sha256 !== previous.sha256) return;
+      const row = rows.get(key);
+      const extended = (row?.connector as { extendedInformation?: unknown } | undefined)?.extendedInformation;
+      if (row?.dependenciesAvailable !== true || !Array.isArray(extended)) return;
+      const dependencies = new Set(extended.flatMap(info => typedefs(info, "").paths));
+      for (const file of dependencies) {
+        const known = knownTypes.get(identityPath(file));
+        if (!known?.sha256 || (await reader.record(file, known)).sha256 !== known.sha256) return;
+      }
+      verifiedControllers.add(key);
+    } catch { /* Controller evidence is optional. Missing or unreadable VIs supply no outputs. */ }
+  });
+  const decoded = decodeLabviewNiInspection(evidence.report, evidence.projectFile, reportSources(evidence.report), verifiedControllers);
   const result = merge(discovered, decoded.commands, { ...decoded.inspection, status });
   catalogEvidence.set(result.commands, evidence);
   return result;
@@ -216,7 +249,7 @@ export async function withCachedLabviewCommands(selection: string, catalog: Robo
   const { projectFile } = await resolveLabviewProject(selection);
   try {
     const evidence = await loadEvidence(projectFile, cacheDirectory);
-    return evidence ? catalogFromEvidence(catalog, evidence, "cached") : catalog;
+    return evidence ? await catalogFromEvidence(catalog, evidence, "cached") : catalog;
   } catch (error) {
     return unavailable(catalog, `Saved command definitions could not be read: ${errorMessage(error)} Refresh commands to read them from LabVIEW.`);
   }
@@ -227,7 +260,7 @@ export async function withSessionLabviewCommands(selection: string, catalog: Rob
   const { projectFile } = await resolveLabviewProject(selection);
   const evidence = sessionEvidence.get(identityPath(projectFile));
   if (!evidence) return null;
-  try { return catalogFromEvidence(catalog, evidence, "available"); }
+  try { return await catalogFromEvidence(catalog, evidence, "available"); }
   catch { sessionEvidence.delete(identityPath(projectFile)); return null; }
 }
 
@@ -407,7 +440,7 @@ async function inspect(selection: string, cacheDirectory: string, adapter: Adapt
   }
   const evidence: Evidence = { projectFile: before.projectFile, report, sources: before.sources.map((source) => records.get(sourceKey(source))!), dependencies };
   // Re-discover auto-populating folders and declarations so the result merges the project as it is now.
-  const result = catalogFromEvidence(await discoverLabviewProject(selection), evidence, "available");
+  const result = await catalogFromEvidence(await discoverLabviewProject(selection), evidence, "available");
   rememberEvidence(evidence);
   try {
     await fs.mkdir(cacheDirectory, { recursive: true });
