@@ -1,6 +1,5 @@
 import * as React from "react";
 import { FinalPlanning } from "../assets/final-planning";
-import { isOptimizationOutdated } from "../../core/planners/acceptedTrajectoryIdentity";
 import { finalPlanningOutcome } from "../lib/finalPlanningResult";
 import { AUTO } from "../lib/routineModel";
 
@@ -68,8 +67,7 @@ export function useRoutinePlanning(enabled, routine, projectPaths, robot, field,
         );
         const result = await currentRequest.promise;
         if (!active) return;
-        const outdated = Boolean(path.optimization?.accepted) && isOptimizationOutdated(path, robot, field);
-        const outcome = finalPlanningOutcome(result, path, outdated);
+        const outcome = finalPlanningOutcome(result);
         // Routines block on any unusable path; there is no provisional preview.
         if (outcome.status !== 'ready') {
           setPlanningState((current) => ({ ...current, status: 'error', error: `${path.name}: ${outcome.message}` }));

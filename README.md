@@ -1,6 +1,8 @@
 # Bordeaux
 
-Bordeaux is a lightweight desktop editor for authoring robot paths, autonomous routines, and robot command events. Normal trajectories use shared physics-aware timing and need no optimizer. Optional per-path optimization searches for faster geometry through the required waypoints, headings, and stops, checking the robot footprint against the field; compare the candidate and apply it to select the exact trajectory used by playback, routines, and export. See [trajectory optimization](docs/trajectory-optimization.md).
+Bordeaux is a lightweight desktop editor for authoring robot paths, autonomous routines, and robot command events. Normal trajectories use shared physics-aware timing and need no optimizer. Optional per-path optimization searches for faster geometry through the required waypoints, headings, and stops, checking the robot footprint against the field; compare a result with the current path and apply it to write its curve into the path as one undoable edit. Waypoints a route adds are marked as added by Optimize, so a later Optimize may move or remove them; editing one makes it yours. Playback, routines, and export always time the path itself. See [trajectory optimization](docs/trajectory-optimization.md).
+
+When opening an older project, Bordeaux converts compatible saved optimizations into editable curves and retimes them with the current planner. If a previously applied curve cannot be converted, open Optimize and apply a new result or confirm **Use drawn path** before exporting the affected path.
 
 Bordeaux is a LabVIEW-only planner. Link a `.lvproj` to discover commands and their parameters, then export a selected path as a `.bdx` binary. The [binary contract](docs/labview/binary-format.md) defines the file layout and robot-code boundary.
 
@@ -64,7 +66,7 @@ The **?** button lists keyboard shortcuts. Press its pencil to change them: clic
 
 In Routines, **Change path** opens a searchable path list with folder, duration, and usage context. The preview scrubber shows seconds and the current step. Click or drag to seek and pause; use the arrow keys for 0.1-second steps, Shift for 1-second steps, Page Up/Down for step boundaries, and Home/End for the start/end. Space plays or pauses. Untimed commands do not add preview time, and preview never executes commands or conditions.
 
-Field feedback uses one compact status; expanded **Details** holds diagnostics. Normal trajectory rebuilding remains automatic. Playback and field editing need a current trajectory: when planning rejects the path, the status explains why and offers **Edit limits**; when final planning runs out of time, it offers **Try again**. A saved optimization that cannot be validated offers **Optimize**.
+Field feedback uses one compact status; expanded **Details** holds diagnostics. Normal trajectory rebuilding remains automatic. Playback and field editing need a current trajectory: when planning rejects the path, the status explains why and offers **Edit limits**; when final planning runs out of time, it offers **Try again**. When the robot's footprint overlaps a wall or field element, Problems shows where and suggests optimizing again or editing the path.
 
 **Undo** applies to what you are looking at: the open path, or the routines, plus project-wide changes such as deleting a path or folder. It skips edits made elsewhere, but it is unavailable while a newer edit elsewhere depends on the change, such as an edit to a path that shared a position with a deleted one. Undo that newer edit first. Restoring a folder or path keeps library names, folders, and links you have changed since.
 

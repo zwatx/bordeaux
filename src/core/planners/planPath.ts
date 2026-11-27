@@ -9,6 +9,9 @@ import { remapTiming, remapWaypointIndices } from "./optimizedTrajectory";
 import { profiledSplineOptimizationSeed } from "./profiledSpline";
 import { solveReachabilityProfile, type ReachabilityViolation } from "./reachability";
 import { applyRotationPriority } from "./rotationPriority";
+import { stable } from "./routeGeometry";
+import { fieldCollisionRange } from "./routeSafety";
+import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { applyStationaryActions, nextMovingSampleIndices } from "./stationaryActions";
 import { orderedWaypointSampleIndices } from "./waypointSamples";
 import {
@@ -43,6 +46,8 @@ export type PlanIssueCode =
   | "heading"
   | "look-at"
   | "jerk"
+  | "field-collision"
+  | "optimization-review"
   | "planner";
 
 export interface PlanIssue {
@@ -815,13 +820,42 @@ function planPathUnchecked(input: PlannerInput, options: PlanPathOptions): PlanP
 }
 
 /**
+ * Adds a warning where the robot's footprint overlaps the field along the timed path. Timing and
+ * status are unchanged; the curve is the user's to fix, by optimizing again or editing the path.
+ * Only the field this check models is checked.
+ */
+function withFieldCollision(input: PlannerInput, result: PlanPathResult): PlanPathResult {
+  const samples = result.trajectory?.samples ?? result.bestEffort?.samples;
+  if (!samples?.length || !input.robot || (input.field !== undefined && stable(input.field) !== stable(ACTIVE_FIELD_REFERENCE))) return result;
+  let range: ReturnType<typeof fieldCollisionRange>;
+  try {
+    range = fieldCollisionRange(input.robot, samples);
+  } catch {
+    // A robot the footprint model cannot read is reported by planning itself.
+    return result;
+  }
+  if (!range) return result;
+  return { ...result, issues: sortIssues([...result.issues, {
+    code: "field-collision", severity: "warning", f0: range.f0, f1: range.f1,
+    message: "Robot hits the field",
+    detail: "The robot's footprint overlaps a wall or field element on this stretch. Optimize again or edit the path.",
+  }]) };
+}
+
+/**
  * Plans a path without ever throwing. Returns the strict planner result when
  * it is exportable; otherwise a display-only best-effort timing (soft
  * reachability, falling back to the legacy trapezoid) plus localized issues.
  */
 export function planPath(input: PlannerInput, options: PlanPathOptions = {}): PlanPathResult {
   try {
-    return planPathUnchecked(input, options ?? {});
+    const result = withFieldCollision(input, planPathUnchecked(input, options ?? {}));
+    if (!input.path.optimizationNeedsReview) return result;
+    return { ...result, issues: sortIssues([...result.issues, {
+      code: "optimization-review", severity: "warning", f0: 0, f1: 1,
+      message: "Saved optimization needs review",
+      detail: "Open Optimize and apply a new result or choose Use drawn path before exporting.",
+    }]) };
   } catch (error) {
     return {
       status: "infeasible",

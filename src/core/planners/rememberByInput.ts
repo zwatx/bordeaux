@@ -34,7 +34,5 @@ export function rememberByKey<Result>(capacity: number): (key: string, compute: 
  */
 export function rememberByInput<Result>(capacity: number, compute: (input: PlannerInput) => Result): (input: PlannerInput) => Result {
   const remember = rememberByKey<Result>(capacity);
-  // An accepted trajectory on the path can hold thousands of samples, which costs
-  // more to key than a cache hit saves on the interactive path.
-  return (input) => input.path.optimization ? compute(input) : remember(JSON.stringify(input), () => compute(structuredClone(input)));
+  return (input) => remember(JSON.stringify(input), () => compute(structuredClone(input)));
 }
