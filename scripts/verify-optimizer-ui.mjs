@@ -47,7 +47,30 @@ try {
       { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -0.5655, segType: 'bezier',
         prevC: { x: 0.0705, y: -3.1655 }, nextC: { x: -0.8875, y: 0.2605 } },
     ] };
-  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner], pathLinks: [],
+  // Straight lines from one point to another, handles a third of the way along, travelling toward -x.
+  const line = (from, to, extra = {}) => ({ ...structuredClone(alternate), headingMode: 'tangent', ...extra,
+    waypoints: [from, to].map((point, index) => ({ linked: true, thetaOn: true, theta: 180, stop: false, x: point.x, y: point.y, ...(index === 0 ? { segType: 'bezier' } : {}),
+      prevC: { x: point.x - (to.x - from.x) / 3, y: point.y }, nextC: { x: point.x + (to.x - from.x) / 3, y: point.y } })) });
+  // Through the HUB: only a route around it is valid, so Apply inserts waypoints. Its marker and zone check placement.
+  const detour = line({ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }, { id: 'optimizer-verification-detour', name: 'Optimizer verification detour',
+    markers: [{ id: 'optimizer-verification-marker', name: 'Intake', f: 0.5, anchor: 'param' }],
+    ranges: [{ anchor: 'wp', w0: 0, t0: 0.6, w1: 1, f0: 0, f1: 1, maxVel: 1.5, name: 'Slow' }] });
+  // Under the TRENCH, which a taller robot no longer fits.
+  const trench = line({ x: 5.5705, y: 3.3965 }, { x: 1.6705, y: 3.3965 }, { id: 'optimizer-verification-trench', name: 'Optimizer verification trench' });
+  // A straight line between two waypoints. Normal already drives it as fast as the robot can, so neither search
+  // has anything to offer and both result rows are listed greyed with their reason.
+  const straight = { ...structuredClone(corner), id: 'optimizer-verification-straight', name: 'Optimizer verification straight',
+    waypoints: [
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 3.8805, y: -3.5155, segType: 'bezier',
+        prevC: { x: 4.8805, y: -3.5155 }, nextC: { x: 2.6305, y: -3.5155 } },
+      { linked: true, thetaOn: true, theta: 180, stop: false, x: 0.1555, y: -3.5155, segType: 'bezier',
+        prevC: { x: 1.4055, y: -3.5155 }, nextC: { x: -0.8445, y: -3.5155 } },
+    ] };
+  // A drawn curve that fails the field check under the trench. A route that clears it is offered although it is not faster.
+  const clearance = structuredClone(corpus.paths.find((item) => item.id === 'corpus-red-away-trench'));
+  if (!clearance) throw new Error('Trench clearance fixture was not found');
+  clearance.name = 'Optimizer verification trench clearance';
+  const fixture = { ...corpus, name: 'Optimizer UI verification', paths: [primary, alternate, corner, detour, trench, straight, clearance], pathLinks: [],
     routines: [{ id: 'optimizer-verification-routine', name: 'Verification', nodes: [{ id: 'optimizer-drive', type: 'path', ref: primary.id }] }],
     activeRoutineId: 'optimizer-verification-routine', plannerId: 'profiledSpline', editor: { activePathId: primary.id } };
   const html = path.join(root, 'dist-renderer/index.html');
@@ -76,11 +99,11 @@ try {
   assert.equal(result.passed, true);
   assert.deepEqual(result.errors, []);
   assert.ok(Array.isArray(result.checks));
-  assert.equal(result.checks.length, 36, 'Retain all 27 original checks, eight request-evidence checks and the two-result check');
-  assert.equal(new Set(result.checks).size, 36);
+  assert.equal(result.checks.length, 39, 'Every check of the flow, six of them request evidence');
+  assert.equal(new Set(result.checks).size, 39);
   assert.ok(result.checks.every(name => typeof name === 'string' && name.length));
   const evidence = result.workerEvidence;
-  assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and cold accepted reload documents');
+  assert.equal(evidence.documents.length, 3, 'Observe initial, units reload and applied-path reload documents');
   assert.deepEqual(evidence.documents.map(doc => doc.document), [1, 2, 3]);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, 'worker-evidence.json'), 'utf8')), evidence);
   const registration = JSON.parse(await fs.readFile(path.join(output, 'observer-registration.json'), 'utf8'));
@@ -101,8 +124,8 @@ try {
   assert.equal(preloadSource, "const { contextBridge } = require('electron');\nif (process.isMainFrame) contextBridge.executeInMainWorld({ func: "
     + observerSource + ', args: [' + JSON.stringify(observerSha256) + '] });\n');
   assert.equal(registration.sha256, createHash('sha256').update(preloadSource).digest('hex'));
-  assert.equal(evidence.checkpoints.length, 8);
-  assert.equal(new Set(evidence.checkpoints.map(point => point.label)).size, 8);
+  assert.equal(evidence.checkpoints.length, 6);
+  assert.equal(new Set(evidence.checkpoints.map(point => point.label)).size, 6);
   assert.ok(evidence.checkpoints.every(point => point.passed === true && result.checks.includes(point.label)));
   assert.ok(evidence.documents.every(doc => doc.problems.length === 0 && doc.jobs.some(job => job.mode === 'editing')));
   assert.ok(evidence.documents.every(doc => doc.installed === true && doc.installedReadyState === 'loading'
@@ -110,7 +133,7 @@ try {
   assert.ok(evidence.documents.at(-1).jobs.every(job => job.status !== 'pending'));
   assert.ok(Number.isFinite(result.normalTimeS) && Number.isFinite(result.optimizedTimeS));
   assert.ok(result.optimizedTimeS < result.normalTimeS);
-  assert.equal(result.optimizedTimeS, result.savedAcceptedTimeS);
+  assert.equal(result.optimizedTimeS, result.plannedTimeS, 'The applied path plans exactly the previewed time');
   await json('launcher-verdict.json', { passed: true, status, timedOut, stableInputs, checks: result.checks.length,
     checkpoints: evidence.checkpoints.length, documents: evidence.documents.length, observer: registration,
     startedAt, endedAt: new Date().toISOString() });
