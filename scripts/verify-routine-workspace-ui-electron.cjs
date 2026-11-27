@@ -828,7 +828,7 @@ app.whenReady().then(async () => {
       await click('.project-chip'); await click('[role="menuitem"][data-action="save"]');
       await wait(() => saves > beforeNameSave, 'save named commands');
       await load('later-a');
-      assert.deepEqual((await source())[0].nodes.map(node => node.title), ['Shoot', 'Check whether collection is finished'], 'Names survive save and reload');
+      assert.deepEqual((await source())[0].nodes.map(node => [node.title, node.titleIsCustom]), [['Shoot', true], ['Check whether collection is finished', undefined]], 'Names survive save and reload');
       await selectStep('later-a');
       await click('.routine-insp .routine-step-name'); await evaluate(() => document.activeElement.select()); await key('Backspace'); await key('Enter');
       await wait(async () => (await source())[0].nodes[0].title === 'Check whether collection is finished', 'an empty name returns to the default');
