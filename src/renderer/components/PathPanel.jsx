@@ -213,7 +213,9 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
               const tag = marker.actionIntent?.semanticTag;
               actions.setMarker(i, {
                 cmd: command ? command.id : 'none',
-                invocation: command ? { commandId: command.id, arguments: commandArguments(command), ...(marker.invocation?.loop ? { loop: marker.invocation.loop } : {}) } : undefined,
+                // Keep each robot's estimate on this use: a command change marks it Review instead of deleting it.
+                invocation: command ? { commandId: command.id, arguments: commandArguments(command), ...(marker.invocation?.loop ? { loop: marker.invocation.loop } : {}),
+                  ...(marker.invocation?.power ? { power: marker.invocation.power } : {}) } : undefined,
                 actionIntent: command && tag && (command.semanticTags || []).includes(tag) ? undefined : marker.actionIntent,
               });
             } }))
