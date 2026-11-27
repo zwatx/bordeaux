@@ -3,14 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { decodeProjectFile, encodeProjectFile } from "../src/core/project/fileFormat";
 import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
-import { applyAcceptedRouteTrajectory, createAcceptedTrajectory, getAcceptedTrajectory, selectPathTrajectory } from "../src/core/planners/acceptedTrajectory";
-import { routeInputKey, routeIntentKey } from "../src/core/planners/routeIdentity";
+import { pathPlanningKey } from "../src/core/planners/planningKey";
+import { pathTrajectory } from "../src/core/planners/pathTrajectory";
 import { routeCandidateFailure } from "../src/core/planners/routeValidation";
 import { getPlanner } from "../src/core/planners";
-import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
-import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import { routeSafetyFailure } from "../src/core/planners/routeSafety";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { applyRoute, geometryFromPath } from "../src/core/planners/routeGeometry";
 import { observeRobotFieldPortalSequence } from "../src/core/agent/fieldClearance";
 import { buildBdxExport } from "../src/core/export/bdx";
 import { PM } from "../src/core/math/pm";
@@ -54,8 +52,8 @@ describe("waypoint-defined route search", () => {
     expect(result.baseline).toBeUndefined();
     expect(result.candidate!.optimization!.baselineTimeS).toBeUndefined();
     expect(result.candidate!.optimization!.gainS).toBeUndefined();
-    const applied = applyAcceptedRouteTrajectory(path, robot, result.candidate!);
-    expect(getAcceptedTrajectory(applied, robot)).toEqual(result.candidate);
+    const applied = applyRoute(path, result.candidate!.routeGeometry!);
+    expect(pathTrajectory(applied, robot).samples).toEqual(result.candidate!.samples);
   });
 
   it("finds a solver-knot detour from a seed crossing the HUB and a legal portal", () => {
@@ -94,20 +92,14 @@ describe("waypoint-defined route search", () => {
     expect(result.candidate, JSON.stringify(result.statistics)).toBeDefined();
     const candidate = result.candidate!;
     expect(candidate.routeGeometry!.knots.length).toBeGreaterThan(2);
-    const planning = routePlanningPath(path, candidate.routeGeometry!);
+    const planning = applyRoute(path, candidate.routeGeometry!);
     const sample = PM.sample(planning.waypoints, 128);
     expect(PM.effectiveRanges(planning, sample)[0]).toMatchObject({ f0: 0.5, f1: 1, maxVel: 0.6 });
     expect(candidate.samples.filter((s) => s.f > 0.51).every((s) => Math.abs(s.velocityMps) <= 0.601)).toBe(true);
     const turn = candidate.stationaryActions!.find((a) => a.kind === "turn")!;
-    expect(turn.waypointIndex).toBe(1);
     expect(turn.endTimeS - turn.startTimeS).toBeGreaterThanOrEqual(5.625);
-    const applied = applyAcceptedRouteTrajectory(path, robot, candidate);
-    expect(getAcceptedTrajectory(applied, robot)).toEqual(candidate);
-    const tampered = structuredClone(applied);
-    const action = tampered.optimization!.accepted!.result.stationaryActions!.find((a) => a.kind === "turn")!;
-    const moving = tampered.optimization!.accepted!.result.samples.find((s) => s.t > action.startTimeS + 0.1 && s.t < action.endTimeS)!;
-    moving.headingRad += 0.1;
-    expect(getAcceptedTrajectory(tampered, robot)).toBeNull();
+    expect(turn.waypointIndex).toBe(planning.waypoints.length - 1);
+    expect(pathTrajectory(planning, robot).samples).toEqual(candidate.samples);
   }, 30_000);
 
   it("can choose a different legal portal from the drawn seed", () => {
@@ -136,66 +128,35 @@ describe("waypoint-defined route search", () => {
     expect(observeRobotFieldPortalSequence(robot, high.candidate!.samples).visits.every((p) => !p.id.includes("trench"))).toBe(true);
   }, 30_000);
 
-  it("preserves legacy artifacts and values durably when explicitly applying a route", () => {
-    const { project, path, robot } = fixture();
-    path.optimization = { corridorM: 0.4 };
-    const legacyResult = optimizeCorridorFinal({ path, robot }, { maximumEvaluations: 1, corridorM: 0.4 });
-    path.optimization.accepted = createAcceptedTrajectory(path, robot, legacyResult);
-    const legacy = structuredClone(path.optimization.accepted);
-    expect(getAcceptedTrajectory(path, robot)).toEqual(legacyResult);
-    const selected = applyAcceptedRouteTrajectory(path, robot, solve(path, robot, 2).candidate!);
-    expect(selected.optimization).toMatchObject({ corridorM: 0.4, legacyAccepted: legacy, accepted: { version: 2 } });
-    project.paths = [selected];
-    const reopened = decodeProjectFile(encodeProjectFile(project).contents).project;
-    expect(reopened.paths[0].optimization!.legacyAccepted).toEqual(legacy);
-    const normal = { ...selected, optimization: { ...selected.optimization, accepted: undefined } };
-    expect(getAcceptedTrajectory(normal, robot)).toBeNull();
-    expect(encodeProjectFile({ ...project, paths: [path] }).project.schemaVersion).toBe("1.0");
-  });
-
-  it("retires seed jobs without invalidating accepted intent, and preserves exact persisted/exported samples", () => {
+  it("retires a search when the curve changes, and saves and exports the applied path exactly", () => {
     const { project, path, robot } = fixture();
     const candidate = solve(path, robot, 2).candidate!;
-    const applied = applyAcceptedRouteTrajectory(path, robot, candidate);
+    const applied = applyRoute(path, candidate.routeGeometry!);
     const changed = structuredClone(applied);
     changed.waypoints[0].nextC.y += 2;
-    expect(routeInputKey(changed, robot)).not.toBe(routeInputKey(applied, robot));
-    expect(routeIntentKey(changed, robot)).toBe(routeIntentKey(applied, robot));
-    expect(getAcceptedTrajectory(changed, robot)).toEqual(candidate);
-    expect(getAcceptedTrajectory({ ...changed, name: "Renamed", id: "copy" }, robot)).toEqual(candidate);
-    const taskChanged = structuredClone(changed);
-    taskChanged.waypoints[0].x += 0.1;
-    expect(getAcceptedTrajectory(taskChanged, robot)).toBeNull();
-    project.paths = [changed];
-    const encoded = encodeProjectFile(project);
-    expect(encoded.project.schemaVersion).toBe("1.2");
-    const reopened = decodeProjectFile(encoded.contents).project;
+    expect(pathPlanningKey(changed, robot)).not.toBe(pathPlanningKey(applied, robot));
+    expect(pathPlanningKey({ ...applied, name: "Renamed" }, robot)).toBe(pathPlanningKey(applied, robot));
+    project.paths = [applied];
+    const reopened = decodeProjectFile(encodeProjectFile(project).contents).project;
     expect(buildBdxExport(reopened).paths[0].samples).toEqual(candidate.samples);
     expect(buildBdxExport(reopened).paths[0].markers).toEqual(candidate.markers);
   });
 
-  it.each(["geometry", "sample", "event", "mapping"])("blocks current-input %s tampering", (kind) => {
+  it.each(["geometry", "mapping"])("refuses a candidate whose %s no longer matches its path", (kind) => {
     const { path, robot } = fixture();
-    path.markers = [{ id: "event", name: "Intake", cmd: "intake", f: 0.5 }];
-    const candidate = solve(path, robot, 2).candidate!;
-    const applied = applyAcceptedRouteTrajectory(path, robot, candidate);
-    const result = applied.optimization!.accepted!.result;
-    if (kind === "geometry") result.routeGeometry!.knots[0].x += 0.1;
-    if (kind === "sample") result.samples[3].x += 0.2;
-    if (kind === "event") result.markers[0].command = "forged";
-    if (kind === "mapping") result.routeGeometry!.requiredPointIndices[1] = 0;
-    expect(getAcceptedTrajectory(applied, robot)).toBeNull();
-    expect(() => selectPathTrajectory(applied, robot)).toThrow(/applied optimization is invalid/);
+    const candidate = structuredClone(solve(path, robot, 2).candidate!);
+    if (kind === "geometry") candidate.routeGeometry!.knots[0].nextC.x += 0.1;
+    if (kind === "mapping") candidate.routeGeometry!.requiredPointIndices[1] = 0;
+    expect(routeCandidateFailure({ path, robot }, candidate)).toBeDefined();
   });
 
   it("independently refuses exact, physically timed geometry that crosses a solid obstacle", () => {
     const { path, robot } = fixture([{ x: 5.5705, y: -0.0655 }, { x: 1.6705, y: -0.0655 }]);
-    const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
-    const raw = optimizeFixedGeometryFinal({ path: planning, robot });
-    expect(raw.optimization!.fallback).toBe(false);
-    const result = routeResultToSource(raw, geometry, planning);
+    const geometry = geometryFromPath(path), planning = applyRoute(path, geometry);
+    const raw = getPlanner("profiledSpline").generate({ path: planning, robot });
+    expect(raw.diagnostics.some((issue) => issue.severity === "error")).toBe(false);
+    const result = { ...raw, routeGeometry: geometry, optimizedPath: planning };
     expect(routeCandidateFailure({ path, robot }, result)).toMatch(/clearance/);
-    expect(() => applyAcceptedRouteTrajectory(path, robot, result)).toThrow(/clearance/);
   });
 
   it("bounds stationary rotation clearance even with safe endpoint footprints", () => {
@@ -203,8 +164,7 @@ describe("waypoint-defined route search", () => {
     robot.w = 0.2; robot.l = 1.2;
     path.waypoints[1].stop = true;
     path.waypoints[1].turnInPlace = { headingDeg: 180, direction: "counterclockwise" };
-    const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
-    const raw = getPlanner("profiledSpline").generate({ path: planning, robot });
+    const raw = getPlanner("profiledSpline").generate({ path, robot });
     expect(raw.stationaryActions!.some((a) => a.kind === "turn")).toBe(true);
     expect(routeSafetyFailure(robot, raw)).toMatch(/clearance/);
     expect(solve(path, robot, 2).candidate).toBeUndefined();
@@ -213,8 +173,7 @@ describe("waypoint-defined route search", () => {
   it("uses configured BUMP speed without inventing field policy", () => {
     const { path, robot } = fixture([{ x: 5.5705, y: 1.4345 }, { x: 1.6705, y: 1.4345 }]);
     path.constraints.maxVel = 4;
-    const geometry = geometryFromPath(path), planning = routePlanningPath(path, geometry);
-    const raw = optimizeFixedGeometryFinal({ path: planning, robot });
+    const raw = getPlanner("profiledSpline").generate({ path, robot });
     expect(raw.samples.some((s) => s.velocityMps > 2.1)).toBe(true);
     const failure = routeSafetyFailure(robot, raw);
     expect(failure).toBeUndefined();

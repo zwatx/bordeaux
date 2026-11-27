@@ -181,7 +181,6 @@ export function validateFinal(input: PlannerInput, result: PlannerResult): Final
       activeConstraints: result.optimization?.activeConstraints ?? [],
     };
   }
-  if (input.path.optimization) return denselyValidated(input, result);
   const verdict = rememberDenseValidation(
     JSON.stringify([input, result.optimization?.refinementPasses ?? 0, result.stationaryActions ?? null, result.samples]),
     () => denselyValidated(input, result),

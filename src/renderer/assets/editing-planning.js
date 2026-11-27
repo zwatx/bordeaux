@@ -39,12 +39,24 @@ function authoredHeadings(path, waypoints, sampled, wpFrac, robot) {
   return { head, mode, headingMode, anchors: mode === 'tank' ? [] : buildAnchors(sampled.pts.map((point, i) => ({ f: point.s / (sampled.length || 1), rad: head[i] }))) };
 }
 
+// Base curve points editingGeometry samples before it falls back to straight waypoint lines.
+const MAX_GEOMETRY_POINTS = 2000;
+// Drag-preview points per segment: half the release solve's 56. Curves read smooth at normal zoom, and
+// a drag redraws fewer points than at full density, which matters on slow laptops.
+const LIVE_SAMPLES_PER_SEGMENT = 28;
+
+/** Drag-preview sampling per segment, lowered when needed to stay inside the geometry point budget. */
+function liveSamplesPerSegment(path) {
+  const segments = Math.max(1, (path?.waypoints?.length || 0) - 1);
+  return Math.max(1, Math.min(LIVE_SAMPLES_PER_SEGMENT, Math.floor((MAX_GEOMETRY_POINTS - 1) / segments)));
+}
+
 /** Geometry only: never invoke a timing solve or stationary-action loop on the UI thread. */
 export function editingGeometry(path, perSegment = 14, robot = null) {
   const waypoints = Array.isArray(path?.waypoints) ? path.waypoints : [];
   let sampled;
   try {
-    if (waypoints.length < 2 || !Number.isInteger(perSegment) || perSegment < 1 || (waypoints.length - 1) * perSegment + 1 > 2000
+    if (waypoints.length < 2 || !Number.isInteger(perSegment) || perSegment < 1 || (waypoints.length - 1) * perSegment + 1 > MAX_GEOMETRY_POINTS
       || !waypoints.every(w => [w?.x, w?.y, w?.prevC?.x, w?.prevC?.y, w?.nextC?.x, w?.nextC?.y].every(Number.isFinite))) throw new Error('Use waypoint geometry');
     sampled = sampleGeometry(waypoints, perSegment, true);
     if (!sampled.pts.every(p => [p.x, p.y, p.s].every(Number.isFinite))) throw new Error('Use waypoint geometry');
@@ -130,7 +142,8 @@ export function projectEditingTiming(geometry, bestEffort, issues = []) {
  */
 export function liveEditingPreview(path, robot, solvedPath, solved) {
   if (solvedPath === path) return solved;
-  const geometry = editingGeometry(path, 14, robot), checks = [...geometry.checks, ...(solved?.checks || [])];
+  // Sample densely enough that the curve does not look faceted until the solve lands.
+  const geometry = editingGeometry(path, liveSamplesPerSegment(path), robot), checks = [...geometry.checks, ...(solved?.checks || [])];
   const trace = solved?.trajectorySamples?.length > 1 ? solved.trajectorySamples : solved?.finalTrajectory?.samples;
   if (!(trace?.length > 1) || geometry.sample.pts.length < 2) return { ...geometry, checks };
   // Map each live point to the solved fraction within its waypoint segment, keeping stops on their waypoints.
@@ -153,7 +166,7 @@ export function liveEditingPreview(path, robot, solvedPath, solved) {
   // Carry the clock (including holds) onto the edited geometry. The source trace's positions
   // must never draw the robot on the old curve while the field already shows the new one.
   segment = 0;
-  const oldGeometry = editingGeometry(solvedPath, 14, robot);
+  const oldGeometry = editingGeometry(solvedPath, liveSamplesPerSegment(solvedPath), robot);
   const trajectorySamples = trace.map(sample => {
     let f = sample.f;
     if (pinned) {

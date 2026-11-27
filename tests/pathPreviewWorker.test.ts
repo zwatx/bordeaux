@@ -7,7 +7,6 @@ import { PM } from "../src/renderer/lib/pathMath";
 import { fixedPathSamples, getPlanner } from "../src/core/planners";
 import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import { optimizeCorridorFinal } from "../src/core/planners/corridorFinal";
-import { createAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
 import { scaleTrajectoryTiming } from "../src/core/planners/optimizedTrajectory";
 import { buildWaypoints, createDemoProject, defaultPathConstraints } from "../src/core/project/defaults";
 
@@ -63,16 +62,17 @@ describe("path preview worker final optimization", () => {
     expect(result.value.finalTrajectory).toBeUndefined();
   });
 
-  it('projects solver geometry while editor waypoint indices retain their required-point meaning', () => {
+  it('projects a candidate onto the path Apply would write, inserted waypoints included', () => {
     const project = createDemoProject();
+    const applied = { ...project.paths[0], id: 'applied' };
     const geometry = { ...derived(), wpIdx: [0, 1, 2], wpFrac: [0, .5, 1] };
-    const trajectory = { ...finalTrajectory(), routeGeometry: { version: 1, requiredPointIndices: [0, 2] } };
-    const result = previewForTrajectory(project.paths[0], project.robot, trajectory, () => geometry);
-    expect(result.wpIdx).toEqual([0, 2]);
-    expect(result.wpFrac).toEqual([0, 1]);
+    const trajectory = { ...finalTrajectory(), optimizedPath: applied };
+    const seen: unknown[] = [];
+    const result = previewForTrajectory(project.paths[0], project.robot, trajectory, (path: unknown) => { seen.push(path); return geometry; });
+    expect(seen).toEqual([applied]);
+    expect(result.wpIdx).toEqual([0, 1, 2]);
     expect(result.prof.totalTime).toBe(trajectory.totalTimeS);
     expect(result.finalTrajectory).toBe(trajectory);
-    expect(geometry.wpIdx).toEqual([0, 1, 2]);
   });
   it("keeps interactive edits independent from full physics planning", () => {
     const project = createDemoProject();
@@ -445,7 +445,7 @@ describe("path preview worker final optimization", () => {
 
   it("streams validated candidates with the run identity and no seed-deviation option", () => {
     const messages: any[] = [];
-    const path = { id: "authored", optimization: { corridorM: 0.4, accepted: { obsolete: true } } };
+    const path = { id: "authored" };
     const result = processPathPreviewJob({
       id: 9, quality: "final", plannerId: "profiledSpline", optimize: true,
       path, robot: {}, perSegment: 56, deadline: "stress", deadlineMs: 15_000,
@@ -467,32 +467,10 @@ describe("path preview worker final optimization", () => {
     });
     expect(messages[1].value.finalOptimization.status).toBe("optimal");
     expect(result.value.finalTrajectory.totalTimeS).toBe(1.8);
-    expect(path.optimization.accepted).toEqual({ obsolete: true });
+    expect(path).toEqual({ id: "authored" });
   });
 
-  it("reuses the applied trajectory unchanged across repeated final requests", () => {
-    const project = createDemoProject();
-    const path = project.paths[0];
-    path.waypoints = buildWaypoints([
-      { x: 1, y: 1, theta: 0, segType: "line" },
-      { x: 2, y: 1, theta: 0 },
-    ]);
-    const trajectory = optimizeFixedGeometryFinal({ path, robot: project.robot, samplesPerSegment: 56 });
-    path.optimization = { corridorM: 0.15, accepted: createAcceptedTrajectory(path, project.robot, trajectory) };
-    const selected = path.optimization.accepted!.result;
-    for (let id = 1; id <= 2; id += 1) {
-      const result = processPathPreviewJob({
-        id, quality: "final", plannerId: "profiledSpline", path, robot: project.robot, perSegment: 56,
-      }, PM.derivePath, () => { throw new Error("Selected results must not re-optimize"); }, () => {
-        throw new Error("Selected results must not fall back to the normal profile");
-      });
-      expect(result.error).toBeUndefined();
-      expect(result.value.finalTrajectory).toBe(selected);
-      expect(result.value.prof.totalTime).toBe(selected.totalTimeS);
-    }
-  });
-
-  it("renders accepted corridor geometry without mutating the authored path", () => {
+  it("renders a candidate's geometry without mutating the authored path", () => {
     const authored = { id: "authored", x: 1 };
     const optimizedPath = { id: "candidate", x: 1.2 };
     const derive = (path: any) => {

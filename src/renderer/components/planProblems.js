@@ -22,6 +22,13 @@ const BY_CODE = {
   planner: 'Couldn’t time this path',
   'planner-error': 'Couldn’t time this path',
   'planner-fallback': 'Couldn’t time this path',
+  'field-collision': 'Robot hits the field',
+};
+
+// The way forward for a problem no zone or limit can fix.
+const ADVICE = {
+  'optimization-review': 'Open Optimize and apply a new result or choose Use drawn path before exporting.',
+  'field-collision': 'Optimize again or edit the path so the robot clears it.',
 };
 
 function limitedBy(constraint = '') {
@@ -73,7 +80,7 @@ export function plainProblem(issue, waypointCount = 0, units = UnitPrefs) {
   else if (!whole && Number.isInteger(issue.segment) && issue.segment + 1 < waypointCount) where = 'Segment ' + (issue.segment + 1);
 
   return {
-    text, where, values, by: limitedBy(issue.constraint),
+    text, where, values, by: limitedBy(issue.constraint), advice: ADVICE[issue.code] || null,
     engine: issue.message && issue.message !== text ? issue.message : null,
     fixable: !whole && SPEED_FIXABLE.has(issue.code),
   };

@@ -3,7 +3,7 @@ import { FIELD_H } from "../math/fieldBounds";
 import { waypointHeadingSemantics } from "../math/waypointHeading";
 import type { ControlPoint, PathDoc, PlannerInput, RouteGeometry } from "../types";
 import { segmentHeadingLaws } from "./headingTransitions";
-import { geometryFromPath, routeGeometryShapeError, MAX_ROUTE_KNOTS } from "./routeGeometry";
+import { routeGeometryShapeError, routeTask, MAX_ROUTE_KNOTS } from "./routeGeometry";
 import { routeFieldModel, routeLineClear, type RouteFieldModel } from "./routeSafety";
 
 const dist = (a: ControlPoint, b: ControlPoint) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -123,19 +123,23 @@ function graphRoute(source: PathDoc, model: RouteFieldModel, side: number, stop:
   return { points, indices };
 }
 
-/** Finite deterministic candidate family, with full vectors and solver-owned knots. */
+/**
+ * Finite deterministic candidate family, with full vectors and solver-owned knots. Routes run
+ * through the path's required waypoints; the current curve, with any waypoints Optimize added
+ * earlier, is one candidate and the source of the shape-keeping variants.
+ */
 export function* routeCandidates(input: PlannerInput, stop: () => boolean, exhausted: () => void = () => {}): Generator<RouteGeometry> {
-  const source = input.path;
+  const current = input.path;
+  const { task: source, seed: authored } = routeTask(current);
   const points = source.waypoints.map(({ x, y }) => ({ x, y }));
   const indices = points.map((_, i) => i);
   const tankDrive = input.robot.drive === "tank";
   // Canonical rescue runs first, then Normal qualification and strict timing
   // of the authored geometry, which is a distinct candidate.
   yield handles(source, points, indices, 1 / 3, 0, tankDrive);
-  const authored = geometryFromPath(source);
   yield authored;
   const aligned = !routeGeometryShapeError(authored) && authored.knots.every((k, i) => {
-    if (i === 0 || i === authored.knots.length - 1 || source.waypoints[i].stop) return true;
+    if (i === 0 || i === authored.knots.length - 1 || current.waypoints[i].stop) return true;
     const ax = k.x - k.prevC.x, ay = k.y - k.prevC.y;
     const bx = k.nextC.x - k.x, by = k.nextC.y - k.y;
     const lengths = Math.hypot(ax, ay) * Math.hypot(bx, by);
@@ -159,26 +163,18 @@ export function* routeCandidates(input: PlannerInput, stop: () => boolean, exhau
     const route = graphRoute(source, model, side, stop, exhausted);
     if (route) {
       for (const factor of [0.2, 0.35, 0.12]) {
-        const geometry = handles(source, route.points, route.indices, factor, 0, tankDrive);
-        yield geometry;
-        // Quintic curvature smoothing can overshoot a graph detour when adjacent
-        // legs have very different lengths. Also try the same aligned cubic
-        // handles at generated knots; each variant still needs full qualification.
-        if (route.points.length > route.indices.length) {
-          if (stop()) return;
-          yield { ...geometry, knots: geometry.knots.map((knot, i) =>
-            route.indices.includes(i) ? knot : { ...knot, smooth: false }) };
-        }
+        // Every knot keeps curvature smoothing: Apply writes knots as moving waypoints, which are always smooth.
+        yield handles(source, route.points, route.indices, factor, 0, tankDrive);
       }
     }
   }
-  const laws = segmentHeadingLaws(source, tankDrive);
+  const laws = segmentHeadingLaws(current, tankDrive);
   if (aligned) {
     for (const angle of [-Math.PI / 6, Math.PI / 6]) {
       for (const scale of [0.8, 1.2]) {
         if (stop()) return;
         yield { ...authored, knots: authored.knots.map((knot, i) => {
-          const departure = waypointHeadingSemantics(source.waypoints[i], i, laws).tangentDepartureDeg;
+          const departure = waypointHeadingSemantics(current.waypoints[i], i, laws).tangentDepartureDeg;
           const rotate = (control: ControlPoint, rotation: number) => {
             const x = (control.x - knot.x) * scale;
             const y = (control.y - knot.y) * scale;
