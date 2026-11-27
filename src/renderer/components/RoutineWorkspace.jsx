@@ -31,8 +31,9 @@ function routineSplit(room, banner, chosen) {
 }
 
 /**
- * Power and About preview, at the start of the field's view controls: they cost the field no height. Power opens its
- * report beside its trigger; About is a small native popover that opens above its trigger, over the field.
+ * Power and About preview, at the end of the transport row: they cost the field and the flow no height, and the field's
+ * view controls stay zoom, layers and fit. Power opens its report beside its trigger; About is a small native popover
+ * that opens above its trigger.
  */
 export function RoutineViewTools({ robot, run }) {
   const [help, setHelp] = React.useState(false);
@@ -59,10 +60,12 @@ export function RoutineViewTools({ robot, run }) {
   }, []);
   return h('div', { className: 'routine-workspace-actions' },
     robot && h(PowerAnalysis, { robot, run }),
-    h('button', { ref: trigger, type: 'button', className: 'vc-btn routine-workspace-about', popovertarget: 'routine-preview-notes',
+    h('button', { ref: trigger, type: 'button', className: 'rt-tp-btn routine-workspace-about', popovertarget: 'routine-preview-notes',
       'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
-      // Tabbing on closes it, so it never covers the control that takes focus next.
-      onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); } },
+      // Tabbing on closes it, so it never covers the control that takes focus next. It ends the transport row, so Tab
+      // can leave the page, where the blur has no next control; Tab itself closes it too.
+      onBlur: (event) => { if (event.relatedTarget && help) popover.current.hidePopover(); },
+      onKeyDown: (event) => { if (event.key === 'Tab' && help) popover.current.hidePopover(); } },
       h(UI.Icon, { name: 'info', size: 15 })),
     h('div', { ref: popover, id: 'routine-preview-notes', className: 'routine-preview-help', popover: 'auto', role: 'note', 'aria-label': 'About the local preview' },
       h('p', null, PREVIEW_HELP)));
@@ -71,7 +74,7 @@ export function RoutineViewTools({ robot, run }) {
 /**
  * The Routines place: the field preview over the run-order flow, split by a draggable divider, with status and the
  * transport across the bottom. An empty routine shows the empty field and its first-step slot, without a transport.
- * Its only header is the field's view controls (see RoutineViewTools), so the field starts at the top.
+ * It has no header row (the transport carries RoutineViewTools), so the field starts at the top.
  */
 export function RoutineWorkspace({ routine, flow, field, transport, status }) {
   // An empty routine has nothing to play, so it has no transport.

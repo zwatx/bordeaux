@@ -11,10 +11,11 @@ import { routinePathUses } from '../lib/routinePathChoices';
 import { commandEntry, commandUsage } from '../lib/commandIndex';
 import { InsertStrip, SourceLibrary, initialSource } from './RoutineInsert';
 
-// Routine run sheet: one line per step in run order, each with its share of preview time on a shared axis. Repeats and
-// branches are bounded groups; a branch's routes are lanes, whose header opens that route's editor in the inspector and
-// whose radio chooses the preview route. A closing row states what authored control flow does next (shown when it is not
-// obvious from the group ending); those facts come from AUTO.flowSummary, never from the chosen preview route.
+// Routine run sheet: a summary line (RoutineSummary), then one flat line per step in run order with its number, glyph,
+// name, quiet meta and preview time. Repeats, groups and branches indent their steps under thin guides; a branch's
+// routes are header lines, whose name opens that route's editor in the inspector and whose radio chooses the preview
+// route. A closing line states what authored control flow does next (shown when it is not obvious from the group
+// ending); those facts come from AUTO.flowSummary, never from the chosen preview route.
 // Explanations live in tooltips and the inspector. Selecting a row only changes the right inspector.
 const { useState, useRef, useEffect, useLayoutEffect, useMemo } = React;
 const h = React.createElement;
@@ -412,6 +413,34 @@ function RowMenu({ anchor, items, onClose }) {
       h('span', { className: 'rt-menu-label' }, item.label, item.reason && h('small', null, item.reason)), item.hint && h('span', { className: 'ctxmenu-k' }, item.hint)))), document.body);
 }
 
+const JUMP_SIZES = ['large', 'medium', 'small'];
+/**
+ * The routine's preview facts in one line above the flow: its total time as the routine library row and the transport
+ * show it (AUTO.previewTotalLabel; "Untimed" like the library row when no step has a duration), its pose jumps with the
+ * largest one's mark, then what that total does not count (AUTO.durationFacts). Short forms show; the sentences stay
+ * for assistive technology and in the tooltip.
+ */
+export function RoutineSummary({ run }) {
+  // While planning (or when planning fails, which the status banner explains) the line keeps its place, so the rows
+  // below it do not move when the preview arrives.
+  if (run.blocked) return h('div', { className: 'rt-summary', 'aria-hidden': true });
+  const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity');
+  const timedPlayable = run.timedPlayable !== undefined ? run.timedPlayable : run.total > 0;
+  const total = timedPlayable ? A.previewTotalLabel(run) : 'Untimed';
+  const facts = [...A.durationFacts(run), run.truncated && ['Preview stops at 2,000 steps', 'Stops at 2,000 steps']].filter(Boolean);
+  const duration = run.duration || {};
+  const full = facts.map(([sentence]) => sentence).join(' · ');
+  const title = [timedPlayable ? 'Preview time ' + total : 'Untimed preview', jumps.length > 0 && plural(jumps.length, 'pose jump'), ...facts.map(([sentence]) => sentence),
+    duration.estimateCount > 0 && 'Estimates use command run times from the Robot page. Preview only; the robot does not use them.',
+    duration.unknownCount > 0 && 'A command run time on the Robot page estimates an untimed command.'].filter(Boolean).join(String.fromCharCode(10));
+  return h('div', { className: 'rt-summary', title },
+    h('span', { className: 'rt-summary-total' }, total),
+    jumps.length > 0 && h('span', { className: 'rt-summary-jumps' },
+      h('span', { className: 'rt-step-flag', 'data-jump': JUMP_SIZES.find((size) => jumps.some((issue) => issue.size === size)), 'aria-hidden': true }), plural(jumps.length, 'pose jump')),
+    full && h('span', { className: 'rt-summary-full' }, full),
+    facts.map(([, short]) => h('span', { key: short, className: 'rt-summary-short', 'aria-hidden': true }, short)));
+}
+
 function Grip({ onPointerDown }) {
   return h('button', { className: 'rt-grip', type: 'button', tabIndex: -1, title: 'Drag to move', 'aria-label': 'Drag step to move', onPointerDown, onClick: (e) => e.stopPropagation() }, h(Icon, { name: 'drag', size: 13 }));
 }
@@ -482,16 +511,9 @@ export function RoutinePanel(props) {
   const stepNumbers = useMemo(() => A.stepNumbers(routine), [routine]);
   const segByNode = new Map(); run.segs.forEach((seg) => { if (!segByNode.has(seg.nodeId)) segByNode.set(seg.nodeId, seg); });
   const previewed = new Set(run.steps.map((step) => step.nodeId));
-  // Timed occurrences per step on the routine's time axis; a repeat's body shows one bar per previewed pass.
-  const spans = new Map();
-  run.steps.forEach((step) => { if (run.total > 0 && step.t1 > step.t0 && step.kind !== 'repeat') spans.set(step.nodeId, [...(spans.get(step.nodeId) || []), step]); });
-  // A group's row spans from its first start to its last finish, once per previewed occurrence.
+  // A group's time spans from its first start to its last finish (its first previewed occurrence).
   const groupSpan = new Map();
-  (run.groupSpans || []).forEach((span) => {
-    if (!groupSpan.has(span.nodeId)) groupSpan.set(span.nodeId, span);
-    if (run.total > 0 && span.t1 > span.t0) spans.set(span.nodeId, [...(spans.get(span.nodeId) || []), { ...span, kind: 'group' }]);
-  });
-  const pct = (t) => (100 * t / run.total) + '%';
+  (run.groupSpans || []).forEach((span) => { if (!groupSpan.has(span.nodeId)) groupSpan.set(span.nodeId, span); });
   // Local readiness (AUTO.analyze) and the chosen trace's reference jumps (run.issues) stay distinct facts.
   const jumpByNode = new Map();
   // A step reached from several previous paths (repeat passes, routes) shows its largest jump.
@@ -858,6 +880,13 @@ export function RoutinePanel(props) {
     }
     return { meta: 'Unsupported step · ignored by the preview', problem: 'warn' };
   }
+  /** A branching command's output ("Branches on Has piece") or a repeat's early stop, else ''. */
+  function flowMeta(node) {
+    if (node.type === 'repeat') return node.until ? 'Until ' + describeStop(node.until, routine, catalog) : '';
+    if (!node.outputBranch) return '';
+    const command = catalog?.commands?.find((item) => item.id === node.invocation?.commandId);
+    return 'Branches on ' + (A.branchOutputs(command).find((item) => item.name === node.outputBranch.output)?.label || node.outputBranch.output);
+  }
   /** The bound command's label when the team gave the step its own name, else ''. */
   function boundName(node) {
     if (node.type !== 'function' || node.cat !== 'command' || !A.commandOwnName(node)) return '';
@@ -938,13 +967,13 @@ export function RoutinePanel(props) {
         node.type === 'group' && node.title?.trim() && h('span', { className: 'rt-step-kind' }, node.mode === 'sequential' ? 'In sequence' : 'In parallel'),
         // Likewise a command the team named still says which command it runs, so the name never hides the binding.
         boundName(node) && h('span', { className: 'rt-step-kind runs' }, boundName(node)),
+        // What a branching command reads, and when a repeat stops early, as quiet text after the name.
+        flowMeta(node) && h('span', { className: 'rt-step-kind' }, flowMeta(node)),
         // A warning is a mark beside the name; its sentence is the tooltip and stays in the accessible name.
         // A pose jump's mark is sized like the jump (AUTO.jumpSize), as on the field and in the inspector.
         info.problem === 'warn' && h('span', { className: 'rt-step-flag', 'data-jump': info.jump, 'aria-hidden': true }),
         h('span', { className: 'rt-step-meta' + (info.problem ? ' ' + info.problem : '') },
           isCollapsed ? plural(nestedCount, 'step') + ' inside' + (chosen ? ' · previewing ' + (kids.find((list) => routeIdOf(list.ref) === chosen.id)?.label || chosen.label) : '') : info.meta)),
-      h('span', { className: 'rt-step-time', 'aria-hidden': true }, (spans.get(node.id) || []).map((step) => h('i', { key: step.occurrenceId || step.t0,
-        className: step.kind + (step.timing === 'upperBound' ? ' upper' : step.timing === 'estimate' ? ' estimate' : ''), style: { left: pct(step.t0), width: pct(step.t1 - step.t0) } }))),
       h('span', { className: 'rt-step-dur' + (info.dur === 'Untimed' ? ' unknown' : info.dur?.startsWith('≈') ? ' estimate' : '') }, live ? h('span', { className: 'rt-step-live' }, live) : (info.dur || '')),
       h('span', { className: 'rt-step-tools' }, !readOnly && h('button', { className: 'rt-tool rt-more', type: 'button', tabIndex: -1, 'aria-haspopup': 'menu', 'aria-expanded': menu?.id === node.id, title: 'Step actions (⇧F10)',
         'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
@@ -984,7 +1013,7 @@ export function RoutinePanel(props) {
   // `exitTo` is what the nearest enclosing repeat reaches when an Exit leaves it.
   function renderList(nodes, ref, ctx, addLabel) {
     // Add before or after a step opens between the rows, where the step will land.
-    const at = () => h('div', { key: 'insert', className: 'rt-addwrap open at' }, inserter());
+    const at = () => h('div', { key: 'insert', className: 'rt-addwrap open at', style: { '--depth': ctx.depth } }, inserter());
     const out = [];
     nodes.forEach((node, index) => {
       if (adding?.where.beforeId === node.id) out.push(at());
@@ -1041,6 +1070,7 @@ export function RoutinePanel(props) {
   return h('div', { className: 'rt-panel' + (dnd.drag ? ' dragging' : ''), 'data-input': keyboard ? 'keyboard' : 'pointer', style: dnd.drag ? { '--drag-gap': dnd.drag.box.height + 'px' } : undefined,
     // Arrow keys move focus by script, which withholds :focus-visible after a click; track the input instead.
     onKeyDownCapture: (e) => { if (!keyboard && !e.metaKey && !e.ctrlKey) setKeyboard(true); }, onPointerDownCapture: () => keyboard && setKeyboard(false) },
+    routine.nodes.length > 0 && h(RoutineSummary, { run }),
     range.length > 1 && h('div', { className: 'rt-range-bar', role: 'toolbar', 'aria-label': 'Selected steps' },
       h('span', null, plural(range.length, 'step') + ' selected'),
       h('button', { type: 'button', className: 'qbtn', onClick: () => wrapRange() }, h(Glyph, { name: 'repeat', size: 14 }), 'Repeat these steps'),
@@ -1048,7 +1078,7 @@ export function RoutinePanel(props) {
       h('button', { type: 'button', className: 'qbtn quiet', onClick: () => { setRange([]); focusStep(selId); } }, 'Clear')),
     h('div', { className: 'rt-scroll', ref: scrollRef, onFocusCapture: (e) => { const key = e.target.dataset?.nav; if (key && key !== tabStop) setTabStop(key); } },
       // An empty routine is the same list holding only its first step's Add, so a keep-open pick keeps Add in place.
-      h('div', { className: 'rt-list' + (routine.nodes.length ? '' : ' rt-empty') + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order', style: { '--p': run.total > 0 ? Math.min(1, time / run.total) : 0 } },
+      h('div', { className: 'rt-list' + (routine.nodes.length ? '' : ' rt-empty') + (running && run.total > 0 ? ' playing' : ''), role: 'list', 'aria-label': 'Routine run order' },
         renderList(routine.nodes, { kind: 'root' }, { depth: 0, offPreview: false, readOnly: false, after: { kind: 'end' }, exitTo: null }, 'Add step at the end'))),
     h('div', { className: 'rt-flow-note', role: 'status', 'aria-live': 'polite' }, note),
     dnd.drag && dragCard(dnd.drag),
