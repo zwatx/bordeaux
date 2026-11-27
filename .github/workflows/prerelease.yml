@@ -109,7 +109,7 @@ jobs:
       matrix:
         include:
           - platform: mac
-            os: macos-15
+            os: macos-26
             artifact: bordeaux-beta-macos
           - platform: windows
             os: windows-latest
@@ -153,7 +153,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          npm run package:mac:ci -- --config.mac.notarize=true --config.forceCodeSigning=true --config.publish.channel=beta --config.publish.releaseType=prerelease --config.dmg.sign=true
+          npm run package:mac -- --config.mac.notarize=true --config.forceCodeSigning=true --config.publish.channel=beta --config.publish.releaseType=prerelease --config.dmg.sign=true
           node scripts/notarize-release-dmgs.mjs release beta
       - name: Require Windows signing credentials and approved signer
         if: matrix.platform == 'windows' && !inputs.unsigned_windows

@@ -6,7 +6,7 @@ Bordeaux uses electron-builder. Packaging includes the compiled Electron main/pr
 
 - `build/Bordeaux.icon` is the editable Icon Composer source used for the macOS app bundle.
 - `build/icon.svg` is the platform-neutral composition rendered to `build/icon.png` for Windows.
-- `build/icon.icns` is the flattened DMG and CI fallback.
+- `build/icon.icns` is the flattened DMG volume icon.
 - `build/icon-assets/wine-glass.svg` is the shared vector mark.
 - `build/icon-assets/wine-glass-foreground.svg` frames that mark on the square Icon Composer canvas.
 
@@ -26,7 +26,7 @@ npm run package:mac
 
 This produces Apple Silicon (arm64) DMG and ZIP artifacts in `release/`. The local macOS packages are intentionally unsigned until a `Developer ID Application` identity and notarization credentials are configured.
 
-`package:mac` requires Icon Composer (included with current Xcode releases) to compile `build/Bordeaux.icon`. CI uses `package:mac:ci` and the checked-in ICNS fallback when Icon Composer is unavailable.
+`package:mac` compiles `build/Bordeaux.icon` with Xcode 26's `actool` and fails on older Xcode. The bundle gets an asset catalog, so macOS 26 draws the tile and glass effect, plus a generated ICNS for older macOS. The release workflows build on `macos-26` runners for this reason.
 
 Run `npm run package:win` on Windows to produce both an installable NSIS setup executable and a portable executable. Cross-building those targets from macOS requires Wine, so the repository's release workflows build Windows artifacts on a Windows runner instead.
 
