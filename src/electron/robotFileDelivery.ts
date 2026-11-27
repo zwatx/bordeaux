@@ -51,10 +51,57 @@ export async function readRobotFileConnection(file: string): Promise<RobotFileSe
     return saved;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
-export async function writeRobotFileConnection(file: string, value: RobotFileSettings): Promise<void> {
+/** Saves the active robot, or removes it when `value` is null (a project robot without an address is selected). */
+export async function writeRobotFileConnection(file: string, value: RobotFileSettings | null): Promise<void> {
+  if (value === null) { await fs.rm(file, { force: true }); return; }
   const normalized = settings(value);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await writeJsonAtomically(file, normalized);
+}
+
+/**
+ * Host keys reviewed on this computer, keyed by robot type, host and port, like SSH's known_hosts. Projects name robot
+ * addresses but never carry keys; a key reviewed once here is trusted again when a project robot names that address.
+ */
+export interface KnownRobotHosts { get(key: string): string | undefined; set(key: string, fingerprint: string): Promise<void> }
+const MAX_KNOWN_HOSTS = 64;
+const FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{20,128}$/;
+export const knownHostKey = (endpoint: RobotFileEndpoint): string => `${endpoint.target}|${endpoint.host.toLowerCase()}|${endpoint.port}`;
+function knownHosts(initial: Iterable<[string, string]>, write: (hosts: Record<string, string>) => Promise<void>): KnownRobotHosts {
+  let hosts = new Map(initial);
+  return {
+    get: (key) => hosts.get(key),
+    async set(key, fingerprint) {
+      if (!FINGERPRINT.test(fingerprint) || hosts.get(key) === fingerprint) return;
+      const next = new Map(hosts);
+      next.delete(key); next.set(key, fingerprint);
+      // The oldest review goes first once the list is full.
+      while (next.size > MAX_KNOWN_HOSTS) next.delete(next.keys().next().value!);
+      await write(Object.fromEntries(next));
+      hosts = next;
+    },
+  };
+}
+/** Known hosts for tests and hosts without a profile folder: forgotten on restart. */
+export const memoryKnownHosts = (): KnownRobotHosts => knownHosts([], async () => undefined);
+/** Known hosts kept in `file`. An unreadable file starts an empty list, so Push asks for reviews again. */
+export async function openKnownHosts(file: string): Promise<KnownRobotHosts> {
+  let initial: Array<[string, string]> = [];
+  try {
+    const stat = await fs.lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65536) throw new Error("Saved robot host keys are invalid");
+    const raw = JSON.parse(await fs.readFile(file, "utf8")) as { version?: unknown; hosts?: unknown };
+    if (raw?.version !== 1 || !raw.hosts || typeof raw.hosts !== "object") throw new Error("Saved robot host keys are invalid");
+    initial = Object.entries(raw.hosts as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => /^[a-z]+\|[^|]{1,253}\|\d{1,5}$/.test(entry[0]) && typeof entry[1] === "string" && FINGERPRINT.test(entry[1]))
+      .slice(-MAX_KNOWN_HOSTS);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Starting with no remembered robot host keys:", error);
+  }
+  return knownHosts(initial, async (hosts) => {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await writeJsonAtomically(file, { version: 1, hosts });
+  });
 }
 
 interface RobotFileTransport {
@@ -72,6 +119,8 @@ interface RobotFileTransport {
 export class RobotFileDelivery {
   private trusted: RobotFileConnection | null;
   private saved: RobotFileSettings | null;
+  /** The saved connection while the selected project robot has no usable address. */
+  private suspended: RobotFileSettings | null = null;
   private observed: RobotFileConnection | null = null;
   private observedPassword: string | null = null;
   private observedNeedsLogin = false;
@@ -82,7 +131,7 @@ export class RobotFileDelivery {
   private reading: { id: string; controller: AbortController; done: Promise<unknown> } | null = null;
   private compared: { id: string; fileName: string; robotOnly: boolean; bytes: Buffer; sha256: string; assertProject: () => void } | null = null;
   private savingCopy = false;
-  constructor(initial: RobotFileSettings | null, private readonly persist: (value: RobotFileSettings) => Promise<void>,
+  constructor(initial: RobotFileSettings | null, private readonly persist: (value: RobotFileSettings | null) => Promise<void>,
     private readonly transport: RobotFileTransport = {
       discover: async (endpoint) => ({ endpoint, hostKeyFingerprint: await discoverRobotSshIdentity(endpoint) }),
       probe: (endpoint: RobotFileEndpoint, timeoutMs?: number, password?: string | null, expectedHostKeyFingerprint?: string) => probeRobotFiles(endpoint, undefined, timeoutMs, password ?? null, expectedHostKeyFingerprint),
@@ -91,25 +140,29 @@ export class RobotFileDelivery {
       read: (connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null) =>
         readRobotFiles(connection, fileNames, signal, undefined, password ?? null),
     },
-    private readonly passwords: RobotPasswordStore = sessionRobotPasswordStore()) {
+    private readonly passwords: RobotPasswordStore = sessionRobotPasswordStore(),
+    private readonly known: KnownRobotHosts = memoryKnownHosts()) {
     this.saved = initial ? settings(initial) : null;
     this.trusted = this.saved?.hostKeyFingerprint ? connection(this.saved) : null;
   }
   current(): RobotFileConnection | null { return structuredClone(this.trusted); }
   settings(): RobotFileSettings | null { return structuredClone(this.saved); }
   private get busy(): boolean { return Boolean(this.active || this.reading || this.trusting || this.savingCopy); }
-  passwordStatus(): RobotPasswordStatus { return { custom: this.passwords.current() !== null, persistent: this.passwords.persistent }; }
+  passwordStatus(): RobotPasswordStatus { return { custom: this.saved !== null && this.passwords.current() !== null, persistent: this.passwords.persistent }; }
   /** The password a login to `endpoint` uses after `change`; null means the robot type's default. */
   private passwordFor(endpoint: RobotFileEndpoint, change: RobotPasswordChange): string | null {
     if (change.kind === "custom") {
       if (!allowsCustomPassword(endpoint.target)) throw new Error(`${ROBOT_TARGETS[endpoint.target].label} logs in without a password`);
       return change.password;
     }
-    if (change.kind === "keep" && allowsCustomPassword(endpoint.target) && this.passwords.current() !== null
-      && (this.saved?.endpoint.host !== endpoint.host || this.saved.endpoint.port !== endpoint.port || this.saved.endpoint.target !== endpoint.target)) {
+    if (change.kind !== "keep" || !allowsCustomPassword(endpoint.target)) return null;
+    const saved = this.saved ?? this.suspended;
+    const password = this.passwords.current();
+    if (saved && password !== null && knownHostKey(saved.endpoint) === knownHostKey(endpoint)) return password;
+    if (this.saved && password !== null) {
       throw new Error("Enter the SSH password or choose the default before connecting a different robot");
     }
-    return change.kind === "keep" && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
+    return null;
   }
   private async commitPassword(password: string | null): Promise<void> {
     await this.passwords.replace(password);
@@ -160,6 +213,54 @@ export class RobotFileDelivery {
       return structuredClone(value);
     } finally { this.trusting = false; }
   }
+  /**
+   * Makes `rawEndpoint` the active robot, as when a project's selected robot changes. It never contacts the robot. A
+   * host key reviewed on this computer for the same robot type, host and port is trusted again; any other address waits
+   * for a review before Push. A custom password stays only while the robot type, host and port stay the same.
+   * Null suspends the connection for a selected robot without a usable address. Undefined restores this computer's
+   * connection when returning to a project without a robot list.
+   */
+  async use(rawEndpoint: unknown): Promise<RobotFileSettings | null> {
+    if (this.busy) throw new Error("Finish the current robot operation before switching robots");
+    if (rawEndpoint === undefined && !this.suspended) return this.settings();
+    let endpoint: RobotFileEndpoint | null;
+    try {
+      endpoint = rawEndpoint === null ? null : validateRobotFileEndpoint(rawEndpoint ?? this.suspended?.endpoint);
+    } catch (error) {
+      this.suspend();
+      throw error;
+    }
+    if (!endpoint) { this.suspend(); return null; }
+    if (this.saved && JSON.stringify(this.saved.endpoint) === JSON.stringify(endpoint)) return this.settings();
+    if (this.suspended && JSON.stringify(this.suspended.endpoint) === JSON.stringify(endpoint)) {
+      this.saved = this.suspended;
+      this.suspended = null;
+      this.trusted = this.saved.hostKeyFingerprint ? connection(this.saved) : null;
+      this.invalidateReview();
+      return this.settings();
+    }
+    const prior = this.saved ?? this.suspended;
+    const key = knownHostKey(endpoint), sameHost = prior && knownHostKey(prior.endpoint) === key;
+    const fingerprint = (sameHost && prior.hostKeyFingerprint) || this.known.get(key);
+    const password = sameHost && allowsCustomPassword(endpoint.target) ? this.passwords.current() : null;
+    const value: RobotFileSettings = { endpoint, ...(fingerprint ? { hostKeyFingerprint: fingerprint } : {}) };
+    this.invalidateReview();
+    this.trusting = true;
+    try {
+      await this.commitSettings(value, password);
+      return structuredClone(value);
+    } finally { this.trusting = false; }
+  }
+  private invalidateReview(): void {
+    this.generation++;
+    this.observed = null; this.observedPassword = null; this.pending = null; this.compared = null;
+  }
+  private suspend(): void {
+    this.invalidateReview();
+    if (this.saved) this.suspended = this.saved;
+    this.saved = null;
+    this.trusted = null;
+  }
   async probe(endpoint: RobotFileEndpoint, rawPassword?: unknown): Promise<RobotFileConnection> {
     if (this.busy) throw new Error("Finish the current robot operation before connecting another robot");
     const change = robotPasswordChange(rawPassword);
@@ -191,12 +292,15 @@ export class RobotFileDelivery {
     finally { this.trusting = false; }
   }
   private async commitSettings(value: RobotFileSettings, password: string | null): Promise<void> {
+    // The identity being replaced was reviewed here, so a project robot at that address can be trusted again later.
+    const prior = this.saved ?? this.suspended;
+    if (prior?.hostKeyFingerprint) await this.known.set(knownHostKey(prior.endpoint), prior.hostKeyFingerprint);
     // Revoke the old identity before replacing credentials. Clear its password before moving
     // the saved endpoint, so a crash or rejected write cannot associate an old secret with a new robot.
-    const previous = this.saved ? { endpoint: this.saved.endpoint } : null;
+    const previous = prior ? { endpoint: prior.endpoint } : null;
     if (previous) {
       await this.persist(previous);
-      this.saved = previous; this.trusted = null;
+      this.saved = previous; this.trusted = null; this.suspended = null;
     }
     await this.commitPassword(null);
     const unverified = { endpoint: value.endpoint };
@@ -206,7 +310,10 @@ export class RobotFileDelivery {
     }
     this.trusted = null;
     if (password !== null) await this.commitPassword(password);
-    if (value.hostKeyFingerprint) await this.persist(value);
+    if (value.hostKeyFingerprint) {
+      await this.persist(value);
+      await this.known.set(knownHostKey(value.endpoint), value.hostKeyFingerprint);
+    }
     this.saved = value;
     this.trusted = value.hostKeyFingerprint ? connection(value) : null;
   }

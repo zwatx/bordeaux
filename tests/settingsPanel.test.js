@@ -46,17 +46,34 @@ describe('settings workspace', () => {
     [{ pairing: null, busy: false, connectionLabel: 'Connect robot' }, 'Set up'],
     [{ pairing: { teamNumber: 2468 }, busy: false, connectionLabel: 'Team 2468' }, 'Edit'],
     [{ pairing: { teamNumber: 2468 }, busy: true, connectionLabel: 'Awaiting robot' }, 'Show progress'],
-  ])('keeps connection and units in global settings, apart from the robot configuration', (connection, label) => {
-    const markup = renderToStaticMarkup(React.createElement(AppSettings, { unitSystem: 'imperial', connection }));
-    expect(markup).toContain('aria-label="Global settings"');
-    expect(markup).toContain('>Global settings</h2>');
-    expect(markup).toContain(label);
-    expect(markup).toContain('aria-label="Display units"');
-    expect(markup).toMatch(/aria-pressed="true"[^>]*>Imperial/);
-    expect(markup).not.toContain('Drivetrain');
-    const robot = renderToStaticMarkup(React.createElement(RobotPage, { robot: createDemoProject().robot, unitSystem: 'imperial' }));
-    expect(robot).toContain('<h1 class="rp-title">Robot</h1>');
-    expect(robot).toContain('Drivetrain');
-    expect(robot).not.toMatch(/Display units|Robot connection|Keyboard shortcuts|Software updates/);
+  ])('keeps each robot\'s connection on the Robot page and units in global settings', (connection, label) => {
+    const global = renderToStaticMarkup(React.createElement(AppSettings, { unitSystem: 'imperial' }));
+    expect(global).toContain('aria-label="Global settings"');
+    expect(global).toContain('>Global settings</h2>');
+    expect(global).toContain('aria-label="Display units"');
+    expect(global).toMatch(/aria-pressed="true"[^>]*>Imperial/);
+    expect(global).not.toMatch(/Robot connection|Drivetrain/);
+    const robot = createDemoProject().robot;
+    const page = renderToStaticMarkup(React.createElement(RobotPage, { robot, unitSystem: 'imperial', connection,
+      robots: [{ id: 'comp', name: 'Comp bot', selected: true, robot, connection: { target: 'systemcore', host: '10.24.68.2', port: 22, directory: '/home/systemcore/bordeaux/paths' } },
+        { id: 'practice', name: 'Practice bot', selected: false, robot }] }));
+    expect(page).toContain('<h1 class="rp-title">Robot</h1>');
+    expect(page).toContain('Connection');
+    expect(page).toContain(label);
+    expect(page).toMatch(/Comp bot<\/strong><small>10\.24\.68\.2<\/small>/);
+    expect(page).toMatch(/Practice bot<\/strong><small>No address<\/small>/);
+    expect(page).toContain('Drivetrain');
+    expect(page).not.toMatch(/Display units|Keyboard shortcuts|Software updates/);
+  });
+
+  it('shows only the push folder, and no robot list, in an editor served by the robot', () => {
+    const robot = createDemoProject().robot;
+    const connection = { servedByRobot: true, busy: false, pairing: { endpoint: { target: 'systemcore', host: '10.24.68.2', port: 22, directory: '/home/systemcore/bordeaux/paths' } } };
+    const page = renderToStaticMarkup(React.createElement(RobotPage, { robot, unitSystem: 'metric', connection,
+      robots: [{ id: 'comp', name: 'Comp bot', selected: true, robot }, { id: 'practice', name: 'Practice bot', selected: false, robot }] }));
+    expect(page).not.toMatch(/robot-cards|New robot|Comp bot|Practice bot|>Connection</);
+    expect(page).toContain('>Push folder</h2>');
+    expect(page).toMatch(/<input[^>]*aria-label="Folder on robot"[^>]*value="\/home\/systemcore\/bordeaux\/paths"/);
+    expect(page.indexOf('Push folder')).toBeLessThan(page.indexOf('Dimensions'));
   });
 });

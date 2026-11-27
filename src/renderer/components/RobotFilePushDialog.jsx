@@ -241,7 +241,7 @@ export function RobotFilePushDialog({ controller: c }) {
   const invalidEndpoint = !c.host.trim() || !c.directory.trim() || !/^\d+$/.test(c.port) || Number(c.port) < 1 || Number(c.port) > 65535;
   const compareView = ['comparing', 'compared', 'compare-failed', 'saving-copy'].includes(c.phase);
   const listing = c.phase === 'listing', listed = c.phase === 'listed', listFailed = c.phase === 'list-failed';
-  const title = identity ? 'Verify robot' : setup || summary ? 'Robot connection'
+  const title = identity ? 'Verify robot' : setup || summary ? (c.servedByRobot ? 'Push folder' : 'Robot connection')
     : listed || listing || listFailed || (compareView && c.inventory) ? 'Robot files'
     : compareView ? c.comparison?.robotOnly ? 'Robot path' : 'Compare with robot' : 'Push to robot';
   const allFiles = c.inventory && button('All files', c.backToRobotFiles, { key: 'all', disabled: c.busy });
@@ -261,7 +261,10 @@ export function RobotFilePushDialog({ controller: c }) {
   let view = 'fallback', body = null, actions = [], downloadNote = null, diagnostics = true;
   if (setup) {
     view = 'setup';
-    body = [alert, h('div', { key: 'fields', className: 'rfp-fields' },
+    // An editor served by the robot pushes to that robot, so the push folder is the only choice there.
+    body = c.servedByRobot ? [alert, h('div', { key: 'fields', className: 'rfp-fields' },
+      h('label', { className: 'rfp-wide' }, 'Folder on robot', h('input', { value: c.directory, spellCheck: false, disabled: c.busy, onChange: (e) => c.setDirectory(e.target.value) }))),
+      h('p', { key: 'note', className: 'rfp-note' }, 'Push writes path files here, and robot code reads them from this folder.')] : [alert, h('div', { key: 'fields', className: 'rfp-fields' },
       h('div', { className: 'rfp-wide rfp-robot' }, h('span', { id: 'rfp-robot-label' }, 'Robot'),
         h('div', { className: 'seg', role: 'group', 'aria-labelledby': 'rfp-robot-label', style: { '--seg-count': Object.keys(ROBOT_TARGETS).length } },
           Object.entries(ROBOT_TARGETS).map(([id, target]) => h('button', { key: id, type: 'button', className: 'seg-i' + (c.target === id ? ' on' : ''), 'aria-pressed': c.target === id, disabled: c.busy, onClick: () => c.chooseTarget(id) }, target.label)))),
@@ -274,17 +277,18 @@ export function RobotFilePushDialog({ controller: c }) {
     // The primary action sits last.
     const save = button(c.phase === 'saving' ? 'Saving…' : 'Save', c.saveSettings, { key: 'save', className: waiting ? 'qbtn' : 'qbtn primary', disabled: invalidEndpoint, ...hold });
     const connect = button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', disabled: invalidEndpoint, ...hold });
-    actions = waiting ? [save, connect] : [connect, save];
+    actions = c.servedByRobot ? [save] : waiting ? [save, connect] : [connect, save];
   } else if (summary) {
     view = 'summary';
     // The endpoint shown is the stored one, so "Saved" is a fact about this computer, never about the robot.
-    body = [alert, h(Destination, { key: 'dest', endpoint, status: c.reachability === 'offline' ? 'Disconnected' : c.connection ? 'Verified' : 'Saved · not verified' }),
-      c.connection && h('p', { key: 'note', className: 'rfp-note' }, 'Select paths or open a routine, then choose Push.')];
+    body = [alert, c.servedByRobot
+      ? h('div', { key: 'dest', className: 'rfp-dest' }, h('div', { className: 'rfp-dest-text' }, h('strong', null, endpoint.directory), h('span', null, 'Push writes path files here.')))
+      : h(Destination, { key: 'dest', endpoint, status: c.reachability === 'offline' ? 'Disconnected' : c.connection ? 'Verified' : 'Saved · not verified' })];
     const done = (!c.connection && waiting) ? null : button('Done', c.close, { key: 'done', className: 'qbtn primary', autoFocus: true });
     actions = [
       button('Edit', c.editConnection, { key: 'edit', disabled: c.busy }),
       c.robotFilesAvailable && c.connection && button('Robot files', c.openRobotFiles, { key: 'files', disabled: c.busy }),
-      (!c.connection || c.reachability === 'offline') && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
+      !c.servedByRobot && (!c.connection || c.reachability === 'offline') && button(c.phase === 'probing' ? 'Connecting…' : 'Connect', c.probeRobot, { key: 'connect', className: waiting ? 'qbtn primary' : 'qbtn', ...hold }),
       done,
     ];
   } else if (identity) {

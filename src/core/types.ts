@@ -1,3 +1,4 @@
+import type { RobotFileEndpoint } from "./robotFileDelivery";
 export type DriveType = "swerve" | "tank";
 
 export type SegmentType = "bezier" | "line" | "arc" | "clothoid";
@@ -8,6 +9,23 @@ export type FollowMode = "time" | "position";
 export interface ControlPoint {
   x: number;
   y: number;
+}
+
+/** A camera on the robot: what it can see, and where it is mounted. See src/core/robotCameras.ts. */
+export interface RobotCamera {
+  id: string;
+  name: string;
+  /** Full horizontal and vertical angles of view, degrees. */
+  horizontalFovDeg: number;
+  verticalFovDeg: number;
+  /** Lens position in robot-local meters: +X forward and +Y left of the robot center, Z above the floor. */
+  positionM: { x: number; y: number; z: number };
+  /** Direction the lens faces: 0 is the robot front, positive turns left (counterclockwise from above). */
+  yawDeg: number;
+  /** Tilt of the lens: 0 is level, positive looks up. */
+  pitchDeg: number;
+  /** Farthest this camera reads a tag, lens to tag center, meters. Unset uses CAMERA_RANGE_DEFAULT_M. */
+  maxRangeM?: number;
 }
 
 export interface RobotConfig {
@@ -31,6 +49,8 @@ export interface RobotConfig {
     | { kind: "custom" };
   /** Optional strategy-facing mechanism details used only by agent-assisted planning. */
   planning?: RobotPlanningProfile;
+  /** Cameras on this robot. Omitted when it has none. They never change a plan. */
+  cameras?: RobotCamera[];
   /** Optional drivetrain inputs used to derive the free chassis speed. */
   driveModel?: {
     motorId: string;
@@ -732,12 +752,28 @@ export interface FieldMigrationRecord {
   assigned: FieldReference;
 }
 
+/** A named robot in a project. See src/core/project/robots.ts. */
+export interface ProjectRobot {
+  id: string;
+  name: string;
+  /** This robot's details. Omitted on the selected robot, whose details are `BordeauxProject.robot`. */
+  robot?: RobotConfig;
+  /** Where Push sends this robot's files. Required before a listed robot can Push.
+   * Host keys and passwords never live in the project; each computer keeps them. Robots may share an address. */
+  connection?: RobotFileEndpoint;
+}
+
 export interface BordeauxProject {
   schemaVersion: string;
   field: FieldReference;
   fieldMigration?: FieldMigrationRecord;
   name: string;
+  /** The selected robot's details. Planning, export and Push use these. */
   robot: RobotConfig;
+  /** Every robot in the project, in display order. Omitted on a project with one unnamed robot. */
+  robots?: ProjectRobot[];
+  /** The selected entry of `robots`. Present exactly when `robots` is. */
+  activeRobotId?: string;
   paths: PathDoc[];
   pathFolders?: PathFolder[];
   /** Keeps one path's end pose synchronized with another path's start pose. */
@@ -896,6 +932,8 @@ export interface BdxExport {
 /** Desktop delivery support; file export does not imply an installed robot receiver. */
 export interface RobotDeliveryCapabilities {
   fileTransfer?: boolean;
+  /** The editor runs on the robot it pushes to (the SystemCore web editor): only the push folder can change. */
+  servedByRobot?: boolean;
   pathPush: boolean;
   routinePush: boolean;
 }

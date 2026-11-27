@@ -27,7 +27,7 @@ function Harness() {
   const { state, actions } = useAppUpdates();
   return h(React.Fragment, null,
     h(Panels.Toolbar, { page: 'robot', editorPage: 'plan', setPage: () => {}, updateState: state, onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onInstallUpdate: actions.onInstall, onCheckUpdates: actions.onCheck,
-      appSettings: h(AppSettings, { unitSystem: 'metric', setUnitSystem: () => {}, connection: { openConnection: () => calls.push('connection') }, updateState: state,
+      appSettings: h(AppSettings, { unitSystem: 'metric', setUnitSystem: () => {}, updateState: state,
         onOpenUpdates: () => window.bordeauxAPI.setAppUpdatesVisible(true), onCheckUpdates: actions.onCheck, onCloseUpdates: actions.onClose }) }),
     h('main', { style: { height: 'calc(100vh - 56px)', padding: 48, background: 'var(--bg-0)' } },
     h('h1', { style: { fontSize: 20 } }, 'Bordeaux'), h('p', null, 'Editor workspace'),

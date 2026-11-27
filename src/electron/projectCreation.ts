@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createDemoProject, defaultPathConstraints } from "../core/project/defaults";
+import { createStarterProject, defaultPathConstraints } from "../core/project/defaults";
 import { MAX_FILE_NAME_BYTES, portableFileStem } from "../core/portableFileName";
 import { validateProject } from "../core/validation";
 import { PROJECT_NAME_RULE, isPortableProjectName } from "../core/project/projectName";
@@ -25,7 +25,7 @@ export function parseNamedProjectRequest(value: unknown): CreateNamedProjectRequ
 /** Creates an exclusive child folder and returns a loaded selection, without activating it. */
 export async function createNamedProjectSelection(value: unknown): Promise<ProjectSelection> {
   const request = parseNamedProjectRequest(value);
-  const project = createDemoProject();
+  const project = createStarterProject();
   project.name = request.name;
   if (request.template !== undefined) {
     if (!request.template || typeof request.template !== "object" || Array.isArray(request.template)

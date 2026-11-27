@@ -52,7 +52,8 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
-import { RobotFileDelivery, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
+import { pushConnectionProblem } from "../core/project/robots";
+import { RobotFileDelivery, openKnownHosts, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
 import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
 import type { RobotFileConnection, RobotFileEndpoint } from "../core/robotFileDelivery";
@@ -472,6 +473,7 @@ function userDataPath(name: string): string { return path.join(app.getPath("user
 function robotProjectBookmarksFile(): string { return userDataPath("robot-projects.json"); }
 function recentProjectsFile(): string { return userDataPath("recent-projects.json"); }
 function robotFileConnectionFile(): string { return userDataPath("robot-sftp-connection.json"); }
+function robotKnownHostsFile(): string { return userDataPath("robot-known-hosts.json"); }
 /** Keychain-encrypted custom SSH password; never plaintext, absent when the default is used. */
 function robotPasswordFile(): string { return userDataPath("robot-ssh-password.bin"); }
 function labviewDiscoveryCacheDirectory(): string { return userDataPath("labview-discovery"); }
@@ -1689,6 +1691,7 @@ handle("robotFiles:connection", () => robotFileDelivery.settings());
 handle("robotFiles:check", () => robotFileDelivery.checkConnection());
 handle("robotFiles:password", () => robotFileDelivery.passwordStatus());
 handle("robotFiles:save", (_event, endpoint, password) => robotFileDelivery.saveSettings(endpoint as RobotFileEndpoint, password));
+handle("robotFiles:use", (_event, endpoint) => robotFileDelivery.use(endpoint));
 handle("robotFiles:probe", (_event, endpoint, password) => robotFileDelivery.probe(endpoint as RobotFileEndpoint, password));
 handle("robotFiles:cancelProbe", () => robotFileDelivery.cancelProbe());
 handle("robotFiles:trust", (_event, fingerprint) => {
@@ -1725,6 +1728,8 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
   if (!project || !Array.isArray(project.paths)) throw new Error("A valid Bordeaux project is required");
   const pairing = robotFileDelivery.current();
   if (!pairing) throw new Error("Connect a robot before preparing this transfer");
+  const connectionProblem = pushConnectionProblem(project, pairing.endpoint);
+  if (connectionProblem) throw new Error(connectionProblem);
   const link = captureLinkedProject(project);
   const assertCurrent = () => {
     if (!link.isCurrent() || JSON.stringify(pairing) !== JSON.stringify(robotFileDelivery.current())) throw new Error("The project or robot connection changed; review this transfer again");
@@ -1755,6 +1760,8 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
   if (!project || !Array.isArray(project.paths) || !Array.isArray(project.routines)) throw new Error("A valid Bordeaux project is required");
   const pairing = robotFileDelivery.current();
   if (!pairing) throw new Error("Connect a robot before preparing this transfer");
+  const connectionProblem = pushConnectionProblem(project, pairing.endpoint);
+  if (connectionProblem) throw new Error(connectionProblem);
   const link = captureLinkedProject(project);
   const assertCurrent = () => {
     if (!link.isCurrent() || JSON.stringify(pairing) !== JSON.stringify(robotFileDelivery.current())) throw new Error("The project or robot connection changed; review this transfer again");
@@ -1798,6 +1805,8 @@ handle("robotFiles:listPaths", (_event, rawId, rawProject) => {
   if (!Array.isArray(project?.paths) || project.paths.some(path => typeof path?.id !== "string" || typeof path.name !== "string")) {
     throw new Error("Open a Bordeaux project to list its robot paths");
   }
+  const connectionProblem = pushConnectionProblem(project, robotFileDelivery.current()?.endpoint ?? null, "reading robot files");
+  if (connectionProblem) throw new Error(connectionProblem);
   const paths = project.paths.map(path => ({ id: path.id, name: path.name,
     pushable: path.exportable !== false && (path.waypoints?.length ?? 0) >= 2 }));
   return robotFileDelivery.listPaths(id, paths, assertProject);
@@ -1807,6 +1816,8 @@ handle("robotFiles:compare", (_event, rawId, rawProject, pathId, robotFileName) 
   const project = rawProject as BordeauxProject;
   if (pathId !== undefined && typeof pathId !== "string") throw new Error("Choose a local path to compare");
   if (!Array.isArray(project?.paths)) throw new Error("Open a Bordeaux project to compare paths");
+  const connectionProblem = pushConnectionProblem(project, robotFileDelivery.current()?.endpoint ?? null, "reading robot files");
+  if (connectionProblem) throw new Error(connectionProblem);
   const local = findLocalRobotPath(project.paths, pathId);
   const fileName = robotFileName ?? (local && binaryFileName(local.name));
   if (!isDeployedPathName(fileName)) throw new Error("Choose a robot path to read");
@@ -1930,7 +1941,8 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
       console.warn("Could not open the robot SSH password store:", error);
       return sessionRobotPasswordStore();
     });
-    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value), undefined, passwords);
+    robotFileDelivery = new RobotFileDelivery(await readRobotFileConnection(robotFileConnectionFile()), value => writeRobotFileConnection(robotFileConnectionFile(), value), undefined, passwords,
+      await openKnownHosts(robotKnownHostsFile()));
   } catch (error) { console.warn("Could not load robot SFTP connection:", error); }
   agentBridge = new AgentBridgeServer(app.getPath("userData"), agentSessions);
   // The Agents menu shows MCP access as off when the bridge cannot start.

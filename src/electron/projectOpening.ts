@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createDemoProject } from "../core/project/defaults";
+import { createStarterProject } from "../core/project/defaults";
 import type { BordeauxProject } from "../core/types";
 import { openProjectFolderSource, readProjectSource, saveTargetForOpenedProject, workspaceContinuesLegacyFile, PROJECT_WORKSPACE_FILE, type ProjectReadOptions, type ProjectSourceEvidence } from "./projectFiles";
 export interface ProjectSelectionReadOptions extends ProjectReadOptions { requireSource?: boolean }
@@ -24,7 +24,7 @@ export async function loadProjectFolderSelection(folder: string, options: Projec
   const opened = await openProjectFolderSource(folder, options);
   options.assertCurrent?.();
   if (options.requireSource && !opened.project) throw Object.assign(new Error("The project source is no longer available"), { code: "ENOENT" });
-  return { project: { ...(opened.project ?? createDemoProject()), name: path.basename(path.resolve(folder)) },
+  return { project: { ...(opened.project ?? createStarterProject()), name: path.basename(path.resolve(folder)) },
     sourceEvidence: opened.sourceEvidence, projectPath: opened.projectPath, folderPath: folder, recentPath: folder, legacyFile: opened.legacyFile ?? null };
 }
 

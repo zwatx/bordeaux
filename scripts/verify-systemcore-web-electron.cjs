@@ -315,6 +315,29 @@ app.whenReady().then(async () => {
       await shot('14-folder-commands');
       await click('.project-chip');
       check('changing the push folder loads that folder\'s command list in the editor', { folder: otherFolder });
+
+      // The Robot page edits the same folder directly and lists no robots: this editor pushes only to its own robot.
+      await click('.place', 'Robot');
+      await wait(() => Boolean(document.querySelector('input[aria-label="Folder on robot"]')), 'Robot page push folder');
+      if (await evaluate(() => Boolean(document.querySelector('.robot-cards, .robot-connection')) || [...document.querySelectorAll('.settings-nav button')].some((button) => button.textContent === 'Robots'))) {
+        throw new Error('The robot-hosted editor shows a robot list or a robot connection');
+      }
+      const shownFolder = await evaluate(() => document.querySelector('input[aria-label="Folder on robot"]').value);
+      if (shownFolder !== otherFolder) throw new Error(`The Robot page shows ${shownFolder}, expected ${otherFolder}`);
+      const defaultFolder = path.join(await fs.realpath(home), 'paths');
+      await evaluate((value) => {
+        const input = document.querySelector('input[aria-label="Folder on robot"]');
+        input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      }, defaultFolder);
+      await wait(new Function(`return fetch('/api/info').then((r) => r.json()).then((info) => info.pushDirectory === ${JSON.stringify(defaultFolder)})`), 'Robot page saved the push folder');
+      await wait(new Function(`return document.querySelector('input[aria-label="Folder on robot"]')?.value === ${JSON.stringify(defaultFolder)}`), 'field shows the saved folder');
+      await shot('15-robot-page-push-folder');
+      check('the Robot page edits only the push folder and lists no robots', { folder: defaultFolder });
+      await click('.place', 'Paths');
+      await editorReady();
     }
 
     // Last: the command checks drive the host directly, which a newly opened project's autosave would race.

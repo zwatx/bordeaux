@@ -9,7 +9,10 @@ import { isPlaybackSpace, trackFocusModality } from "../lib/shortcuts";
 import { keyCommand } from "../lib/keyBindings";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
-import { liveEditingPreview } from "../assets/editing-planning";
+import { editingGeometry, liveEditingPreview, projectEditingTiming } from "../assets/editing-planning";
+import { headingForTagsBlocker } from "../../core/planners/headingForTagsBlocker";
+import { findHeadingsForTags, headingSearchKey } from "../lib/headingSearch";
+import { FIELD_TAGS } from "../lib/tagCoverage";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
 import { pathPlanningKey } from "../../core/planners/planningKey";
@@ -59,9 +62,10 @@ import {
 } from "../../core/project/ids";
 import { normalizeProject as normalizeProjectData } from "../../core/project/normalize";
 import { promoteRoutineProjectSchema } from "../../core/project/routineSchema";
+import { addRobot, duplicateRobot, projectRobots, removeRobot, renameRobot, selectRobot, setRobotConnection } from "../../core/project/robots";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { markerInvocations } from "../../core/markerCommands";
-import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createDemoProject } from "../../core/project/defaults";
+import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createStarterProject } from "../../core/project/defaults";
 import { blankProject, blankRoutine, routineState, uniqueItemName, withRoutineState } from "../lib/editorProject";
 import { alignWaypointHandles, duplicateWaypoint, moveWaypointTo, removeWaypoint, remapWaypointRanges, reorderWaypoint, setTangentDirection, setWaypointFacing, reversePath as reversePathDraft } from "../lib/pathEditing";
 import { createPlaybackStore } from "../lib/playbackStore";
@@ -77,6 +81,8 @@ import { PathTimeline, PathHoverReadout } from "../components/PathTimeline";
 import { buildTimeline, tAtF } from "../components/pathTimelineModel";
 
   const { useState, useRef, useEffect, useMemo, useCallback, useSyncExternalStore } = React;
+  // The SystemCore web editor runs on the robot it pushes to. Host capabilities are fixed for the renderer's lifetime.
+  const SERVED_BY_ROBOT = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.servedByRobot === true;
   const h = React.createElement;
   const { IMG_W, IMG_H } = FIELD_DIMS;
   const PERSEG = 56;
@@ -212,12 +218,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
   /** One displayed result owns the field, timeline and transient problem selection. */
   function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, actions, sel, playbackStore,
-    issues = [], timingPending = false, stale = false, flushDraft }) {
+    issues = [], timingPending = false, stale = false, flushDraft, metric }) {
     const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request: true, timingPending });
     // Authored values follow the live draft; timing follows what the field shows for it.
     const source = draft || doc;
     const value = displayed.value || derived;
-    const fresh = useMemo(() => buildTimeline(value), [value]);
+    const coverageCameras = metric === 'tags' ? robot.cameras : undefined;
+    const fresh = useMemo(() => buildTimeline(value, coverageCameras), [value, coverageCameras]);
     // While a change is re-timed, the last timing and problems for this path stay drawn, dimmed. They are
     // display only: status, durations and push never read them. Another path never inherits them, and a
     // failed timing job shows no timing rather than an older one.
@@ -314,10 +321,12 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
   /** Under the field: the selection's properties beside the speed, time and command timeline. */
   function PathBand({ doc, derived, tl, problems, robot, actions, edit, timingHeld, ...props }) {
-    const c = doc.constraints;
+    const c = doc.constraints, ceilings = PM.limitCeilings(robot, doc);
+    // The boxes hold what the user typed. Planning uses the lower of that and the robot's limit, which the mark states.
     const limits = h('div', { className: 'pt-limits', key: doc.id },
-      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: robot.maxSpeed, onChange: (v) => actions.setConstraint({ maxVel: v }) }),
-      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
+      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', onChange: (v) => actions.setConstraint({ maxVel: v }) }),
+      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration',
+        onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
     return h('section', { className: 'path-band', 'aria-label': 'Path details' },
       h(PathPanel, { ...props, stale: props.stale || timingHeld, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
         onFixIssue: problems.onFix, onClearIssue: problems.onClear }),
@@ -381,7 +390,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
 
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
-    const [project, setProject] = useState(() => initialProject || createDemoProject());
+    const [project, setProject] = useState(() => initialProject || createStarterProject());
     const appUpdates = useAppUpdates();
     const plannerId = 'profiledSpline';
     const [activeIdx, setActiveIdx] = useState(0);
@@ -478,6 +487,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [inspectorOpen, optimizationOpen]);
     const [applied, setApplied] = useState(null);
+    // The Optimize panel's Heading tab: its own search, apart from the path searches. `headingSearch` holds the last
+    // search with the path it was for; `headingApplied` the path its Apply wrote.
+    const [optimizationTab, setOptimizationTab] = useState('path');
+    const [headingSearch, setHeadingSearch] = useState(null);
+    const [headingApplied, setHeadingApplied] = useState(null);
     const [metric, setMetric] = useState('velocity');
     const [tool, setTool] = useState('select');
     const finishPlacement = useCallback((placedTool) => {
@@ -868,7 +882,18 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onAccessChange: (enabled) => { setMcpEnabled(enabled); markAgentProposalStale(); },
       events: typeof window === 'undefined' ? null : window,
     }), [agentSessionId, editStore, markAgentProposalStale, materializeProject]);
-    const pushController = useRobotPushController({ getProject: materializeProject, projectKey, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+    // A Push review holds files built for the robot selected at the time, so selecting another robot counts as a
+    // changed project there. The first robot getting its id, when an older project gains its list, is not a switch.
+    const robotEpoch = useRef({ id: project.activeRobotId, count: 0 });
+    if (robotEpoch.current.id !== project.activeRobotId) {
+      if (robotEpoch.current.id || project.robots?.length > 1) robotEpoch.current.count += 1;
+      robotEpoch.current.id = project.activeRobotId;
+    }
+    const pushController = useRobotPushController({ getProject: materializeProject, projectKey: projectKey + ':' + robotEpoch.current.count, catalogKey: robotProjectState.catalog?.catalogHash, bookmarkKey: robotProjectState.bookmarkId,
+      // An address set up in the connection dialog belongs to the robot selected at the time. An editor served by the
+      // robot pushes only to that robot, so project robot addresses play no part there.
+      // The ref changes at once: a Push that waited for this address checks it against the project straight after.
+      onEndpointChosen: (endpoint) => { if (SERVED_BY_ROBOT || !projectRef.current.robots) return; const next = setRobotConnection(projectRef.current, endpoint); projectRef.current = next; setProject(next); },
       ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
@@ -1065,9 +1090,21 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const candidate = currentSearch?.value ?? null;
     const normalReady = normal.status === 'ready';
     const normalError = editing.comparisonError || normal.error;
-    const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === planningKey ? comparison.mode : 'selected';
-    // One search reply carries both results: its own trajectory is the new route, and `shape` keeps the drawn shape.
+    const headingOpen = page === 'plan' && optimizationOpen && optimizationTab === 'heading';
+    const headingKey = useMemo(() => headingSearchKey(projectKey, doc.id, planningKey, robot.cameras),
+      [projectKey, doc.id, planningKey, robot.cameras]);
+    const currentHeading = headingSearch?.key === headingKey ? headingSearch : null;
+    const headingResult = currentHeading?.result ?? null;
+    const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === planningKey
+      && (comparison.mode !== 'heading' || (headingOpen && headingResult)) ? comparison.mode : 'selected';
+    // One path search reply carries both results: its own trajectory is the new route, and `shape` keeps the drawn shape.
+    // The turned path as the field and timeline draw it: its own geometry, timed by the planner's plan of it.
+    const headingPreview = useMemo(() => headingResult
+      ? projectEditingTiming(editingGeometry(headingResult.path, PERSEG, robot), headingResult.trajectory) : null, [headingResult, robot]);
+    const headingBlocker = useMemo(() => headingOpen
+      ? headingForTagsBlocker({ path: doc, robot, field: project.field }, FIELD_TAGS) : null, [headingOpen, doc, robot, project.field]);
     const selectedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'shape' ? candidate?.shape
+      : comparisonMode === 'heading' ? headingPreview
       : comparisonMode === 'normal' && normalReady ? normal.value : null;
     // The path just written by Apply, until it changes again; the panel says so instead of offering a search.
     const justApplied = applied?.documentKey === projectKey && applied.path === doc;
@@ -1645,6 +1682,42 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const setRobot = useCallback((patch) => {
       setProject((pr) => ({ ...pr, robot: { ...pr.robot, ...patch } }));
     }, []);
+    // The project's robots. Switching, adding, renaming and removing are plain project changes, like robot edits;
+    // switching back restores a robot exactly, so applied optimizations made for it match again.
+    const robots = useMemo(() => projectRobots(project), [project.robot, project.robots, project.activeRobotId]);
+    // A project saved before robot lists has one robot that uses this computer's current connection. The first robot
+    // action that creates the list gives that robot this connection as its own address, since from then on every robot
+    // connects only through its own address.
+    const pairingRef = useRef(null); pairingRef.current = pushController.pairing;
+    const withList = (current) => {
+      const endpoint = pairingRef.current?.endpoint;
+      const next = !current.robots && endpoint && !SERVED_BY_ROBOT ? setRobotConnection(current, endpoint) : current;
+      // The single robot's card id stands in for the id the list just gave it. Without a list, the card id still works.
+      return { project: next, idOf: (id) => !current.robots && next.robots ? next.activeRobotId : id };
+    };
+    const robotActions = useMemo(() => ({
+      onSelectRobot: (id) => setProject((pr) => selectRobot(pr, id)),
+      // Returns the new robot's id so its card can open the name for editing.
+      onAddRobot: () => { const next = addRobot(withList(projectRef.current).project, 'New robot'); projectRef.current = next; setProject(next); return next.activeRobotId; },
+      onDuplicateRobot: (id) => { const { project: base, idOf } = withList(projectRef.current); const next = duplicateRobot(base, idOf(id)); projectRef.current = next; setProject(next); return next.activeRobotId; },
+      onRenameRobot: (id, name) => setProject((pr) => { const { project: base, idOf } = withList(pr); return renameRobot(base, idOf(id), name); }),
+      onRemoveRobot: (id) => setProject((pr) => removeRobot(pr, id)),
+    }), []);
+    // The selected robot's address is the active connection. A listed robot without one has none, so Push asks for its
+    // address; only a project without a list falls back to this computer's current connection. Each request is made
+    // once, so a host that answers with its own address (SystemCore keeps its own host) cannot loop, and a request
+    // waits while the connection is busy.
+    const listed = Boolean(project.robots?.length);
+    const selectedConnection = SERVED_BY_ROBOT ? undefined : robots.find((item) => item.selected)?.connection;
+    const selectedEndpointKey = SERVED_BY_ROBOT ? null : selectedConnection ? JSON.stringify(selectedConnection) : listed ? 'none' : null;
+    const requestedEndpoint = useRef(null);
+    useEffect(() => {
+      if (pushController.busy || requestedEndpoint.current === selectedEndpointKey) return;
+      requestedEndpoint.current = selectedEndpointKey;
+      if (!selectedEndpointKey) { void pushController.useEndpoint?.(undefined); return; }
+      if (selectedEndpointKey === 'none') { if (pushController.pairing) void pushController.useEndpoint?.(null); return; }
+      if (JSON.stringify(pushController.pairing?.endpoint ?? null) !== selectedEndpointKey) void pushController.useEndpoint?.(selectedConnection);
+    }, [selectedEndpointKey, pushController.busy, pushController.pairing]);
 
     const addTargetMid = useCallback(() => commit((d) => {
       const pts = derived.sample.pts;
@@ -2114,6 +2187,68 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       playbackStore.reset();
       setComparison({ documentKey: projectKey, id: doc.id, key: planningKey, mode });
     };
+    // The Heading tab is about tags, so the path wears the Tags seen colors while it is open. Leaving it puts back
+    // the color that was showing, unless another one was picked in the meantime.
+    const colorBeforeHeading = useRef(null);
+    useEffect(() => {
+      if (headingOpen) {
+        setMetric((current) => { if (current !== 'tags') colorBeforeHeading.current = current; return 'tags'; });
+      } else if (colorBeforeHeading.current) {
+        const earlier = colorBeforeHeading.current;
+        colorBeforeHeading.current = null;
+        setMetric((current) => current === 'tags' ? earlier : current);
+      }
+    }, [headingOpen]);
+    const chooseOptimizationTab = (tab) => {
+      if (tab === optimizationTab) return;
+      setOptimizationTab(tab);
+      compareTrajectory(tab === 'heading' && headingResult ? 'heading' : 'selected');
+    };
+    const activeHeadingKey = useRef(null);
+    activeHeadingKey.current = headingOpen ? headingKey : null;
+    const headingJob = useRef(null);
+    const cancelHeading = () => {
+      const active = headingJob.current;
+      if (!active) return;
+      headingJob.current = null;
+      active.job.cancel();
+      setHeadingSearch((search) => search?.pending && search.key === active.key ? null : search);
+    };
+    useEffect(() => () => headingJob.current?.job.cancel(), []);
+    useEffect(() => {
+      if (headingJob.current && headingJob.current.key !== activeHeadingKey.current) cancelHeading();
+    }, [headingOpen, headingKey]);
+    /** Runs a search in the worker; only the matching Heading view may use its reply. */
+    const findHeadings = () => {
+      if (!headingOpen || headingBlocker || editStore.getSnapshot()) return;
+      cancelHeading();
+      setHeadingSearch({ key: headingKey, pending: true });
+      setHeadingApplied(null);
+      setComparison(null);
+      const job = findHeadingsForTags({ path: doc, robot, field: project.field });
+      const request = { key: headingKey, job };
+      headingJob.current = request;
+      const finish = (result, error = '') => {
+        if (headingJob.current !== request || activeHeadingKey.current !== request.key) return;
+        headingJob.current = null;
+        setHeadingSearch({ key: request.key, result, error });
+        if (result) compareTrajectory('heading');
+      };
+      job.then((result) => finish(result), (error) => finish(null, error.message || String(error)));
+    };
+    /** Adds the search's rotation targets to the path as one undoable edit. Nothing else on the path changes. */
+    const applyHeadings = () => {
+      if (!headingOpen || headingBlocker || !headingResult || editStore.getSnapshot()) return;
+      const current = projectRef.current;
+      const currentPath = current.paths.find((path) => path.id === doc.id);
+      if (!currentPath || headingSearchKey(projectKey, doc.id, pathPlanningKey(currentPath, current.robot, current.field), current.robot.cameras) !== headingKey) return;
+      const nextPath = { ...currentPath, targets: [...currentPath.targets, ...headingResult.addedTargets.map((target) => ({ ...target }))] };
+      beginHistory();
+      playbackStore.reset();
+      setComparison(null);
+      writeDoc(nextPath);
+      setHeadingApplied({ documentKey: projectKey, path: nextPath });
+    };
     const closeOptimization = () => {
       compareTrajectory('selected');
       setOptimizationOpen(false);
@@ -2147,6 +2282,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       try {
         const nextPath = applyRoute(currentPath, geometry);
         delete nextPath.optimizationNeedsReview;
+        cancelHeading();
+        setHeadingSearch(null);
         beginHistory();
         playbackStore.reset();
         setComparison(null);
@@ -3091,7 +3228,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
         optimizationOpen, toggleOptimization,
         updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck,
-        appSettings: h(AppSettings, { unitSystem, setUnitSystem, connection: pushController, updateState: appUpdates.state,
+        appSettings: h(AppSettings, { unitSystem, setUnitSystem, updateState: appUpdates.state,
           onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onCheckUpdates: appUpdates.actions.onCheck, onCloseUpdates: appUpdates.actions.onClose }) }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
       projectsSheet, departureSheet, departureHint,
@@ -3099,7 +3236,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
         onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
-        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
+        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, robots, ...robotActions, connection: pushController,
+          fallbackHost: listed ? undefined : pushController.pairing?.endpoint?.host, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
             renderLibrary('routines', null),
@@ -3125,7 +3263,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
               robot, field: planningField, plannerId, actions: bandActions, sel, playbackStore, issues: planIssues, timingPending: !comparing && editing.pending,
-              stale: !derivationCurrent, flushDraft: flushProjectDraft }, (scene) => h(React.Fragment, null,
+              stale: !derivationCurrent, flushDraft: flushProjectDraft, metric }, (scene) => h(React.Fragment, null,
             // Ready means the current path's timing has arrived; editing never waits for it.
             h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
               h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
@@ -3160,7 +3298,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   agentProposal.status === 'ready' && h('button', { className: 'primary', type: 'button', disabled: !agentProposalCanApplyCandidate || (agentProposal.blockingIssues && agentProposal.blockingIssues.length > 0), onClick: applyAgentProposal }, agentProposal.operation === 'replace' ? 'Apply repair' : 'Add path'))),
               ),
               h('div', { className: 'field-view-footer', inert: derivationCurrent ? undefined : '' },
-                h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
+                h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric, derived: scene.derived, doc: scene.fieldDoc, cameras: robot.cameras }),
                 h('div', { className: 'field-view-tools' },
                   h(Panels.MetricControl, { metric, setMetric, derived: scene.derived, robot }),
                   h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),
@@ -3183,6 +3321,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
                 onCompare: compareTrajectory, onApply: applyOptimization,
+                tab: optimizationTab, onTab: chooseOptimizationTab, onFindHeadings: findHeadings, onApplyHeadings: applyHeadings,
+                heading: { result: headingResult, searched: Boolean(currentHeading), blocker: headingBlocker,
+                  pending: Boolean(currentHeading?.pending), error: currentHeading?.error || '',
+                  applied: headingApplied?.documentKey === projectKey && headingApplied.path === doc },
                 onUseDrawnPath: () => commit((path) => {
                   delete path.optimizationNeedsReview;
                   return path;

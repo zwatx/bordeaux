@@ -5,6 +5,8 @@ import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
 import { UnitPrefs } from '../lib/unitPreferences';
 import { commandExtent, fAtT, featureFraction, featurePositionPatch, labelWidth as textWidth, layoutCommandLane, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
+import { displayedPoseAtTime } from '../lib/pathHover';
+import { TAGS_SEEN_FULL, tagsSeenAt } from '../lib/tagCoverage';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
@@ -27,6 +29,8 @@ const SERIES = {
   accel: { key: 'a', unit: 'm/s²', label: 'Accel', signed: true },
   angvel: { key: 'w', unit: '°/s', label: 'Turn', signed: true },
   curvature: { key: 'k', unit: '1/m', label: 'Curve', signed: false },
+  // A count from the timeline's `tags` points, drawn on the same 0 to 2 scale as the field's three colors.
+  tags: { key: 'tags', unit: 'tags', label: 'Seen', signed: false, full: TAGS_SEEN_FULL },
 };
 
 const invocationLabel = (id, catalog) => (id && catalog?.commands?.find((candidate) => candidate.id === id)?.label) || 'Command';
@@ -116,15 +120,23 @@ function Ruler({ store, total, left, width, top, onScrub }) {
     onPointerDown: onScrub });
 }
 
-export function PathHoverReadout({ store, context, tl, metric }) {
+export function PathHoverReadout({ store, context, tl, metric, derived, doc, cameras }) {
   const hover = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   if (!context.eligible || hover?.context !== context) return null;
   const times = hover.source === 'timeline' ? [hover.t] : hover.f.map(f => tAtF(tl, f));
   const time = times[hover.source === 'field' ? hover.primary : 0];
   const sampled = hover.source === 'timeline' && SERIES[metric];
   const unit = sampled ? sampled.unit : 'm/s';
-  const text = times.map(t => fmt(t)).join(' · ') + ' s · '
-    + fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled && sampled.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit);
+  let reading;
+  if (sampled?.key === 'tags') {
+    const pose = displayedPoseAtTime(time, derived, doc);
+    if (!pose) return null;
+    const count = tagsSeenAt(pose, cameras);
+    reading = count + (count === 1 ? ' tag' : ' tags');
+  } else {
+    reading = fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled?.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit);
+  }
+  const text = times.map(t => fmt(t)).join(' · ') + ' s · ' + reading;
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
@@ -271,7 +283,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const shown = (value) => series ? UnitPrefs.fromCanonical(value, series.unit) : speed(value);
   const valueOf = (point) => series ? point[series.key] || 0 : point.v;
   const peak = tl.points.reduce((value, point) => Math.max(value, Math.abs(shown(valueOf(point)))), 0);
-  const span = series ? Math.max(peak, series.key === 'k' ? 0.1 : 0.5) : Math.max(speed(robot.maxSpeed || 1), peak, speed(c.maxVel || 0));
+  const span = series ? Math.max(peak, series.full || (series.key === 'k' ? 0.1 : 0.5)) : Math.max(speed(robot.maxSpeed || 1), peak, speed(c.maxVel || 0));
   // A signed axis spends half its height on each side of zero.
   const vStep = niceStep(span, Math.max(1, Math.min(10, graphH / (series?.signed ? 52 : 26))));
   const vTop = Math.max(vStep, Math.ceil(span / vStep - 1e-9) * vStep);
@@ -296,7 +308,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     // Each line segment takes the field path's color for the same value, on the field's scale for this path.
     const M = derived?.metrics;
     const fieldPeak = series && M && { a: M.aMax, w: M.wMax * 180 / Math.PI, k: M.kMax }[series.key];
-    const scale = series ? fieldPeak || p.reduce((value, point) => Math.max(value, Math.abs(valueOf(point))), 0) || 1 : Math.max(0.1, robot.maxSpeed);
+    const scale = series ? series.full || fieldPeak || p.reduce((value, point) => Math.max(value, Math.abs(valueOf(point))), 0) || 1 : Math.max(0.1, robot.maxSpeed);
     const colorOf = (value) => PM.metricColor(metric, series?.signed ? 0.5 + 0.5 * value / scale : value / scale);
     let area = 'M' + x(kept[0].t).toFixed(1) + ' ' + base;
     const segments = [];
@@ -492,7 +504,8 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const selSeg = sel.kind === 'seg' ? sel.idx : null;
   const selZone = sel.kind === 'cr' ? sel.idx : null;
   const speedUnit = UnitPrefs.label('m/s');
-  const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, robot.maxSpeed)));
+  // The line sits at the typed limit, which is what dragging edits; its label is the speed limit in effect.
+  const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, PM.limitCeilings(robot, doc).maxVel ?? robot.maxSpeed)));
 
   return h('section', { ref: root, className: 'pt', 'aria-label': 'Timeline', 'data-stale': stale ? '' : undefined, 'data-compact': compact ? '' : undefined, 'data-narrow': narrow ? '' : undefined,
     ...shiftDeletionInput((event) => {

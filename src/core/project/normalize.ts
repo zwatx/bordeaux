@@ -142,5 +142,10 @@ export function normalizeProject(value: unknown): unknown {
     try { canonicalSource.editor = { ...canonicalSource.editor, labviewProjectPath: normalizeLabviewProjectPath(canonicalSource.editor.labviewProjectPath) }; }
     catch { /* Preserve invalid input for validation; never erase it and enable bookmark fallback. */ }
   }
+  // A robot's connection is only its address. A password or host key found there never returns to the file.
+  if (Array.isArray(canonicalSource.robots)) {
+    canonicalSource.robots = canonicalSource.robots.map((robot) => isRecord(robot) && isRecord(robot.connection)
+      ? { ...robot, connection: { target: robot.connection.target, host: robot.connection.host, port: robot.connection.port, directory: robot.connection.directory } } : robot);
+  }
   return { ...canonicalSource, paths, pathLinks, routines, activeRoutineId, plannerId };
 }

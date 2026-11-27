@@ -1,4 +1,4 @@
-import { createDemoProject } from "../../core/project/defaults";
+import { createStarterProject } from "../../core/project/defaults";
 import { createRoutineId } from "../../core/project/ids";
 import type { AutonomousRoutine, BordeauxProject } from "../../core/types";
 /**
@@ -6,7 +6,7 @@ import type { AutonomousRoutine, BordeauxProject } from "../../core/types";
  * path that has no waypoints yet, so the first click draws. The shared demo/template fixtures are unchanged.
  */
 export function blankProject(): BordeauxProject {
-  const project = createDemoProject();
+  const project = createStarterProject();
   return { ...project, paths: project.paths.slice(0, 1).map((path) => ({ ...path, waypoints: [], markers: [], ranges: [], targets: [] })) };
 }
 

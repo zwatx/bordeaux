@@ -1,6 +1,6 @@
 import { jigglePositions } from "../../core/planners/jiggle";
 import { indexIntervalPolicies } from "../../core/planners/intervalPolicies";
-import { robotHardLimits as sharedRobotHardLimits } from "../../core/robotLimits";
+import { robotHardLimits as sharedRobotHardLimits, robotLimitCeilings } from "../../core/robotLimits";
 import { planningRobotForPath } from "../../core/commandLoads";
 import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../core/math/geometry";
 import { headingAt, buildAnchors } from "../../core/math/headingAnchors";
@@ -86,6 +86,11 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
       electrical: limits.electrical,
     };
   }
+  // What the robot allows for each path limit, with the path's command loads reserved as in planning. A limit typed
+  // above its ceiling is kept and planning caps it; fields mark it with Num's `ceiling`.
+  const limitCeilings = (robot, path) => robot ? robotLimitCeilings(path ? planningRobotForPath(robot, path) : robot) : {};
+  // Typing bounds for path limits: far above any robot, to catch a slipped digit.
+  const MAX_SPEED_LIMIT = 30, MAX_ACCEL_LIMIT = 200;
   // With `path`, its command loads' mechanism reserve lowers the limits as it does in planning.
   function effectiveConstraints(constraints, robot, path) {
     const limits = robotHardLimits(robot && path ? planningRobotForPath(robot, path) : robot);
@@ -674,4 +679,4 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
 
   function pathLength(waypoints, perSegment = 56) { return sample(waypoints, perSegment).length; }
 
-export const PM = { splitBezier, nearestPointOnSegment, poseAtTime, headingAt, metricColor, metricGradient, METRICS, SEGTYPES, pointAtFraction, nearestFraction, nearestVisits, autoHandles, angWrap, derivePath, jigglePositions, featureFraction, reversePathAnchors, pathLength, remapWaypointRange, waypointFracs, robotHardLimits, effectiveConstraints, indexIntervalPolicies };
+export const PM = { limitCeilings, MAX_SPEED_LIMIT, MAX_ACCEL_LIMIT, splitBezier, nearestPointOnSegment, poseAtTime, headingAt, metricColor, metricGradient, METRICS, SEGTYPES, pointAtFraction, nearestFraction, nearestVisits, autoHandles, angWrap, derivePath, jigglePositions, featureFraction, reversePathAnchors, pathLength, remapWaypointRange, waypointFracs, robotHardLimits, effectiveConstraints, indexIntervalPolicies };

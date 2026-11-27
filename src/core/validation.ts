@@ -4,8 +4,11 @@ import { robotSchemaValueError } from "./robotCommands";
 import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX, pointInsideField, pointInsideMigratedField } from "./math/fieldBounds";
 import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVISION } from "./field/rebuilt2026";
 import { routineGroupChildError } from "./routineChildren";
+import { isRobotTargetId } from "./robotTargets";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
 import { MAX_COMMAND_LOADS } from "./commandLoads";
+import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES } from "./robotCameras";
+import { ROBOT_LIMIT, ROBOT_NAME_MAX } from "./project/robots";
 
 type RecordValue = Record<string, unknown>;
 
@@ -50,9 +53,9 @@ function validatePoint(issues: ValidationIssue[], value: unknown, path: string, 
   validateFinite(issues, value.y, `${path}.y`, `${label} Y`);
 }
 
-function validateRobotFootprint(issues: ValidationIssue[], robot: RecordValue): void {
+function validateRobotFootprint(issues: ValidationIssue[], robot: RecordValue, base: string): void {
   if (robot.footprintPreset !== undefined) {
-    const presetPath = "$.robot.footprintPreset";
+    const presetPath = `${base}.footprintPreset`;
     if (!isRecord(robot.footprintPreset) || !["round", "trapezoid", "custom"].includes(String(robot.footprintPreset.kind))) {
       issues.push(issue(presetPath, "Robot footprint preset must be round, trapezoid, or custom"));
     } else if (robot.footprintPreset.kind === "round"
@@ -68,10 +71,10 @@ function validateRobotFootprint(issues: ValidationIssue[], robot: RecordValue): 
     }
   }
   if (isRecord(robot.footprintPreset) && robot.footprintPreset.kind === "custom" && robot.footprint === undefined) {
-    issues.push(issue("$.robot.footprint", "A custom footprint preset requires polygon vertices"));
+    issues.push(issue(`${base}.footprint`, "A custom footprint preset requires polygon vertices"));
   }
   if (robot.footprint === undefined) return;
-  const path = "$.robot.footprint";
+  const path = `${base}.footprint`;
   if (!isRecord(robot.footprint)) {
     issues.push(issue(path, "Robot footprint must be an object"));
     return;
@@ -116,9 +119,45 @@ function validateRobotFootprint(issues: ValidationIssue[], robot: RecordValue): 
   if (finite(robot.w) && maxY - minY > robot.w + 1e-6) issues.push(issue(`${path}.verticesM`, "Robot footprint lateral extent cannot exceed robot width"));
 }
 
-function validateRobotPlanning(issues: ValidationIssue[], robot: RecordValue): void {
+/** A robot's cameras: a list of 1 to `CAMERA_LIMIT`, each with its own id and name and numbers inside `CAMERA_RANGES`. */
+function validateRobotCameras(issues: ValidationIssue[], robot: RecordValue, base: string): void {
+  if (robot.cameras === undefined) return;
+  const path = `${base}.cameras`;
+  if (!Array.isArray(robot.cameras) || !robot.cameras.length || robot.cameras.length > CAMERA_LIMIT) {
+    issues.push(issue(path, `Cameras must be a list of 1 to ${CAMERA_LIMIT} cameras`));
+    return;
+  }
+  const within = (value: unknown, range: { min: number; max: number }, at: string, label: string, exclusive = false) => {
+    if (!finite(value) || (exclusive ? value <= range.min || value >= range.max : value < range.min || value > range.max)) {
+      issues.push(issue(at, `${label} must be ${exclusive ? "between" : "from"} ${range.min} ${exclusive ? "and" : "to"} ${range.max}`));
+    }
+  };
+  const ids = new Set<string>(), names = new Set<string>();
+  robot.cameras.forEach((camera: unknown, index: number) => {
+    const at = `${path}[${index}]`;
+    if (!isRecord(camera)) { issues.push(issue(at, "Camera must be an object")); return; }
+    if (typeof camera.id !== "string" || !camera.id.trim() || ids.has(camera.id)) issues.push(issue(`${at}.id`, "Camera id must be unique"));
+    else ids.add(camera.id);
+    const name = typeof camera.name === "string" ? camera.name.trim().toLowerCase() : "";
+    if (!name || name.length > CAMERA_NAME_MAX || names.has(name)) issues.push(issue(`${at}.name`, `Camera name must be unique and 1 to ${CAMERA_NAME_MAX} characters`));
+    else names.add(name);
+    within(camera.horizontalFovDeg, CAMERA_RANGES.fovDeg, `${at}.horizontalFovDeg`, "Camera horizontal field of view", true);
+    within(camera.verticalFovDeg, CAMERA_RANGES.fovDeg, `${at}.verticalFovDeg`, "Camera vertical field of view", true);
+    if (!isRecord(camera.positionM)) issues.push(issue(`${at}.positionM`, "Camera position is required"));
+    else {
+      within(camera.positionM.x, CAMERA_RANGES.offsetM, `${at}.positionM.x`, "Camera forward offset");
+      within(camera.positionM.y, CAMERA_RANGES.offsetM, `${at}.positionM.y`, "Camera left offset");
+      within(camera.positionM.z, CAMERA_RANGES.heightM, `${at}.positionM.z`, "Camera height");
+    }
+    within(camera.yawDeg, CAMERA_RANGES.yawDeg, `${at}.yawDeg`, "Camera yaw");
+    within(camera.pitchDeg, CAMERA_RANGES.pitchDeg, `${at}.pitchDeg`, "Camera pitch");
+    if (camera.maxRangeM !== undefined) within(camera.maxRangeM, CAMERA_RANGES.rangeM, `${at}.maxRangeM`, "Camera max range");
+  });
+}
+
+function validateRobotPlanning(issues: ValidationIssue[], robot: RecordValue, base: string): void {
   if (robot.planning === undefined) return;
-  const path = "$.robot.planning";
+  const path = `${base}.planning`;
   if (!isRecord(robot.planning)) {
     issues.push(issue(path, "Robot planning profile must be an object"));
     return;
@@ -435,11 +474,139 @@ function validateRoutineNodes(
   }
 }
 
+/** One robot's details at `base`: `$.robot` for the selected robot, or an entry of `$.robots`. */
+function validateRobotConfig(issues: ValidationIssue[], robot: unknown, base: string): void {
+  if (!isRecord(robot)) { issues.push(issue(base, "Robot config is required")); return; }
+  if (robot.drive !== "swerve" && robot.drive !== "tank") issues.push(issue(`${base}.drive`, "Drive must be swerve or tank"));
+  validateFinite(issues, robot.w, `${base}.w`, "Robot width", { positive: true });
+  validateFinite(issues, robot.l, `${base}.l`, "Robot length", { positive: true });
+  validateOptionalFinite(issues, robot.heightM, `${base}.heightM`, "Robot height", { positive: true });
+  validateFinite(issues, robot.maxSpeed, `${base}.maxSpeed`, "Robot max speed", { positive: true });
+  if (robot.driveModel !== undefined) {
+    const modelPath = `${base}.driveModel`;
+    if (!isRecord(robot.driveModel)) issues.push(issue(modelPath, "Robot drive model must be an object"));
+    else {
+      if (typeof robot.driveModel.motorId !== "string" || !robot.driveModel.motorId.trim()) issues.push(issue(`${modelPath}.motorId`, "Drive motor ID is required"));
+      validateFinite(issues, robot.driveModel.motorFreeRpm, `${modelPath}.motorFreeRpm`, "Motor free speed", { positive: true });
+      validateFinite(issues, robot.driveModel.gearRatio, `${modelPath}.gearRatio`, "Drive gear ratio", { positive: true });
+      validateFinite(issues, robot.driveModel.wheelDiameterM, `${modelPath}.wheelDiameterM`, "Drive wheel diameter", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.motorMaxTorqueNm, `${modelPath}.motorMaxTorqueNm`, "Motor torque limit", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.motorCount, `${modelPath}.motorCount`, "Drive motor count", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.massKg, `${modelPath}.massKg`, "Robot mass", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.moiKgM2, `${modelPath}.moiKgM2`, "Robot moment of inertia", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.wheelbaseM, `${modelPath}.wheelbaseM`, "Wheelbase", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.trackwidthM, `${modelPath}.trackwidthM`, "Trackwidth", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.wheelFrictionCoefficient, `${modelPath}.wheelFrictionCoefficient`, "Wheel friction coefficient", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.cgHeightM, `${modelPath}.cgHeightM`, "Center of gravity height", { nonnegative: true });
+      if (typeof robot.driveModel.cgHeightM === "number" && robot.driveModel.cgHeightM > 2) {
+        issues.push(issue(`${modelPath}.cgHeightM`, "Center of gravity height must be at most 2 m"));
+      }
+      validateOptionalFinite(issues, robot.driveModel.motorStallCurrentA, `${modelPath}.motorStallCurrentA`, "Motor stall current", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.motorFreeCurrentA, `${modelPath}.motorFreeCurrentA`, "Motor free current", { nonnegative: true });
+      validateOptionalFinite(issues, robot.driveModel.driveCurrentLimitA, `${modelPath}.driveCurrentLimitA`, "Drive current limit", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.batteryVoltageV, `${modelPath}.batteryVoltageV`, "Battery voltage", { positive: true });
+      validateOptionalFinite(issues, robot.driveModel.batteryResistanceOhm, `${modelPath}.batteryResistanceOhm`, "Battery resistance", { nonnegative: true });
+      validateOptionalFinite(issues, robot.driveModel.otherLoadA, `${modelPath}.otherLoadA`, "Other mechanism current", { nonnegative: true });
+      validateOptionalFinite(issues, robot.driveModel.minimumBusVoltageV, `${modelPath}.minimumBusVoltageV`, "Minimum bus voltage", { positive: true });
+      if ((robot.driveModel.minimumBusVoltageV ?? 7.25) >= (robot.driveModel.batteryVoltageV ?? 12)) {
+        issues.push(issue(`${modelPath}.minimumBusVoltageV`, "Minimum bus voltage must be below the battery voltage"));
+      }
+      const bursts = robot.driveModel.loadBursts;
+      if (bursts !== undefined) {
+        if (!Array.isArray(bursts) || bursts.length > 128) issues.push(issue(`${modelPath}.loadBursts`, "Use at most 128 mechanism load bursts"));
+        else bursts.forEach((burst, index) => {
+          const p = `${modelPath}.loadBursts[${index}]`;
+          if (!burst || ![burst.startTimeS, burst.endTimeS, burst.currentA].every(Number.isFinite)
+            || burst.startTimeS < 0 || burst.endTimeS <= burst.startTimeS || burst.currentA < 0) {
+            issues.push(issue(p, "Load burst requires nonnegative start/current and an end after its start"));
+          }
+        });
+      }
+      const commandLoads = robot.driveModel.commandLoads;
+      if (commandLoads !== undefined) {
+        if (!Array.isArray(commandLoads) || commandLoads.length > MAX_COMMAND_LOADS) issues.push(issue(`${modelPath}.commandLoads`, `Use at most ${MAX_COMMAND_LOADS} command loads`));
+        else {
+          const seen = new Set<string>();
+          commandLoads.forEach((load, index) => {
+            const p = `${modelPath}.commandLoads[${index}]`;
+            if (!isRecord(load) || typeof load.commandId !== 'string' || !load.commandId || load.commandId.length > 256) {
+              issues.push(issue(p, "Command load requires a command ID")); return;
+            }
+            if (seen.has(load.commandId)) issues.push(issue(`${p}.commandId`, "Each command has at most one load"));
+            seen.add(load.commandId);
+            if (!finite(load.currentA) || load.currentA < 0) issues.push(issue(`${p}.currentA`, "Command load current must be a nonnegative number"));
+            if (load.runTimeS !== undefined && (!finite(load.runTimeS) || load.runTimeS <= 0 || load.runTimeS > 3600)) {
+              issues.push(issue(`${p}.runTimeS`, "Command run time must be greater than 0 and at most 3600 seconds"));
+            }
+          });
+        }
+      }
+      for (const key of ['driveBreaker', 'mainBreaker'] as const) {
+        const breaker = robot.driveModel[key];
+        if (breaker !== undefined && (!isRecord(breaker) || !finite(breaker.ratedCurrentA) || !finite(breaker.tripTimeAt2xS) || !finite(breaker.initialHeat)
+          || breaker.ratedCurrentA <= 0 || breaker.tripTimeAt2xS <= 0 || breaker.initialHeat < 0 || breaker.initialHeat > 1)) {
+          issues.push(issue(`${modelPath}.${key}`, "Breaker requires positive rating/trip time and initial heat from 0 to 1"));
+        }
+      }
+      validateOptionalFinite(issues, robot.driveModel.driveEfficiency, `${modelPath}.driveEfficiency`, "Drive efficiency", { positive: true });
+      if (typeof robot.driveModel.driveEfficiency === "number" && robot.driveModel.driveEfficiency > 1) {
+        issues.push(issue(`${modelPath}.driveEfficiency`, "Drive efficiency must be at most 1"));
+      }
+      validateOptionalFinite(issues, robot.driveModel.controlReserve, `${modelPath}.controlReserve`, "Control reserve", { nonnegative: true });
+      if (typeof robot.driveModel.controlReserve === "number" && robot.driveModel.controlReserve > 0.5) {
+        issues.push(issue(`${modelPath}.controlReserve`, "Control reserve must be at most 0.5"));
+      }
+      if (robot.driveModel.motorCount !== undefined && !Number.isInteger(robot.driveModel.motorCount)) {
+        issues.push(issue(`${modelPath}.motorCount`, "Drive motor count must be an integer"));
+      }
+    }
+  }
+  validateRobotFootprint(issues, robot, base);
+  validateRobotCameras(issues, robot, base);
+  validateRobotPlanning(issues, robot, base);
+}
+
+/** The named robot list: exactly the selected entry leaves its details to `$.robot`. */
+function validateRobots(issues: ValidationIssue[], project: RecordValue): void {
+  if (project.robots === undefined) {
+    if (project.activeRobotId !== undefined) issues.push(issue("$.activeRobotId", "A selected robot needs a robot list"));
+    return;
+  }
+  if (!Array.isArray(project.robots) || !project.robots.length || project.robots.length > ROBOT_LIMIT) {
+    issues.push(issue("$.robots", `Robots must be a list of 1 to ${ROBOT_LIMIT} robots`));
+    return;
+  }
+  const ids = new Set<string>(), names = new Set<string>();
+  project.robots.forEach((entry: unknown, index: number) => {
+    const base = `$.robots[${index}]`;
+    if (!isRecord(entry)) { issues.push(issue(base, "Robot must be an object")); return; }
+    if (typeof entry.id !== "string" || !entry.id.trim() || ids.has(entry.id)) issues.push(issue(`${base}.id`, "Robot id must be unique"));
+    else ids.add(entry.id);
+    const name = typeof entry.name === "string" ? entry.name.trim().toLowerCase() : "";
+    if (!name || name.length > ROBOT_NAME_MAX || names.has(name)) issues.push(issue(`${base}.name`, `Robot name must be unique and 1 to ${ROBOT_NAME_MAX} characters`));
+    else names.add(name);
+    // The shape only: the desktop checks the push folder against the robot type's allowed folders before each use.
+    if (entry.connection !== undefined) {
+      const connection = entry.connection;
+      if (!isRecord(connection) || !isRobotTargetId(connection.target)
+        || typeof connection.host !== "string" || connection.host.length > 253 || !/^[A-Za-z0-9][A-Za-z0-9.:-]*$/.test(connection.host)
+        || !Number.isInteger(connection.port) || (connection.port as number) < 1 || (connection.port as number) > 65535
+        || typeof connection.directory !== "string" || !connection.directory.startsWith("/") || connection.directory.length > 4096) {
+        issues.push(issue(`${base}.connection`, "Robot connection must name a robot type, host, SSH port and absolute push folder"));
+      }
+    }
+    if (entry.id === project.activeRobotId) {
+      if (entry.robot !== undefined) issues.push(issue(`${base}.robot`, "The selected robot's details belong in $.robot"));
+    } else validateRobotConfig(issues, entry.robot, `${base}.robot`);
+  });
+  if (typeof project.activeRobotId !== "string" || !ids.has(project.activeRobotId)) issues.push(issue("$.activeRobotId", "The selected robot must be in the robot list"));
+}
+
 function validateProjectInner(project: unknown, allowIncompletePaths = false): ValidationResult {
   const issues: ValidationIssue[] = [];
   if (!isRecord(project)) return { ok: false, issues: [issue("$", "Project must be a JSON object")] };
 
-  if (project.schemaVersion !== "1.0" && project.schemaVersion !== "1.1" && project.schemaVersion !== "1.2") issues.push(issue("$.schemaVersion", "Schema version must be 1.0, 1.1 or 1.2"));
+  if (!["1.0", "1.1", "1.2", "1.3"].includes(String(project.schemaVersion))) issues.push(issue("$.schemaVersion", "Schema version must be 1.0, 1.1, 1.2 or 1.3"));
   if (!isRecord(project.field)) issues.push(issue("$.field", "Field reference is required"));
   else {
     if (project.field.id !== ACTIVE_FIELD_REFERENCE.id) issues.push(issue("$.field.id", "Field ID is not supported"));
@@ -471,96 +638,8 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
     issues.push(issue("$.plannerId", "Planner must be profiledSpline or optimizedTrajectory"));
   }
 
-  if (!isRecord(project.robot)) {
-    issues.push(issue("$.robot", "Robot config is required"));
-  } else {
-    if (project.robot.drive !== "swerve" && project.robot.drive !== "tank") issues.push(issue("$.robot.drive", "Drive must be swerve or tank"));
-    validateFinite(issues, project.robot.w, "$.robot.w", "Robot width", { positive: true });
-    validateFinite(issues, project.robot.l, "$.robot.l", "Robot length", { positive: true });
-    validateOptionalFinite(issues, project.robot.heightM, "$.robot.heightM", "Robot height", { positive: true });
-    validateFinite(issues, project.robot.maxSpeed, "$.robot.maxSpeed", "Robot max speed", { positive: true });
-    if (project.robot.driveModel !== undefined) {
-      const modelPath = "$.robot.driveModel";
-      if (!isRecord(project.robot.driveModel)) issues.push(issue(modelPath, "Robot drive model must be an object"));
-      else {
-        if (typeof project.robot.driveModel.motorId !== "string" || !project.robot.driveModel.motorId.trim()) issues.push(issue(`${modelPath}.motorId`, "Drive motor ID is required"));
-        validateFinite(issues, project.robot.driveModel.motorFreeRpm, `${modelPath}.motorFreeRpm`, "Motor free speed", { positive: true });
-        validateFinite(issues, project.robot.driveModel.gearRatio, `${modelPath}.gearRatio`, "Drive gear ratio", { positive: true });
-        validateFinite(issues, project.robot.driveModel.wheelDiameterM, `${modelPath}.wheelDiameterM`, "Drive wheel diameter", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.motorMaxTorqueNm, `${modelPath}.motorMaxTorqueNm`, "Motor torque limit", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.motorCount, `${modelPath}.motorCount`, "Drive motor count", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.massKg, `${modelPath}.massKg`, "Robot mass", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.moiKgM2, `${modelPath}.moiKgM2`, "Robot moment of inertia", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.wheelbaseM, `${modelPath}.wheelbaseM`, "Wheelbase", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.trackwidthM, `${modelPath}.trackwidthM`, "Trackwidth", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.wheelFrictionCoefficient, `${modelPath}.wheelFrictionCoefficient`, "Wheel friction coefficient", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.cgHeightM, `${modelPath}.cgHeightM`, "Center of gravity height", { nonnegative: true });
-        if (typeof project.robot.driveModel.cgHeightM === "number" && project.robot.driveModel.cgHeightM > 2) {
-          issues.push(issue(`${modelPath}.cgHeightM`, "Center of gravity height must be at most 2 m"));
-        }
-        validateOptionalFinite(issues, project.robot.driveModel.motorStallCurrentA, `${modelPath}.motorStallCurrentA`, "Motor stall current", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.motorFreeCurrentA, `${modelPath}.motorFreeCurrentA`, "Motor free current", { nonnegative: true });
-        validateOptionalFinite(issues, project.robot.driveModel.driveCurrentLimitA, `${modelPath}.driveCurrentLimitA`, "Drive current limit", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.batteryVoltageV, `${modelPath}.batteryVoltageV`, "Battery voltage", { positive: true });
-        validateOptionalFinite(issues, project.robot.driveModel.batteryResistanceOhm, `${modelPath}.batteryResistanceOhm`, "Battery resistance", { nonnegative: true });
-        validateOptionalFinite(issues, project.robot.driveModel.otherLoadA, `${modelPath}.otherLoadA`, "Other mechanism current", { nonnegative: true });
-        validateOptionalFinite(issues, project.robot.driveModel.minimumBusVoltageV, `${modelPath}.minimumBusVoltageV`, "Minimum bus voltage", { positive: true });
-        if ((project.robot.driveModel.minimumBusVoltageV ?? 7.25) >= (project.robot.driveModel.batteryVoltageV ?? 12)) {
-          issues.push(issue(`${modelPath}.minimumBusVoltageV`, "Minimum bus voltage must be below the battery voltage"));
-        }
-        const bursts = project.robot.driveModel.loadBursts;
-        if (bursts !== undefined) {
-          if (!Array.isArray(bursts) || bursts.length > 128) issues.push(issue(`${modelPath}.loadBursts`, "Use at most 128 mechanism load bursts"));
-          else bursts.forEach((burst, index) => {
-            const p = `${modelPath}.loadBursts[${index}]`;
-            if (!burst || ![burst.startTimeS, burst.endTimeS, burst.currentA].every(Number.isFinite)
-              || burst.startTimeS < 0 || burst.endTimeS <= burst.startTimeS || burst.currentA < 0) {
-              issues.push(issue(p, "Load burst requires nonnegative start/current and an end after its start"));
-            }
-          });
-        }
-        const commandLoads = project.robot.driveModel.commandLoads;
-        if (commandLoads !== undefined) {
-          if (!Array.isArray(commandLoads) || commandLoads.length > MAX_COMMAND_LOADS) issues.push(issue(`${modelPath}.commandLoads`, `Use at most ${MAX_COMMAND_LOADS} command loads`));
-          else {
-            const seen = new Set<string>();
-            commandLoads.forEach((load, index) => {
-              const p = `${modelPath}.commandLoads[${index}]`;
-              if (!isRecord(load) || typeof load.commandId !== 'string' || !load.commandId || load.commandId.length > 256) {
-                issues.push(issue(p, "Command load requires a command ID")); return;
-              }
-              if (seen.has(load.commandId)) issues.push(issue(`${p}.commandId`, "Each command has at most one load"));
-              seen.add(load.commandId);
-              if (!finite(load.currentA) || load.currentA < 0) issues.push(issue(`${p}.currentA`, "Command load current must be a nonnegative number"));
-              if (load.runTimeS !== undefined && (!finite(load.runTimeS) || load.runTimeS <= 0 || load.runTimeS > 3600)) {
-                issues.push(issue(`${p}.runTimeS`, "Command run time must be greater than 0 and at most 3600 seconds"));
-              }
-            });
-          }
-        }
-        for (const key of ['driveBreaker', 'mainBreaker'] as const) {
-          const breaker = project.robot.driveModel[key];
-          if (breaker !== undefined && (!isRecord(breaker) || !finite(breaker.ratedCurrentA) || !finite(breaker.tripTimeAt2xS) || !finite(breaker.initialHeat)
-            || breaker.ratedCurrentA <= 0 || breaker.tripTimeAt2xS <= 0 || breaker.initialHeat < 0 || breaker.initialHeat > 1)) {
-            issues.push(issue(`${modelPath}.${key}`, "Breaker requires positive rating/trip time and initial heat from 0 to 1"));
-          }
-        }
-        validateOptionalFinite(issues, project.robot.driveModel.driveEfficiency, `${modelPath}.driveEfficiency`, "Drive efficiency", { positive: true });
-        if (typeof project.robot.driveModel.driveEfficiency === "number" && project.robot.driveModel.driveEfficiency > 1) {
-          issues.push(issue(`${modelPath}.driveEfficiency`, "Drive efficiency must be at most 1"));
-        }
-        validateOptionalFinite(issues, project.robot.driveModel.controlReserve, `${modelPath}.controlReserve`, "Control reserve", { nonnegative: true });
-        if (typeof project.robot.driveModel.controlReserve === "number" && project.robot.driveModel.controlReserve > 0.5) {
-          issues.push(issue(`${modelPath}.controlReserve`, "Control reserve must be at most 0.5"));
-        }
-        if (project.robot.driveModel.motorCount !== undefined && !Number.isInteger(project.robot.driveModel.motorCount)) {
-          issues.push(issue(`${modelPath}.motorCount`, "Drive motor count must be an integer"));
-        }
-      }
-    }
-    validateRobotFootprint(issues, project.robot);
-    validateRobotPlanning(issues, project.robot);
-  }
+  validateRobotConfig(issues, project.robot, "$.robot");
+  validateRobots(issues, project);
 
   const pathIds = new Set<string>();
   const markerIds = new Set<string>();

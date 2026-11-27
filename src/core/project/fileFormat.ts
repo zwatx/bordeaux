@@ -75,14 +75,18 @@ function validatedProject(value: unknown, migrated: boolean): DecodedProjectFile
   const prepared = migrateFieldProject(value);
   const needsFieldMigration = prepared !== value;
   const routinePromoted = isRecord(prepared) ? promoteRoutineProjectSchema(prepared) : prepared;
-  const project = normalizeProject(routinePromoted);
+  // A robot list needs 1.3, so builds without robot lists refuse the file instead of saving it without them.
+  const hasRobotList = isRecord(routinePromoted) && routinePromoted.robots !== undefined;
+  const promoted = hasRobotList && isRecord(routinePromoted) && routinePromoted.schemaVersion !== "1.3"
+    ? { ...routinePromoted, schemaVersion: "1.3" } : routinePromoted;
+  const project = normalizeProject(promoted);
   const validation = validateProjectSource(project);
   if (!validation.ok) {
     const message = validation.issues.map((item) => `${item.path}: ${item.message}`).join("\n");
     throw new Error(`Invalid Bordeaux project:\n${message}`);
   }
   const hydrated = migrateLegacyOptimizations(project as BordeauxProject, routinePromoted, needsFieldMigration);
-  return { project: hydrated, migrated: migrated || needsFieldMigration || routinePromoted !== prepared || hydrated !== project };
+  return { project: hydrated, migrated: migrated || needsFieldMigration || promoted !== prepared || hydrated !== project };
 }
 
 export function decodeProjectValue(value: unknown): DecodedProjectFile {
@@ -90,10 +94,10 @@ export function decodeProjectValue(value: unknown): DecodedProjectFile {
   assertSupportedFieldReference(value.field);
 
   if (value.schemaVersion !== undefined) {
-    if (value.schemaVersion !== "1.0" && value.schemaVersion !== "1.1" && value.schemaVersion !== "1.2") {
+    if (value.schemaVersion !== "1.0" && value.schemaVersion !== "1.1" && value.schemaVersion !== "1.2" && value.schemaVersion !== "1.3") {
       throw new Error(
         `Unsupported Bordeaux project schema version ${JSON.stringify(value.schemaVersion)}. ` +
-        `This version of Bordeaux supports 1.0, 1.1 and 1.2.`,
+        `This version of Bordeaux supports 1.0, 1.1, 1.2 and 1.3.`,
       );
     }
     return validatedProject(value, needsV1Migration(value));

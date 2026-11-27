@@ -117,6 +117,29 @@ const dialog = (patch) => renderToStaticMarkup(React.createElement(RobotFilePush
 const actions = (html) => [...html.matchAll(/<button type="button" class="(qbtn[^"]*)"[^>]*>([^<]*)<\/button>/g)].map(([, cls, text]) => text + (cls.includes('primary') ? '*' : ''));
 const saved = { endpoint: { target: 'roborio', host: '10.24.68.2', port: 22, directory: '/home/lvuser/natinst/bin/Paths' } };
 
+// The SystemCore web editor runs on the robot, so only the push folder is the team's choice there.
+describe('Robot connection: an editor served by the robot', () => {
+  const served = (patch) => dialog({ servedByRobot: true, target: 'systemcore', host: '10.24.68.2', port: '22', directory: '/home/systemcore/bordeaux/paths', settings: { endpoint: { ...saved.endpoint, target: 'systemcore', directory: '/home/systemcore/bordeaux/paths' } }, editing: true, ...patch });
+  it('edits only the push folder, under that name', () => {
+    const html = served();
+    expect(html).toContain('<h2 id="robot-file-title">Push folder</h2>');
+    expect(html).toMatch(/Folder on robot<input[^>]*value="\/home\/systemcore\/bordeaux\/paths"/);
+    expect(html).not.toMatch(/>Host<|>Port<|aria-pressed="true">Systemcore|SSH password|10\.24\.68\.2|Robot connection/);
+    expect(actions(html)).toEqual(['Save*']);
+  });
+  it('summarizes only the push folder', () => {
+    const html = served({ editing: false, connection: { endpoint: { ...saved.endpoint, target: 'systemcore', directory: '/home/systemcore/bordeaux/paths' }, hostKeyFingerprint: 'SHA256:local' } });
+    expect(html).toContain('<h2 id="robot-file-title">Push folder</h2>');
+    expect(html).toContain('/home/systemcore/bordeaux/paths');
+    expect(html).not.toMatch(/10\.24\.68\.2|Verified|Connect</);
+  });
+  it('keeps the full form where the desktop connects to a robot', () => {
+    const html = dialog({ settings: saved, editing: true });
+    expect(html).toContain('>Host<');
+    expect(html).toContain('<h2 id="robot-file-title">Robot connection</h2>');
+  });
+});
+
 describe('Robot connection: robot type', () => {
   it('offers each robot type as one pressed choice and follows it with the host placeholder', () => {
     const roborio = dialog({});

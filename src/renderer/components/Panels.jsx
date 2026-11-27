@@ -99,7 +99,10 @@ import { deletionInput } from "./DeletionNotice";
     const def = (PM.METRICS || []).find((m) => m.id === metric) || {};
     let lo = '0', hi = '0';
     const displayUnit = def.unit || '';
-    if (metric === 'velocity') { lo = '0'; hi = UnitPrefs.fromCanonical(Math.max(0.1, robot?.maxSpeed || M.vMax || 0), displayUnit).toFixed(1); }
+    // Tags seen is a count in three colors, and it needs a camera to read anything.
+    const noCameras = metric === 'tags' && !robot?.cameras?.length;
+    if (metric === 'tags') { lo = '0'; hi = '2+'; }
+    else if (metric === 'velocity') { lo = '0'; hi = UnitPrefs.fromCanonical(Math.max(0.1, robot?.maxSpeed || M.vMax || 0), displayUnit).toFixed(1); }
     else if (metric === 'accel') { const a = UnitPrefs.fromCanonical(M.aMax || 0, displayUnit).toFixed(1); lo = '-' + a; hi = '+' + a; }
     else if (metric === 'angvel') { const w = ((M.wMax || 0) * R2D).toFixed(0); lo = '-' + w; hi = '+' + w; }
     else { lo = '0'; hi = UnitPrefs.fromCanonical(M.kMax || 0, displayUnit).toFixed(2); }
@@ -109,7 +112,7 @@ import { deletionInput } from "./DeletionNotice";
         items: (PM.METRICS || []).map((m) => ({ value: m.id, label: m.label, meta: UnitPrefs.label(m.unit || '') })),
         onChange: setMetric }),
       h('span', { className: 'metric-swatch', style: { background: grad }, 'aria-hidden': true }),
-      h('span', { className: 'metric-range', 'aria-hidden': true }, lo + '\u2013' + hi + ' ' + UnitPrefs.label(displayUnit)));
+      h('span', { className: 'metric-range', 'aria-hidden': noCameras ? undefined : true }, noCameras ? 'Add a camera on the Robot page' : lo + '\u2013' + hi + ' ' + UnitPrefs.label(displayUnit)));
   }
 
   // Hiding the path list lives on the library's own header (and its key); the restore strip brings it back.
