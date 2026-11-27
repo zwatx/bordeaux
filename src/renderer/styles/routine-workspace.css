@@ -49,6 +49,8 @@
 .rt-group.cgroup.par>.rt-block>.rt-step-wrap.rt-group{position:relative}
 .rt-step.grp :is(.rt-step-ic,.rt-collapse-kind){color:var(--txt-2)}
 .rt-step-kind{flex:none;color:var(--txt-3);font-size:11px;line-height:17px}
+/* A bound command's label beside a team's name can be long; it wraps instead of widening the row. */
+.rt-step-kind.runs{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
 .rt-step-loop{display:inline-flex;align-items:center;height:17px;margin-left:6px;vertical-align:top;color:var(--cmd)}
 .rt-branch.live{border-left-color:var(--txt-2)}
 

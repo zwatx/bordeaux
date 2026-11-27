@@ -26,6 +26,15 @@ describe('self-contained runtime routine compiler', () => {
     expect(built.document.nodes[0]).toMatchObject({ op: 1, path: 0 });
     expect(f.project).toEqual(original);
   });
+  it('writes the same file whatever a command step is named', () => {
+    const f = routineRuntimeFixture(), named = (title?: string) => {
+      f.project.routines[0].nodes = [{ id: 'command', type: 'function', cat: 'command', ...(title === undefined ? {} : { title }), invocation: f.invocation() }];
+      return Buffer.from(buildRoutineRuntime(f.project, 'routine', f.bindings).bytes).toString('hex');
+    };
+    const bytes = named();
+    expect(named('Intake on')).toBe(bytes);
+    expect(named('Robot command')).toBe(bytes);
+  });
   it('rejects a degenerate position section before producing a routine file', () => {
     const f = routineRuntimeFixture(), path = f.project.paths[0];
     path.followMode = 'position';

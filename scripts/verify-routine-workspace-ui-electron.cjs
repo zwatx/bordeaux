@@ -824,10 +824,66 @@ app.whenReady().then(async () => {
       await snapshot('group-path-commands-lane-' + width);
       assert.deepEqual(await source(), groupBaseline, 'Opening the path changes no routine');
       await click('.places .place', 'Routines'); await wait(() => evaluate(() => Boolean(document.querySelector('.stage-auto'))), 'back to Routines');
+      // Placeholder commands take a name: "Add a command to bind later" opens on it, two placeholders read apart, Change
+      // command keeps a team's name (the row then says what it runs) while a default title follows the command, an
+      // empty name returns to the default, and names survive save and reload. Each rename is one Undo step.
+      activeCatalog = null; saved.routines = [{ ...routine, nodes: [] }]; await load(null);
+      await click('.rt-slot.first [data-action="command"]');
+      await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source .rt-src-none button'))), 'bind-later button');
+      await click('#rt-source .rt-src-none button');
+      await wait(() => evaluate(() => document.activeElement?.matches('.routine-insp .routine-step-name')), 'a new placeholder opens on its name');
+      assert.equal(await evaluate(() => document.activeElement.placeholder), 'Name it for what it should do');
+      await win.webContents.insertText('Intake on'); await key('Enter');
+      await wait(async () => (await source())[0].nodes[0]?.title === 'Intake on', 'Enter names the placeholder');
+      assert.equal((await source())[0].nodes[0].invocation, null, 'Naming binds nothing');
+      const nameCommand = { id: 'completion', label: 'Check whether collection is finished', member: 'Completion.vi', parameters: [], labviewConnector: {}, outputs: [] };
+      activeCatalog = { ...catalog, commands: [nameCommand] };
+      saved.routines = [{ ...routine, nodes: [{ id: 'later-a', type: 'function', cat: 'command', title: 'Robot command', invocation: null },
+        { id: 'later-b', type: 'function', cat: 'command', title: 'Robot command', invocation: null }] }];
+      await load('later-a');
+      const namingBaseline = await source();
+      await click('[data-id="later-a"] .rt-step-body');
+      await click('.routine-insp .routine-step-name');
+      await win.webContents.insertText('Shoot'); await key('Enter');
+      await wait(async () => (await source())[0].nodes[0].title === 'Shoot', 'rename a placeholder');
+      assert.deepEqual(await evaluate(() => ['later-a', 'later-b'].map(id => document.querySelector('[data-id="' + id + '"] .rt-step-title').textContent)), ['Shoot', 'Robot command'], 'Two placeholders read apart');
+      await evaluate(() => document.querySelector('[data-id="later-a"] .rt-step-body').focus());
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(namingBaseline), 'one Undo removes the name');
+      await key('z', ['meta', 'shift']);
+      await wait(async () => (await source())[0].nodes[0].title === 'Shoot', 'Redo restores the name');
+      // Pressing a selected row deselects it, so select only when needed.
+      const selectStep = async (id) => { if (!(await evaluate(id => document.querySelector('[data-id="' + id + '"]').classList.contains('sel'), id))) await click('[data-id="' + id + '"] .rt-step-body'); };
+      const bind = async (id) => {
+        await selectStep(id);
+        // An unbound step's chooser is already open; a bound one opens with Change.
+        if (await evaluate(() => Boolean(document.querySelector('.choice-browser[aria-label="Command"] .choice-change')))) await click('.choice-browser[aria-label="Command"] .choice-change');
+        await wait(() => evaluate(() => Boolean(document.querySelector('#routine-command-results [role="option"]'))), 'command choices');
+        await evaluate(label => [...document.querySelectorAll('#routine-command-results [role="option"]')].find(el => el.querySelector('strong')?.textContent === label)?.setAttribute('data-harness-pick', ''), nameCommand.label);
+        await click('[data-harness-pick]');
+        await wait(async () => (await source())[0].nodes.find(node => node.id === id).invocation?.commandId === 'completion', 'bind ' + id);
+      };
+      await bind('later-a'); await bind('later-b');
+      const bound = (await source())[0].nodes;
+      assert.deepEqual(bound.map(node => [node.title, node.titleIsCustom]), [['Shoot', true], ['Check whether collection is finished', undefined]], 'Change command keeps a team name and replaces a default title');
+      assert.deepEqual(await evaluate(() => ['later-a', 'later-b'].map(id => { const kind = document.querySelector('[data-id="' + id + '"] .rt-step-kind'); return kind && kind.getBoundingClientRect().width > 0 ? kind.textContent : null; })),
+        ['Check whether collection is finished', null], 'A named step shows the command it runs; a default one does not repeat it');
+      await selectStep('later-a');
+      assert.deepEqual(await evaluate(() => ({ name: document.querySelector('.routine-insp .routine-step-name').value, command: document.querySelector('.choice-browser[aria-label="Command"] .choice-current strong')?.textContent })),
+        { name: 'Shoot', command: 'Check whether collection is finished' }, 'The inspector shows the name and the bound command');
+      await snapshot('named-command-' + width);
+      const beforeNameSave = saves;
+      await click('.project-chip'); await click('[role="menuitem"][data-action="save"]');
+      await wait(() => saves > beforeNameSave, 'save named commands');
+      await load('later-a');
+      assert.deepEqual((await source())[0].nodes.map(node => [node.title, node.titleIsCustom]), [['Shoot', true], ['Check whether collection is finished', undefined]], 'Names survive save and reload');
+      await selectStep('later-a');
+      await click('.routine-insp .routine-step-name'); await evaluate(() => document.activeElement.select()); await key('Backspace'); await key('Enter');
+      await wait(async () => (await source())[0].nodes[0].title === 'Check whether collection is finished', 'an empty name returns to the default');
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'placeholder names through binding, Undo and reload', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));
