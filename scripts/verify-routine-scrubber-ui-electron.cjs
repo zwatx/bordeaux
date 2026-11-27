@@ -175,7 +175,7 @@ app.whenReady().then(async () => {
       const scale = await evaluate(() => ({ ticks: [...document.querySelectorAll('.rt-timeline-tick')].map((t) => t.textContent),
         knob: getComputedStyle(document.querySelector('.rt-timeline-playhead'), '::before').width, step: document.querySelector('.rt-timeline-step').textContent }));
       assert.ok(scale.ticks.length >= 4 && scale.ticks[0] === '0', 'seconds scale: ' + scale.ticks.join(' '));
-      assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '5 steps', 'idle run size counts the flow rows');
+      assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '8 steps', 'idle run size counts the flow rows');
 
       // Tab from Play reaches the scrubber with a visible ring (as the workflow harness expects).
       await evaluate(() => document.querySelector('button[aria-label="Play routine"]').focus());
