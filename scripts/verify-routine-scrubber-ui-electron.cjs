@@ -62,7 +62,8 @@ const pass = (label) => { passed.push(label); console.log('PASS ' + label); };
 
 const catalog = { runtime: 'labview', authoritative: true, generatedSchemaVersion: '1.3', projectName: 'Routine scrubber fixture',
   sourceFileCount: 1, scannedAt: '', warnings: [],
-  commands: [{ id: 'intake', label: 'Run the intake until a game piece is seated', member: 'Intake.vi', parameters: [], labviewConnector: {}, outputs: [] }],
+  commands: [{ id: 'intake', label: 'Run the intake until a game piece is seated', member: 'Intake.vi', parameters: [], labviewConnector: {}, outputs: [] },
+    { id: 'feed', label: 'Feed note', member: 'Feed.vi', parameters: [], labviewConnector: {}, outputs: [] }],
   conditions: [{ id: 'piece', label: 'Enough game pieces collected', description: 'Illustrative registered condition.' }],
   builtIns: [{ id: 'bordeaux.wait', kind: 'wait' }] };
 ipcMain.handle('branches:restore', () => ({ project: saved }));
@@ -115,6 +116,17 @@ app.whenReady().then(async () => {
         { id: 'only-command', type: 'function', cat: 'command', title: 'Run the intake until a game piece is seated', invocation: { commandId: 'intake', arguments: {} } }] },
       { id: 'missing-routine', name: 'Uses a deleted path', nodes: [{ id: 'missing', type: 'path', ref: 'deleted-path' }] },
       { id: 'empty-routine', name: 'Nothing yet', nodes: [] },
+      // Feed note has a 0.8 s run time on the Robot page; the intake has none.
+      { id: 'estimate-routine', name: 'Run time estimates', nodes: [
+        { id: 'e-leave', type: 'path', ref: wall },
+        { id: 'e-feed', type: 'function', cat: 'command', title: 'Feed note', invocation: { commandId: 'feed', arguments: {} } },
+        { id: 'e-loop', type: 'function', cat: 'command', title: 'Feed note', invocation: { commandId: 'feed', arguments: {}, loop: { until: { kind: 'time', seconds: 2 } } } },
+        { id: 'e-capped', type: 'function', cat: 'command', title: 'Feed note', invocation: { commandId: 'feed', arguments: {} }, ends: { timeoutS: 0.5, onTimeout: 'continue' } },
+        { id: 'e-par', type: 'group', mode: 'parallel', nodes: [
+          { id: 'e-par-feed', type: 'function', cat: 'command', title: 'Feed note', invocation: { commandId: 'feed', arguments: {} } },
+          { id: 'e-par-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: 0.5 } }] },
+        command('e-untimed', 'Run the intake until a game piece is seated'),
+      ] },
       // Groups, loops and instant commands for the scrubber's rows and chips.
       { id: 'groups-routine', name: 'Groups and loops', nodes: [
         { id: 'g-leave', type: 'path', ref: wall },
@@ -130,7 +142,7 @@ app.whenReady().then(async () => {
         command('g-end', 'Celebrate with every light on the robot'),
       ] },
     ];
-    saved = { ...corpus, schemaVersion: '1.1', paths, pathFolders: [{ id: 'f-collect', name: 'Collection' }, { id: 'f-score', name: 'Scoring' }], pathLinks: [], routines, activeRoutineId: ROUTINE,
+    saved = { ...corpus, schemaVersion: '1.1', robot: { ...corpus.robot, driveModel: { commandLoads: [{ commandId: 'feed', currentA: 10, runTimeS: 0.8 }] } }, paths, pathFolders: [{ id: 'f-collect', name: 'Collection' }, { id: 'f-score', name: 'Scoring' }], pathLinks: [], routines, activeRoutineId: ROUTINE,
       editor: { activePathId: wall, robotProjectBookmarkId: 'fixture' } };
     win = new BrowserWindow({ show: true, width: 1440, height: 900, useContentSize: true,
       webPreferences: { preload: path.join(__dirname, 'verify-command-branches-ui-preload.cjs'), sandbox: false, contextIsolation: true, backgroundThrottling: false } });
@@ -348,6 +360,49 @@ app.whenReady().then(async () => {
       await snapshot('groups-field-end-' + width);
     }
     pass('Groups stack parallel steps in outlined rows, loops are marked, instant commands are unclipped chips, and running steps are lit at both sizes');
+
+    // Run time estimates: a command with a Robot page run time is an estimate ("≈", dashed) in its row, the inspector,
+    // the transport total and status, the scrubber block and its group; a limit below it wins; an untimed command
+    // keeps "Untimed" and its inspector opens the Robot page by pointer.
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height);
+      await load('estimate-routine', '[data-id="e-feed"]'); await planned();
+      const shown = await evaluate(() => {
+        const dur = (id) => document.querySelector(`[data-id="${id}"] .rt-step-dur`).textContent;
+        return { feed: dur('e-feed'), loop: dur('e-loop'), capped: dur('e-capped'), group: dur('e-par'), untimed: dur('e-untimed'),
+          bar: document.querySelector('[data-id="e-feed"] .rt-step-time i')?.className, rowTitle: document.querySelector('[data-id="e-feed"] .rt-step-body').title,
+          untimedTitle: document.querySelector('[data-id="e-untimed"] .rt-step-body').title,
+          total: document.querySelector('.rt-timeline-time small').textContent, summary: document.querySelector('.rt-timeline-summary .rt-summary-full').textContent,
+          summaryTitle: document.querySelector('.rt-timeline-summary').title,
+          blocks: [...document.querySelectorAll('.rt-timeline-span.estimate')].map((el) => el.title),
+          groups: [...document.querySelectorAll('.rt-timeline-group')].map((el) => ({ cls: el.className, title: el.title })) };
+      });
+      assert.deepEqual([shown.feed, shown.loop, shown.capped, shown.group, shown.untimed], ['≈ 0.80 s', '≈ 2.40 s', '≤ 0.50 s', '≈ 0.80 s', 'Untimed'], 'row times: ' + JSON.stringify(shown));
+      assert.match(shown.bar, /\bestimate\b/, 'estimate row bar'); assert.match(shown.rowTitle, /Preview estimate from its Robot page run time/);
+      assert.match(shown.untimedTitle, /set a run time on the Robot page/);
+      assert.match(shown.total, /^ \/ ≈ \d+\.\d\d s$/, 'total is an estimate: ' + shown.total);
+      assert.equal(shown.summary, 'Using time limits · 3 steps estimated from run times · 1 untimed step not counted');
+      assert.match(shown.summaryTitle, /Robot page/);
+      assert.equal(shown.blocks.length, 3, 'estimate blocks: ' + shown.blocks.join(' | '));
+      assert.ok(shown.blocks.every((title) => /about \d+\.\d\d s from its run time/.test(title)), 'estimate block titles');
+      assert.ok(shown.groups.length === 1 && shown.groups[0].cls.includes('estimate') && shown.groups[0].title === 'Parallel group, estimated', 'group span: ' + JSON.stringify(shown.groups));
+      await snapshot('estimates-' + width);
+      await click('[data-id="e-loop"] .rt-step-body');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .rt-preview-time'))), 'preview time section');
+      const loopTime = await evaluate(() => document.querySelector('.routine-insp .rt-preview-time').closest('section').textContent);
+      assert.ok(loopTime.includes('≈ 2.40 s') && loopTime.includes('Estimate') && loopTime.includes('its 0.80 s run time on the Robot page') && loopTime.includes('the robot does not use it'), 'loop inspector: ' + loopTime);
+      assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp .rt-open-robot'))), false, 'a timed command has no Robot page link');
+      await snapshot('estimate-inspector-' + width);
+      await click('[data-id="e-untimed"] .rt-step-body');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .rt-open-robot'))), 'untimed Robot page link');
+      assert.ok((await evaluate(() => document.querySelector('.routine-insp .rt-preview-time').closest('section').textContent)).includes('Untimed'));
+      await snapshot('untimed-inspector-' + width);
+      await click('.routine-insp .rt-open-robot', 'Open Robot page');
+      await wait(() => evaluate(() => document.querySelector('.places [aria-current="page"]')?.textContent === 'Robot' && Boolean(document.querySelector('#settings-power'))), 'Robot page opened');
+      await click('.places .place', 'Routines');
+      await wait(() => evaluate(() => Boolean(document.querySelector('[data-id="e-untimed"]'))), 'back to the routine');
+    }
+    pass('Run time estimates are marked in rows, inspector, transport total and status, scrubber blocks and group spans; limits cap them; untimed commands open the Robot page');
 
     // Untimed and empty routines.
     for (const [width, height] of [[1440, 900], [1100, 720]]) {

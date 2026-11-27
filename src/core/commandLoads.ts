@@ -68,6 +68,15 @@ function timeAfterDistance(samples: readonly TrajectorySample[], timeS: number, 
 }
 
 /**
+ * How long a loop with a run time lasts when its limit is `limitSpanS` after its first start: runs restart while
+ * before the limit and the last one finishes, so it is a whole number of runs, at least one. The routine preview
+ * uses this for its run time estimates, so a loop is timed the same way there and in command load windows.
+ */
+export function loopRunsSpanS(limitSpanS: number, runTimeS: number): number {
+  return Math.max(1, Math.ceil(limitSpanS / runTimeS - 1e-9)) * runTimeS;
+}
+
+/**
  * When an invocation started at `startS` stops. `exact` means that time is known; otherwise it is the latest
  * assumed stop, and the command may finish any time after it starts. A loop restarts its command until its
  * limit and then lets the last run finish: with a run time that finish is known; without one, the load ends at
@@ -86,7 +95,7 @@ function invocationSpan(model: DriveModel, invocation: CommandInvocation, startS
     // its own seconds, so the run count does not drift with the start through floating-point rounding.
     if (runTimeS !== undefined) {
       const spanS = until.kind === "time" ? until.seconds : limitS - startS;
-      endS = startS + Math.max(1, Math.ceil(spanS / runTimeS - 1e-9)) * runTimeS; exact = true;
+      endS = startS + loopRunsSpanS(spanS, runTimeS); exact = true;
     }
     else endS = limitS;
   }

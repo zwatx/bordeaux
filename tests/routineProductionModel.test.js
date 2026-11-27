@@ -104,11 +104,40 @@ describe('bounded chosen preview and freshness intent', () => {
   });
   it('uses upper bounds and unknown timing while assuming natural output completion', () => {
     const trace = run([wait('exact', 1), { ...wait('conditional', 2), ends: { endWhen: { source: 'condition', conditionId: 'ready' } } }, command('limited', { ends: { timeoutS: 3, onTimeout: 'endRoutine' }, outputBranch: { routes: [{ id: 'ok', nodes: [wait('route', 4)] }] } }), command('unknown')]);
-    expect(trace.total).toBe(10); expect(trace.duration).toEqual({ minS: 5, maxS: null, unknownCount: 1, usesLimits: true });
+    expect(trace.total).toBe(10); expect(trace.duration).toEqual({ minS: 5, maxS: null, unknownCount: 1, estimateCount: 0, usesLimits: true });
     expect(trace.steps.map(s => s.timing)).toEqual(['exact', 'upperBound', 'upperBound', 'exact', 'unknown']);
     expect(trace.steps.map(s => s.nodeId)).toContain('route'); expect(trace.assumptions.join(' ')).toMatch(/naturally/);
     const untimed = run([command('c'), decision('d', []), end('e')]);
     expect(untimed).toMatchObject({ total: 0, timedPlayable: false }); expect(AUTO.poseAt(untimed, 0)).toBeNull(); expect(AUTO.stepAt(untimed, 0)).toBe(2);
+  });
+  // Ways a run time estimate could go wrong: claimed as exact time, ignoring a shorter limit, timing a loop differently
+  // from command load windows, timing an output loop, timing a command with a load but no run time, losing repeat
+  // passes, or a group hiding an estimate or an untimed child.
+  it('estimates commands from Robot page run times, capped by their limits, as command load windows count loops', () => {
+    const loads = [{ commandId: 'Acquire', currentA: 5, runTimeS: 0.3 }, { commandId: 'Slow', currentA: 5, runTimeS: 3 }, { commandId: 'Unset', currentA: 5 }];
+    const robot = { driveModel: { commandLoads: loads } };
+    const estimate = (nodes) => AUTO.buildRun(routine(nodes), [], robot, {}, undefined, null, undefined, {});
+    const slow = (id, patch = {}) => command(id, { invocation: { commandId: 'Slow', arguments: {} }, ...patch });
+    const trace = estimate([wait('w', 1), command('plain'), command('limited', { ends: { timeoutS: 2, onTimeout: 'continue' } }), slow('capped', { ends: { timeoutS: 2, onTimeout: 'continue' } }),
+      command('loop', { invocation: { commandId: 'Acquire', arguments: {}, loop: { until: { kind: 'time', seconds: 1 } } } }),
+      command('result', { invocation: { commandId: 'Acquire', arguments: {}, loop: { until: { kind: 'output', output: 'done', operator: 'eq', value: true } } } }),
+      command('unset', { invocation: { commandId: 'Unset', arguments: {} } }), repeat('twice', [command('again')])]);
+    const by = Object.fromEntries(trace.steps.filter(s => s.kind !== 'repeat').map(s => [s.nodeId, [s.timing, Number(s.dur.toFixed(6))]]));
+    expect(by).toMatchObject({ w: ['exact', 1], plain: ['estimate', 0.3], limited: ['estimate', 0.3], capped: ['upperBound', 2], loop: ['estimate', 1.2], result: ['unknown', 0], unset: ['unknown', 0], again: ['estimate', 0.3] });
+    expect(trace.duration).toMatchObject({ minS: 1, maxS: null, unknownCount: 2, estimateCount: 5, usesLimits: true });
+    expect(trace.total).toBeCloseTo(1 + 0.3 + 0.3 + 2 + 1.2 + 0.6, 9);
+    // A time loop counts the runs that start before its limit, as command load windows do.
+    expect(AUTO.commandTiming({ invocation: { commandId: 'Acquire', loop: { until: { kind: 'time', seconds: 0.9 } } } }, robot.driveModel).durS).toBeCloseTo(0.9, 9);
+    expect(AUTO.commandTiming(command('x'), undefined)).toEqual({ durS: 0, timing: 'unknown' });
+    const loopWithTimeout = command('bounded', {
+      invocation: { commandId: 'Unset', arguments: {}, loop: { until: { kind: 'time', seconds: 4 } } },
+      ends: { timeoutS: 2, onTimeout: 'continue' },
+    });
+    expect(AUTO.commandTiming(loopWithTimeout, robot.driveModel)).toEqual({ durS: 2, timing: 'upperBound' });
+    const group = (nodes) => estimate([{ id: 'g', type: 'group', mode: 'parallel', nodes }]);
+    expect(group([command('a'), slow('b')])).toMatchObject({ total: 3, groupSpans: [{ timing: 'estimate', t0: 0, t1: 3 }], duration: { maxS: null, unknownCount: 0 } });
+    expect(group([command('a'), command('b', { invocation: { commandId: 'Unset', arguments: {} } })]).groupSpans[0].timing).toBe('unknown');
+    expect(AUTO.timingPrefix('estimate') + AUTO.timingPrefix('upperBound') + AUTO.timingPrefix('exact')).toBe('≈ ≤ ');
   });
   it('describes saved references as kept when no robot code is loaded, and unavailable only against a linked catalog', () => {
     const message = (nodes, code, catalog) => AUTO.analyze(routine(nodes), [], catalog).find(issue => issue.code === code)?.message;

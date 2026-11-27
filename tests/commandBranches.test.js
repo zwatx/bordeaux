@@ -37,7 +37,7 @@ describe('command output branching', () => {
     const run = AUTO.buildRun(routine, [], {}, { command: branch.routes[1].id });
     expect(run.steps.map((step) => step.node.id)).toEqual(['command', 'no', 'join']);
     expect(run.total).toBe(5);
-    expect(run.duration).toEqual({ minS: 5, maxS: null, unknownCount: 1, usesLimits: false });
+    expect(run.duration).toEqual({ minS: 5, maxS: null, unknownCount: 1, estimateCount: 0, usesLimits: false });
     expect(AUTO.buildRun(routine, [], {}, { command: 'stale-id' }).steps.map((step) => step.node.id)).toEqual(['command', 'yes', 'join']);
   });
 });

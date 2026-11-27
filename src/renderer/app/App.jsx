@@ -3128,7 +3128,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
               // An open rail shows a slot while it is open; a closed rail stays closed, so the flow never changes width.
               selNode && routineSlot ? h(SlotInspector, { dest: routineSlot, onClose: () => routineSource.current?.closeAdd() })
-              : selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathLinks: project.pathLinks, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              : selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathLinks: project.pathLinks, pathFolders: project.pathFolders, pathTimes: times, acq, run, robot, onOpenRobot: () => onPlace('robot'), onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,

@@ -3,6 +3,7 @@ import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { PM } from "./pathMath";
 import { createRoutineNodeId } from "../../core/project/ids";
+import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
 
 // Autonomous Routine — autonomous routine model + run engine (no React).
 // A routine is an ordered list of STEPS. Three step kinds: Path, Decision, Function.
@@ -52,16 +53,43 @@ import { createRoutineNodeId } from "../../core/project/ids";
     return 'until a path limit';
   }
 
-  /** How well a group's preview time is known: one untimed step leaves the whole group untimed. */
-  function groupTiming(node) {
+  /**
+   * A command step's preview time, `{ durS, timing, runTimeS }`. `driveModel` is `robot.driveModel`; its command loads
+   * may give the command a run time (set on the Robot page). With one, the step is an estimate: one run, or for a time
+   * loop the whole runs that start before its limit, counted as command load windows count them (loopRunsSpanS). A
+   * time limit still wins: when the estimate reaches it or the run time is unknown, the step uses the upper bound.
+   * Without a run time or time limit, a time loop draws its limit but stays untimed (its last run may finish later). Anything
+   * else is untimed. An output loop's run count is unknown, so a run time never estimates it. Estimates are preview
+   * only: they never reach the robot.
+   */
+  function commandTiming(node, driveModel) {
+    const until = node?.invocation?.loop?.until;
+    const limitS = Number.isFinite(node?.ends?.timeoutS) ? node.ends.timeoutS : undefined;
+    const loopS = until?.kind === 'time' && Number.isFinite(until.seconds) && until.seconds > 0 ? until.seconds : undefined;
+    const saved = node?.invocation?.commandId ? commandLoadFor(driveModel, node.invocation.commandId)?.runTimeS : undefined;
+    const runTimeS = Number.isFinite(saved) && saved > 0 ? saved : undefined;
+    const estimateS = runTimeS === undefined ? undefined : !until ? runTimeS : loopS !== undefined ? loopRunsSpanS(loopS, runTimeS) : undefined;
+    if (estimateS !== undefined) return limitS !== undefined && limitS <= estimateS ? { durS: limitS, timing: 'upperBound', runTimeS } : { durS: estimateS, timing: 'estimate', runTimeS };
+    if (limitS !== undefined) return { durS: limitS, timing: 'upperBound' };
+    if (loopS !== undefined) return { durS: loopS, timing: 'unknown' };
+    return { durS: 0, timing: 'unknown' };
+  }
+
+  // How little a time is known, for the timing of a whole group or routine.
+  const TIMING_RANK = { exact: 0, instant: 0, upperBound: 1, estimate: 2, unknown: 3 };
+  /** How well a group's preview time is known: one untimed step leaves the whole group untimed, one estimate an estimate. */
+  function groupTiming(node, driveModel) {
     let timing = 'exact';
     walk(node?.nodes, (child) => {
       if (child.type !== 'function') return;
-      const until = child.invocation?.loop?.until;
-      if (child.ends?.timeoutS !== undefined && !until) { if (timing === 'exact') timing = 'upperBound'; } else timing = 'unknown';
+      const next = commandTiming(child, driveModel).timing;
+      if (TIMING_RANK[next] > TIMING_RANK[timing]) timing = next;
     });
     return timing;
   }
+
+  /** The mark before a preview time: "≈ " for an estimate, "≤ " for an upper bound. */
+  function timingPrefix(timing) { return timing === 'estimate' ? '≈ ' : timing === 'upperBound' ? '≤ ' : ''; }
 
   /** The loop a replacement command can keep: a time loop always; an output condition only on an equal output type. */
   function carryLoop(loop, command) {
@@ -393,7 +421,8 @@ import { createRoutineNodeId } from "../../core/project/ids";
     const derivePath = typeof catalog === 'function' ? catalog : PM.derivePath;
     if (typeof catalog === 'function') catalog = null;
     const issues = [], assumptions = ['Routes are chosen locally and apply to every occurrence.', 'Commands are assumed to complete naturally; conditions and outputs are not evaluated.', 'Poses are planned references; command motion is unknown.'];
-    const result = { steps: [], segs: [], total: 0, duration: { minS: 0, maxS: 0, unknownCount: 0, usesLimits: false },
+    // minS counts exact time only; estimateCount steps were timed from Robot page run times.
+    const result = { steps: [], segs: [], total: 0, duration: { minS: 0, maxS: 0, unknownCount: 0, estimateCount: 0, usesLimits: false },
       truncated: false, stopReason: 'complete', assumptions, issues, timedPlayable: false, workCount: 0 };
     const invalid = message => { result.blocked = true; result.stopReason = 'invalid'; result.planningError = message; issues.push({ code: 'preview-invalid', severity: 'error', message }); };
     if (plannedPaths?.status && plannedPaths.status !== 'ready') {
@@ -489,7 +518,8 @@ import { createRoutineNodeId } from "../../core/project/ids";
       if (group.mode === 'parallel') { t = group.end; exactS = group.exactEnd; }
       const parent = groups.at(-1);
       if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
-      result.groupSpans.push({ nodeId: group.node.id, occurrenceId: group.occurrenceId, passStack: group.passStack, mode: group.mode, t0: group.start, t1: t });
+      result.groupSpans.push({ nodeId: group.node.id, occurrenceId: group.occurrenceId, passStack: group.passStack, mode: group.mode, t0: group.start, t1: t,
+        timing: groupTiming(group.node, robot?.driveModel) });
     };
     const startChild = () => {
       const parent = groups.at(-1);
@@ -539,16 +569,13 @@ import { createRoutineNodeId } from "../../core/project/ids";
         dur = Math.max(0, Number.isFinite(it.node.arguments?.durationS) ? it.node.arguments.durationS : 0);
         timing = it.node.ends?.endWhen ? 'upperBound' : 'exact';
       } else if (it.kind === 'event' || it.kind === 'dynamic') {
-        const until = it.node.invocation?.loop?.until;
-        // A time loop runs at least its limit, then its last run finishes on its own: drawn as the limit, but its true
-        // length is unknown like any command's, so totals don't claim it.
-        if (until?.kind === 'time' && Number.isFinite(until.seconds) && until.seconds > 0) { dur = until.seconds; timing = 'unknown'; }
-        else if (Number.isFinite(it.node.ends?.timeoutS)) { dur = it.node.ends.timeoutS; timing = 'upperBound'; }
-        else timing = 'unknown';
+        // Run time estimates, limits and untimed commands follow commandTiming; untimed time is not claimed by totals.
+        ({ durS: dur, timing } = commandTiming(it.node, robot?.driveModel));
         if (it.kind === 'dynamic') extras.dynamic = true;
       }
       if (timing === 'exact') exactS += dur;
       if (timing === 'unknown') result.duration.unknownCount++;
+      if (timing === 'estimate') result.duration.estimateCount++;
       if (timing === 'upperBound') result.duration.usesLimits = true;
       result.steps.push({ ...it, t0: t, t1: t + dur, dur, timing, ...extras }); t += dur;
       endChild();
@@ -556,7 +583,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
     // A truncated trace can stop inside a group.
     while (groups.length) closeGroup();
     result.duration.minS = exactS;
-    result.duration.maxS = result.duration.unknownCount ? null : t;
+    result.duration.maxS = result.duration.unknownCount || result.duration.estimateCount ? null : t;
     // Parallel children overlap; keep steps ordered by end time so time lookup stays a binary search.
     if (parallel) result.steps = result.steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
     result.total = t; result.timedPlayable = !result.blocked && t > 0;
@@ -635,7 +662,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, duplicateNode, walk, findNode, countSteps, stepNumbers, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, commandTiming, groupTiming, timingPrefix, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, duplicateNode, walk, findNode, countSteps, stepNumbers, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay, jumpSize,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 
