@@ -11,10 +11,8 @@ it("packages macOS DMG and ZIP targets only for Apple Silicon", () => {
     { target: "dmg", arch: ["arm64"] },
     { target: "zip", arch: ["arm64"] },
   ]);
-  for (const name of ["package:mac", "package:mac:ci"]) {
-    const macFlags = manifest.scripts[name].split(" ").filter((argument) => ["--arm64", "--x64", "--universal"].includes(argument));
-    expect(macFlags).toEqual(["--arm64"]);
-  }
+  const macFlags = manifest.scripts["package:mac"].split(" ").filter((argument) => ["--arm64", "--x64", "--universal"].includes(argument));
+  expect(macFlags).toEqual(["--arm64"]);
 });
 
 it("publishes only after validation, every package, and one complete CI route succeed", () => {

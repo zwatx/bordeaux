@@ -31,7 +31,6 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.core.json --noEmit --pretty false && tsc -p tsconfig.renderer.json --noEmit --pretty false && tsc -p tsconfig.electron.json --noEmit --pretty false",
     "package:dir": "npm run build && electron-builder --dir",
     "package:mac": "npm run build && electron-builder --mac --arm64 --publish never",
-    "package:mac:ci": "npm run build && electron-builder --mac --arm64 --publish never --config.mac.icon=build/icon.icns",
     "package:win": "npm run build && electron-builder --win --x64 --publish never",
     "package:win:store": "npm run build && node scripts/package-windows-store.mjs",
     "package:linux": "npm run build && electron-builder --linux --x64 --arm64 --publish never",
