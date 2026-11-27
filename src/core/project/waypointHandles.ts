@@ -10,7 +10,7 @@ export function alignedWaypointHandles(waypoint: HandleGeometry, preserveAligned
   const inY = inLength > 1e-6 ? (waypoint.y - waypoint.prevC.y) / inLength : 0;
   const outX = outLength > 1e-6 ? (waypoint.nextC.x - waypoint.x) / outLength : 0;
   const outY = outLength > 1e-6 ? (waypoint.nextC.y - waypoint.y) / outLength : 0;
-  // Loading must preserve accepted trajectory identity, including floating-point bits.
+  // Loading leaves already aligned handles bit for bit, so a saved curve, Apply's included, reopens unchanged.
   if (preserveAligned && ((inLength < 1e-6 || outLength < 1e-6)
     || (inX * outX + inY * outY > 0 && Math.abs(inX * outY - inY * outX) < 1e-12))) {
     return null;

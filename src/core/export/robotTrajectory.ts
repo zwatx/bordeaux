@@ -276,8 +276,7 @@ export function buildRobotTrajectory(
   options: { requireGeneratedBindings?: boolean; materializeArgumentDefaults?: boolean } = {},
 ): BuiltRobotTrajectory {
   const catalog: RobotCommandCatalog = catalogSource ?? { projectName: project.name, sourceFileCount: 0, scannedAt: '', commands: [], warnings: [] };
-  // Defaults change only validated and emitted invocations. Planning keeps the authored
-  // markers, which are part of an applied optimization's input identity.
+  // Defaults change only validated and emitted invocations. Planning keeps the authored markers.
   const compiled = options.materializeArgumentDefaults ? withArgumentDefaults(project, catalog) : project;
   const invocationIssues = validateProjectRobotInvocations(compiled, catalog, options.requireGeneratedBindings ? robotInvocationErrors : undefined);
   if (invocationIssues.length > 0) throw new Error(invocationIssues.map((item) => `${item.path}: ${item.message}`).join("\n"));
@@ -330,7 +329,7 @@ export function buildRobotTrajectory(
   native.paths.forEach((path, pathIndex) => {
     sampleCount += path.samples.length;
     if (sampleCount > MAX_SAMPLE_COUNT) throw new Error(`Robot trajectory export exceeds ${MAX_SAMPLE_COUNT} samples`);
-    // Planner markers keep authored order; applied optimizations are validated marker-by-marker.
+    // Planner markers keep authored order.
     const sourceMarkers = sourcePaths[pathIndex].markers;
     const events = path.markers.flatMap((marker, markerIndex) => {
       const source = sourceMarkers[markerIndex], { schedule, commandGroup } = source;

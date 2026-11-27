@@ -51,11 +51,6 @@ export function migrateFieldProject(value: unknown): unknown {
         };
       }) } : {}),
       ...(Array.isArray(raw.targets) ? { targets: raw.targets.map((target, index) => record(target) ? { ...target, deg: heading(target.deg, `${base}.targets[${index}].deg`) } : target) } : {}),
-      // Retain historical samples, geometry and identity together. Export requires
-      // review even though playback can rebuild Normal from the centered source.
-      ...(record(raw.optimization) && record(raw.optimization.accepted) ? { optimization: {
-        ...raw.optimization, accepted: { ...raw.optimization.accepted, requiresFieldReview: true },
-      } } : {}),
     };
   });
   let strategy = value.strategy;
