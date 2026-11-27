@@ -30,7 +30,7 @@ describe('routine group and loop validation', () => {
     const pathId = createDemoProject().paths[0].id;
     const branching = { ...cmd('c'), outputBranch: { output: 'finished', schema: boolean, routes: [
       { id: 't', label: 'Yes', operator: 'eq', value: true, nodes: [] }, { id: 'f', label: 'No', operator: 'eq', value: false, nodes: [] }] } } as RoutineNode;
-    expect(messages([group('g', 'parallel', [{ id: 'p', type: 'path', ref: pathId }])])).toContain('Paths cannot run inside a group.');
+    expect(messages([group('g', 'parallel', [{ id: 'p', type: 'path', ref: pathId }])])).toContain("Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths.");
     expect(messages([group('g', 'parallel', [{ id: 'r', type: 'repeat', times: 2, nodes: [wait('w')] }])])).toContain('Repeats cannot go inside a group.');
     expect(messages([group('g', 'sequential', [{ id: 'e', type: 'end', scope: 'routine' }])])).toContain('End routine and Exit repeat cannot go inside a group.');
     expect(messages([group('g', 'parallel', [branching])])).toContain('A command in a group cannot branch on its output.');
@@ -58,9 +58,9 @@ describe('routine group model operations', () => {
   it('inserts and moves only group-legal steps into a group, leaving the source unchanged', () => {
     const source = routine(), before = structuredClone(source);
     const inside = { kind: 'group', nodeId: 'g' };
-    expect(AUTO.editRoutine(source, { kind: 'insert', listRef: inside, index: 1, node: AUTO.newNode('path', null, 'path') })).toMatchObject({ changed: false, reason: 'Paths cannot run inside a group.' });
+    expect(AUTO.editRoutine(source, { kind: 'insert', listRef: inside, index: 1, node: AUTO.newNode('path', null, 'path') })).toMatchObject({ changed: false, reason: "Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths." });
     expect(AUTO.editRoutine(source, { kind: 'insert', listRef: inside, index: 0, node: AUTO.newNode('repeat') }).changed).toBe(false);
-    expect(AUTO.checkEdit(source, { kind: 'move', nodeId: 'p', listRef: inside, index: 0 })).toMatchObject({ allowed: false, reason: 'Paths cannot run inside a group.' });
+    expect(AUTO.checkEdit(source, { kind: 'move', nodeId: 'p', listRef: inside, index: 0 })).toMatchObject({ allowed: false, reason: "Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths." });
     const moved = AUTO.editRoutine(source, { kind: 'move', nodeId: 'w', listRef: inside, index: 1 });
     expect(moved.changed).toBe(true);
     expect((AUTO.locate(moved.routine, 'g')!.node as { nodes: RoutineNode[] }).nodes.map((node: RoutineNode) => node.id)).toEqual(['b', 'w']);
@@ -75,7 +75,7 @@ describe('routine group model operations', () => {
     expect(wrapped.changed).toBe(true);
     expect(wrapped.routine.nodes.map((node: RoutineNode) => node.id)).toEqual(['new', 'g', 'p']);
     expect(wrapped.focusId).toBe('new');
-    expect(AUTO.editRoutine(routine(), { kind: 'wrapGroup', nodeIds: ['g', 'p'], mode: 'parallel' })).toMatchObject({ changed: false, reason: 'Paths cannot run inside a group.' });
+    expect(AUTO.editRoutine(routine(), { kind: 'wrapGroup', nodeIds: ['g', 'p'], mode: 'parallel' })).toMatchObject({ changed: false, reason: "Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths." });
     const sequential = AUTO.editRoutine(wrapped.routine, { kind: 'setGroupMode', nodeId: 'new', mode: 'sequential' });
     expect(AUTO.locate(sequential.routine, 'new')!.node).toMatchObject({ mode: 'sequential' });
     expect(AUTO.editRoutine(sequential.routine, { kind: 'setGroupMode', nodeId: 'new', mode: 'sequential' }).changed).toBe(false);

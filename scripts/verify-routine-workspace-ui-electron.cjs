@@ -787,10 +787,47 @@ app.whenReady().then(async () => {
       await wait(async () => (await source())[0].nodes.length === 1, 'offline Wait inserted');
       assert.equal((await source())[0].nodes[0].builtinId, 'bordeaux.wait');
       await snapshot('native-wait-no-catalog-' + width);
+      // Inside a group, Path stays in the strip, unavailable: pressing it says why and opens the path beside the group
+      // at its Commands lane in Paths. Nothing is added.
+      activeCatalog = catalog;
+      saved.routines = [{ ...routine, nodes: [{ id: 'drive', type: 'path', ref: spare.id },
+        { id: 'together', type: 'group', mode: 'parallel', nodes: [{ id: 'together-wait', type: 'builtin', builtinId: 'bordeaux.wait', arguments: { durationS: .5 } }] }] }];
+      await load('together'); await planned();
+      const groupBaseline = await source();
+      await click('[data-id="together"] .rt-step-body');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.routine-insp .seg-hint')].map(el => el.textContent).find(text => text.startsWith('A group holds'))),
+        'A group holds commands, waits and other groups. Paths, repeats and commands that branch stay outside it.', 'The group inspector states its rule in one reading');
+      await click('[data-id="together-wait"] .rt-step-body'); await key('A');
+      await wait(() => evaluate(() => document.activeElement?.matches('.rt-slot [data-action="command"]')), 'A in a group opens a slot on Command');
+      const pathWhy = "Paths cannot run inside a group. To run commands while driving, add them to the path's Commands lane in Paths.";
+      const blockedPath = () => evaluate(() => {
+        const button = document.querySelector('.rt-slot [data-action="path"]'), why = document.getElementById(button?.getAttribute('aria-describedby'));
+        return button && { disabled: button.getAttribute('aria-disabled'), label: button.getAttribute('aria-label'), title: button.title, why: why?.querySelector('p')?.textContent,
+          shown: Boolean(why && !why.classList.contains('sr-only') && why.getBoundingClientRect().height > 0), open: why?.querySelector('button')?.textContent || null,
+          focused: document.activeElement === button ? 'path' : document.activeElement?.closest('.rt-slot-why') ? 'open' : document.activeElement?.dataset.action };
+      });
+      assert.deepEqual(await blockedPath(), { disabled: 'true', label: 'Path, unavailable here', title: pathWhy, why: pathWhy, shown: false, open: null, focused: 'command' },
+        'Path is listed as unavailable in a group, with its reason as its description');
+      await key('Left');
+      assert.equal((await blockedPath()).focused, 'path', 'ArrowLeft reaches the unavailable Path');
+      await key('Enter');
+      await wait(async () => (await blockedPath()).focused === 'open', 'Enter on Path shows why and focuses the way out');
+      assert.deepEqual(await blockedPath(), { disabled: 'true', label: 'Path, unavailable here', title: pathWhy, why: pathWhy, shown: true, focused: 'open',
+        open: 'Open “Return to the alliance zone” in Paths' }, 'The reason shows under the strip with the path beside the group');
+      assert.ok(await evaluate(() => { const why = document.querySelector('.rt-slot-why').getBoundingClientRect(), scroll = document.querySelector('.rt-scroll').getBoundingClientRect();
+        return why.right <= scroll.right + 1 && why.left >= scroll.left; }), 'The reason fits the flow');
+      await snapshot('group-path-why-' + width);
+      assert.deepEqual(await source(), groupBaseline, 'Pressing the unavailable Path adds nothing');
+      await key('Enter');
+      await wait(() => evaluate(() => document.activeElement?.matches('.stage-plan .pt-lane')), 'Open in Paths focuses the Commands lane');
+      assert.equal(await evaluate(() => document.querySelector('.stage-plan [data-library-item][aria-current="true"]')?.dataset.libraryItem), spare.id, 'The path beside the group is open in Paths');
+      await snapshot('group-path-commands-lane-' + width);
+      assert.deepEqual(await source(), groupBaseline, 'Opening the path changes no routine');
+      await click('.places .place', 'Routines'); await wait(() => evaluate(() => Boolean(document.querySelector('.stage-auto'))), 'back to Routines');
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

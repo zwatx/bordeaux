@@ -164,6 +164,20 @@ function insideGroup(routine, where) {
   if (anchorId) return A.locate(routine, anchorId)?.parent?.type === 'group';
   return where.list?.kind === 'group';
 }
+/**
+ * For an Add inside a group, the path step a team most likely means when it wants commands to run while driving:
+ * the step just before the outermost group, else the one just after it. Null when neither is an available path.
+ */
+function pathBesideGroup(routine, where, paths) {
+  const anchorId = where.afterId || where.beforeId || where.list?.nodeId;
+  const at = anchorId && A.locate(routine, anchorId);
+  if (!at) return null;
+  const groupId = at.groupIds[0] || (where.list?.kind === 'group' ? anchorId : null);
+  const group = groupId && A.locate(routine, groupId);
+  if (!group) return null;
+  return [group.siblings[group.index - 1], group.siblings[group.index + 1]]
+    .find((node) => node?.type === 'path' && paths.some((path) => path.id === node.ref)) || null;
+}
 function insideRepeat(routine, where) {
   const anchorId = where.afterId || where.beforeId;
   if (anchorId) return Boolean(A.locate(routine, anchorId)?.repeatIds.length);
@@ -905,9 +919,15 @@ export function RoutinePanel(props) {
         'aria-label': 'Actions for ' + title, ...deletionInput((e) => { if (acq.preflight?.() === false) return; setAdd(null); setMenu({ id: node.id, anchor: e.currentTarget }); }) }, h(Glyph, { name: 'more', size: 15 }))));
   }
 
-  /** The slot's action strip. Paths stay outside groups, so a slot inside a group offers no Path. */
+  /**
+   * The slot's action strip. Paths stay outside groups, so inside one Path says why and, when the group sits beside a
+   * path step, opens that path's Commands lane in Paths, where commands that run while driving belong.
+   */
   function inserter() {
-    return h(InsertStrip, { key: adding.slot || 'first', steps: stepItems.filter((item) => item.group === 'steps' && item.kind !== 'command'), allowPath: !addInGroup,
+    const beside = addInGroup ? pathBesideGroup(routine, adding.where, paths) : null;
+    const pathBlocked = addInGroup ? { reason: A.groupChildError({ type: 'path' }),
+      open: beside && { label: 'Open “' + stepTitle(beside, paths, catalog) + '” in Paths', run: () => acq.openInEditor(beside.ref, { focus: 'commands' }) } } : null;
+    return h(InsertStrip, { key: adding.slot || 'first', steps: stepItems.filter((item) => item.group === 'steps' && item.kind !== 'command'), allowPath: !addInGroup, pathBlocked,
       source: adding.source, onSource: setSource, focusLibrary, onPick: pick, onClose: closeAdd,
       added: adding.added, label: adding.label, dest: destination(adding.where), persistent: adding.persistent });
   }

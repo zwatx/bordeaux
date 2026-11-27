@@ -7,6 +7,7 @@ import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
+import { ROUTINE_GROUP_CHILD_RULE } from "../../core/routineChildren";
 import { describeStop, stepTitle } from "./RoutinePanel";
 import { Glyph } from "./routineGlyphs";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";
@@ -343,7 +344,7 @@ export function StepInspector(props) {
       h('div', { className: 'rt-stat' },
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, String(node.nodes.length)), h('span', { className: 'rt-stat-k' }, node.nodes.length === 1 ? 'Step' : 'Steps')),
         span && h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, A.groupTiming(node) === 'unknown' ? 'Untimed' : (A.groupTiming(node) === 'upperBound' ? '≤ ' : '') + fmt(span.t1 - span.t0)), h('span', { className: 'rt-stat-k' }, 'In this preview'))),
-      Hint('A group holds commands without branches, waits and other groups.'),
+      Hint(ROUTINE_GROUP_CHILD_RULE),
       h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.edit({ kind: 'unwrapGroup', nodeId: node.id }) }, h(Glyph, { name: parallel ? 'parallel' : 'sequential', size: 14 }), 'Remove group, keep steps'),
       remove('Delete group'));
 

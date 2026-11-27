@@ -181,6 +181,12 @@
 .rt-panel[data-input=keyboard] .rt-slot:focus-within kbd{display:block}
 .rt-panel[data-input=keyboard] .rt-slot:focus-within .rt-slot-ic{display:none}
 .rt-slot :is(.rt-slot-src,.rt-slot-step):focus-visible,.rt-panel[data-input=keyboard] .rt-slot :is(.rt-slot-src,.rt-slot-step):focus{outline:2px solid var(--focus);outline-offset:-1px}
+/* Path inside a group: shown, dimmed and dashed, so the strip says it cannot go here instead of leaving it out. */
+.rt-slot-src.blocked{border-style:dashed;background:none;color:var(--txt-3)}
+.rt-slot-src.blocked .rt-slot-label{text-decoration:line-through;text-decoration-color:var(--txt-3)}
+.rt-slot-why{display:flex;flex-basis:100%;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:4px 2px 2px;color:var(--txt-2);font-size:12px;line-height:1.4}
+.rt-slot-why p{flex:1 1 220px;margin:0}
+.rt-slot-why .qbtn{white-space:normal;text-align:left}
 .rt-slot-x{display:flex;flex:none;align-items:center;justify-content:center;align-self:flex-start;width:26px;height:28px;border-radius:var(--r-s);color:var(--txt-3)}
 /* The first step's slot is where step 1 goes: the same strip, a little larger. */
 .rt-addwrap.empty.open{padding:8px 4px 8px 36px}
@@ -261,7 +267,8 @@
   .rt-brlbl:not(.static):hover .rt-brname{color:var(--txt)}
   .rt-radio:not(:checked):hover{background:radial-gradient(circle,transparent 0 5px,var(--txt-2) 5.5px 6.5px,transparent 7px)}
   .rt-addwrap .rt-add:not(.on):hover{background:var(--bg-2);color:var(--txt)}
-  .rt-slot-src:not(.on):hover,.rt-slot-step:hover{background:var(--bg-3);color:var(--txt)}
+  .rt-slot-src:not(.on):not(.blocked):hover,.rt-slot-step:hover{background:var(--bg-3);color:var(--txt)}
+  .rt-slot-src.blocked:hover{color:var(--txt-2)}
   .rt-slot-x:hover,.rt-src-x:hover{background:var(--bg-4);color:var(--txt)}
   .rt-src-group:hover,.rt-src-more:hover{background:var(--bg-2);color:var(--txt)}
   .rt-src-item:not(.chosen):hover{background:var(--bg-2)}

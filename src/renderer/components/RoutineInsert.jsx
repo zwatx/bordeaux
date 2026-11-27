@@ -34,15 +34,23 @@ export function initialSource(allowPath) { return allowPath ? lastSource : 'comm
  * acts on the focused action, and Ctrl/⌘ keeps the slot open for another step. Tab moves into the open library.
  * Escape (and Tab with no library open) closes a slot that was opened, returning focus to where it opened. The first
  * step's slot is always shown: it never takes focus by itself and Escape only closes its library.
+ * `pathBlocked` ({ reason, open?: { label, run } }) keeps Path in the strip where paths cannot go: it stays reachable,
+ * and acting on it shows the reason under the strip, with a way to the right place when there is one (focus moves there).
  */
-export function InsertStrip({ steps, allowPath, source, onSource, onPick, onClose, label, dest, persistent, added, focusLibrary }) {
+export function InsertStrip({ steps, allowPath, pathBlocked, source, onSource, onPick, onClose, label, dest, persistent, added, focusLibrary }) {
   const ref = useRef(null);
-  const actions = [...(allowPath ? ['path'] : []), 'command', ...steps.map((item) => item.key)];
+  const actions = [...(allowPath || pathBlocked ? ['path'] : []), 'command', ...steps.map((item) => item.key)];
   const [current, setCurrent] = useState(() => (source && actions.includes(source) ? source : actions[0]));
+  const [explained, setExplained] = useState(false);
   const itemFor = (key) => steps.find((item) => item.key === key);
   const focus = (key) => { setCurrent(key); ref.current?.querySelector('[data-action="' + key + '"]')?.focus(); };
   useEffect(() => { if (!persistent) focus(current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const act = (key, keep) => {
+    if (key === 'path' && pathBlocked) {
+      setExplained(true);
+      if (pathBlocked.open) requestAnimationFrame(() => ref.current?.querySelector('.rt-slot-why button')?.focus());
+      return;
+    }
     if (SOURCES[key]) { lastSource = key; if (source === key) focusLibrary(); else onSource(key, { focus: true }); return; }
     const item = itemFor(key);
     if (item) onPick(item, keep ? { keep: true } : undefined);
@@ -72,26 +80,33 @@ export function InsertStrip({ steps, allowPath, source, onSource, onPick, onClos
       if (key) { event.preventDefault(); event.stopPropagation(); setCurrent(key); act(key, false); }
     }
   };
+  const destId = useMemo(() => 'rt-slot-dest-' + Math.random().toString(36).slice(2, 8), []);
+  const whyId = destId + '-why';
   const button = (key) => {
     const kind = SOURCES[key], step = STEP_KEYS[key], item = itemFor(key);
     const name = kind ? kind.label : step?.name || item.label;
+    const blocked = key === 'path' && pathBlocked;
     return h('button', { key, type: 'button', 'data-action': key, tabIndex: current === key ? 0 : -1,
-      className: kind ? 'rt-slot-src' + (source === key ? ' on' : '') : 'rt-slot-step ' + (item.tone || ''),
-      'aria-pressed': kind ? source === key : undefined, 'aria-controls': kind && source === key ? 'rt-source' : undefined,
-      'aria-label': kind ? (source === key ? name + ' library' : 'Choose a ' + name.toLowerCase()) : 'Add ' + name.charAt(0).toLowerCase() + name.slice(1),
-      'aria-keyshortcuts': (kind || step).letter, title: (kind ? 'Choose a ' + name.toLowerCase() : 'Add ' + name.toLowerCase()) + ' (' + (kind || step).letter + ')',
+      className: kind ? 'rt-slot-src' + (source === key ? ' on' : '') + (blocked ? ' blocked' : '') : 'rt-slot-step ' + (item.tone || ''),
+      'aria-pressed': kind && !blocked ? source === key : undefined, 'aria-controls': kind && source === key ? 'rt-source' : undefined,
+      'aria-disabled': blocked ? true : undefined, 'aria-describedby': blocked ? whyId : undefined,
+      'aria-label': blocked ? 'Path, unavailable here' : kind ? (source === key ? name + ' library' : 'Choose a ' + name.toLowerCase()) : 'Add ' + name.charAt(0).toLowerCase() + name.slice(1),
+      'aria-keyshortcuts': (kind || step).letter, title: blocked ? pathBlocked.reason : (kind ? 'Choose a ' + name.toLowerCase() : 'Add ' + name.toLowerCase()) + ' (' + (kind || step).letter + ')',
       onFocus: () => setCurrent(key), onClick: (event) => act(key, !kind && (event.ctrlKey || event.metaKey)) },
       // From the keyboard, each glyph gives way to its key letter in the same box, so nothing moves.
       h('span', { className: 'rt-slot-ic' }, h(Glyph, { name: kind ? kind.icon : item.icon, size: 14 })),
       h('kbd', { 'aria-hidden': true }, (kind || step).letter),
       h('span', { className: 'rt-slot-label' }, kind ? kind.label : step?.short || item.label));
   };
-  const destId = useMemo(() => 'rt-slot-dest-' + Math.random().toString(36).slice(2, 8), []);
   return h('div', { ref, className: 'rt-slot' + (persistent ? ' first' : ''), role: 'toolbar', 'aria-label': label, 'aria-describedby': destId, onKeyDown },
     h('span', { className: 'rt-slot-caret', 'aria-hidden': true }),
     h('div', { className: 'rt-slot-actions' },
       h('div', { className: 'rt-slot-sources' }, actions.filter((key) => SOURCES[key]).map(button)),
-      h('div', { className: 'rt-slot-steps' }, actions.filter((key) => !SOURCES[key]).map(button))),
+      h('div', { className: 'rt-slot-steps' }, actions.filter((key) => !SOURCES[key]).map(button)),
+      // The reason is always Path's description; it shows under the strip once Path is pressed.
+      pathBlocked && h('div', { id: whyId, className: 'rt-slot-why' + (explained ? '' : ' sr-only'), 'aria-live': 'polite' },
+        h('p', null, pathBlocked.reason),
+        explained && pathBlocked.open && h('button', { type: 'button', className: 'qbtn', tabIndex: -1, onClick: pathBlocked.open.run }, h(Glyph, { name: 'route', size: 14 }), pathBlocked.open.label))),
     !persistent && h('button', { type: 'button', className: 'rt-slot-x', tabIndex: -1, title: 'Cancel (Esc)', 'aria-label': 'Cancel adding a step',
       onMouseDown: (event) => event.preventDefault(), onClick: () => onClose(true) }, h(Icon, { name: 'x', size: 13 })),
     h('span', { id: destId, className: 'sr-only' }, dest),
