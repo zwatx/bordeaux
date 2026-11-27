@@ -215,12 +215,13 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
   }
   /** One displayed result owns the field, timeline and transient problem selection. */
   function PathWorkspace({ rootRef, children, editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, actions, sel, playbackStore,
-    issues = [], timingPending = false, stale = false, flushDraft }) {
+    issues = [], timingPending = false, stale = false, flushDraft, metric }) {
     const { draft, displayed, interactionReady } = useEditPreview({ editStore, previewer, doc, derived, derivedPath, robot, field, plannerId, request: true, timingPending });
     // Authored values follow the live draft; timing follows what the field shows for it.
     const source = draft || doc;
     const value = displayed.value || derived;
-    const fresh = useMemo(() => buildTimeline(value, robot.cameras), [value, robot.cameras]);
+    const coverageCameras = metric === 'tags' ? robot.cameras : undefined;
+    const fresh = useMemo(() => buildTimeline(value, coverageCameras), [value, coverageCameras]);
     // While a change is re-timed, the last timing and problems for this path stay drawn, dimmed. They are
     // display only: status, durations and push never read them. Another path never inherits them, and a
     // failed timing job shows no timing rather than an older one.
@@ -3178,7 +3179,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
               robot, field: planningField, plannerId, actions: bandActions, sel, playbackStore, issues: planIssues, timingPending: !comparing && editing.pending,
-              stale: !derivationCurrent, flushDraft: flushProjectDraft }, (scene) => h(React.Fragment, null,
+              stale: !derivationCurrent, flushDraft: flushProjectDraft, metric }, (scene) => h(React.Fragment, null,
             // Ready means the current path's timing has arrived; editing never waits for it.
             h('div', { className: 'fieldcol', 'data-planning-ready': derivationCurrent && !derivation.pending },
               h('div', { style: { display: 'contents' }, inert: derivationCurrent ? undefined : '' },
@@ -3213,7 +3214,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   agentProposal.status === 'ready' && h('button', { className: 'primary', type: 'button', disabled: !agentProposalCanApplyCandidate || (agentProposal.blockingIssues && agentProposal.blockingIssues.length > 0), onClick: applyAgentProposal }, agentProposal.operation === 'replace' ? 'Apply repair' : 'Add path'))),
               ),
               h('div', { className: 'field-view-footer', inert: derivationCurrent ? undefined : '' },
-                h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric }),
+                h(PathHoverReadout, { store: scene.hoverStore, context: scene.hoverContext, tl: scene.tl, metric, derived: scene.derived, doc: scene.fieldDoc, cameras: robot.cameras }),
                 h('div', { className: 'field-view-tools' },
                   h(Panels.MetricControl, { metric, setMetric, derived: scene.derived, robot }),
                   h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, onFlip: openFlip, flipDisabled: !doc.waypoints.length })))),

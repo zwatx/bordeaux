@@ -728,6 +728,17 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
           strokeWidth: P(selected ? 15 : 11), strokeOpacity: alpha, strokeLinecap: 'round' }),
         style: { pointerEvents: 'none' }, 'data-issue-index': index });
     }), [fieldIssues, problems?.selected, problems?.stale, problems?.live, pts, derived.sample.length, routine, view.w, cw]);
+    const stride = Math.max(1, Math.floor(pts.length / 200));
+    const headings = derived.prof?.head?.length === pts.length ? derived.prof.head : derived.metrics.head;
+    const cameras = metric === 'tags' && !routineView ? robot.cameras : undefined;
+    const segmentTagCounts = useMemo(() => {
+      if (!cameras?.length || headings?.length !== pts.length) return null;
+      const counts = [], reverse = derived.rev ? Math.PI : 0;
+      for (let i = 0; i + stride < pts.length; i += stride) {
+        counts.push(tagsSeenAt({ ...pts[i], heading: headings[i] + reverse }, cameras));
+      }
+      return counts;
+    }, [cameras, headings, pts, derived.rev, stride]);
     const staticScene = useMemo(() => {
       const els = [], labels = [];
       const M = derived.metrics;
@@ -776,11 +787,11 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         }
         return waypoint.theta || 0;
       };
-      // Tags seen at each drawn point. The preview's headings leave out the half turn of a path driven backward.
-      const tagsSeen = metric === 'tags' && Array.isArray(M.head) && M.head.length === pts.length
-        ? pts.map((point, i) => tagsSeenAt({ x: point.x, y: point.y, heading: M.head[i] + (derived.rev ? Math.PI : 0) }, robot.cameras)) : null;
       const colAt = (i) => {
-        if (metric === 'tags') return PM.metricColor('tags', Math.min(TAGS_SEEN_FULL, tagsSeen ? tagsSeen[i] : 0) / TAGS_SEEN_FULL);
+        if (metric === 'tags') {
+          if (cameras?.length && !segmentTagCounts) return C_NEUTRAL;
+          return PM.metricColor('tags', Math.min(TAGS_SEEN_FULL, segmentTagCounts?.[i / stride] ?? 0) / TAGS_SEEN_FULL);
+        }
         if (metric === 'accel') return PM.metricColor('accel', 0.5 + 0.5 * (M.accel[i] / (M.aMax || 1)));
         if (metric === 'angvel') return PM.metricColor('angvel', 0.5 + 0.5 * (M.omega[i] / (M.wMax || 1)));
         if (metric === 'curvature') return PM.metricColor('curvature', M.curv[i] / (M.kMax || 1));
@@ -809,7 +820,6 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         const dCase = FieldScene.pathData(pts, null, W2P);
         els.push(h('path', { key: 'case', d: dCase, fill: 'none', stroke: '#05060a', strokeOpacity: 0.75, strokeWidth: P(5), strokeLinecap: 'round', strokeLinejoin: 'round' }));
         const segEls = [];
-        const stride = Math.max(1, Math.floor(pts.length / 200));
         for (let i = 0; i + stride < pts.length; i += stride) {
           const a = W2P(pts[i]), b = W2P(pts[i + stride]);
           segEls.push(h('line', { key: 's' + i, x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: colAt(i), strokeWidth: P(2.6), strokeLinecap: 'butt' }));
@@ -1128,7 +1138,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       }
 
       return { els, labels };
-    }, [doc, derived, sel.kind, sel.idx, showGrid, accent, metric, robot, drive, tool, view.w, cw, baseProblemBadges, toolRailObstacle]);
+    }, [doc, derived, sel.kind, sel.idx, showGrid, accent, metric, robot, drive, tool, view.w, cw, baseProblemBadges, toolRailObstacle, stride, cameras, segmentTagCounts]);
     const staticLayers = staticScene.els;
     // An overflow selection is placed against existing labels; it never rebuilds path geometry.
     const problemBadges = useMemo(() => problemOverflow == null ? baseProblemBadges : [

@@ -5,7 +5,8 @@ import { PathLinks } from '../lib/pathLinks';
 import { PM } from '../lib/pathMath';
 import { UnitPrefs } from '../lib/unitPreferences';
 import { commandExtent, fAtT, featureFraction, featurePositionPatch, labelWidth as textWidth, layoutCommandLane, niceStep, tAtF, vAtT, waypointInsertionAt, zoneFractions } from './pathTimelineModel';
-import { TAGS_SEEN_FULL } from '../lib/tagCoverage';
+import { displayedPoseAtTime } from '../lib/pathHover';
+import { TAGS_SEEN_FULL, tagsSeenAt } from '../lib/tagCoverage';
 import { isWholeIssue } from './planProblems';
 import { UI } from './ui';
 import { keyLabel, useKeyRules } from '../lib/keyBindings';
@@ -119,18 +120,23 @@ function Ruler({ store, total, left, width, top, onScrub }) {
     onPointerDown: onScrub });
 }
 
-export function PathHoverReadout({ store, context, tl, metric }) {
+export function PathHoverReadout({ store, context, tl, metric, derived, doc, cameras }) {
   const hover = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   if (!context.eligible || hover?.context !== context) return null;
   const times = hover.source === 'timeline' ? [hover.t] : hover.f.map(f => tAtF(tl, f));
   const time = times[hover.source === 'field' ? hover.primary : 0];
   const sampled = hover.source === 'timeline' && SERIES[metric];
   const unit = sampled ? sampled.unit : 'm/s';
-  const text = times.map(t => fmt(t)).join(' · ') + ' s · '
-    + (sampled?.key === 'tags'
-      // A count: whole tags, and "1 tag" without the plural.
-      ? (() => { const count = Math.round(vAtT(tl, time, 'tags')); return count + (count === 1 ? ' tag' : ' tags'); })()
-      : fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled && sampled.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit));
+  let reading;
+  if (sampled?.key === 'tags') {
+    const pose = displayedPoseAtTime(time, derived, doc);
+    if (!pose) return null;
+    const count = tagsSeenAt(pose, cameras);
+    reading = count + (count === 1 ? ' tag' : ' tags');
+  } else {
+    reading = fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled?.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit);
+  }
+  const text = times.map(t => fmt(t)).join(' · ') + ' s · ' + reading;
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 
