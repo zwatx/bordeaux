@@ -286,7 +286,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
   function countSteps(routine) { let n = 0; walk(routine.nodes, () => n++); return n; }
   /**
    * The flow's step numbers: every step in reading order from 1, nested steps included, so a number names one row.
-   * The field's path badges and the step inspector show the same number; repeated passes keep their step's number.
+   * The field's step numbers and the step inspector show the same number; repeated passes keep their step's number.
    */
   function stepNumbers(routine) { const numbers = new Map(); walk(routine?.nodes, (node) => numbers.set(node.id, numbers.size + 1)); return numbers; }
 
