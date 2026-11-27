@@ -191,6 +191,11 @@ export interface Waypoint {
   implicitHalfTurnClockwise?: true;
   /** Rapid terminal translation action expanded into samples without authored waypoints. */
   jiggle?: JiggleAction;
+  /**
+   * Optimize inserted this pass-through waypoint. A later Optimize may move, replace or remove it.
+   * An edit to the waypoint clears the flag (settleOptimizerWaypoints), which makes it the user's.
+   */
+  optimizerAdded?: true;
   prevC: ControlPoint;
   nextC: ControlPoint;
 }
@@ -514,6 +519,8 @@ export interface ConstraintRange {
 }
 
 export interface PathDoc {
+  /** The prior applied curve could not be brought forward. Review before exporting. */
+  optimizationNeedsReview?: true;
   id: string;
   name: string;
   waypoints: Waypoint[];
@@ -529,32 +536,13 @@ export interface PathDoc {
   startVel: number;
   goalVel: number;
   exportable?: boolean;
-  /** Internal derived planning geometry only, never permitted on authored source. */
-  routeRequiredPointIndices?: number[];
-  /** Authored corridor and explicit selection; project plannerId never selects an artifact. */
-  optimization?: {
-    corridorM?: number;
-    accepted?: AcceptedTrajectory;
-    /** Retained on explicit route Apply; active accepted always takes precedence. */
-    legacyAccepted?: AcceptedTrajectory & { version: 1 };
-  };
-}
-
-/** Exact selected samples; v1 retains its original corridor contract. */
-export interface AcceptedTrajectory {
-  /** Samples and input key were saved in a historical field frame. */
-  requiresFieldReview?: true;
-  version: 1 | 2;
-  inputKey: string;
-  samplesPerSegment: number;
-  result: PlannerResult;
 }
 
 export interface RouteGeometry {
   version: 1;
   /** Geometry-owned curvature smoothing, independent of later seed editing modes. */
   knots: Array<ControlPoint & { prevC: ControlPoint; nextC: ControlPoint; smooth?: boolean }>;
-  /** Ordered generated-knot index for each required source waypoint. */
+  /** Ordered knot index for each required waypoint. Every other knot becomes a waypoint Optimize inserts. */
   requiredPointIndices: number[];
 }
 
@@ -839,9 +827,9 @@ export interface PlannerResult {
   optimization?: PlannerOptimizationDiagnostics;
   /** Internal timing metadata used to keep renderer playback identical to exported samples. */
   stationaryActions?: PlannerStationaryAction[];
-  /** Internal final-preview geometry; export schemas select trajectory fields explicitly. */
+  /** On a search candidate: the path Apply writes, which this trajectory was planned on. */
   optimizedPath?: PathDoc;
-  /** Versioned solver-owned geometry, separate from required source points. */
+  /** On a search candidate: the curve as knots, with the required waypoints marked. */
   routeGeometry?: RouteGeometry;
 }
 

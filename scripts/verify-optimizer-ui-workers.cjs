@@ -1,17 +1,12 @@
 // Fixture-only main-world observation, serialized into a registered frame preload before load.
 function installOptimizerWorkerEvidence(observerSha256) {
   if (window.__optimizerWorkers) throw new Error('Duplicate optimizer worker observation');
-  const NativeWorker = window.Worker, jobs = [], problems = [], values = new Map(), artifacts = new WeakMap();
-  let workerSequence = 0, artifactSequence = 0;
+  const NativeWorker = window.Worker, jobs = [], problems = [], values = new Map();
+  let workerSequence = 0;
   // While set, the final reply of an optimize job is recorded but kept from the app.
   // A search now ends within a second, so a fixture that must act on a running
   // search holds its reply instead of racing it.
   let heldReplies = null;
-  const artifactId = value => {
-    if (!value || typeof value !== 'object') return null;
-    if (!artifacts.has(value)) artifacts.set(value, ++artifactSequence);
-    return artifacts.get(value);
-  };
   class ObservedWorker extends NativeWorker {
     constructor(...args) {
       super(...args);
@@ -24,7 +19,7 @@ function installOptimizerWorkerEvidence(observerSha256) {
         this.evidencePending.delete(result.id);
         job.finishedAt = performance.now(); job.status = result.error || result.finalFallbackReason ? 'error' : 'ready';
         const value = result.value, trajectory = value?.trajectory || value?.finalTrajectory || value?.derived?.finalTrajectory;
-        job.result = { accepted: Boolean(value?.acceptedTrajectory), planningStatus: value?.status,
+        job.result = { planningStatus: value?.status,
           comparison: value?.comparison, seconds: trajectory?.totalTimeS, samples: trajectory?.samples?.length,
           error: result.error?.message || result.finalFallbackReason || null };
         values.set(job.sequence, value);
@@ -43,11 +38,10 @@ function installOptimizerWorkerEvidence(observerSha256) {
       const message = args[0]; let job;
       if (message?.path && typeof message.id === 'number') {
         if (jobs.length >= 5000) problems.push('Worker observation exceeded 5000 requests');
-        const accepted = message.path.optimization?.accepted;
         job = { sequence: jobs.length + 1, worker: this.evidenceId, requestId: message.id, pathId: message.path.id,
           workerUrl: this.evidenceUrl, plannerId: message.plannerId ?? null, key: message.key ?? null,
           mode: message.mode || 'legacy', optimize: message.optimize === true, quality: message.quality,
-          density: message.perSegment, acceptedIdentity: artifactId(accepted), acceptedDensity: accepted?.samplesPerSegment ?? null,
+          density: message.perSegment, waypoints: message.path.waypoints?.length ?? null,
           startedAt: performance.now(), status: 'pending' };
         jobs.push(job); this.evidencePending.set(message.id, job);
       }

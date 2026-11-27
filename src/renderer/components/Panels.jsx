@@ -19,7 +19,7 @@ import { deletionInput } from "./DeletionNotice";
   // controls: updates, global settings (the gear) and shortcuts.
   function Toolbar(props) {
     useKeyRules();
-    const { page, onPlace, onUndo, onRedo, optimizationOpen, toggleOptimization, optimizationApplied } = props;
+    const { page, onPlace, onUndo, onRedo, optimizationOpen, toggleOptimization } = props;
     const plan = page === 'plan', current = placeOf(page);
     return h('header', { className: 'toolbar' },
       // App owns the project chip and its flows. The slot has a fixed width, so status changes never move the places.
@@ -28,7 +28,7 @@ import { deletionInput } from "./DeletionNotice";
         'aria-current': current === place.id ? 'page' : undefined, onClick: () => onPlace?.(place.id) }, place.label))),
       h('div', { className: 'tb-spacer' }),
       h('div', { className: 'tb-actions' },
-        plan && h('button', { type: 'button', className: 'tb-text optimizer-toggle', 'aria-expanded': optimizationOpen, onClick: toggleOptimization }, optimizationApplied ? 'Optimized' : 'Optimize'),
+        plan && h('button', { type: 'button', className: 'tb-text optimizer-toggle', 'aria-expanded': optimizationOpen, onClick: toggleOptimization }, 'Optimize'),
         (plan || page === 'auto') && h(IconBtn, { icon: 'undo', onClick: onUndo, disabled: !props.canUndo, label: 'Undo', title: withKey('Undo', 'edit.undo') }),
         (plan || page === 'auto') && h(IconBtn, { icon: 'redo', onClick: onRedo, disabled: !props.canRedo, label: 'Redo', title: withKey('Redo', 'edit.redo', true) })),
       props.push && h('div', { className: 'tb-push' }, props.push),

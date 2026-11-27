@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { FLIP_DIRECTIONS, PathFlipDialog, flipRequest, optimizationNote } from '../src/renderer/components/PathFlipDialog';
+import { FLIP_DIRECTIONS, PathFlipDialog, flipRequest } from '../src/renderer/components/PathFlipDialog';
 
 const h = React.createElement;
 const render = (props = {}) => renderToStaticMarkup(h(PathFlipDialog, {
@@ -42,13 +42,6 @@ describe('PathFlipDialog', () => {
 
   it('keeps the inline error region empty until something fails', () => {
     expect(render()).toContain('<div class="pf-error" role="alert"></div>');
-  });
-
-  it('explains the applied optimization only when the path has one', () => {
-    const markup = render({ hasAppliedOptimization: true });
-    expect(text(markup)).toContain('This path keeps its applied optimization.');
-    expect(optimizationNote({ direction: 'rotate', replace: true })).toBe('The applied optimization turns with the path.');
-    for (const direction of ['horizontal', 'vertical']) expect(optimizationNote({ direction, replace: true })).toMatch(/^Mirroring clears the applied optimization/);
   });
 });
 

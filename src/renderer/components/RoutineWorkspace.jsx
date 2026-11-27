@@ -9,25 +9,25 @@ const h = React.createElement;
 export const PREVIEW_HELP = 'Preview only; commands and conditions do not run. Push routine uploads a file; robot code validates it before execution.';
 
 // The flow keeps about five rows at the native minimum (1100x720, inspector open) and the field keeps a usable map.
-const FLOW_MIN = 140, FLOW_DEFAULT_MIN = 200, FIELD_MIN = 160;
+const FLOW_MIN = 140, FLOW_DEFAULT_MIN = 200, FLOW_CSS_MIN = 96, FIELD_MIN = 160;
 const FIELD_HEIGHT_KEY = 'bordeaux.routines.fieldHeight';
 /** The field height the user chose, kept for this window across reloads; null means the default split. */
 function storedFieldHeight() {
-  try { const value = Number(localStorage.getItem(FIELD_HEIGHT_KEY)); return value > 0 ? value : null; } catch (_) { return null; }
+  try { const value = Number(localStorage.getItem(FIELD_HEIGHT_KEY)); return Number.isFinite(value) && value > 0 ? value : null; } catch (_) { return null; }
 }
 function storeFieldHeight(value) {
   try { if (value == null) localStorage.removeItem(FIELD_HEIGHT_KEY); else localStorage.setItem(FIELD_HEIGHT_KEY, String(value)); }
   catch (_) { /* Keep the split for this session when storage is unavailable. */ }
 }
-/**
- * The split of `room` px (between the header and the transport): the chosen field height, or about 62% of the room
- * while the flow keeps its default minimum, clamped so neither part collapses. `flow` is what the divider reports.
- */
-function routineSplit(room, chosen) {
-  const max = Math.max(FIELD_MIN, room - FLOW_MIN);
-  const wanted = chosen ?? Math.min(room * 0.62, room - FLOW_DEFAULT_MIN);
-  const field = Math.round(Math.max(FIELD_MIN, Math.min(max, wanted)));
-  return { field, flow: room - field, flowMin: Math.max(0, Math.min(FLOW_MIN, room - FIELD_MIN)), flowMax: Math.max(0, room - FIELD_MIN) };
+/** Clamp the split against the actual body height, including when a banner takes up space. */
+function routineSplit(room, banner, chosen) {
+  const available = Math.max(0, room - banner);
+  const fieldMin = Math.min(FIELD_MIN, Math.max(0, available - FLOW_CSS_MIN));
+  const flowMax = available - fieldMin;
+  const flowMin = Math.min(FLOW_MIN, flowMax);
+  const wanted = chosen ?? Math.min(room * 0.62, available - FLOW_DEFAULT_MIN);
+  const field = Math.round(Math.max(fieldMin, Math.min(available - flowMin, wanted)));
+  return { field, flow: available - field, flowMin, flowMax };
 }
 
 /**
@@ -44,7 +44,7 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
   // transport), so rows hold still. The default split follows the room between the header and the transport.
   const [chosenField, setChosenField] = React.useState(storedFieldHeight);
   const [room, setRoom] = React.useState(0);
-  // A status banner sits under the flow and shortens it without moving the field; the divider reports the flow it leaves.
+  // A status banner takes room below the flow. Keep the chosen field height when both panes still fit.
   const [banner, setBanner] = React.useState(0);
   const sectionRef = React.useRef(null), headRef = React.useRef(null), transportRef = React.useRef(null), statusRef = React.useRef(null);
   React.useLayoutEffect(() => {
@@ -57,7 +57,7 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
     for (const element of [sectionRef.current, headRef.current, transportRef.current, statusRef.current]) if (element) observer?.observe(element);
     return () => observer?.disconnect();
   }, [empty]);
-  const split = room > 0 ? routineSplit(room, chosenField) : null;
+  const split = room > 0 ? routineSplit(room, banner, chosenField) : null;
   const resizeFlow = (flowHeight) => {
     const next = flowHeight == null ? null : room - banner - flowHeight;
     setChosenField(next); storeFieldHeight(next);
@@ -112,7 +112,7 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
           h('p', null, PREVIEW_HELP)))),
     h('div', { className: 'routine-workspace-body', style: split ? { '--field-height': split.field + 'px' } : undefined },
       h('div', { className: 'fieldcol routine-workspace-field', 'aria-label': 'Routine field preview' }, field),
-      split && h(BandDivider, { className: 'routine-split', height: split.flow - banner, min: Math.max(0, split.flowMin - banner), max: Math.max(0, split.flowMax - banner), onChange: resizeFlow, label: 'Resize flow' }),
+      split && h(BandDivider, { className: 'routine-split', height: split.flow, min: split.flowMin, max: split.flowMax, onChange: resizeFlow, label: 'Resize flow' }),
       h('div', { className: 'routine-workspace-flow', 'aria-label': 'Routine flow' }, flow)),
     h('div', { ref: statusRef, className: 'routine-workspace-status' }, status),
     !empty && h('div', { ref: transportRef, className: 'routine-workspace-transport' }, transport));
