@@ -255,9 +255,17 @@ app.whenReady().then(async () => {
     pass('Cameras belong to their robot and come back after save and reopen');
 
     await click('.rp-cam-action[aria-label="Delete Camera 1"]');
+    await wait(() => evaluate(() => document.activeElement?.textContent === 'Cancel'), 'delete confirmation focuses Cancel');
+    assert.equal((await section()).picks.length, 2, 'Opening the confirmation keeps both cameras');
+    await snapshot('delete-camera-confirmation');
+    await key('Escape');
+    await wait(() => evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Delete Camera 1'), 'Escape restores focus');
+    await click('.rp-cam-action[aria-label="Delete Camera 1"]');
+    await click('.rp-cam-confirm button', 'Delete');
     await wait(async () => (await section()).picks.length === 1, 'one camera left');
     assert.deepEqual((await section()).picks, ['Rear left*']);
     await click('.rp-cam-action[aria-label="Delete Rear left"]');
+    await click('.rp-cam-confirm button', 'Delete');
     await wait(async () => (await section()).empty === 'No cameras', 'no cameras left');
     await save();
     assert.equal(saved.robot.cameras, undefined, 'A robot without cameras saves no camera list');

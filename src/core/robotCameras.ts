@@ -45,7 +45,7 @@ export function addCamera(robot: RobotConfig): RobotConfig {
     name: `Camera ${number}`,
     horizontalFovDeg: 70,
     verticalFovDeg: 50,
-    positionM: { x: robot.l / 2, y: 0, z: 0.3 },
+    positionM: { x: Math.min(robot.l / 2, CAMERA_RANGES.offsetM.max), y: 0, z: 0.3 },
     yawDeg: 0,
     pitchDeg: 15,
     maxRangeM: CAMERA_RANGE_DEFAULT_M,

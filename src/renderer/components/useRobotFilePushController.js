@@ -68,7 +68,15 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (!intent.current) return;
     const request = ++generation.current;
     const captured = intent.current;
-    if (readScope(captured.scope)) {
+    const reading = readScope(captured.scope);
+    // Use the live project: the selected robot's address may have changed while pairing.
+    const problem = api.robotDeliveryCapabilities?.servedByRobot ? null : pushConnectionProblem(source.current(), state.current.connection?.endpoint ?? null, reading ? 'reading robot files' : 'pushing');
+    if (problem) {
+      const phase = captured.scope.kind === 'inventory' ? 'list-failed' : reading ? 'compare-failed' : 'failed';
+      update({ phase, ...emptyReview, comparison: null, copy: null, error: problem });
+      return;
+    }
+    if (reading) {
       const id = readId.current = crypto.randomUUID();
       const listing = captured.scope.kind === 'inventory';
       update({ phase: listing ? 'listing' : 'comparing', comparison: null, copy: null, error: '' });
@@ -88,10 +96,6 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       }
       return;
     }
-    // A listed robot pushes only through its own address. The live project is read because the address may have been
-    // set after this push was captured.
-    const problem = api.robotDeliveryCapabilities?.servedByRobot ? null : pushConnectionProblem(source.current(), state.current.connection?.endpoint ?? null);
-    if (problem) { update({ phase: 'failed', ...emptyReview, error: problem }); return; }
     update({ phase: 'preparing', ...emptyReview, error: '' });
     try {
       const preview = captured.scope.kind === 'routine'

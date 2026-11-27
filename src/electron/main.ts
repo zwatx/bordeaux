@@ -52,6 +52,7 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
+import { pushConnectionProblem } from "../core/project/robots";
 import { RobotFileDelivery, openKnownHosts, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
 import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
@@ -1708,6 +1709,8 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
   if (!project || !Array.isArray(project.paths)) throw new Error("A valid Bordeaux project is required");
   const pairing = robotFileDelivery.current();
   if (!pairing) throw new Error("Connect a robot before preparing this transfer");
+  const connectionProblem = pushConnectionProblem(project, pairing.endpoint);
+  if (connectionProblem) throw new Error(connectionProblem);
   const link = captureLinkedProject(project);
   const assertCurrent = () => {
     if (!link.isCurrent() || JSON.stringify(pairing) !== JSON.stringify(robotFileDelivery.current())) throw new Error("The project or robot connection changed; review this transfer again");
@@ -1738,6 +1741,8 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
   if (!project || !Array.isArray(project.paths) || !Array.isArray(project.routines)) throw new Error("A valid Bordeaux project is required");
   const pairing = robotFileDelivery.current();
   if (!pairing) throw new Error("Connect a robot before preparing this transfer");
+  const connectionProblem = pushConnectionProblem(project, pairing.endpoint);
+  if (connectionProblem) throw new Error(connectionProblem);
   const link = captureLinkedProject(project);
   const assertCurrent = () => {
     if (!link.isCurrent() || JSON.stringify(pairing) !== JSON.stringify(robotFileDelivery.current())) throw new Error("The project or robot connection changed; review this transfer again");
@@ -1781,6 +1786,8 @@ handle("robotFiles:listPaths", (_event, rawId, rawProject) => {
   if (!Array.isArray(project?.paths) || project.paths.some(path => typeof path?.id !== "string" || typeof path.name !== "string")) {
     throw new Error("Open a Bordeaux project to list its robot paths");
   }
+  const connectionProblem = pushConnectionProblem(project, robotFileDelivery.current()?.endpoint ?? null, "reading robot files");
+  if (connectionProblem) throw new Error(connectionProblem);
   const paths = project.paths.map(path => ({ id: path.id, name: path.name,
     pushable: path.exportable !== false && (path.waypoints?.length ?? 0) >= 2 }));
   return robotFileDelivery.listPaths(id, paths, assertProject);
@@ -1790,6 +1797,8 @@ handle("robotFiles:compare", (_event, rawId, rawProject, pathId, robotFileName) 
   const project = rawProject as BordeauxProject;
   if (pathId !== undefined && typeof pathId !== "string") throw new Error("Choose a local path to compare");
   if (!Array.isArray(project?.paths)) throw new Error("Open a Bordeaux project to compare paths");
+  const connectionProblem = pushConnectionProblem(project, robotFileDelivery.current()?.endpoint ?? null, "reading robot files");
+  if (connectionProblem) throw new Error(connectionProblem);
   const local = findLocalRobotPath(project.paths, pathId);
   const fileName = robotFileName ?? (local && binaryFileName(local.name));
   if (!isDeployedPathName(fileName)) throw new Error("Choose a robot path to read");

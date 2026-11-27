@@ -8,6 +8,8 @@ export const ROBOT_NAME_MAX = 80;
 /** Most robots a project holds. Adding or duplicating past it leaves the project as it is. */
 export const ROBOT_LIMIT = 32;
 const DEFAULT_NAME = "Robot";
+/** The original robot keeps this identity when it first becomes a named entry. */
+export const UNLISTED_ROBOT_ID = "robot";
 
 export interface RobotSummary { id: string; name: string; selected: boolean; robot: RobotConfig; connection?: RobotFileEndpoint }
 
@@ -21,16 +23,12 @@ export interface RobotSummary { id: string; name: string; selected: boolean; rob
 /** The stored list, or the single unnamed robot of an older project. */
 function entries(project: BordeauxProject): { robots: ProjectRobot[]; activeRobotId: string } {
   if (project.robots?.length && project.activeRobotId) return { robots: project.robots, activeRobotId: project.activeRobotId };
-  const id = `robot_${randomUuid()}`;
-  return { robots: [{ id, name: DEFAULT_NAME }], activeRobotId: id };
+  return { robots: [{ id: UNLISTED_ROBOT_ID, name: DEFAULT_NAME }], activeRobotId: UNLISTED_ROBOT_ID };
 }
-
-/** Id shown for the single robot of a project without a list. Adding or renaming stores a real id. */
-const UNLISTED_ID = "robot";
 
 /** Every robot in card order with its details, for display. */
 export function projectRobots(project: BordeauxProject): RobotSummary[] {
-  if (!project.robots?.length || !project.activeRobotId) return [{ id: UNLISTED_ID, name: DEFAULT_NAME, selected: true, robot: project.robot }];
+  if (!project.robots?.length || !project.activeRobotId) return [{ id: UNLISTED_ROBOT_ID, name: DEFAULT_NAME, selected: true, robot: project.robot }];
   return project.robots.map(({ id, name, robot, connection }) => ({ id, name, selected: id === project.activeRobotId,
     robot: id === project.activeRobotId ? project.robot : robot!, ...(connection ? { connection } : {}) }));
 }
@@ -80,10 +78,10 @@ const sameEndpoint = (a: RobotFileEndpoint | undefined, b: RobotFileEndpoint) =>
  * may. A listed robot pushes only through its own address, so a switch that failed cannot send its files to the robot
  * selected before. A project without a list uses whatever connection this computer has.
  */
-export function pushConnectionProblem(project: BordeauxProject, active: RobotFileEndpoint | null): string | null {
+export function pushConnectionProblem(project: BordeauxProject, active: RobotFileEndpoint | null, action = "pushing"): string | null {
   if (!project.robots?.length) return null;
   const selected = project.robots.find((robot) => robot.id === project.activeRobotId);
-  if (!selected?.connection) return `Set up ${selected?.name ?? "this robot"}’s connection before pushing.`;
+  if (!selected?.connection) return `Set up ${selected?.name ?? "this robot"}’s connection before ${action}.`;
   return active && sameEndpoint(selected.connection, active) ? null
     : `${selected.name}’s connection is not the active one. Open its connection on the Robot page and save it again.`;
 }

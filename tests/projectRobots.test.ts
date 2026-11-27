@@ -169,6 +169,18 @@ describe("project robots", () => {
     expect(redone.project.robot.planning).toEqual({ notes: "other robot" });
   });
 
+  it("keeps planning Undo on the original robot when the project gains a robot list", () => {
+    const before = base();
+    const after = { ...before, robot: { ...before.robot, planning: { notes: "proposal" } } };
+    const multiple = addRobot(after, "Practice bot");
+    const entry = { kind: "project", scope: "project", ...captureProjectChange(before, after, null) } as const;
+    const undone = applyProjectEntry(multiple, entry, null)!;
+    expect(undone.project.robot).toEqual(multiple.robot);
+    expect(projectRobots(undone.project).find(({ name }) => name === "Robot")?.robot.planning).toBeUndefined();
+    const redone = applyProjectEntry(undone.project, undone.inverse, null)!;
+    expect(projectRobots(redone.project).find(({ name }) => name === "Robot")?.robot.planning).toEqual({ notes: "proposal" });
+  });
+
   it("keeps each robot's address with that robot through switching, and lets robots share one", () => {
     const single = base(), snapshot = structuredClone(single);
     const addressed = setRobotConnection(single, comp);

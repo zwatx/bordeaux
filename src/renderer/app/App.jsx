@@ -884,7 +884,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       // An address set up in the connection dialog belongs to the robot selected at the time. An editor served by the
       // robot pushes only to that robot, so project robot addresses play no part there.
       // The ref changes at once: a Push that waited for this address checks it against the project straight after.
-      onEndpointChosen: (endpoint) => { if (SERVED_BY_ROBOT) return; const next = setRobotConnection(projectRef.current, endpoint); projectRef.current = next; setProject(next); },
+      onEndpointChosen: (endpoint) => { if (SERVED_BY_ROBOT || !projectRef.current.robots) return; const next = setRobotConnection(projectRef.current, endpoint); projectRef.current = next; setProject(next); },
       ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
@@ -1691,9 +1691,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const selectedEndpointKey = SERVED_BY_ROBOT ? null : selectedConnection ? JSON.stringify(selectedConnection) : listed ? 'none' : null;
     const requestedEndpoint = useRef(null);
     useEffect(() => {
-      if (!selectedEndpointKey) { requestedEndpoint.current = null; return; }
       if (pushController.busy || requestedEndpoint.current === selectedEndpointKey) return;
       requestedEndpoint.current = selectedEndpointKey;
+      if (!selectedEndpointKey) { void pushController.useEndpoint?.(undefined); return; }
       if (selectedEndpointKey === 'none') { if (pushController.pairing) void pushController.useEndpoint?.(null); return; }
       if (JSON.stringify(pushController.pairing?.endpoint ?? null) !== selectedEndpointKey) void pushController.useEndpoint?.(selectedConnection);
     }, [selectedEndpointKey, pushController.busy, pushController.pairing]);

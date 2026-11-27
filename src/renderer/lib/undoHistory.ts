@@ -7,6 +7,7 @@
  * Entries from other surfaces are skipped, but never jumped over when they
  * touched the same state: undoing then would silently rewrite that surface.
  */
+import { UNLISTED_ROBOT_ID } from "../../core/project/robots";
 import { type Arrangement, captureArrangement, restoreArrangement } from "./libraryOrder";
 
 export type UndoEntry = { scope: string; touches: readonly string[] };
@@ -77,8 +78,8 @@ type Project = LinkedProject & { pathFolders?: Folder[] | null; robot: { plannin
   robots?: { id: string; robot?: { planning?: unknown } }[] };
 
 /** Where a robot's planning is now: `project.robot` while it is selected, its list entry otherwise. Null once removed. */
-function robotPlanning(project: Project, robotId: string | undefined): { planning: unknown } | null {
-  if (robotId === project.activeRobotId) return { planning: project.robot.planning };
+function robotPlanning(project: Project, robotId: string): { planning: unknown } | null {
+  if (robotId === (project.activeRobotId ?? UNLISTED_ROBOT_ID)) return { planning: project.robot.planning };
   const entry = project.robots?.find((robot) => robot.id === robotId);
   return entry?.robot ? { planning: entry.robot.planning } : null;
 }
@@ -155,8 +156,8 @@ export type ProjectChange = {
   /** Changed paths as they were before; null for a path the change created. */
   paths: { id: string; index: number; path: LibraryPath | null }[];
   links: { restore: Link[]; remove: Link[] } | null;
-  /** Planning set on the robot selected at the time; `robotId` is undefined for a project without a robot list. */
-  planning?: { before: unknown; after: unknown; robotId?: string };
+  /** Planning set on the robot selected at the time. */
+  planning?: { before: unknown; after: unknown; robotId: string };
   activePathId: string | null;
 };
 
@@ -165,7 +166,7 @@ export type ProjectChange = {
  * linked to a changed path or link endpoint, before or after: restoring an
  * old relationship must not jump over a newer edit to a former neighbor.
  */
-export function captureProjectChange(before: Project, after: Project, activePathId: string | null, robotId = after.activeRobotId) {
+export function captureProjectChange(before: Project, after: Project, activePathId: string | null, robotId = after.activeRobotId ?? UNLISTED_ROBOT_ID) {
   const find = (project: Project, id: string) => project.paths.find((path) => path.id === id);
   const pathIds = [...new Set([...before.paths, ...after.paths].map((path) => path.id))].filter((id) => find(before, id) !== find(after, id));
   const restore = missingLinks(before.pathLinks, after.pathLinks), remove = missingLinks(after.pathLinks, before.pathLinks);
@@ -226,7 +227,7 @@ export function restoreProjectChange<T extends Project>(project: T, change: Proj
   const owner = change.planning && robotPlanning(project, change.planning.robotId);
   const planning = owner ? revertPlanning(owner.planning, change.planning!) : undefined;
   if (!owner || planning === owner.planning) return { ...project, paths, pathLinks };
-  if (change.planning!.robotId === project.activeRobotId) return { ...project, paths, pathLinks, robot: { ...project.robot, planning } };
+  if (change.planning!.robotId === (project.activeRobotId ?? UNLISTED_ROBOT_ID)) return { ...project, paths, pathLinks, robot: { ...project.robot, planning } };
   return { ...project, paths, pathLinks, robots: project.robots!.map((robot) => robot.id === change.planning!.robotId ? { ...robot, robot: { ...robot.robot, planning } } : robot) };
 }
 
