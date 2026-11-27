@@ -13,8 +13,7 @@ import { Glyph } from "./routineGlyphs";
 import { routinePathChoices, routinePathUses } from "../lib/routinePathChoices";
 import { PathLinks } from "../lib/pathLinks";
 import { commandChoiceItems, commandChoiceRows, commandIndex, commandUsage, openSubsystem } from "../lib/commandIndex";
-import { labelWidth, layoutCommandLane, niceStep } from "./pathTimelineModel";
-import { ChipGlyph, LOOP_GLYPH } from "./PathTimeline";
+import { labelWidth } from "./pathTimelineModel";
 import { PointerDrag } from "../hooks/usePointerDrag";
 import { keyLabel, useKeyRules } from "../lib/keyBindings";
 
@@ -190,8 +189,7 @@ function PreviewTime({ node, driveModel, onOpenRobot }) {
     : 'Not counted in the preview time. Set a run time for this command on the Robot page to estimate it.';
   const suggest = runTimeS === undefined && until?.kind !== 'output' && onOpenRobot;
   return Section('Preview time',
-    h('div', { className: 'rt-stat rt-preview-time' }, h('div', { className: 'rt-stat-i' },
-      h('span', { className: 'rt-stat-v' }, value), h('span', { className: 'rt-stat-k' }, timing === 'estimate' ? 'Estimate' : 'In this preview'))),
+    h(Facts, { className: 'rt-preview-time', rows: [[timing === 'estimate' ? 'Estimate' : 'In this preview', value]] }),
     Hint(hint),
     suggest && h('button', { type: 'button', className: 'choice-change rt-open-robot', onClick: onOpenRobot }, 'Open Robot page'));
 }
@@ -208,42 +206,58 @@ function Problems({ issues, jumps, jump }) {
 
 const JUMP_WORD = { small: 'Small jump', medium: 'Pose jump', large: 'Large jump' };
 const degrees = (rad) => Math.round(rad * 180 / Math.PI);
+/** Facts as key/value lines: [key, value, 'text'?] rows, falsy rows skipped. Values read as numbers unless marked text. */
+function Facts({ rows, className = '' }) {
+  return h('dl', { className: 'rt-kv' + (className ? ' ' + className : '') },
+    rows.filter(Boolean).map(([key, value, kind]) => h('div', { key }, h('dt', null, key), h('dd', { className: kind === 'text' ? 'text' : undefined }, value))));
+}
 /**
- * The pose jumps into this path step (one per previous path the preview reaches it from), each sized like the field's
- * connector and the flow's mark (AUTO.jumpSize). Each offers to link this path's start to that previous path's end,
- * the way Paths links points: the start, and any points already linked to it, move there as one Undo step and stay
- * linked. Headings belong to each waypoint, so the start keeps its own facing; a remaining difference is still shown.
- * What else the move reaches (linked points, other uses of this path) is said once, under the actions.
+ * The pose jumps into this path step (one per previous path the preview reaches it from), each one warning line sized
+ * like the field's connector and the flow's mark (AUTO.jumpSize), naming the previous path by its step number. Each
+ * offers to link this path's start to that previous path's end, the way Paths links points: the start, and any points
+ * already linked to it, move there as one Undo step and stay linked. Headings belong to each waypoint, so the start
+ * keeps its own facing. Why opens the longer explanation and what else the move reaches (linked points, other uses).
  */
 function PoseJumps({ jumps, paths, pathLinks, routine, routines, onLink }) {
+  const [why, setWhy] = React.useState(null);
   const to = paths.find((path) => path.id === jumps[0].toPathId);
+  const numbers = A.stepNumbers(routine);
   // What else moves with this start: points already linked to it, and this path wherever else it is followed.
   const movable = to && onLink && jumps.some((issue) => issue.distanceM >= 5e-4 && issue.fromPathId !== to.id && paths.some((path) => path.id === issue.fromPathId));
   const members = to ? PathLinks.positionMembers({ paths, pathLinks }, to.id, 0).length : 0;
   const usesHere = to ? routinePathUses(routine).get(to.id) || 0 : 0;
   const elsewhere = to ? (routines || []).filter((other) => other.id !== routine.id && routinePathUses(other).has(to.id)).length : 0;
-  const linkLabel = members ? 'Link start and ' + plural(members, 'linked point') + ' to the previous end' : 'Link start to the previous end';
-  const rows = jumps.map((issue) => {
-    const from = paths.find((path) => path.id === issue.fromPathId), fromName = from?.name || 'the previous path', turn = degrees(issue.headingRad);
-    const moves = issue.distanceM >= 5e-4, distance = UnitPrefs.format(issue.distanceM, 'm', 2);
-    return h('div', { key: issue.fromNodeId + ':' + issue.nodeId, className: 'rt-jump', 'data-size': issue.size },
-      h('p', { className: 'rt-jump-text' }, h('span', { className: 'rt-step-flag', 'data-jump': issue.size, 'aria-hidden': true }),
-        h('span', null, h('strong', null, moves ? JUMP_WORD[issue.size] : 'Facing jump'), '. ',
-          moves ? 'Starts ' + distance + (turn ? ' and ' + turn + '°' : '') + ' from where ' : 'Starts where ', h('span', { className: 'rt-jump-path' }, fromName),
-          moves ? ' ends in this preview.' : ' ends, facing ' + turn + '° differently.')),
-      // Linking a path's start to its own end would fold it onto itself; that edit belongs in Paths.
-      moves && from && to && from.id === to.id && h('p', { className: 'rt-jump-review' }, 'The previous path is this same path; move its start or end in Paths.'),
-      moves && from && to && from.id !== to.id && onLink && h(React.Fragment, null,
-        h('button', { type: 'button', className: 'qbtn wide rt-jump-link', onClick: () => onLink(issue) }, linkLabel),
-        h('p', { className: 'rt-jump-review' }, 'Moves this path\u2019s start ' + distance + ' to the end of ' + fromName + '. The two points stay linked; '
-          + (turn ? 'the start keeps its own facing, ' + turn + '° different.' : 'facing stays local.'))));
-  });
   const reach = !movable ? [] : [
     members && plural(members, 'point') + ' linked to this start ' + (members === 1 ? 'moves' : 'move') + ' with it.',
     elsewhere && to.name + ' is also used in ' + plural(elsewhere, 'other routine') + '; ' + (elsewhere === 1 ? 'it starts' : 'they start') + ' there too.',
     usesHere > 1 && 'This routine follows ' + to.name + ' ' + usesHere + ' times; each starts there.',
   ].filter(Boolean);
-  return h(React.Fragment, null, rows, reach.map((line, index) => h('p', { key: 'reach' + index, className: 'rt-jump-review reach' }, line)));
+  return jumps.map((issue, index) => {
+    const key = issue.fromNodeId + ':' + issue.nodeId, open = why === key;
+    const from = paths.find((path) => path.id === issue.fromPathId), fromName = from?.name || 'the previous path', turn = degrees(issue.headingRad);
+    const moves = issue.distanceM >= 5e-4, distance = UnitPrefs.format(issue.distanceM, 'm', 2);
+    const number = numbers.get(issue.fromNodeId), end = number ? 'step ' + number + '\u2019s end' : 'the previous end';
+    // Linking a path's start to its own end would fold it onto itself; that edit belongs in Paths.
+    const self = moves && from && to && from.id === to.id;
+    const link = moves && from && to && from.id !== to.id && onLink;
+    const linkLabel = members ? 'Link start and ' + plural(members, 'linked point') + ' to ' + end : 'Link start to ' + end;
+    return h('div', { key, className: 'rt-jump', 'data-size': issue.size },
+      h('p', { className: 'rt-jump-text', title: fromName },
+        h('span', { className: 'rt-step-flag', 'data-jump': issue.size, 'aria-hidden': true }),
+        h('span', null, moves ? 'Starts ' + distance + (turn ? ' and ' + turn + '°' : '') + ' from ' + end : 'Faces ' + turn + '° away at ' + end)),
+      self && h('p', { className: 'rt-jump-review' }, 'The previous path is this same path; move its start or end in Paths.'),
+      h('div', { className: 'rt-jump-actions' },
+        link && h('button', { type: 'button', className: 'qbtn rt-jump-link' + (jumps.length === 1 ? ' primary' : ''), onClick: () => onLink(issue) }, linkLabel),
+        h('button', { type: 'button', className: 'rt-jump-why', 'aria-expanded': open, 'aria-controls': 'rt-jump-why-' + index, onClick: () => setWhy(open ? null : key) }, 'Why')),
+      // Kept in the document while closed, so the explanation stays one Why away and its text is never rebuilt.
+      h('div', { id: 'rt-jump-why-' + index, className: 'rt-jump-detail', hidden: !open },
+        h('p', null, h('strong', null, moves ? JUMP_WORD[issue.size] : 'Facing jump'), '. ',
+          moves ? 'Starts ' + distance + (turn ? ' and ' + turn + '°' : '') + ' from where ' : 'Starts where ', h('span', { className: 'rt-jump-path' }, fromName),
+          moves ? ' ends in this preview.' : ' ends, facing ' + turn + '° differently.'),
+        link && h('p', null, 'Linking moves this path\u2019s start ' + distance + ' to the end of ' + fromName + '. The two points stay linked; '
+          + (turn ? 'the start keeps its own facing, ' + turn + '° different.' : 'facing stays local.')),
+        index === jumps.length - 1 && reach.map((line, at) => h('p', { key: 'reach' + at, className: 'reach' }, line))));
+  });
 }
 
 export function StepInspector(props) {
@@ -284,28 +298,25 @@ export function StepInspector(props) {
   }
 
   if (node.type === 'path') {
-    title = 'Path';
-    // The chosen path reads as a card. Change opens the path library in the left rail, where paths are added too, and
-    // marks this step in the flow; choosing a path there replaces the reference. A deleted path names the problem.
+    // The header names the chosen path; its facts are key/value lines (its preview time and length, where it lives,
+    // and reuse). Change path opens the path library in the left rail, where paths are added too, and marks this step
+    // in the flow; choosing a path there replaces the reference. A deleted path names the problem instead.
     const uses = routinePathUses(routine);
     const choice = routinePathChoices(paths, { folders: props.pathFolders, times: props.pathTimes, uses }).find((item) => item.path.id === node.ref);
-    // The flow row already shows the time and place in the run; the card adds only where the path lives and reuse.
-    const choiceMeta = choice && [choice.folder, uses.get(node.ref) > 1 ? 'Used ' + uses.get(node.ref) + '× in this routine' : ''].filter(Boolean).join(' · ');
+    title = choice ? choice.path.name : 'Path'; tag = choice ? 'Path' : null;
     body = h(React.Fragment, null,
-      h('section', { className: 'choice-browser routine-path-choice', 'aria-label': 'Path to follow' },
-        h('div', { className: 'choice-browser-heading' }, h('span', { className: 'fieldlabel' }, 'Path to follow'),
-          choice && props.onChangePath && h('button', { type: 'button', className: 'choice-change routine-change-path', title: 'Choose another path from the path library',
-            onClick: (event) => props.onChangePath(event.currentTarget) }, 'Change path')),
-        choice
-          ? h('div', { className: 'choice-current' }, h(Icon, { name: 'route', size: 15 }), h('div', null, h('strong', null, choice.path.name), choiceMeta && h('small', null, choiceMeta)))
-          : h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Unavailable path' },
-              h('p', { className: 'rt-insp-problem' }, node.ref ? 'The referenced path is unavailable.' : 'No path chosen yet.'),
-              !paths.length ? Hint('No paths yet. Create one in Paths.')
-                : props.onChangePath && h('button', { type: 'button', className: 'qbtn wide routine-change-path', onClick: (event) => props.onChangePath(event.currentTarget) }, 'Choose a path'))),
-      seg && h('div', { className: 'rt-stat' },
-        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, fmt(seg.t1 - seg.t0)), h('span', { className: 'rt-stat-k' }, 'Duration')),
-        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, UnitPrefs.format(seg.deriv.sample.length, 'm', 2)), h('span', { className: 'rt-stat-k' }, 'Distance'))),
-      paths.some((path) => path.id === node.ref) && h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.openInEditor(node.ref) }, h(Icon, { name: 'route', size: 14 }), 'Open in path editor'),
+      choice
+        ? h(React.Fragment, null,
+            h(Facts, { className: 'routine-path-facts', rows: [seg && ['Duration', fmt(seg.t1 - seg.t0)], seg && ['Distance', UnitPrefs.format(seg.deriv.sample.length, 'm', 2)],
+              choice.folder && ['Folder', choice.folder, 'text'], uses.get(node.ref) > 1 && ['In this routine', uses.get(node.ref) + '×']] }),
+            h('div', { className: 'rt-insp-actions' },
+              props.onChangePath && h('button', { type: 'button', className: 'qbtn routine-change-path', title: 'Choose another path from the path library',
+                onClick: (event) => props.onChangePath(event.currentTarget) }, 'Change path'),
+              h('button', { type: 'button', className: 'qbtn routine-open-path', onClick: () => acq.openInEditor(node.ref) }, 'Open in Paths')))
+        : h('div', { className: 'rt-repair', role: 'group', 'aria-label': 'Unavailable path' },
+            h('p', { className: 'rt-insp-problem' }, node.ref ? 'The referenced path is unavailable.' : 'No path chosen yet.'),
+            !paths.length ? Hint('No paths yet. Create one in Paths.')
+              : props.onChangePath && h('button', { type: 'button', className: 'qbtn wide routine-change-path', onClick: (event) => props.onChangePath(event.currentTarget) }, 'Choose a path')),
       remove('Delete path step. The path stays in Paths.'));
 
   } else if (node.type === 'builtin' && node.builtinId === 'bordeaux.wait') {
@@ -346,10 +357,10 @@ export function StepInspector(props) {
           : h(CommandParameterEditor, { key: node.id + ':passes', id: 'routine-repeat-passes-' + safeControlId(node.id), label: 'Passes to preview', schema: { kind: 'integer' },
               parameter: { min: 1, max: previewLimit }, value: passes, onChange: (value) => acq.setPasses(node.id, value) }),
         Hint(dynamic || passes < node.times ? 'Assumes the stop check is true after pass ' + passes + '. This preview count does not limit runtime repetition.' : 'Runs every pass.')),
-      h('button', { className: 'rt-openbtn', type: 'button', onClick: () => {
+      h('div', { className: 'rt-insp-actions' }, h('button', { className: 'qbtn', type: 'button', onClick: () => {
         const result = acq.edit({ kind: 'unwrapRepeat', nodeId: node.id });
         setUnwrapReason(result.changed ? '' : result.reason || '');
-      } }, h(Glyph, { name: 'repeat', size: 14 }), 'Remove repeat, keep steps'),
+      } }, h(Glyph, { name: 'repeat', size: 14 }), 'Remove repeat, keep steps')),
       unwrapReason && h('p', { className: 'rt-insp-problem', role: 'status' }, unwrapReason),
       remove('Delete repeat'));
 
@@ -365,13 +376,11 @@ export function StepInspector(props) {
       h(Seg, { ariaLabel: 'Runs', value: parallel ? 'parallel' : 'sequential', options: [{ v: 'parallel', label: 'In parallel' }, { v: 'sequential', label: 'In sequence' }],
         onChange: (mode) => acq.edit({ kind: 'setGroupMode', nodeId: node.id, mode }) }),
       Hint(parallel ? 'Every step starts together. The group finishes when all of them finish.' : 'Each step starts when the one before it finishes.'),
-      h('div', { className: 'rt-stat' },
-        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, String(node.nodes.length)), h('span', { className: 'rt-stat-k' }, node.nodes.length === 1 ? 'Step' : 'Steps')),
-        span && h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, span.timing === 'unknown' ? 'Untimed' : A.timingPrefix(span.timing) + fmt(span.t1 - span.t0)),
-          h('span', { className: 'rt-stat-k' }, span.timing === 'estimate' ? 'Estimate' : 'In this preview'))),
+      // The flow already lists its steps; the preview time is the one fact it adds.
+      span && h(Facts, { rows: [[span.timing === 'estimate' ? 'Estimate' : 'In this preview', span.timing === 'unknown' ? 'Untimed' : A.timingPrefix(span.timing) + fmt(span.t1 - span.t0)]] }),
       span?.timing === 'estimate' && Hint('Estimated from command run times on the Robot page. Preview only.'),
       Hint(ROUTINE_GROUP_CHILD_RULE),
-      h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.edit({ kind: 'unwrapGroup', nodeId: node.id }) }, h(Glyph, { name: parallel ? 'parallel' : 'sequential', size: 14 }), 'Remove group, keep steps'),
+      h('div', { className: 'rt-insp-actions' }, h('button', { className: 'qbtn', type: 'button', onClick: () => acq.edit({ kind: 'unwrapGroup', nodeId: node.id }) }, h(Glyph, { name: parallel ? 'parallel' : 'sequential', size: 14 }), 'Remove group, keep steps')),
       remove('Delete group'));
 
   } else if (node.type === 'end') {
@@ -483,13 +492,15 @@ export function SlotInspector({ dest, onClose }) {
     Hint('Choose a path or command in the left rail, or a step from the strip in the flow.'));
 }
 
-/** Preview transport. Time is the chosen trace's display time: limits draw as upper bounds, run time estimates dashed,
- * untimed commands as markers.
- * The scrubber is a slider over a time scale: drag the handle or press anywhere on the lane to seek (seeking pauses),
- * hover to read a time and the step there, and use the arrows (Shift for 1 s), Page Up/Down for step starts, Home/End. */
-// The routine scrubber's rows: the seconds scale, block rows from LANE_TOP, then chip rows for instant commands.
-const LANE_TOP = 22, LANE_ROW = 20, CHIP_ROW = 21, MAX_BLOCK_ROWS = 4, NL = String.fromCharCode(10);
-function routineLane(run, width) {
+// The transport's track inside its 40px row: step segments in rows (a parallel group's steps stack), then marks for
+// instant commands, branch checks and ends just above them. Rows shrink to share SEG_ROOM when many steps overlap.
+const TRACK_H = 40, SEG_H = 6, SEG_ROOM = 20, MARK_GAP = 9, MARK_JOIN = 6, NL = String.fromCharCode(10);
+/**
+ * Lays out the chosen trace on a track `width` px wide (10px insets, as the playhead's handle needs): each step with a
+ * duration on its first free row, each group's outline over the rows its steps use, and the instant steps gathered
+ * into one mark per MARK_JOIN px so marks never overlap.
+ */
+function routineTrack(run, width) {
   const x = (t) => 10 + (width - 20) * (run.total ? t / run.total : 0);
   const rowEnds = [];
   const placed = run.steps.filter((step) => step.t1 > step.t0 && step.kind !== 'repeat').sort((a, b) => a.t0 - b.t0).map((step) => {
@@ -498,26 +509,34 @@ function routineLane(run, width) {
     rowEnds[row] = step.t1;
     return { step, row };
   });
-  const rows = Math.max(1, rowEnds.length);
-  // Every simultaneous step keeps its own row. Past four rows they share the four-row height instead of overlapping;
-  // rows too thin for a label keep the name in the block's tooltip.
-  const rowH = rows > MAX_BLOCK_ROWS ? Math.max(6, Math.floor((MAX_BLOCK_ROWS * LANE_ROW) / rows)) : LANE_ROW;
-  const blocks = placed.map(({ step, row }) => ({ step, row, wide: rowH >= LANE_ROW - 2 && x(step.t1) - x(step.t0) >= 34 }));
+  const rows = Math.max(1, rowEnds.length), gap = rows > 3 ? 1 : 2;
+  const rowH = Math.max(2, Math.min(SEG_H, Math.floor((SEG_ROOM - (rows - 1) * gap) / rows)));
+  const height = rows * rowH + (rows - 1) * gap, top = Math.round((TRACK_H - height) / 2 + 3);
   const groups = (run.groupSpans || []).filter((group) => group.t1 > group.t0).map((group) => ({ ...group,
-    rows: 1 + Math.max(0, ...blocks.filter(({ step }) => step.t0 >= group.t0 - 1e-9 && step.t1 <= group.t1 + 1e-9).map(({ row }) => row)) }));
-  const instant = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'event' || step.kind === 'dynamic')).map((step, index) => {
-    const label = step.label || A.nodeTitle(step.node), loop = step.node?.invocation?.loop ? 15 : 0;
-    return { step, t: step.t0, key: step.occurrenceId || step.node.id + ':' + index, label, w: Math.min(168, Math.ceil(labelWidth(label)) + 28 + loop), minW: 46 + loop };
+    rows: 1 + Math.max(0, ...placed.filter(({ step }) => step.t0 >= group.t0 - 1e-9 && step.t1 <= group.t1 + 1e-9).map(({ row }) => row)) }));
+  const marks = [];
+  run.steps.filter((step) => step.t1 <= step.t0 && ['event', 'dynamic', 'decision', 'end'].includes(step.kind)).sort((a, b) => a.t0 - b.t0).forEach((step) => {
+    const at = x(step.t0), last = marks.at(-1);
+    const kind = step.kind === 'decision' ? 'check' : step.kind === 'end' ? 'end' : 'cmd';
+    if (last && at - last.x < MARK_JOIN) { last.steps.push(step); if (kind === 'cmd') last.kind = 'cmd'; }
+    else marks.push({ x: at, t: step.t0, kind, steps: [step] });
   });
-  const { chips, rows: chipRows } = run.total > 0 ? layoutCommandLane(instant, { x, left: 2, right: width - 2, rows: 2, stackWidth: (count) => Math.ceil(labelWidth('+' + count)) + 34 })
-    : { chips: [], rows: 0 };
-  const chipTop = LANE_TOP + rows * rowH + 2;
-  return { blocks, rows, rowH, groups, chips, chipTop, height: chipTop + chipRows * CHIP_ROW + 4 };
+  return { blocks: placed, rows, rowH, gap, top, height, groups, marks, x };
 }
 
+/**
+ * Preview transport: one slim row with Restart and Play, the time, a thin track of the chosen trace's steps, the step
+ * playing now (before playback, the run's size), and the routine's view tools (`tools`: Power and About preview).
+ * Steps with a duration are segments, without text; overlapping steps (a parallel group) stack in rows inside their
+ * group's outline; instant and untimed commands are small marks above them. Limits draw hatched as upper bounds and run
+ * time estimates dashed. Names are in the hover readout and each segment's title. The routine's facts (estimates,
+ * untimed steps, pose jumps) are the flow's summary line, so the transport does not repeat them.
+ * The track is a slider: drag the handle or press anywhere to seek (seeking pauses), hover to read a time and what runs
+ * there, and use the arrows (Shift for 1 s), Page Up/Down for step starts, Home/End.
+ */
 export function RoutineTransport(props) {
   useKeyRules();
-  const { run, routine, time, playing, controls, running } = props;
+  const { run, routine, time, playing, controls, running, selectedId } = props;
   const playKey = keyLabel('playback.toggle');
   const occurrences = run.steps.filter((step) => step.kind !== 'repeat');
   // The flow numbers every authored step, including nested ones. Repeat passes share that step's number.
@@ -527,21 +546,10 @@ export function RoutineTransport(props) {
   const activeIdx = running || time > 0 ? stepIndex(time) : -1;
   const active = activeIdx >= 0 ? run.steps[activeIdx] : null;
   const pct = run.total > 0 ? Math.max(0, Math.min(1, time / run.total)) : 0;
-  const duration = run.duration || { maxS: run.total, unknownCount: 0, estimateCount: 0, usesLimits: false };
   const timedPlayable = run.timedPlayable !== undefined ? run.timedPlayable : run.total > 0;
   const pass = active?.passStack?.at(-1);
   const passes = pass && run.steps.find((step) => step.kind === 'repeat' && step.nodeId === pass.repeatId)?.passes;
-  const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity').length;
   const totalLabel = A.previewTotalLabel(run);
-  // Each fact has a short form for a narrow transport (the inspector open at 1100 px), so every count stays readable
-  // beside the step playing now; the full sentence stays in the tooltip and for assistive technology.
-  const facts = [
-    ...A.durationFacts(run),
-    jumps > 0 && [plural(jumps, 'pose jump'), plural(jumps, 'pose jump')],
-    run.truncated && ['Preview stops at 2,000 steps', 'Stops at 2,000'],
-    !timedPlayable && occurrences.length > 0 && !run.blocked && ['Untimed preview', 'Untimed'],
-  ].filter(Boolean);
-  const summary = facts.map(([full]) => full).join(' · ');
   // A repeat's pass marker is not itself a step; the step there is the first one after it.
   const playingAt = (t) => {
     const index = stepIndex(t);
@@ -552,11 +560,9 @@ export function RoutineTransport(props) {
     return { step, ordinal: rowOf ? rowOf.get(step.nodeId) : run.steps.slice(0, index + found + 1).filter((item) => item.kind !== 'repeat').length };
   };
   const stepName = (step) => step.label || A.nodeTitle(step.node);
-  const color = (step) => step.kind === 'path' || step.kind === 'gen' ? 'var(--accent)' : step.kind === 'wait' ? 'var(--warn)' : step.kind === 'event' ? 'var(--cmd)' : 'var(--txt-3)';
+  const kindOf = (step) => step.kind === 'path' || step.kind === 'gen' ? 'path' : step.kind === 'wait' ? 'wait' : step.kind === 'event' ? 'cmd' : 'other';
   const at = (t) => `calc(10px + (100% - 20px) * ${run.total ? t / run.total : 0})`;
   const width = (d) => `calc((100% - 20px) * ${run.total ? d / run.total : 0})`;
-  const marks = run.steps.filter((step) => step.t1 <= step.t0 && (step.kind === 'decision' || step.kind === 'end'));
-  const markClass = (step) => step.kind === 'decision' ? 'rt-timeline-event' : 'rt-timeline-end';
   const editorRef = React.useRef(null), scrubRef = React.useRef(null);
   const [editorWidth, setEditorWidth] = React.useState(0);
   const [hover, setHover] = React.useState(null);
@@ -570,16 +576,16 @@ export function RoutineTransport(props) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const markLabel = (step) => step.label || A.nodeTitle(step.node);
-  // Steps with a duration are labelled blocks on the seconds scale; steps that overlap (a parallel group's children)
-  // stack in rows over the same span. Instant and untimed commands are chips like the Paths command lane: a diamond
-  // on their time, the name facing into the lane, crowds shortened or gathered into "+N".
-  const lane = React.useMemo(() => routineLane(run, editorWidth || 600), [run, editorWidth]);
+  const track = React.useMemo(() => routineTrack(run, editorWidth || 600), [run, editorWidth]);
+  // The step slot fits this run's longest name with its place ("17 of 17") and a pass, so the track keeps one width
+  // through playback without leaving an empty gap before the tools; a narrow row keeps only the place (--slot-narrow).
+  // labelWidth measures the 11.5px UI font; names show at 12px medium, and the place in the 11px mono.
+  const slot = React.useMemo(() => {
+    const name = Math.max(0, ...occurrences.map((step) => labelWidth(stepName(step)))) * 1.1;
+    const place = Math.ceil((String(stepCount).length * 2 + 4) * 6.7), pass = run.steps.some((step) => step.passStack?.length) ? labelWidth('Pass 88 of 88') + 10 : 0;
+    return { '--slot': Math.ceil(name + place + pass + 10) + 'px', '--slot-narrow': place + 'px' };
+  }, [run, stepCount]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeAt = (step) => (running || time > 0) && step.t0 <= time && time < step.t1;
-  // Seconds scale, spaced like the Paths timeline's time axis.
-  const tickStep = timedPlayable && editorWidth > 40 ? niceStep(run.total, Math.max(2, (editorWidth - 20) / 84)) : 0;
-  const tickDigits = tickStep ? Math.max(0, Math.min(2, -Math.floor(Math.log10(tickStep) + 1e-9))) : 0;
-  const ticks = tickStep ? Array.from({ length: Math.min(60, Math.floor(run.total / tickStep + 1e-6) + 1) }, (_, i) => Number((i * tickStep).toFixed(4))) : [];
   // Page Up/Down targets: every step start, and the end.
   const starts = [...new Set([...run.steps.map((step) => step.t0), run.total])].filter(Number.isFinite).sort((a, b) => a - b);
   const timeAt = (event) => {
@@ -607,60 +613,49 @@ export function RoutineTransport(props) {
   const now = active ? playingAt(time) : null;
   const readoutTime = dragging ? time : hover;
   const readout = readoutTime != null ? playingAt(readoutTime) : null;
+  // A mark under the pointer names its commands in the readout; otherwise the step running at that time.
+  const readoutMark = readoutTime != null ? track.marks.find((mark) => Math.abs(mark.x - track.x(readoutTime)) <= MARK_JOIN / 2 + 1) : null;
+  const markNames = (mark) => mark.steps.map(stepName).join(', ');
 
   return h('div', { className: 'rt-transport timeline' + (running ? ' running' : '') + (timedPlayable ? '' : ' untimed') },
-    h('div', { className: 'rt-timeline-toolbar' },
-      h('div', { className: 'rt-tp-ctl' },
-        h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
-        h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' + (playKey ? '  (' + playKey + ')' : '') : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
-      h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
-      h('span', { className: 'rt-timeline-summary', title: summary ? [summary,
-        duration.estimateCount > 0 && 'Estimates use command run times from the Robot page. Preview only; the robot does not use them.',
-        duration.unknownCount > 0 && 'A command run time on the Robot page estimates an untimed command.'].filter(Boolean).join(NL) : undefined },
-        h('span', { className: 'rt-summary-full' }, summary),
-        h('span', { className: 'rt-summary-short', 'aria-hidden': true }, facts.map(([, short]) => short).join(' · '))),
-      pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
-      // The step playing now by name, then its place in the run order. Before playback, the run's size.
-      h('div', { className: 'rt-timeline-step', title: now ? stepName(now.step) : undefined },
-        now ? h(React.Fragment, null, h('span', { className: 'rt-timeline-now' }, stepName(now.step)), h('small', null, now.ordinal + ' of ' + stepCount))
-          : stepCount > 0 && h('small', null, plural(stepCount, 'step')))),
-    h('div', { className: 'rt-timeline-editor' + (dragging ? ' dragging' : ''), ref: editorRef, style: { '--routine-progress': pct, height: lane.height } },
-      ticks.map((t, i) => h('span', { key: 'tick' + i, className: 'rt-timeline-tick' + (t / run.total > 0.97 ? ' end' : ''), style: { left: at(t) }, 'aria-hidden': true }, t === 0 ? '0' : t.toFixed(tickDigits))),
-      h('span', { className: 'rt-timeline-track', style: { height: lane.rows * lane.rowH - 2 } }),
-      lane.groups.map((group) => h('span', { key: 'g' + group.occurrenceId, className: 'rt-timeline-group' + (group.timing === 'estimate' ? ' estimate' : ''),
+    h('div', { className: 'rt-tp-ctl' },
+      h('button', { className: 'rt-tp-btn', type: 'button', title: 'Restart preview', 'aria-label': 'Restart routine', onClick: controls.reset }, h(Icon, { name: 'rewind', size: 14 })),
+      h('button', { className: 'rt-tp-btn play', type: 'button', disabled: !timedPlayable, title: timedPlayable ? 'Play / pause preview' + (playKey ? '  (' + playKey + ')' : '') : 'Nothing in this preview has a duration', 'aria-label': playing ? 'Pause routine playback' : 'Play routine', onClick: controls.toggle }, h(Icon, { name: playing ? 'pause' : 'play', size: 15, fill: !playing }))),
+    h('span', { className: 'rt-timeline-time' }, time.toFixed(2), h('small', null, ' / ' + totalLabel)),
+    h('div', { className: 'rt-timeline-editor' + (dragging ? ' dragging' : ''), ref: editorRef, style: { '--routine-progress': pct, '--seg-top': track.top + 'px', '--seg-h': track.height + 'px' } },
+      timedPlayable && h('span', { className: 'rt-timeline-track', 'aria-hidden': true }),
+      track.groups.map((group) => h('span', { key: 'g' + group.occurrenceId, className: 'rt-timeline-group' + (group.timing === 'estimate' ? ' estimate' : ''),
         title: A.groupLabel(group.mode) + (group.timing === 'estimate' ? ', estimated' : group.timing === 'upperBound' ? ', up to its limits' : group.timing === 'unknown' ? ', has untimed steps' : ''),
-        style: { left: at(group.t0), width: width(group.t1 - group.t0), height: group.rows * lane.rowH + 2 } })),
-      lane.blocks.map(({ step, row, wide }) => {
-        const pass = step.passStack?.length ? step.passStack.at(-1).pass : 0;
+        style: { left: at(group.t0), width: width(group.t1 - group.t0), top: track.top, height: group.rows * (track.rowH + track.gap) - track.gap } })),
+      track.blocks.map(({ step, row }) => {
+        const stepPass = step.passStack?.length ? step.passStack.at(-1).pass : 0;
         const loop = step.node?.invocation?.loop;
-        const name = stepName(step);
-        return h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span' + (step.timing === 'upperBound' ? ' upper' : step.timing === 'estimate' ? ' estimate' : '') + (now?.step === step || activeAt(step) ? ' on' : ''),
-          title: (step.timing === 'upperBound' ? 'Up to ' : '') + name + (pass ? ', pass ' + pass : '') + (loop ? ', loops ' + A.loopSummary(loop) : '')
+        return h('span', { key: step.occurrenceId || step.node.id, className: 'rt-timeline-span ' + kindOf(step) + (step.timing === 'upperBound' ? ' upper' : step.timing === 'estimate' ? ' estimate' : '')
+            + (now?.step === step || activeAt(step) ? ' on' : '') + (selectedId && step.nodeId === selectedId ? ' sel' : ''),
+          title: (step.timing === 'upperBound' ? 'Up to ' : '') + stepName(step) + (stepPass ? ', pass ' + stepPass : '') + (loop ? ', loops ' + A.loopSummary(loop) : '')
             + (step.timing === 'estimate' ? ', about ' + fmt(step.t1 - step.t0) + ' from its run time' : ''),
-          style: { left: at(step.t0), width: width(step.t1 - step.t0), top: LANE_TOP + row * lane.rowH, ...(lane.rowH < LANE_ROW ? { height: lane.rowH - 2 } : {}), '--step-color': color(step) } },
-          wide && h('span', { className: 'rt-timeline-name' }, name),
-          wide && pass > 0 && h('small', null, pass),
-          wide && loop && h(ChipGlyph, { className: 'rt-timeline-glyph', d: LOOP_GLYPH }));
+          style: { left: at(step.t0), width: width(step.t1 - step.t0), top: track.top + row * (track.rowH + track.gap), height: track.rowH } });
       }),
-      timedPlayable && marks.map((step) => h('span', { key: 'm' + (step.occurrenceId || step.node.id), className: markClass(step), title: markLabel(step), style: { left: at(step.t0) } })),
-      timedPlayable && lane.chips.map((chip) => {
-        const top = lane.chipTop + chip.row * CHIP_ROW, side = chip.dir === 'left' ? ' left' : '';
-        if (chip.stack) return h('span', { key: 's' + chip.members[0].key, className: 'rt-timeline-chip stack' + side, title: chip.members.map((member) => member.label).join(NL),
-          style: { left: chip.left, width: chip.w, top } }, h('span', { className: 'pt-stack-glyph' }), h('span', { className: 'rt-timeline-name' }, '+' + chip.members.length));
-        const loop = chip.step.node?.invocation?.loop;
-        return h('span', { key: chip.key, className: 'rt-timeline-chip' + side + (now?.step === chip.step ? ' on' : ''),
-          title: chip.label + (loop ? ', loops ' + A.loopSummary(loop) : chip.step.timing === 'unknown' ? ' (untimed)' : ''), style: { left: chip.left, width: chip.w, top } },
-          h('span', { className: 'pt-diamond' }), h('span', { className: 'rt-timeline-name' }, chip.label), loop && h(ChipGlyph, { className: 'rt-timeline-glyph', d: LOOP_GLYPH }));
-      }),
-      !timedPlayable && h('span', { className: 'rt-timeline-empty' }, run.blocked ? 'Preview unavailable' : 'Nothing to scrub: no step in this preview has a duration'),
+      timedPlayable && track.marks.map((mark) => h('span', { key: 'm' + mark.t + ':' + mark.steps.length, className: 'rt-timeline-mark ' + mark.kind + (mark.steps.length > 1 ? ' many' : '') + (mark.steps.includes(now?.step) ? ' on' : ''),
+        title: mark.steps.map((step) => stepName(step) + (step.node?.invocation?.loop ? ', loops ' + A.loopSummary(step.node.invocation.loop) : step.timing === 'unknown' ? ' (untimed)' : '')).join(NL),
+        style: { left: mark.x, top: track.top - MARK_GAP } })),
+      !timedPlayable && h('span', { className: 'rt-timeline-empty', title: run.blocked ? undefined : 'Nothing to scrub: no step in this preview has a duration' }, run.blocked ? 'Preview unavailable' : 'No step in this preview has a duration'),
       timedPlayable && hover != null && !dragging && h('span', { className: 'rt-timeline-hover', style: { left: at(hover) }, 'aria-hidden': true }),
       timedPlayable && h('span', { className: 'rt-timeline-playhead', 'aria-hidden': true }),
       timedPlayable && readoutTime != null && h('span', { className: 'rt-timeline-readout', style: { '--at': run.total ? readoutTime / run.total : 0 }, 'aria-hidden': true },
-        h('b', null, fmt(readoutTime)), readout && h('span', null, stepName(readout.step))),
+        h('b', null, fmt(readoutTime)), readoutMark ? h('span', { className: 'cmd' }, markNames(readoutMark)) : readout && h('span', null, stepName(readout.step))),
       h('div', { ref: scrubRef, className: 'rt-tp-scrub', role: 'slider', tabIndex: timedPlayable ? 0 : -1, 'aria-label': 'Routine playback position',
         'aria-disabled': timedPlayable ? undefined : true, 'aria-valuemin': 0, 'aria-valuemax': Number(run.total.toFixed(2)), 'aria-valuenow': Number(time.toFixed(2)),
         'aria-valuetext': fmt(time) + ' of ' + totalLabel + (now ? ', ' + stepName(now.step) : ''),
         onPointerDown, onKeyDown,
         onPointerMove: (event) => { if (timedPlayable && !dragging && event.pointerType !== 'touch') setHover(timeAt(event)); },
-        onPointerLeave: () => setHover(null) })));
+        onPointerLeave: () => setHover(null) })),
+    // A fixed slot, so the track keeps its width through playback: the pass in a repeat, then the step playing now by
+    // name and its place in the run order. Before playback, the run's size.
+    h('div', { className: 'rt-tp-now', style: slot },
+      pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
+      h('div', { className: 'rt-timeline-step', title: now ? stepName(now.step) : undefined },
+        now ? h(React.Fragment, null, h('span', { className: 'rt-timeline-now' }, stepName(now.step)), h('small', null, now.ordinal + ' of ' + stepCount))
+          : stepCount > 0 && h('small', null, plural(stepCount, 'step')))),
+    props.tools && h('div', { className: 'rt-tp-tools' }, props.tools));
 }

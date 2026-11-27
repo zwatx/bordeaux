@@ -1,9 +1,8 @@
 /* The routine workspace: the field preview over the run-order flow (a draggable split), then status and playback. */
 .routine-workspace{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;background:var(--bg);container:routine-workspace / inline-size}
-/* Power and About preview lead the field's view controls (no header row). Power takes the cluster's text-button size;
-   the preview boundary is one small native popover above its trigger, over the field, and never repeats per step. */
+/* Power and About preview end the transport row (no header row, and the field's view controls stay zoom, layers and
+   fit). The preview boundary is one small native popover above its trigger and never repeats per step. */
 .routine-workspace-actions{display:flex;align-items:center;gap:1px}
-.viewctl .qbtn.power-trigger{height:28px;min-height:28px;padding:0 9px;border:0;border-radius:var(--r-s);font-size:12px}
 .routine-workspace-about[aria-expanded=true]{background:var(--bg-3);color:var(--txt)}
 .routine-preview-help{position:fixed;inset:auto;width:min(288px,calc(100vw - 16px));margin:0;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2);color:var(--txt-2);box-shadow:var(--elevation),var(--shadow);font-size:12px;line-height:1.5}
 .routine-preview-help p{margin:0;text-wrap:pretty}
@@ -15,49 +14,47 @@
 .routine-workspace .viewctl{bottom:16px}
 .routine-workspace-transport{position:relative;flex-shrink:0}
 /* With a transport, the rails' footer strips take its height (RoutineWorkspace sets --side-foot), so their top rules
-   and the transport's are one line. Their content sits on the transport's 34px control row. */
-.stage-auto[data-transport-foot] .deletion-notice{height:34px}
-.stage-auto[data-transport-foot] .ctxinsp-foot{align-items:flex-start;padding-top:2px}
+   and the transport's are one line, and their content sits on its row. */
 .stage-auto[data-transport-foot] .rt-src-keys{min-height:var(--side-foot);align-content:flex-start}
 
 /* ============ flow ============ */
-/* A timed run sheet. One line per step: name, its spans on the routine's time axis (--tw wide, 104px from the row's
-   right edge in every row, so the playhead is one line), and duration. Repeats and branches are bounded groups that
-   indent on the left only; a branch's routes are lanes whose left edge is bright for the previewed route. */
+/* A flat run sheet: the routine's summary line, then one line per step with its number, glyph, name, quiet meta and
+   preview time. Nested steps indent by --indent per level under thin guides that hang from their owner's glyph; every
+   line inside a repeat, group or branch (steps, route headers, closings, Add) draws the same guides from its --depth.
+   --glyph-x is where a top-level glyph starts in a line (row padding, grip, number and their gaps). */
 .stage-auto{--cmd:oklch(.86 .1 300)}
-.rt-panel{--tw:96px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
-@container routine-workspace (max-width:640px){.rt-panel{--tw:56px}}
+.rt-panel{--indent:18px;--glyph-x:48px;position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden}
 .rt-panel.dragging,.rt-panel.dragging *{cursor:grabbing!important;user-select:none}
-.rt-scroll{flex:1;overflow:auto;padding:20px 24px 56px;scrollbar-width:thin}
+.rt-scroll{flex:1;overflow:auto;padding:6px 24px 56px;scrollbar-width:thin}
 .rt-list{position:relative;display:flex;flex-direction:column;width:100%;max-width:760px;min-width:360px;margin:0 auto}
-.rt-list.playing::after{content:'';position:absolute;z-index:3;top:0;bottom:0;right:calc(104px + var(--tw) * (1 - var(--p)));width:1px;background:var(--txt);opacity:.7;pointer-events:none}
-@media(max-width:1180px){.rt-scroll{padding:12px 14px 40px}}
+/* The summary line sits over the flow, aligned with its rows: total time, pose jumps, then what the total leaves out. */
+.rt-summary{display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;gap:2px 16px;min-height:31px;padding:5px calc(max(24px,(100% - 760px) / 2) + 8px);border-bottom:1px solid var(--line);color:var(--txt-3);font:11px/18px var(--mono);font-variant-numeric:tabular-nums}
+.rt-summary-total{color:var(--txt-2);font-weight:500}
+.rt-summary-jumps{display:inline-flex;align-items:center;gap:6px}
+.rt-summary-full{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:1180px){.rt-scroll{padding:4px 14px 40px}.rt-summary{padding-inline:calc(max(14px,(100% - 760px) / 2) + 8px)}}
 
 .rt-step-wrap{display:contents}
-.rt-group{display:flex;flex-direction:column;margin:4px 0;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-1)}
-.rt-block{display:flex;flex-direction:column;padding:4px 0 4px 20px;border-top:1px solid var(--line)}
-.rt-group>.rt-step{border-radius:var(--r-l) var(--r-l) 0 0}
-.rt-branch{display:flex;flex-direction:column;margin:2px 0 4px;border-left:2px solid var(--line-3)}
-/* A command group. Its steps hang off a rail: one line for a sequence (in order), two for parallel steps, each joined
-   to the rail by a short tick so they read as starting together. Their time bars overlap on the shared axis. */
-.rt-group.cgroup>.rt-block{position:relative;padding-left:26px}
-.rt-group.cgroup>.rt-block::before{content:'';position:absolute;left:14px;top:8px;bottom:10px;border-left:1px solid var(--line-3);pointer-events:none}
-.rt-group.cgroup.par>.rt-block::before{width:3px;border-left-color:var(--txt-3);border-right:1px solid var(--txt-3)}
-.rt-group.cgroup.par>.rt-block>.rt-step-wrap>.rt-step::before,.rt-group.cgroup.par>.rt-block>.rt-step-wrap.rt-group::before{content:'';position:absolute;left:-8px;top:17px;width:8px;border-top:1px solid var(--txt-3);pointer-events:none}
-.rt-group.cgroup.par>.rt-block>.rt-step-wrap.rt-group{position:relative}
+/* An open repeat, group or branch keeps its steps in a block (drag and focus use it); the block itself draws nothing. */
+.rt-group,.rt-block,.rt-branch{display:flex;flex-direction:column}
+.rt-group{border-radius:var(--r)}
+:is(.rt-step,.rt-route,.rt-close,.rt-addwrap){background-image:repeating-linear-gradient(90deg,var(--line-3) 0 1px,transparent 1px var(--indent));background-position:calc(var(--glyph-x) + 11px) 0;background-size:calc(var(--depth,0) * var(--indent)) 100%;background-repeat:no-repeat}
 .rt-step.grp :is(.rt-step-ic,.rt-collapse-kind){color:var(--txt-2)}
-.rt-step-kind{flex:none;color:var(--txt-3);font-size:11px;line-height:17px}
+/* Quiet meta after the name ("In parallel", the command a named step runs, "Branches on Has piece"), at the line's end. */
+.rt-step-kind{flex:none;order:2;margin-left:auto;color:var(--txt-3);font-size:11px;line-height:17px}
+.rt-step-kind~.rt-step-kind{margin-left:0}
 /* A bound command's label beside a team's name can be long; it wraps instead of widening the row. */
 .rt-step-kind.runs{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
 .rt-step-loop{display:inline-flex;align-items:center;height:17px;margin-left:6px;vertical-align:top;color:var(--cmd)}
-.rt-branch.live{border-left-color:var(--txt-2)}
 
-.rt-step{position:relative;display:grid;grid-template-columns:14px 20px 22px minmax(0,1fr) var(--tw) 60px 28px;align-items:center;column-gap:6px;
-  min-height:34px;padding:3px 4px 3px 2px;border-radius:var(--r)}
-.rt-step.sel{background:var(--bg-3)}
-.rt-step.active:not(.sel){background:var(--bg-2)}
-.rt-step.off .rt-step-title{color:var(--txt-2);font-weight:500}
-.rt-step.off :is(.rt-step-ic,.rt-collapse){opacity:.6}
+.rt-step{position:relative;display:grid;grid-template-columns:14px 20px auto minmax(0,1fr) 76px 28px;align-items:center;column-gap:6px;
+  min-height:30px;padding:1px 4px 1px 2px;border-radius:var(--r)}
+.rt-step>:is(.rt-step-ic,.rt-collapse){margin-left:calc(var(--depth,0) * var(--indent))}
+.rt-step.sel{background-color:var(--bg-3)}
+.rt-step.active:not(.sel){background-color:var(--bg-2)}
+/* Steps on a route the preview does not take stay readable, one step quieter. */
+.rt-step.off .rt-step-title{color:var(--txt-3)}
+.rt-step.off :is(.rt-step-ic,.rt-collapse){opacity:.55}
 .rt-step.unreachable :is(.rt-step-body,.rt-step-ic,.rt-collapse,.rt-step-dur){opacity:.55}
 .rt-grip,.rt-grip-space{display:flex;align-items:center;justify-content:center;width:14px;height:24px;padding:0;color:var(--txt-3)}
 .rt-grip{opacity:0;cursor:grab;touch-action:none}
@@ -71,27 +68,19 @@
 .rt-step:is(:hover,:focus-within) .rt-collapse .rt-collapse-kind,.rt-collapse.on .rt-collapse-kind{display:none}
 .rt-step:is(:hover,:focus-within) .rt-collapse .rt-collapse-chev,.rt-collapse.on .rt-collapse-chev{display:flex}
 /* The body is the row's one focusable control; the row draws its ring. */
-.rt-step-body{display:flex;flex-wrap:wrap;align-items:center;gap:2px 7px;min-width:0;padding:2px 0;color:inherit;text-align:left;background:none;outline:none}
+.rt-step-body{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-width:0;padding:3px 0;color:inherit;text-align:left;background:none;outline:none}
 .rt-step-body:focus-visible{outline:none!important}
 .rt-step:has(> .rt-step-body:focus-visible),.rt-panel[data-input=keyboard] .rt-step:has(> .rt-step-body:focus){outline:2px solid var(--focus);outline-offset:-2px}
 .rt-step-title{min-width:0;color:var(--txt);font-size:13px;font-weight:500;line-height:17px;overflow-wrap:anywhere}
 .rt-step-flag{flex:none;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.rt-step-body .rt-step-flag{order:1}
 /* Pose jumps by size: a small one is a quiet gray dot, a large one a red dot with a ring. */
 .rt-step-flag[data-jump="small"]{background:var(--txt-3)}
 .rt-step-flag[data-jump="large"]{width:8px;height:8px;background:var(--bad);box-shadow:0 0 0 2px var(--bad-soft)}
 /* Explanations are tooltips and screen-reader text; errors and a collapsed group's contents stay visible. */
 .rt-step-meta,.rt-close.quiet{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.rt-step-meta.bad,.rt-collapse.on~.rt-step-body .rt-step-meta{position:static;flex-basis:100%;width:auto;height:auto;clip-path:none;white-space:normal;color:var(--txt-3);font-size:11px;line-height:15px;overflow-wrap:anywhere}
-.rt-step-meta.bad{color:var(--bad-txt)}
-.rt-step-time{position:relative;height:6px}
-.rt-step-time:not(:empty){background:linear-gradient(var(--line-2),var(--line-2)) center/100% 1px no-repeat}
-.rt-step-time i{--c:var(--txt-2);position:absolute;top:0;bottom:0;min-width:2px;border-radius:2px;background:var(--c)}
-.rt-step-time .wait{--c:var(--warn)}
-.rt-step-time .event{--c:var(--cmd)}
-.rt-step-time .group{--c:var(--line-3)}
-.rt-step-time .upper{background:repeating-linear-gradient(135deg,var(--c) 0 2px,transparent 2px 4px)}
-/* Run time estimates are dashed wherever preview time is drawn, and their times read "≈". */
-.rt-step-time .estimate{background:repeating-linear-gradient(90deg,var(--c) 0 4px,transparent 4px 6px)}
+.rt-collapse.on~.rt-step-body .rt-step-meta{position:static;order:2;width:auto;height:auto;margin-left:auto;clip-path:none;color:var(--txt-3);font-size:11px;line-height:17px}
+.rt-step-meta.bad{position:static;order:3;flex-basis:100%;width:auto;height:auto;clip-path:none;white-space:normal;color:var(--bad-txt);font-size:11px;line-height:15px;overflow-wrap:anywhere}
 .rt-step-dur{color:var(--txt-2);font:11px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .rt-step-dur.unknown{color:var(--txt-3);font-family:var(--ui)}
 .rt-step-live{color:var(--txt);font-family:var(--ui);font-weight:500}
@@ -101,24 +90,20 @@
 .rt-step:is(:hover,:focus-within,.sel) :is(.rt-more,.rt-grip),.rt-more[aria-expanded=true]{opacity:1}
 /* Dragging works like the library's card list: the grip lifts the row into a card (EditorLibrary's lifted card), its
    slot becomes a well and closes once there is somewhere else to go, and a matching well (--drag-gap, the card's
-   height) opens where the step will land. An open group moves as its whole box. Transitions run only while dragging;
+   height) opens where the step will land. An open group moves with its steps. Transitions run only while dragging;
    a rejected target opens nothing and says why below the flow on release. */
 .rt-panel{--settle:cubic-bezier(.2,.8,.2,1)}
 .rt-panel.dragging :is(.rt-step,.rt-group,.rt-route,.rt-addwrap){interpolate-size:allow-keywords;transition:height .18s var(--settle),min-height .18s var(--settle),margin .18s var(--settle),padding .18s var(--settle),border-width .18s var(--settle)}
 .rt-panel.dragging :is(.rt-step,.rt-group).dragging{background:oklch(0 0 0/.16);box-shadow:inset 0 0 0 1px var(--line-2)}
 :is(.rt-step,.rt-group).dragging>*{visibility:hidden}
 .rt-step.away{height:0;min-height:0;padding-block:0;overflow:hidden}
-.rt-panel.dragging .rt-group.away{height:0;margin-block:0;border-width:0;overflow:hidden;box-shadow:none}
+.rt-panel.dragging .rt-group.away{height:0;overflow:hidden;box-shadow:none}
 .rt-group:is(.drop-before,.drop-after){position:relative}
-:is(.rt-step,.rt-addwrap).drop-before{margin-top:var(--drag-gap)}
-:is(.rt-step,.rt-route).drop-after{margin-bottom:var(--drag-gap)}
-.rt-group.drop-before{margin-top:calc(var(--drag-gap) + 4px)}
-.rt-group.drop-after{margin-bottom:calc(var(--drag-gap) + 4px)}
+:is(.rt-step,.rt-group,.rt-addwrap).drop-before{margin-top:var(--drag-gap)}
+:is(.rt-step,.rt-group,.rt-route).drop-after{margin-bottom:var(--drag-gap)}
 :is(.rt-step,.rt-group,.rt-route,.rt-addwrap):is(.drop-before,.drop-after)::after{content:'';position:absolute;z-index:5;left:2px;right:2px;height:calc(var(--drag-gap) - 4px);border-radius:var(--r);background:oklch(1 0 0/.04);box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
-:is(.rt-step,.rt-addwrap).drop-before::after{top:calc(2px - var(--drag-gap))}
-:is(.rt-step,.rt-route).drop-after::after{bottom:calc(2px - var(--drag-gap))}
-.rt-group.drop-before::after{left:1px;right:1px;top:calc(-3px - var(--drag-gap))}
-.rt-group.drop-after::after{left:1px;right:1px;bottom:calc(-3px - var(--drag-gap))}
+:is(.rt-step,.rt-group,.rt-addwrap).drop-before::after{top:calc(2px - var(--drag-gap))}
+:is(.rt-step,.rt-group,.rt-route).drop-after::after{bottom:calc(2px - var(--drag-gap))}
 /* The card (in the body, outside the workspace) lays out the row's glyph and name, with its time where it was. */
 .rt-drag-card{--settle:cubic-bezier(.2,.8,.2,1);--cmd:oklch(.86 .1 300);gap:6px;padding-right:38px;font-weight:500}
 .rt-drag-card .rt-step-ic{flex:none}
@@ -127,32 +112,34 @@
 .rt-drag-card.wait .rt-step-ic{color:var(--warn)}
 @media (prefers-reduced-motion:reduce){.rt-panel.dragging *{transition:none}}
 
-/* A lane header: the preview radio, then the route's name, how it matches, and what it holds. The name opens the
-   route's editor in the inspector; only the radio changes the preview route. */
-.rt-route{position:relative;display:flex;align-items:center;min-height:30px;padding:0 4px}
+/* A route header: a quiet line with the preview radio in the glyph column, then the route's name, how it matches, and
+   what it holds (in the time column). The name opens the route's editor in the inspector; only the radio changes the
+   preview route. A route the preview does not take is one step quieter. */
+.rt-route{position:relative;display:flex;align-items:center;min-height:28px;padding:0 4px 0 calc(var(--glyph-x) + var(--depth,0) * var(--indent))}
 /* One radio look for the preview route, in lanes and in inspector route blocks: a ring, filled when chosen, on a 22px target. */
 .rt-radio{appearance:none;flex:none;width:22px;height:22px;margin:0;border:0;border-radius:50%;background:radial-gradient(circle,transparent 0 5px,var(--txt-3) 5.5px 6.5px,transparent 7px);cursor:pointer}
 .rt-radio:checked{background:radial-gradient(circle,var(--txt) 0 3px,transparent 3.5px 5px,var(--txt) 5.5px 6.5px,transparent 7px)}
 .rt-radio:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .rt-panel[data-input=keyboard] .rt-radio:focus{outline:2px solid var(--focus);outline-offset:-2px}
-.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:28px;padding:5px 6px 5px 4px;border-radius:var(--r-s);text-align:left}
+.rt-brlbl{display:flex;flex:1;align-items:baseline;gap:8px;min-width:0;min-height:26px;padding:4px 0 4px 6px;border-radius:var(--r-s);text-align:left}
 .rt-brlbl.static{cursor:default}
-.rt-brname{min-width:0;color:var(--txt-2);font-size:13px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
-.rt-branch.live>.rt-route .rt-brname{color:var(--txt)}
+.rt-brname{min-width:0;color:var(--txt-3);font-size:12px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
+.rt-branch.live>.rt-route .rt-brname{color:var(--txt-2)}
 .rt-branch.off>.rt-route .rt-brname{color:var(--txt-3)}
 .rt-brkey,.rt-brcount{flex:none;color:var(--txt-3);font-size:11px}
-.rt-brcount{margin-left:auto;padding-right:28px;white-space:nowrap}
+.rt-brcount{margin-left:auto;padding-right:34px;white-space:nowrap}
+.rt-branch:not(.live)>.rt-route .rt-radio{opacity:.8}
 
-/* A group's footer: a repeat's loop-back, or an outcome the group's end does not already show. */
-.rt-close{display:flex;align-items:flex-start;gap:8px;padding:4px 6px 6px 12px;color:var(--txt-3);font-size:11px;line-height:16px}
-.rt-close-ic{display:flex;flex:none;align-items:center;height:16px;color:var(--txt-2)}
+/* A group's closing line, under its steps: a repeat's loop-back, or an outcome the group's end does not already show. */
+.rt-close{display:flex;align-items:flex-start;gap:6px;padding:4px 38px 6px calc(var(--glyph-x) + var(--depth,0) * var(--indent));color:var(--txt-3);font-size:11px;line-height:16px}
+.rt-close-ic{display:flex;flex:none;align-items:center;justify-content:center;width:22px;height:16px;color:var(--txt-3)}
 .rt-close-t{min-width:0;overflow-wrap:anywhere;text-wrap:pretty}
 .rt-close-name{color:var(--txt-2);font-weight:500}
 
-/* One explicit Add at the end of every list. Inside a group it is a quiet line in the step column, so the space under
-   a group's last step reads as where its next step goes; it brightens while the group is hovered or focused. */
-.rt-addwrap{position:relative;padding:0 4px 0 52px}
-.rt-list>.rt-addwrap{padding-top:10px}
+/* One explicit Add at the end of every list, its plus in the glyph column. Inside a group it is a quiet line, so the
+   space under a group's last step reads as where its next step goes; it brightens while the group is hovered or focused. */
+.rt-addwrap{position:relative;padding:0 4px 0 calc(var(--glyph-x) + 4px + var(--depth,0) * var(--indent))}
+.rt-list>.rt-addwrap{padding-top:6px}
 .rt-add{display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:0 8px;margin-left:-8px;border-radius:var(--r);color:var(--txt-3);font-size:12px;font-weight:500}
 .rt-block .rt-add{gap:6px;min-height:24px;font-size:11px}
 .rt-block .rt-addwrap:not(.empty) .rt-add{opacity:.6}
@@ -164,8 +151,8 @@
 
 /* Adding a step: a slot where it lands, with a bright caret on its left edge and one strip of actions. Path and
    Command open their library in the left rail; the routine's own steps add directly. */
-.rt-addwrap.open{padding:3px 4px 7px 36px}
-.rt-list>.rt-addwrap.open:not(.at){padding-top:10px}
+.rt-addwrap.open{padding:3px 4px 7px calc(var(--glyph-x) - 12px + var(--depth,0) * var(--indent))}
+.rt-list>.rt-addwrap.open:not(.at){padding-top:6px}
 .rt-slot{position:relative;display:flex;align-items:center;gap:6px;min-height:42px;padding:6px 6px 6px 14px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2)}
 .rt-slot-caret{position:absolute;left:5px;top:8px;bottom:8px;width:2px;border-radius:1px;background:var(--txt)}
 .rt-slot-actions{display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
@@ -277,7 +264,8 @@
   .rt-src-item.path:hover .rt-src-name{color:var(--txt)}
 }
 @media (pointer:coarse){
-  .rt-step{grid-template-columns:44px 20px 22px minmax(0,1fr) var(--tw) 60px 44px}
+  .rt-panel{--glyph-x:78px}
+  .rt-step{grid-template-columns:44px 20px auto minmax(0,1fr) 76px 44px}
   .rt-more,.rt-grip,.rt-block .rt-addwrap .rt-add{opacity:1}
 }
 
@@ -289,70 +277,71 @@
 .routine-status-copy b{color:var(--txt);font-size:13px;font-weight:600}
 .routine-status-copy span{color:var(--txt-3);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
 .routine-status.error .routine-status-icon{background:var(--bad-soft);color:var(--bad-txt)}
-/* The transport: controls and the step playing now, over a seconds scale with rows of labelled step blocks, chips for
-   instant commands and a playhead handle. The editor's height follows its rows; it is one slider, whose focus ring the
-   editor draws. */
-.rt-transport.timeline{position:relative;display:grid;grid-template-rows:34px auto;border-top:1px solid var(--line-2);background:var(--hud-surface)}
-.rt-timeline-toolbar{display:flex;align-items:center;min-width:0;padding:0 12px 0 6px;border-bottom:1px solid var(--line)}
-.rt-tp-ctl{display:flex;align-items:center;gap:2px}
-.rt-tp-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:26px;border-radius:var(--r-s);color:var(--txt-2)}
+/* The transport: one 40px row of controls, time, the track, the step playing now and the view tools (Power, About
+   preview). The track is one slider over the row's height, whose focus ring the editor draws. Its step segments are
+   thin and textless; kinds keep their meaning colors (paths neutral, commands --cmd, waits --warn), quiet until they
+   run or are selected. */
+.rt-transport.timeline{position:relative;display:flex;align-items:center;gap:8px;height:40px;padding:0 6px;border-top:1px solid var(--line-2);background:var(--hud-surface)}
+.rt-tp-ctl{display:flex;flex:none;align-items:center;gap:2px}
+.rt-tp-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:28px;border-radius:var(--r-s);color:var(--txt-2)}
 .rt-tp-btn:disabled{opacity:.4}
 .rt-timeline-time,.rt-timeline-step{color:var(--txt);font:11px var(--mono);font-variant-numeric:tabular-nums}
-.rt-timeline-time{flex:none;margin-left:10px;white-space:nowrap}
+.rt-timeline-time{flex:none;margin-left:2px;white-space:nowrap}
 .rt-timeline-time small,.rt-timeline-step small{color:var(--txt-3);font:inherit;white-space:nowrap}
-.rt-timeline-step{display:flex;flex:0 1 auto;align-items:baseline;gap:8px;min-width:0;max-width:46%;margin-left:auto;padding-left:12px}
+/* The step slot keeps one width for the run (--slot, from its longest step name), so the track never moves while
+   names change; a long name past 34% of the row ends in an ellipsis. */
+.rt-tp-now{display:flex;flex:0 0 min(var(--slot,240px),34%);align-items:baseline;gap:10px;min-width:0;overflow:hidden}
+.rt-timeline-step{display:flex;flex:0 1 auto;align-items:baseline;gap:8px;min-width:0}
 .rt-timeline-now{min-width:0;overflow:hidden;color:var(--txt);font:500 12px var(--ui);text-overflow:ellipsis;white-space:nowrap}
-.rt-timeline-editor{position:relative;min-width:0;overflow:hidden}
-.rt-timeline-editor:has(.rt-tp-scrub:focus-visible){outline:2px solid var(--focus);outline-offset:-3px;border-radius:var(--r-s)}
-.rt-timeline-tick{position:absolute;top:5px;color:var(--txt-3);font:11px/1 var(--mono);font-variant-numeric:tabular-nums;transform:translateX(-50%);pointer-events:none}
-.rt-timeline-tick.end{transform:translateX(-100%)}
-.rt-timeline-tick.end::after{left:auto;right:0}
-.rt-timeline-tick::after{content:'';position:absolute;left:50%;top:13px;width:1px;height:4px;background:var(--line-3)}
-.rt-timeline-track{position:absolute;left:10px;right:10px;top:22px;height:18px;border-radius:4px;background:rgb(255 255 255/.018);box-shadow:inset 0 0 0 1px rgb(255 255 255/.045)}
-/* Each step with a duration is a labelled block over its seconds; overlapping steps (a parallel group) stack in rows.
-   The step playing now is brighter. Limits draw hatched as upper bounds; run time estimates have a dashed edge. */
-.rt-timeline-span{position:absolute;display:flex;align-items:center;gap:5px;height:18px;min-width:2px;padding:0 6px 0 7px;overflow:hidden;border-radius:4px;background:color-mix(in srgb,var(--step-color) 20%,var(--bg-2));box-shadow:inset 2px 0 0 color-mix(in srgb,var(--step-color) 75%,transparent);color:var(--txt-2);font-size:11px;white-space:nowrap;pointer-events:none}
-.rt-timeline-span.on{background:color-mix(in srgb,var(--step-color) 42%,var(--bg-2));box-shadow:inset 2px 0 0 var(--step-color),inset 0 0 0 1px color-mix(in srgb,var(--step-color) 70%,transparent);color:var(--txt)}
-.rt-timeline-span.upper{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--step-color) 30%,transparent) 0 3px,transparent 3px 6px),var(--bg-2)}
-.rt-timeline-span.estimate{outline:1px dashed color-mix(in srgb,var(--step-color) 80%,transparent);outline-offset:-1px}
-.rt-timeline-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-timeline-span small{flex:none;color:var(--txt-3);font:11px var(--mono)}
-.rt-timeline-glyph{flex:none;color:var(--cmd)}
-/* A group's span outlines the rows its steps use. */
-.rt-timeline-group{position:absolute;top:20px;margin-left:-2px;padding-right:4px;box-sizing:content-box;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
+.rt-timeline-pass-now{flex:none;color:var(--txt-2);font-size:11px;white-space:nowrap}
+.rt-tp-tools{display:flex;flex:none;align-items:center;gap:1px;padding-left:6px;border-left:1px solid var(--line)}
+.rt-tp-tools .qbtn.power-trigger{height:28px;min-height:28px;padding:0 9px;border:0;border-radius:var(--r-s);font-size:12px}
+.rt-timeline-editor{position:relative;flex:1 1 0;align-self:stretch;min-width:96px}
+.rt-timeline-editor:has(.rt-tp-scrub:focus-visible){outline:2px solid var(--focus);outline-offset:-4px;border-radius:var(--r)}
+.rt-timeline-track{position:absolute;left:10px;right:10px;top:calc(var(--seg-top) + var(--seg-h) / 2);height:1px;background:var(--line-2)}
+.rt-timeline-span{--c:var(--txt-3);position:absolute;min-width:2px;border-right:1px solid transparent;border-radius:2px;background:var(--c);background-clip:padding-box;opacity:.5;pointer-events:none}
+.rt-timeline-span.path{--c:var(--txt-2)}
+.rt-timeline-span.cmd{--c:var(--cmd)}
+.rt-timeline-span.wait{--c:var(--warn)}
+.rt-timeline-span.sel{opacity:.85}
+.rt-timeline-span.on{opacity:1}
+.rt-timeline-span.path.on{--c:var(--txt)}
+/* Limits draw hatched as upper bounds; run time estimates are dashed wherever preview time is drawn. */
+.rt-timeline-span.upper{background:repeating-linear-gradient(135deg,var(--c) 0 2px,transparent 2px 4px) padding-box}
+.rt-timeline-span.estimate{background:repeating-linear-gradient(90deg,var(--c) 0 4px,transparent 4px 6px) padding-box}
+/* A group's outline around the rows its steps use. */
+.rt-timeline-group{position:absolute;margin:-3px 0 0 -3px;padding:3px 2px 3px 3px;box-sizing:content-box;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line-3);pointer-events:none}
 .rt-timeline-group.estimate{box-shadow:none;outline:1px dashed var(--line-3);outline-offset:-1px}
-/* Instant and untimed commands: the Paths command lane's chips, a diamond on their time. */
-.rt-timeline-chip{position:absolute;display:flex;align-items:center;gap:6px;height:19px;padding:0 8px 0 6px;overflow:hidden;border-radius:5px;background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--txt-2);font-size:11px;white-space:nowrap;pointer-events:none}
-.rt-timeline-chip.left{flex-direction:row-reverse;padding:0 6px 0 8px}
-.rt-timeline-chip.on{background:var(--bg-4);box-shadow:inset 0 0 0 1px var(--txt-3);color:var(--txt)}
-.rt-timeline-chip.stack{gap:5px;font:500 11px var(--mono);color:var(--txt)}
-.rt-timeline-event{position:absolute;z-index:1;top:13px;width:8px;height:8px;border:1.5px solid var(--warn);background:var(--bg-1);transform:translate(-50%,0) rotate(45deg);pointer-events:none}
-.rt-timeline-end{position:absolute;z-index:1;top:13px;width:8px;height:8px;background:var(--txt-2);transform:translateX(-50%);pointer-events:none}
-.rt-timeline-empty{position:absolute;left:10px;right:10px;top:22px;display:flex;align-items:center;justify-content:center;height:16px;color:var(--txt-3);font-size:11px;pointer-events:none}
-/* The playhead: a line across scale and lane with a round handle on the lane, larger while hovered or dragged. */
-.rt-timeline-playhead{position:absolute;z-index:2;left:calc(10px + (100% - 20px) * var(--routine-progress,0));top:16px;bottom:3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--txt);pointer-events:none}
-.rt-timeline-playhead::before{content:'';position:absolute;left:50%;top:-4px;width:12px;height:12px;border-radius:50%;background:var(--txt);box-shadow:0 0 0 2px var(--bg-1),0 1px 4px rgb(0 0 0/.5);transform:translateX(-50%);transition:width .12s ease-out,height .12s ease-out,top .12s ease-out}
-.rt-timeline-editor:is(:hover,.dragging) .rt-timeline-playhead::before{top:-5px;width:14px;height:14px}
-.rt-timeline-hover{position:absolute;z-index:1;top:16px;bottom:3px;width:1px;background:rgb(255 255 255/.35);pointer-events:none}
-.rt-timeline-readout{position:absolute;z-index:4;top:1px;left:clamp(64px,calc(10px + (100% - 20px) * var(--at,0)),calc(100% - 64px));display:flex;align-items:baseline;gap:6px;max-width:min(320px,calc(100% - 24px));padding:1px 7px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--bg-3);box-shadow:var(--elevation);color:var(--txt-2);font-size:11px;line-height:16px;white-space:nowrap;transform:translateX(-50%);pointer-events:none}
+/* Instant and untimed commands, branch checks and ends: small marks above the segments, several at one time as one. */
+.rt-timeline-mark{position:absolute;z-index:1;width:6px;height:6px;margin-left:-3px;pointer-events:none}
+.rt-timeline-mark.cmd{background:var(--cmd);transform:rotate(45deg);opacity:.8}
+.rt-timeline-mark.cmd.many{box-shadow:0 0 0 1.5px var(--hud-surface),0 0 0 2.5px color-mix(in srgb,var(--cmd) 70%,transparent)}
+.rt-timeline-mark.check{border:1.5px solid var(--warn);transform:rotate(45deg)}
+.rt-timeline-mark.end{background:var(--txt-2)}
+.rt-timeline-mark.on{opacity:1}
+.rt-timeline-empty{position:absolute;inset:0 10px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--txt-3);font-size:11px;white-space:nowrap;text-overflow:ellipsis;pointer-events:none}
+/* The playhead: a line across the track with a round handle on its middle, larger while hovered or dragged. */
+.rt-timeline-playhead{position:absolute;z-index:2;left:calc(10px + (100% - 20px) * var(--routine-progress,0));top:7px;bottom:5px;width:2px;margin-left:-1px;border-radius:1px;background:var(--txt);pointer-events:none}
+.rt-timeline-playhead::before{content:'';position:absolute;left:50%;top:calc(var(--seg-top) + var(--seg-h) / 2 - 13px);width:12px;height:12px;border-radius:50%;background:var(--txt);box-shadow:0 0 0 2px var(--bg-1),0 1px 4px rgb(0 0 0/.5);transform:translate(-50%,0);transition:width .12s ease-out,height .12s ease-out,margin .12s ease-out}
+.rt-timeline-editor:is(:hover,.dragging) .rt-timeline-playhead::before{width:14px;height:14px;margin-top:-1px}
+.rt-timeline-hover{position:absolute;z-index:1;top:7px;bottom:5px;width:1px;background:rgb(255 255 255/.35);pointer-events:none}
+/* The readout floats above the row, over the flow's bottom edge. */
+.rt-timeline-readout{position:absolute;z-index:8;bottom:calc(100% + 2px);left:clamp(64px,calc(10px + (100% - 20px) * var(--at,0)),calc(100% - 64px));display:flex;align-items:baseline;gap:6px;max-width:min(320px,calc(100% - 24px));padding:2px 8px;border:1px solid var(--line-2);border-radius:var(--r-s);background:var(--bg-3);box-shadow:var(--elevation);color:var(--txt-2);font-size:11px;line-height:16px;white-space:nowrap;transform:translateX(-50%);pointer-events:none}
 .rt-timeline-readout b{color:var(--txt);font:500 11px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-readout span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rt-timeline-readout span.cmd{color:var(--cmd)}
 .rt-timeline-editor .rt-tp-scrub{position:absolute;z-index:3;inset:0;cursor:pointer;touch-action:none}
 .rt-timeline-editor.dragging .rt-tp-scrub{cursor:grabbing}
 .rt-transport.untimed .rt-tp-scrub{cursor:default}
 .rt-tp-scrub:focus-visible{outline:none!important}
 @media (hover:hover){.rt-tp-btn:not(.play):not(:disabled):hover{background:var(--bg-3);color:var(--txt)}}
 @media (prefers-reduced-motion:reduce){.rt-timeline-playhead::before{transition:none}}
-.rt-timeline-pass-now{flex:none;margin-left:10px;color:var(--txt-2);font-size:11px;white-space:nowrap}
-.rt-timeline-summary{margin-left:10px;color:var(--txt-3);font-size:11px;flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-summary-short{display:none}
-/* A narrow transport (the inspector open at the minimum width) uses the short facts and gives the step name less room,
-   so the counts stay readable; the full sentence stays for assistive technology and in the tooltip. */
-@container routine-workspace (max-width:700px){
-  .rt-summary-full{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-  .rt-summary-short{display:inline}
-  .rt-timeline-summary{flex:1 0 auto;max-width:50%}
-  .rt-timeline-step{max-width:34%}
+/* A narrow transport (the inspector open at the minimum width) keeps the track usable. The total is the summary line's
+   first fact; the step's name and pass are on the flow's lit row ("Pass 2 of 2" in place of its time), the hover
+   readout and the slider's value. They stay for assistive technology; the slot keeps the run order. */
+@container routine-workspace (max-width:640px){
+  .rt-tp-now{flex-basis:var(--slot-narrow,auto)}
+  :is(.rt-timeline-now,.rt-timeline-pass-now,.rt-timeline-time small){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
 
 /* ============ routine inspector ============ */
@@ -379,16 +368,33 @@
 .rt-repair .rt-insp-problem{margin:0 0 8px}
 .rt-stop-compare{display:flex;flex-direction:column;gap:10px;margin-top:10px}
 .rt-route-names{display:grid;gap:10px;margin-top:10px}
-/* A pose jump in the step inspector: its size mark and sentence, the link action, then what the link moves. */
-.rt-jump{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
-.rt-jump-text{display:flex;align-items:baseline;gap:8px;margin:0;color:var(--txt-2);font-size:12px;line-height:1.5}
+/* A pose jump in the step inspector: one warning line with its size mark, the link and Why on the next line, and the
+   longer explanation behind Why. Plain text, no tinted box; a rule separates it from the step's facts. */
+.rt-jump{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.rt-jump-text{display:flex;align-items:baseline;gap:8px;margin:0;color:var(--warn-txt);font-size:12px;font-weight:500;line-height:1.45}
+.rt-jump[data-size="large"] .rt-jump-text{color:var(--bad-txt)}
+.rt-jump[data-size="small"] .rt-jump-text{color:var(--txt-2)}
 .rt-jump-text .rt-step-flag{position:relative;top:-1px}
-.rt-jump-text strong{color:var(--txt);font-weight:600}
-.rt-jump[data-size="large"] .rt-jump-text strong{color:var(--bad-txt)}
-.rt-jump[data-size="medium"] .rt-jump-text strong{color:var(--warn-txt)}
-.rt-jump-path{color:var(--txt);font-weight:600}
-.rt-jump-review{margin:0;color:var(--txt-3);font-size:11.5px;line-height:1.45}
-.rt-jump-review.reach{color:var(--txt-2)}
+.rt-jump-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding-left:14px}
+.rt-jump .qbtn.rt-jump-link{min-height:28px;white-space:normal;text-align:left}
+.rt-jump-why{padding:4px 2px;border-radius:var(--r-s);color:var(--txt-3);font-size:12px;text-decoration:underline;text-decoration-color:var(--line-3);text-underline-offset:3px}
+.rt-jump-why[aria-expanded=true]{color:var(--txt-2)}
+.rt-jump-detail{display:flex;flex-direction:column;gap:6px;padding-left:14px;color:var(--txt-3);font-size:11.5px;line-height:1.45}
+.rt-jump-detail[hidden]{display:none}
+.rt-jump-detail p{margin:0}
+.rt-jump-detail strong,.rt-jump-path{color:var(--txt-2);font-weight:600}
+.rt-jump-detail .reach{color:var(--txt-2)}
+.rt-jump-review{margin:0;padding-left:14px;color:var(--txt-3);font-size:11.5px;line-height:1.45}
+@media (hover:hover){.rt-jump-why:hover{color:var(--txt)}}
+/* A step's facts as key/value lines, then its actions as secondary buttons on one line. */
+.rt-kv{display:flex;flex-direction:column;margin:0 0 12px}
+.rt-kv>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:4px 0}
+.rt-kv dt{flex:none;color:var(--txt-3);font-size:12px}
+.rt-kv dd{min-width:0;margin:0;color:var(--txt);font:12px var(--mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+.rt-kv dd.text{font-family:var(--ui)}
+.rt-insp-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.rt-insp-actions>.qbtn{flex:1 1 auto}
+.rt-kv+.rt-insp-actions{margin-top:2px}
 /* A path row's start relative to the insertion point: "Starts here" reads as good news, a distance stays quiet. */
 .rt-src-start{color:var(--txt-3);font-variant-numeric:tabular-nums}
 .rt-src-start.here{color:var(--good)}

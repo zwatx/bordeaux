@@ -25,10 +25,10 @@ describe('routine transport scrubber', () => {
     expect(element).toContain('tabindex="0"'); expect(element).not.toContain('aria-disabled');
     expect(html).toContain('class="rt-timeline-now">Leave the zone<'); expect(html).toContain('>1 of 2<');
     expect(html).toContain('class="rt-timeline-playhead"');
-    expect(html).toMatch(/class="rt-timeline-span on"[^>]*title="Leave the zone"/);
+    expect(html).toMatch(/class="rt-timeline-span path on"[^>]*title="Leave the zone"/);
   });
 
-  it('labels steps, stacks a parallel group in rows inside its outline, and shows instant commands as chips', () => {
+  it('draws textless step segments, stacks a parallel group in rows inside its outline, and marks instant commands', () => {
     const node = (id, extra = {}) => ({ id, type: 'function', cat: 'command', invocation: { commandId: 'x', arguments: {} }, ...extra });
     const run = {
       total: 6, timedPlayable: true, issues: [], duration: { maxS: 6, unknownCount: 1, usesLimits: false },
@@ -46,15 +46,19 @@ describe('routine transport scrubber', () => {
     expect(blocks).toHaveLength(3);
     // Both children of the parallel group are lit while it runs, in two rows.
     expect(blocks.filter((block) => block.includes(' on"'))).toHaveLength(2);
-    expect(new Set(blocks.map((block) => block.match(/top:(\d+)px/)[1]))).toEqual(new Set(['22', '42']));
-    expect(html).toContain('<span class="rt-timeline-name">Leave the zone</span>');
+    // Two 6px rows 2px apart, centered a little low in the 40px row so marks fit above them.
+    expect(new Set(blocks.map((block) => block.match(/top:(\d+)px/)[1]))).toEqual(new Set(['16', '24']));
+    // Segments carry no text: names are in their titles and the hover readout.
+    expect(blocks.every((block) => block.endsWith('></span>') || !block.includes('rt-timeline-name'))).toBe(true);
+    expect(html).not.toContain('rt-timeline-name');
+    expect(html).toContain('title="Leave the zone"');
     expect(html).toContain('title="Spin up, loops for 3.00 s"');
-    expect(html).toMatch(/class="rt-timeline-group" title="Parallel group" style="[^"]*height:42px/);
-    const chips = html.match(/<span class="rt-timeline-chip[^"]*"[^>]*>/g);
-    expect(chips).toHaveLength(2);
-    expect(chips[0]).toContain('title="Aim (untimed)"');
-    // The chip at the end faces left so its name stays inside the lane.
-    expect(chips[1]).toContain('class="rt-timeline-chip left"');
+    expect(html).toMatch(/class="rt-timeline-group" title="Parallel group" style="[^"]*top:16px;height:14px/);
+    const marks = html.match(/<span class="rt-timeline-mark[^"]*"[^>]*>/g);
+    expect(marks).toHaveLength(2);
+    expect(marks[0]).toContain('class="rt-timeline-mark cmd"'); expect(marks[0]).toContain('title="Aim (untimed)"');
+    // The mark at the very end stays inside the track's inset (600px default width, 10px inset), above the segments.
+    expect(marks[1]).toContain('title="Celebrate (untimed)"'); expect(marks[1]).toMatch(/left:590px;top:7px/);
   });
 
   it('gives five simultaneous steps their own rows instead of overlapping them', () => {
@@ -99,16 +103,17 @@ describe('routine path choices', () => {
     expect(choices.map((choice) => choice.meta)).toEqual(['Collection · 4.00 s · Used 2× in this routine', 'In this routine', 'Not timed yet']);
   });
 
-  it('shows the chosen path as a card whose Change path opens the path library, and names a deleted path', () => {
+  it('names the chosen path, lists its facts, and opens the path library from Change path; names a deleted path', () => {
     const acq = { set: vi.fn(), select() {}, del() {}, openInEditor() {} };
     const render = (ref, extra = {}) => renderToStaticMarkup(h(StepInspector, { node: { id: 'a', type: 'path', ref }, routine, paths, pathFolders: [{ id: 'f', name: 'Collection' }], pathTimes: {}, acq, run: { segs: [], issues: [] }, onChangePath() {}, ...extra }));
     const chosen = render('p1');
-    expect(chosen).toMatch(/class="choice-current"[\s\S]*<strong>Collect<\/strong><small>Collection · Used 2× in this routine<\/small>/);
+    expect(chosen).toMatch(/<span class="ctxinsp-t" title="Collect">Collect<\/span><span class="ctxinsp-kind" title="Path">Path<\/span>/);
+    expect(chosen).toContain('<dl class="rt-kv routine-path-facts"><div><dt>Folder</dt><dd class="text">Collection</dd></div><div><dt>In this routine</dt><dd>2×</dd></div></dl>');
     // Change opens the library in the left rail; the inspector holds no list of its own.
-    expect(chosen).toMatch(/<button type="button" class="choice-change routine-change-path"[^>]*>Change path<\/button>/);
+    expect(chosen).toMatch(/<div class="rt-insp-actions"><button type="button" class="qbtn routine-change-path"[^>]*>Change path<\/button><button type="button" class="qbtn routine-open-path">Open in Paths<\/button><\/div>/);
     expect(chosen).not.toContain('role="listbox"');
     const missing = render('gone');
-    expect(missing).not.toContain('choice-current');
+    expect(missing).not.toContain('rt-kv'); expect(missing).not.toContain('Open in Paths');
     expect(missing).toContain('The referenced path is unavailable.');
     expect(missing).toMatch(/class="qbtn wide routine-change-path"[^>]*>Choose a path</);
     expect(render('gone', { paths: [] })).toContain('No paths yet. Create one in Paths.');

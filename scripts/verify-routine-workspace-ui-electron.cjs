@@ -46,8 +46,8 @@ async function snapshot(name) {
   await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
 }
-// Preview help is a small native popover above its trigger in the field's view controls; it overlays the field and
-// never moves the flow.
+// Preview help is a small native popover above its trigger at the end of the transport row; it overlays the workspace
+// and never moves the flow.
 const previewHelp = () => evaluate(() => {
   const trigger = document.querySelector('.routine-workspace-about'), help = document.querySelector('#routine-preview-notes');
   const flow = document.querySelector('.rt-scroll').getBoundingClientRect(), anchor = trigger.getBoundingClientRect(), rect = help.getBoundingClientRect();
@@ -255,7 +255,7 @@ app.whenReady().then(async () => {
       assert.ok(Math.abs(lifted.width - grip.width) < 1 && Math.abs(lifted.height - grip.height) < 1, 'The card is the size of the row: ' + JSON.stringify(lifted));
       assert.equal(lifted.label, 'Collect along the alliance wall and return through the protected crossing', 'The card names the step');
       assert.ok(lifted.away && lifted.sourceHeight < 1, 'The source slot closes');
-      assert.ok(lifted.target && Math.abs(lifted.gap - grip.height - 4) < 1 && Math.abs(lifted.well - grip.height + 4) < 1, 'A gap the card\'s height opens at the target: ' + JSON.stringify(lifted));
+      assert.ok(lifted.target && Math.abs(lifted.gap - grip.height) < 1 && Math.abs(lifted.well - grip.height + 4) < 1, 'A gap the card\'s height opens at the target: ' + JSON.stringify(lifted));
       await snapshot('step-drag-' + width);
       await key('Escape');
       await wait(() => evaluate(() => !document.querySelector('.rt-drag-card, .rt-panel.dragging, .drop-before, .drop-after')), 'Escape drops nothing');
@@ -306,7 +306,8 @@ app.whenReady().then(async () => {
       await snapshot('insert-' + width);
       assert.ok(await evaluate(() => {
         const pass = document.querySelector('.rt-timeline-pass-now'), step = document.querySelector('.rt-timeline-step');
-        return !pass || step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) >= pass.getBoundingClientRect().right + 8;
+        // A narrow transport leaves the pass to the flow's running row; a shown pass keeps its distance from the place.
+        return !pass || getComputedStyle(pass).clipPath !== 'none' || step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) >= pass.getBoundingClientRect().right + 8;
       }), 'Playback pass and step counters have separate readable spacing');
       const library = await evaluate(() => {
         const list = document.querySelector('#rt-source .rt-src-list').getBoundingClientRect(), last = [...document.querySelectorAll('#rt-source [data-row]')].at(-1).getBoundingClientRect();
@@ -510,6 +511,22 @@ app.whenReady().then(async () => {
       assert.ok(['medium', 'large'].includes(jump.inspector[0]) && jump.field.join() === jump.inspector.join() && jump.flow === jump.inspector[0] && jump.text.includes(route.name),
         'The jump names the previous path and has one size on the field, in the flow and in the inspector: ' + JSON.stringify(jump));
       await snapshot('pose-jump-' + width);
+      // One warning line naming the previous step and an inline link; the explanation waits behind Why, which opens by
+      // pointer and closes from the keyboard.
+      const whyState = () => evaluate(() => {
+        const button = document.querySelector('.routine-insp .rt-jump-why'), detail = document.getElementById(button.getAttribute('aria-controls'));
+        return { expanded: button.getAttribute('aria-expanded'), shown: detail.getClientRects().length > 0, text: detail.textContent, focused: document.activeElement === button,
+          line: document.querySelector('.routine-insp .rt-jump-text').textContent, link: document.querySelector('.routine-insp .rt-jump-link')?.textContent };
+      });
+      const whyClosed = await whyState();
+      assert.ok(whyClosed.expanded === 'false' && !whyClosed.shown && /^Starts \d.* from step \d+’s end$/.test(whyClosed.line) && /^Link start to step \d+’s end$/.test(whyClosed.link),
+        'One warning line and an inline link; the explanation waits behind Why: ' + JSON.stringify(whyClosed));
+      await click('.routine-insp .rt-jump-why');
+      const whyOpen = await whyState();
+      assert.ok(whyOpen.expanded === 'true' && whyOpen.shown && whyOpen.focused && whyOpen.text.includes(route.name) && whyOpen.text.includes('stay linked'), 'Why shows the explanation: ' + JSON.stringify(whyOpen));
+      await snapshot('pose-jump-why-' + width);
+      await key('Enter');
+      assert.ok(await evaluate(() => document.querySelector('.routine-insp .rt-jump-why').getAttribute('aria-expanded') === 'false'), 'Enter on Why closes it again');
       const pathsBefore = structuredClone(published.paths);
       await click('.routine-insp .rt-jump-link');
       await wait(() => {
@@ -850,51 +867,63 @@ app.whenReady().then(async () => {
       const polishBaseline = await source();
       const chrome = await evaluate(() => {
         const workspace = document.querySelector('.routine-workspace').getBoundingClientRect(), field = document.querySelector('.routine-workspace-field').getBoundingClientRect();
-        const tools = document.querySelector('.routine-workspace-field .viewctl .routine-workspace-actions');
+        const tools = document.querySelector('.rt-transport .rt-tp-tools .routine-workspace-actions'), transport = document.querySelector('.rt-transport').getBoundingClientRect();
+        const last = tools && [...tools.querySelectorAll('button')].at(-1).getBoundingClientRect();
         return { header: Boolean(document.querySelector('.routine-workspace-head, .routine-workspace header')), fieldAtTop: Math.abs(field.top - workspace.top) < 1,
-          tools: tools ? [...tools.querySelectorAll('button')].map(button => button.getAttribute('aria-label') || button.textContent) : null };
+          tools: tools ? [...tools.querySelectorAll('button')].map(button => button.getAttribute('aria-label') || button.textContent) : null,
+          // Power and About end the one transport row; the field keeps only zoom, layers and fit.
+          rowEnd: Boolean(last && transport.right - last.right < 12 && last.top >= transport.top && last.bottom <= transport.bottom && transport.height <= 41),
+          field: [...document.querySelectorAll('.routine-workspace-field .viewctl button')].map(button => button.getAttribute('aria-label') || button.title.split(' (')[0].trim()) };
       });
-      assert.deepEqual(chrome, { header: false, fieldAtTop: true, tools: ['Power', 'About preview'] }, 'No header row: Power and About lead the field view controls');
+      assert.deepEqual(chrome, { header: false, fieldAtTop: true, tools: ['Power', 'About preview'], rowEnd: true, field: ['Zoom out', 'Fit field', 'Zoom in', 'Field layers', 'Fit field to view'] },
+        'No header row: Power and About end the transport row and the field view controls are zoom, layers and fit');
       assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step').textContent), '6 steps', 'Before playback the transport counts the flow rows');
       // Item 2: an empty parallel group says plainly that it has nothing to wait for.
       assert.equal(await evaluate(() => document.querySelector('[data-id="polish-group"]').parentElement.querySelector('.rt-close-t').textContent), 'No steps yet, so it finishes the routine', 'An empty group closing has no "it"');
-      // Item 4 and 3: the path inspector adds facts the row lacks; every step's footer says Delete step.
+      // Item 4 and 3: the compact path inspector names the path (not its run order) and lists its facts as key/value
+      // lines (no folder for a path outside folders), with Change path and Open in Paths as secondary buttons; every
+      // step's footer says Delete step.
       await click('[data-id="polish-return"] .rt-step-body');
-      const pathInspector = await evaluate(() => ({ stats: [...document.querySelectorAll('.routine-insp .rt-stat-k')].map(el => el.textContent), card: document.querySelector('.routine-insp .choice-current small')?.textContent ?? null,
+      const pathInspector = await evaluate(() => ({ title: document.querySelector('.routine-insp .ctxinsp-t').textContent, kind: document.querySelector('.routine-insp .ctxinsp-kind').textContent,
+        facts: [...document.querySelectorAll('.routine-insp .rt-kv dt')].map(el => el.textContent), values: [...document.querySelectorAll('.routine-insp .rt-kv dd')].map(el => el.textContent),
+        actions: [...document.querySelectorAll('.routine-insp .rt-insp-actions button')].map(el => el.className + ':' + el.textContent),
         foot: document.querySelector('.routine-insp .ctxinsp-foot .delbtn').textContent, label: document.querySelector('.routine-insp .ctxinsp-foot .delbtn').getAttribute('aria-label') }));
-      assert.deepEqual(pathInspector, { stats: ['Duration', 'Distance'], card: null, foot: 'Delete step', label: 'Delete path step. The path stays in Paths.' }, 'Path inspector drops the run order and the row\'s time');
+      assert.ok(/^\d+\.\d\d s$/.test(pathInspector.values[0]) && /^\d+(\.\d+)? (m|ft)$/.test(pathInspector.values[1]), 'Path facts read in display units: ' + JSON.stringify(pathInspector));
+      assert.deepEqual({ ...pathInspector, values: undefined }, { title: 'Return to the alliance zone', kind: 'Path', facts: ['Duration', 'Distance'], values: undefined,
+        actions: ['qbtn routine-change-path:Change path', 'qbtn routine-open-path:Open in Paths'], foot: 'Delete step', label: 'Delete path step. The path stays in Paths.' }, 'Compact path inspector without the run order');
       for (const id of ['polish-later', 'polish-loop', 'polish-group']) {
         await click('[data-id="' + id + '"] .rt-step-body');
         assert.equal(await evaluate(() => document.querySelector('.routine-insp .ctxinsp-foot .delbtn').textContent), 'Delete step', id + ' footer says Delete step');
       }
-      // Items 1 and 5: playing the second path, the transport names the flow's row number, and its facts fit beside it
-      // with the inspector open.
+      // Items 1 and 5: playing the second path, the transport names the flow's row number; the routine's facts are the
+      // flow's summary line, readable with the inspector open, and the transport does not repeat them.
       await click('[data-id="polish-return"] .rt-step-body');
-      // The row's time bar is placed in percent of the routine; the same fraction of the scrubber is inside that step.
-      const returnSpan = await evaluate(() => {
-        const bar = document.querySelector('[data-id="polish-return"] .rt-step-time i'), lane = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
-        const middle = (parseFloat(bar.style.left) + parseFloat(bar.style.width) / 2) / 100;
-        return { x: Math.round(lane.left + 10 + (lane.width - 20) * middle), y: Math.round(lane.top + 30) };
-      });
+      // Press the middle of the step's own segment on the track (its title is the step's name).
+      const segmentCenter = (name) => evaluate((name) => {
+        const bar = [...document.querySelectorAll('.rt-timeline-span')].find(el => el.title.replace(/^Up to /, '').startsWith(name)).getBoundingClientRect();
+        return { x: Math.round(bar.left + bar.width / 2), y: Math.round(bar.top + bar.height / 2) };
+      }, name);
+      const returnSpan = await segmentCenter('Return to the alliance zone');
       await focus();
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...returnSpan });
       await wait(() => evaluate(() => document.querySelector('.rt-step.active')?.dataset.id === 'polish-return'), 'seek into the second path');
       const counts = await evaluate(() => {
-        const summary = document.querySelector('.rt-timeline-summary'), step = document.querySelector('.rt-timeline-step'), shown = [...summary.children].find(el => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 1);
+        const summary = document.querySelector('.rt-summary'), step = document.querySelector('.rt-timeline-step'), slot = document.querySelector('.rt-tp-now').getBoundingClientRect();
+        const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 1 && getComputedStyle(el).clipPath === 'none' && r.right <= summary.getBoundingClientRect().right + 1; };
+        const small = step.querySelector('small').getBoundingClientRect();
         return { row: document.querySelector('.rt-step.active .rt-step-num').textContent, transport: step.querySelector('small').textContent, inspector: Boolean(document.querySelector('.routine-insp')),
-          fits: summary.scrollWidth <= summary.clientWidth + 1, apart: summary.getBoundingClientRect().right <= step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) + 1,
-          text: shown?.textContent, full: summary.title };
+          fits: summary.scrollWidth <= summary.clientWidth + 1, ordinalShown: small.left >= slot.left - 1 && small.right <= slot.right + 1,
+          shown: [...summary.children].filter(visible).map(el => el.textContent).join(' | '), full: summary.querySelector('.rt-summary-full').textContent, title: summary.title,
+          total: summary.querySelector('.rt-summary-total').textContent, transportTotal: document.querySelector('.rt-timeline-time small').textContent,
+          repeats: /untimed|pose jump|estimated/i.test(document.querySelector('.rt-transport').textContent) };
       });
       assert.equal(counts.transport, counts.row + ' of 6', 'The transport counts the flow\'s numbered rows: ' + JSON.stringify(counts));
-      assert.ok(counts.inspector && counts.fits && counts.apart && /untimed/.test(counts.text) && counts.full.includes('not counted'), 'Transport facts are readable beside the playing step: ' + JSON.stringify(counts));
-      assert.ok(counts.full.includes('1 pose jump') && counts.text.includes('1 pose jump'), 'The pose jump count is shown, not cut off: ' + JSON.stringify(counts));
+      assert.ok(counts.inspector && counts.fits && counts.ordinalShown && /untimed/.test(counts.shown) && counts.full.includes('not counted') && counts.title.includes('not counted'),
+        'The summary line\'s facts are readable with the inspector open: ' + JSON.stringify(counts));
+      assert.ok(counts.shown.includes('1 pose jump') && counts.title.includes('1 pose jump'), 'The pose jump count is shown, not cut off: ' + JSON.stringify(counts));
+      assert.ok(counts.transportTotal === ' / ' + counts.total && !counts.repeats, 'The summary total matches the transport, which does not repeat the facts: ' + JSON.stringify(counts));
       await snapshot('polish-playing-' + width);
-      const nestedSpan = await evaluate(() => {
-        const bar = document.querySelector('[data-id="polish-check"] .rt-step-time i');
-        const lane = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
-        const middle = (parseFloat(bar.style.left) + parseFloat(bar.style.width) / 2) / 100;
-        return { x: Math.round(lane.left + 10 + (lane.width - 20) * middle), y: Math.round(lane.top + 30) };
-      });
+      const nestedSpan = await segmentCenter('Check whether collection is finished');
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...nestedSpan });
       await wait(() => evaluate(() => document.querySelector('.rt-step.active')?.dataset.id === 'polish-check'), 'seek into the nested command');
       assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step small').textContent), '5 of 6');
@@ -934,7 +963,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'placeholder names through binding, Undo and reload', 'no header row, flow-row counts, readable transport facts, empty group closing, path inspector facts, Delete step, Duplicate, slot in the rail', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'placeholder names through binding, Undo and reload', 'no header row, Power and About in the transport row, flow-row counts, readable summary facts, empty group closing, compact path inspector, Delete step, Duplicate, slot in the rail', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, one warning line with Why by pointer and Enter, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

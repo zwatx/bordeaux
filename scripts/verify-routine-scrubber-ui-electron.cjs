@@ -181,12 +181,13 @@ app.whenReady().then(async () => {
       await load(); await planned();
       await snapshot('flow-closed-' + width);
 
-      // Scrubber: the scale, the handle and its accessible state.
+      // Scrubber: one slim row with a textless track, the handle and its accessible state.
       const idle = await sliderState();
       assert.equal(idle.now, 0); assert.ok(idle.max > 5, 'timed total'); assert.equal(idle.disabled, null); assert.equal(idle.tab, 0);
-      const scale = await evaluate(() => ({ ticks: [...document.querySelectorAll('.rt-timeline-tick')].map((t) => t.textContent),
+      const scale = await evaluate(() => ({ text: [...document.querySelectorAll('.rt-timeline-editor > :not(.rt-tp-scrub)')].map((el) => el.textContent).join(''),
+        row: document.querySelector('.rt-transport').getBoundingClientRect().height,
         knob: getComputedStyle(document.querySelector('.rt-timeline-playhead'), '::before').width, step: document.querySelector('.rt-timeline-step').textContent }));
-      assert.ok(scale.ticks.length >= 4 && scale.ticks[0] === '0', 'seconds scale: ' + scale.ticks.join(' '));
+      assert.equal(scale.text, '', 'the track carries no text'); assert.ok(scale.row <= 41, 'one slim transport row: ' + scale.row);
       assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '8 steps', 'idle run size counts the flow rows');
 
       // Tab from Play reaches the scrubber with a visible ring (as the workflow harness expects).
@@ -209,8 +210,10 @@ app.whenReady().then(async () => {
       // Hover reads a time without seeking.
       await mouse('mouseMove', geometry.left + geometry.width * 0.7, geometry.y, false);
       await wait(() => evaluate(() => Boolean(document.querySelector('.rt-timeline-readout'))), 'hover readout');
+      // The readout reads the time under the pointer, so the track keeps a seconds scale without tick labels.
       const hoverText = await evaluate(() => document.querySelector('.rt-timeline-readout').textContent);
       assert.match(hoverText, /^\d+\.\d\d s/, 'hover time: ' + hoverText);
+      near(parseFloat(hoverText), idle.max * 0.7, idle.max * 0.02, 'hover reads the time under the pointer');
       near((await sliderState()).now, pressed.now, 0.011, 'hover does not seek');
       await snapshot('scrub-hover-' + width);
 
@@ -243,12 +246,15 @@ app.whenReady().then(async () => {
       // The field above the flow shows the scrubbed pose over the same transport.
       await snapshot('field-scrubbed-' + width);
 
-      // Path chooser: the current path reads as a card with the context its flow row lacks (its folder; reuse only
-      // when the path repeats), not the row's time or a plain "In this routine".
+      // Path chooser: the inspector names the current path and lists its facts as key/value lines: its time (the same
+      // as its flow row), length and folder; reuse only when the path repeats.
       await click('[data-id="leave"] .rt-step-body');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current'))), 'path card');
-      const card = await evaluate(() => document.querySelector('.routine-insp .choice-current').textContent);
-      assert.ok(card.includes('Collect along the alliance wall') && card.includes('Collection') && !card.includes('In this routine') && !/\d s\b/.test(card), 'card: ' + card);
+      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .rt-kv'))), 'path facts');
+      const card = await evaluate(() => ({ title: document.querySelector('.routine-insp .ctxinsp-t').textContent,
+        facts: Object.fromEntries([...document.querySelectorAll('.routine-insp .rt-kv > div')].map((row) => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])),
+        row: document.querySelector('[data-id="leave"] .rt-step-dur').textContent }));
+      assert.ok(card.title.startsWith('Collect along the alliance wall') && card.facts.Folder === 'Collection' && !('In this routine' in card.facts)
+        && card.facts.Duration === card.row && /^\d+(\.\d+)? (m|ft)$/.test(card.facts.Distance), 'path facts: ' + JSON.stringify(card));
       await snapshot('path-card-' + width);
       // Keyboard: Change path opens the path library in the left rail; search by folder, choose with arrows and Enter;
       // focus returns to Change.
@@ -263,14 +269,14 @@ app.whenReady().then(async () => {
       await wait(() => evaluate(() => document.activeElement.classList.contains('routine-change-path')), 'focus returns to Change');
       await click('[aria-label="Undo"]'); await waitRef('leave', wall, 'Undo path choice');
       // Undo keeps the step selected, and its inspector shows the restored path.
-      await wait(() => evaluate((name) => document.querySelector('.routine-insp .choice-current')?.textContent.startsWith(name), paths[0].name), 'Undo keeps the step and shows its restored path');
+      await wait(() => evaluate((name) => document.querySelector('.routine-insp .ctxinsp-t')?.textContent === name, paths[0].name), 'Undo keeps the step and shows its restored path');
       assert.equal(await evaluate(() => document.querySelector('[data-id="leave"] .rt-step-body').getAttribute('aria-pressed')), 'true', 'Undo keeps the step selected');
       // Pointer: the library marks the current path; Escape keeps it; a click chooses another.
       await click('.routine-change-path', 'Change path');
       await wait(() => evaluate(() => Boolean(document.querySelector('#rt-source.replace'))), 'path library');
       assert.equal(await evaluate(() => document.querySelector('#rt-source [aria-current="true"] .rt-src-name').textContent), paths[0].name, 'current choice is marked');
       await key('Escape');
-      await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current')) && !document.querySelector('#rt-source')), 'Escape keeps the current path');
+      await wait(() => evaluate((name) => document.querySelector('.routine-insp .ctxinsp-t')?.textContent === name && !document.querySelector('#rt-source'), paths[0].name), 'Escape keeps the current path');
       await click('.routine-change-path', 'Change path');
       await click(option, 'Slalom warm-up');
       await waitRef('leave', paths[3].id, 'pointer path choice');
@@ -294,7 +300,7 @@ app.whenReady().then(async () => {
       await click('[data-id="choice"] .rt-step-body'); await snapshot('flow-open-' + width);
       await click('[aria-label="Close step inspector"]'); await snapshot('flow-closed-after-' + width);
     }
-    pass('Scrubber scale, handle, press/hover/drag, keyboard (Arrow, Shift, Page, Home/End, Space), path card/search/choose/Undo and Add context at 1440x900 metric and 1100x720 imperial');
+    pass('Scrubber row, hover time, handle, press/hover/drag, keyboard (Arrow, Shift, Page, Home/End, Space), path facts/search/choose/Undo and Add context at 1440x900 metric and 1100x720 imperial');
 
     // Save and reopen a chosen path.
     win.setContentSize(1440, 900); await setUnits('metric');
@@ -304,14 +310,14 @@ app.whenReady().then(async () => {
     await waitRef('leave', trench, 'choose trench');
     await save(); await load(); await planned();
     await click('[data-id="leave"] .rt-step-body');
-    assert.ok((await evaluate(() => document.querySelector('.routine-insp .choice-current').textContent)).startsWith('Score from the trench'), 'chosen path survives save and reopen');
+    assert.equal(await evaluate(() => document.querySelector('.routine-insp .ctxinsp-t').textContent), 'Score from the trench', 'chosen path survives save and reopen');
     pass('Chosen path survives save and reopen');
 
     // Deleted path: no card; the problem is stated beside Choose a path, which opens the library, and a choice repairs it.
     await load('missing-routine', '[data-id="missing"]');
     await click('[data-id="missing"] .rt-step-body');
     await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .routine-change-path'))), 'missing path recovery');
-    assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current'))), false);
+    assert.equal(await evaluate(() => Boolean(document.querySelector('.routine-insp .rt-kv, .routine-insp .routine-open-path'))), false);
     assert.ok(await evaluate(() => document.querySelector('.routine-insp').textContent.includes('unavailable')), 'missing path problem stated');
     await snapshot('missing-path-1440');
     await click('.routine-change-path', 'Choose a path');
@@ -323,8 +329,9 @@ app.whenReady().then(async () => {
     await snapshot('missing-repaired-1440');
     pass('Deleted path states its problem and is repaired by a choice from the path library');
 
-    // Groups and loops: overlapping steps stack in rows inside their group's outline, loops show their glyph, instant
-    // commands are chips that never overlap or leave the lane (the last faces left), and every step playing is lit.
+    // Groups and loops: overlapping steps stack in rows inside their group's outline, loops are named in their segment's
+    // title, instant commands are marks that never overlap or leave the track (the readout names them), and every step
+    // playing is lit.
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height);
       await load('groups-routine', '[data-id="g-leave"]'); await planned();
@@ -332,7 +339,7 @@ app.whenReady().then(async () => {
         const editor = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
         const box = (el) => { const r = el.getBoundingClientRect(); return { x0: r.left, x1: r.right, y0: r.top, y1: r.bottom, text: el.textContent, title: el.title, cls: el.className }; };
         return { editor: { x0: editor.left, x1: editor.right, y0: editor.top, y1: editor.bottom },
-          blocks: [...document.querySelectorAll('.rt-timeline-span')].map(box), chips: [...document.querySelectorAll('.rt-timeline-chip')].map(box),
+          blocks: [...document.querySelectorAll('.rt-timeline-span')].map(box), chips: [...document.querySelectorAll('.rt-timeline-mark')].map(box),
           groups: [...document.querySelectorAll('.rt-timeline-group')].map(box) };
       });
       const state = await laneState();
@@ -343,11 +350,16 @@ app.whenReady().then(async () => {
       assert.equal(state.groups.length, 2, 'both groups outlined');
       const rows = new Set(state.blocks.map((b) => Math.round(b.y0)));
       assert.ok(rows.size >= 2, 'parallel steps stack in rows');
-      assert.ok(state.blocks.some((b) => b.cls.includes('rt-timeline-span') && b.text.startsWith('Collect along')), 'path block named');
+      assert.ok(state.blocks.every((b) => b.text === '') && state.blocks.some((b) => b.cls.includes(' path') && b.title.startsWith('Collect along')), 'path segment named in its title, without text');
       assert.ok(state.blocks.some((b) => /Spin up the shooter, loops for 1\.50 s/.test(b.title)), 'time loop block');
-      assert.ok(state.chips.length >= 2, 'instant commands as chips');
+      assert.ok(state.chips.length >= 2 && state.chips.every((m) => m.cls.includes(' cmd')), 'instant commands as marks');
+      const firstBlock = Math.min(...state.blocks.map((b) => b.y0));
+      assert.ok(state.chips.every((m) => m.y1 <= firstBlock + 1), 'marks sit above the segments');
       const last = state.chips.reduce((a, b) => (b.x1 > a.x1 ? b : a));
-      assert.ok(last.cls.includes('left') && /Celebrate/.test(last.title), 'the last chip faces left: ' + last.cls);
+      assert.ok(/Celebrate/.test(last.title) && last.x1 <= state.editor.x1 - 4, 'the last mark stays inside the track: ' + JSON.stringify(last));
+      // Hovering a mark names its commands in the readout.
+      await mouse('mouseMove', (last.x0 + last.x1) / 2, (state.editor.y0 + state.editor.y1) / 2, false);
+      await wait(() => evaluate(() => /Celebrate with every light/.test(document.querySelector('.rt-timeline-readout span.cmd')?.textContent || '')), 'the readout names the hovered mark');
       await snapshot('groups-field-' + width);
       // Seek into the parallel group: every step running there is lit.
       const spin = state.blocks.find((b) => /Spin up/.test(b.title));
@@ -359,7 +371,7 @@ app.whenReady().then(async () => {
       await key('End');
       await snapshot('groups-field-end-' + width);
     }
-    pass('Groups stack parallel steps in outlined rows, loops are marked, instant commands are unclipped chips, and running steps are lit at both sizes');
+    pass('Groups stack parallel steps in outlined rows, loops are named, instant commands are marks inside the track named by the readout, and running steps are lit at both sizes');
 
     // Run time estimates: a command with a Robot page run time is an estimate ("≈", dashed) in its row, the inspector,
     // the transport total and status, the scrubber block and its group; a limit below it wins; an untimed command
@@ -370,17 +382,18 @@ app.whenReady().then(async () => {
       const shown = await evaluate(() => {
         const dur = (id) => document.querySelector(`[data-id="${id}"] .rt-step-dur`).textContent;
         return { feed: dur('e-feed'), loop: dur('e-loop'), capped: dur('e-capped'), group: dur('e-par'), untimed: dur('e-untimed'),
-          bar: document.querySelector('[data-id="e-feed"] .rt-step-time i')?.className, rowTitle: document.querySelector('[data-id="e-feed"] .rt-step-body').title,
+          bar: document.querySelector('[data-id="e-feed"] .rt-step-dur').className, rowTitle: document.querySelector('[data-id="e-feed"] .rt-step-body').title,
           untimedTitle: document.querySelector('[data-id="e-untimed"] .rt-step-body').title,
-          total: document.querySelector('.rt-timeline-time small').textContent, summary: document.querySelector('.rt-timeline-summary .rt-summary-full').textContent,
-          summaryTitle: document.querySelector('.rt-timeline-summary').title,
+          total: document.querySelector('.rt-timeline-time small').textContent, summary: document.querySelector('.rt-summary .rt-summary-full').textContent,
+          summaryTitle: document.querySelector('.rt-summary').title, summaryTotal: document.querySelector('.rt-summary-total').textContent,
           blocks: [...document.querySelectorAll('.rt-timeline-span.estimate')].map((el) => el.title),
           groups: [...document.querySelectorAll('.rt-timeline-group')].map((el) => ({ cls: el.className, title: el.title })) };
       });
       assert.deepEqual([shown.feed, shown.loop, shown.capped, shown.group, shown.untimed], ['≈ 0.80 s', '≈ 2.40 s', '≤ 0.50 s', '≈ 0.80 s', 'Untimed'], 'row times: ' + JSON.stringify(shown));
-      assert.match(shown.bar, /\bestimate\b/, 'estimate row bar'); assert.match(shown.rowTitle, /Preview estimate from its Robot page run time/);
+      assert.match(shown.bar, /\bestimate\b/, 'estimate row time'); assert.match(shown.rowTitle, /Preview estimate from its Robot page run time/);
       assert.match(shown.untimedTitle, /set a run time on the Robot page/);
       assert.match(shown.total, /^ \/ ≈ \d+\.\d\d s$/, 'total is an estimate: ' + shown.total);
+      assert.equal(' / ' + shown.summaryTotal, shown.total, 'the summary line total matches the transport');
       assert.equal(shown.summary, 'Using time limits · 3 steps estimated from run times · 1 untimed step not counted');
       assert.match(shown.summaryTitle, /Robot page/);
       assert.equal(shown.blocks.length, 3, 'estimate blocks: ' + shown.blocks.join(' | '));
@@ -402,7 +415,7 @@ app.whenReady().then(async () => {
       await click('.places .place', 'Routines');
       await wait(() => evaluate(() => Boolean(document.querySelector('[data-id="e-untimed"]'))), 'back to the routine');
     }
-    pass('Run time estimates are marked in rows, inspector, transport total and status, scrubber blocks and group spans; limits cap them; untimed commands open the Robot page');
+    pass('Run time estimates are marked in rows, inspector, transport and summary totals, summary facts, scrubber segments and group spans; limits cap them; untimed commands open the Robot page');
 
     // Routine library rows: each routine's default preview time and a problem mark, from path times the library already
     // has. A timed row matches the transport total and pose jump count of the opened routine; details are its title.
@@ -422,7 +435,8 @@ app.whenReady().then(async () => {
       assert.match(rows['missing-routine'].title, /The referenced path is unavailable\./);
       for (const id of [ROUTINE, 'groups-routine', 'estimate-routine']) {
         await click(`[data-library-item="${id}"]`); await planned();
-        const opened = await evaluate(() => ({ total: document.querySelector('.rt-timeline-time small').textContent, summary: document.querySelector('.rt-timeline-summary .rt-summary-full').textContent }));
+        const opened = await evaluate(() => ({ total: document.querySelector('.rt-timeline-time small').textContent,
+          summary: [document.querySelector('.rt-summary .rt-summary-full')?.textContent, document.querySelector('.rt-summary .rt-summary-jumps')?.textContent].filter(Boolean).join(' · ') }));
         const row = (await rowState())[id], jumps = opened.summary.match(/(\d+) pose jumps?/)?.[1];
         assert.equal(' / ' + row.label, opened.total, id + ' row time matches the transport total');
         assert.match(row.title, /^Preview time with the first route of each branch/, id + ' row title says what it counts');
@@ -442,8 +456,10 @@ app.whenReady().then(async () => {
       const untimed = await sliderState();
       assert.equal(untimed.disabled, 'true'); assert.equal(untimed.tab, -1);
       assert.equal(await evaluate(() => document.querySelector('button[aria-label="Play routine"]').disabled), true);
-      assert.ok(await evaluate(() => document.querySelector('.rt-timeline-empty')?.textContent.includes('no step in this preview has a duration')), 'untimed explanation');
-      assert.equal(await evaluate(() => document.querySelectorAll('.rt-timeline-tick,.rt-timeline-playhead').length), 0);
+      assert.ok(await evaluate(() => /no step in this preview has a duration/i.test(document.querySelector('.rt-timeline-empty')?.textContent)), 'untimed explanation');
+      assert.equal(await evaluate(() => document.querySelectorAll('.rt-timeline-playhead,.rt-timeline-mark').length), 0);
+      assert.deepEqual(await evaluate(() => ({ total: document.querySelector('.rt-summary-total').textContent, row: document.querySelector('[data-library-item="untimed-routine"] .library-meta')?.lastChild?.textContent })),
+        { total: 'Untimed', row: 'Untimed' }, 'the summary line says the preview is untimed, like its library row');
       const geometry = await lane();
       await mouse('mouseDown', geometry.left + geometry.width / 2, geometry.y, false); await mouse('mouseUp', geometry.left + geometry.width / 2, geometry.y, false);
       assert.equal((await sliderState()).now, untimed.now, 'untimed press does nothing');

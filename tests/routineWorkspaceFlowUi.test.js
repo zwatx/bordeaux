@@ -2,7 +2,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { StepInspector, RoutineTransport } from '../src/renderer/components/RoutineInspector';
-import { RoutinePanel, addMenuSteps } from '../src/renderer/components/RoutinePanel';
+import { RoutinePanel, RoutineSummary, addMenuSteps } from '../src/renderer/components/RoutinePanel';
 import { PREVIEW_HELP, RoutineViewTools, RoutineWorkspace } from '../src/renderer/components/RoutineWorkspace';
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { createDemoProject } from '../src/core/project/defaults';
@@ -177,11 +177,11 @@ describe('preview boundary is stated once', () => {
   it('keeps the preview boundary to a closed two-sentence help popover', () => {
     const routine = { id: 'r', name: 'R', nodes: [repeat('routine_node_7f0c', [wait('w')], { until: { source: 'condition', conditionId: 'full' } })] };
     const run = AUTO.buildRun(routine, [], {}, {}, 'profiledSpline', catalog, undefined, { repeatPasses: { routine_node_7f0c: 2 } });
-    // The trigger sits in the field's view controls (RoutineViewTools), not a header row; it keeps a stable controlled
+    // The trigger ends the transport row (RoutineViewTools), not a header row; it keeps a stable controlled
     // region, and the native popover starts closed.
     expect(renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine, run, flow: null, field: null, transport: null, status: null }))).not.toMatch(/<header|routine-preview-notes/);
     const workspace = renderToStaticMarkup(React.createElement(RoutineViewTools, { robot: null, run }));
-    expect(workspace).toMatch(/<button type="button" class="vc-btn routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes" aria-label="About preview" title="About preview">/);
+    expect(workspace).toMatch(/<button type="button" class="rt-tp-btn routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes" aria-label="About preview" title="About preview">/);
     expect(workspace).toMatch(/<div id="routine-preview-notes" class="routine-preview-help" popover="auto" role="note" aria-label="About the local preview"><p>[^<]+<\/p><\/div>/);
     const help = text(workspace.match(/<div id="routine-preview-notes"[^>]*>([\s\S]*?)<\/div>/)[1]);
     expect(help).toBe(PREVIEW_HELP);
@@ -208,7 +208,7 @@ describe('preview boundary is stated once', () => {
       expect(html).not.toContain('routine-workspace-views');
       expect(html).not.toContain('Field preview<');
       expect(html).toMatch(/aria-label="Routine field preview">FIELD<[\s\S]*aria-label="Routine flow">FLOW</);
-      // About preview lives in the field's view controls (RoutineViewTools), so the field starts at the top.
+      // About preview ends the transport row (RoutineViewTools), so the field starts at the top.
       expect(html).not.toContain('aria-label="About preview"');
     }
     expect(empty).not.toContain('TRANSPORT');
@@ -222,6 +222,13 @@ describe('preview boundary is stated once', () => {
     const html = text(renderToStaticMarkup(React.createElement(RoutineTransport, { run, time: 0, playing: false, running: false, controls: {} })));
     // Time reads like the Paths transport: elapsed / total, without a redundant label.
     expect(html).toContain('0.00 / 0.00 s');
-    expect(html).toContain('1 untimed step not counted');
+    // The flow's summary line states what the total leaves out; the transport does not repeat it.
+    expect(html).not.toContain('untimed');
+    const summary = renderToStaticMarkup(React.createElement(RoutineSummary, { run }));
+    // With nothing timed, the total reads "Untimed" like the routine's library row.
+    expect(summary).toContain('<span class="rt-summary-total">Untimed</span>');
+    expect(summary).toContain('<span class="rt-summary-full">1 untimed step not counted</span>');
+    expect(summary).toContain('<span class="rt-summary-short" aria-hidden="true">1 untimed</span>');
+    expect(summary).toMatch(/title="Untimed preview\n1 untimed step not counted\nA command run time on the Robot page estimates an untimed command."/);
   });
 });

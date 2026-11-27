@@ -338,9 +338,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const jumps = useMemo(() => (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity'), [run]);
     return h(FieldView, { ...props, robot, playTime: 0, routine: overlay, routinePose: pose, routineJumps: jumps });
   }
-  function RoutineTransportPlayback({ store, run, routine }) {
+  function RoutineTransportPlayback({ store, run, routine, selectedId, tools }) {
     const playback = usePlayback(store), running = playback.playing || playback.time > 0.001;
-    return h(RoutineTransport, { run, routine, time: playback.time, playing: playback.playing, controls: store, running });
+    return h(RoutineTransport, { run, routine, time: playback.time, playing: playback.playing, controls: store, running, selectedId, tools });
   }
 
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
@@ -3123,7 +3123,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
               flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource, traceRoutine, robot, onPathPreview: setRoutinePathPreview, onSlotChange: setRoutineSlot }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, routineGhost: routinePathPreview, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, showTags, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, lead: h(RoutineViewTools, { robot, run }) })),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: h(React.Fragment, null,
                 (bdxNotice || exportError) && h('div', { className: 'routine-export-notices' }, h(FieldStatus, { notices: fieldNotices.filter(notice => ['bdx-export', 'export'].includes(notice.id)) })),
@@ -3132,7 +3132,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 h('div', { className: 'routine-status-copy' },
                   h('b', null, run.planningStatus === 'error' ? 'Routine planning failed' : run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'Planning routine trajectories…' : 'Preview unavailable'),
                   run.planningError && h('span', null, run.planningError)))),
-              transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run, routine }) }),
+              transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run, routine, selectedId: routineSel, tools: h(RoutineViewTools, { robot, run }) }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
               // An open rail shows a slot while it is open; a closed rail stays closed, so the flow never changes width.
               selNode && routineSlot ? h(SlotInspector, { dest: routineSlot, onClose: () => routineSource.current?.closeAdd() })

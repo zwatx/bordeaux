@@ -868,7 +868,7 @@ app.whenReady().then(async () => {
       assert.equal(await evaluate(() => document.querySelector('.rt-step[data-id="step-then"] .rt-step-body').getAttribute('aria-pressed')), 'true');
       assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Routine A');
       if (width === 1440) {
-        await click('.rail-r button', 'Open in path editor');
+        await click('.rail-r button', 'Open in Paths');
         assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Collect second');
         assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.library-pick[aria-pressed="true"]')].map((item) => item.dataset.libraryItem)), ['library-path-1'], 'Opening a routine step path must replace the prior saved batch');
         await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
