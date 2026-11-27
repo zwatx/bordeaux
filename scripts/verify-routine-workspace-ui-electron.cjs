@@ -410,10 +410,42 @@ app.whenReady().then(async () => {
       for (const clickCount of [1, 2]) for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount, ...handle });
       await wait(async () => (await splitState()).divider.now === split.divider.now, 'double-click resets the split');
       assert.equal((await splitState()).stored, null, 'A double-click forgets the chosen split');
-      // Clicking a step's path on the field selects that step, and the flow scrolls to it.
-      await evaluate(() => { document.querySelector('.rt-scroll').scrollTop = 0; });
-      const onField = await evaluate(() => {
+      // The field draws the previewed run as one quiet route: gray paths with direction chevrons, one numbered dot per
+      // step where it has room (numbered like its row in the flow, never overlapping), a flag where the routine ends, no
+      // end squares, no boxed labels and no name until a step is selected, running or under the pointer.
+      const fieldMarks = () => evaluate(() => {
+        const svg = document.querySelector('.routine-workspace-field .fieldsvg'), field = svg.getBoundingClientRect();
+        const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; };
+        return {
+          numbers: [...svg.querySelectorAll('.routine-step-number')].map(el => ({ id: el.dataset.idx, step: el.dataset.step, on: el.classList.contains('on'), ...box(el),
+            row: document.querySelector('.rt-step[data-id="' + el.dataset.idx + '"] .rt-step-num')?.textContent, hit: document.elementFromPoint(box(el).x, box(el).y)?.closest('.routine-step-number') === el })),
+          names: [...svg.querySelectorAll('.routine-step-name')].map(el => { const r = el.getBoundingClientRect();
+            return { id: el.dataset.node, step: el.dataset.step, on: el.classList.contains('on'), name: el.querySelector('text').textContent, inside: r.left >= field.left - 1 && r.right <= field.right + 1 && r.top >= field.top - 1 && r.bottom <= field.bottom + 1 }; }),
+          routes: [...svg.querySelectorAll('.routine-route')].map(el => ({ id: el.dataset.node, role: el.dataset.roleState, opacity: Number(el.getAttribute('stroke-opacity')), width: Number(el.getAttribute('stroke-width')) })),
+          chevrons: svg.querySelectorAll('.routine-chevrons').length, ends: svg.querySelectorAll('.routine-end').length,
+          squares: [...svg.querySelectorAll('rect')].filter(el => ['#4bbf86', '#d2655f'].includes(el.getAttribute('stroke'))).length,
+          old: svg.querySelectorAll('.routine-step-badge, .routine-step-label').length,
+          selected: document.querySelector('.rt-step.sel')?.dataset.id, field: box(svg), controls: box(document.querySelector('.routine-workspace-field .viewctl')),
+          nameBoxes: [...svg.querySelectorAll('.routine-step-name')].map(box) };
+      });
+      const noOverlap = (numbers) => { for (const [i, a] of numbers.entries()) for (const b of numbers.slice(i + 1)) {
+        assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, 'Step numbers do not overlap: ' + JSON.stringify([a, b]));
+        assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 29, 'Step numbers keep about 30px apart: ' + JSON.stringify([a, b]));
+      } };
+      const idle = await fieldMarks();
+      const traced = await evaluate(() => [...new Set([...document.querySelectorAll('.routine-workspace-field path[data-role="rpath"]')].map(el => el.dataset.idx))].sort());
+      // The decision's preview route is drawn; the route the preview does not follow is not.
+      const liveRoute = await evaluate(() => document.querySelector('.rt-branch.live .rt-brname')?.textContent);
+      assert.deepEqual(traced, liveRoute?.startsWith('Full') ? ['return', 'score'] : ['collect', 'return'], 'The field draws the previewed route only: ' + JSON.stringify({ liveRoute, traced }));
+      assert.ok(idle.routes.length >= traced.length && idle.routes.every(r => r.role === 'route') && idle.chevrons === idle.routes.length, 'Idle draws every path as the quiet route with chevrons: ' + JSON.stringify(idle.routes));
+      assert.ok(idle.numbers.length >= 1 && idle.numbers.every(n => traced.includes(n.id) && n.step === n.row && n.hit && !n.on), 'Numbers match the flow and can be pressed: ' + JSON.stringify(idle.numbers));
+      assert.equal(new Set(idle.numbers.map(n => n.id)).size, idle.numbers.length, 'Repeated passes of a step show one number');
+      noOverlap(idle.numbers);
+      assert.ok(idle.ends === 1 && idle.squares === 0 && idle.old === 0 && idle.names.length === 0, 'One end flag, no end squares, no labels while idle: ' + JSON.stringify({ ends: idle.ends, squares: idle.squares, old: idle.old, names: idle.names }));
+      // Hovering a path brightens it and names it; leaving takes the name away.
+      const pathPoint = (exclude) => evaluate((exclude) => {
         for (const element of document.querySelectorAll('.routine-workspace-field path[data-role="rpath"]')) {
+          if (element.dataset.idx === exclude) continue;
           const length = element.getTotalLength(), m = element.getScreenCTM();
           for (let f = 0.3; f <= 0.9; f += 0.05) {
             const p = element.getPointAtLength(length * f), x = Math.round(m.a * p.x + m.c * p.y + m.e), y = Math.round(m.b * p.x + m.d * p.y + m.f);
@@ -421,8 +453,20 @@ app.whenReady().then(async () => {
           }
         }
         return null;
-      });
+      }, exclude ?? null);
+      const onField = await pathPoint();
       assert.ok(onField, 'A routine path on the field can be pressed');
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: onField.x, y: onField.y });
+      await wait(async () => (await fieldMarks()).names.length === 1, 'hovering a path names it');
+      const pathHover = await fieldMarks();
+      assert.ok(pathHover.names[0].id === onField.id && !pathHover.names[0].on && pathHover.names[0].inside && pathHover.names[0].name.startsWith(pathHover.names[0].step + ' · ')
+        && route.name.startsWith(pathHover.names[0].name.split(' · ')[1].replace(/…$/, '')), 'The hovered path shows its number and name inside the field: ' + JSON.stringify(pathHover.names));
+      assert.equal(await evaluate(() => document.querySelectorAll('.routine-workspace-field .routine-hover').length > 0), true, 'The hovered path is brightened');
+      await snapshot('field-path-hover-' + width);
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(idle.field.left + 6), y: Math.round(idle.field.top + 6) });
+      await wait(async () => (await fieldMarks()).names.length === 0 && !(await evaluate(() => document.querySelector('.routine-workspace-field .routine-hover'))), 'leaving the path hides its name');
+      // Clicking a step's path on the field selects that step, and the flow scrolls to it.
+      await evaluate(() => { document.querySelector('.rt-scroll').scrollTop = 0; });
       await focus();
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, x: onField.x, y: onField.y });
       await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id && Boolean(document.querySelector('.routine-insp')), onField.id), 'a field path selects its step');
@@ -430,42 +474,36 @@ app.whenReady().then(async () => {
         const row = document.querySelector('.rt-step.sel').getBoundingClientRect(), scroll = document.querySelector('.rt-scroll').getBoundingClientRect();
         return row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1;
       }), 'The step selected on the field is in view in the flow');
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(idle.field.left + 6), y: Math.round(idle.field.top + 6) });
       await snapshot('field-selects-step-' + width);
-      // Each path step on the field has one badge with its row's number in the flow, even when three steps share one
-      // path; badges never overlap. Only the selected step shows its name beside its badge.
-      const badges = () => evaluate(() => {
-        const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; };
-        return { badges: [...document.querySelectorAll('.routine-workspace-field .routine-step-badge')].map(el => ({ id: el.dataset.idx, step: el.dataset.step, ...box(el),
-            row: document.querySelector('.rt-step[data-id="' + el.dataset.idx + '"] .rt-step-num')?.textContent, hit: document.elementFromPoint(box(el).x, box(el).y)?.closest('.routine-step-badge') === el })),
-          labels: [...document.querySelectorAll('.routine-workspace-field .routine-step-label')].map(el => { const r = el.getBoundingClientRect(), svg = document.querySelector('.routine-workspace-field .fieldsvg').getBoundingClientRect();
-            return { step: el.dataset.step, name: el.querySelectorAll('text')[1].textContent, inside: r.left >= svg.left - 1 && r.right <= svg.right + 1 }; }),
-          selected: document.querySelector('.rt-step.sel')?.dataset.id, field: box(document.querySelector('.routine-workspace-field .fieldsvg')) };
-      });
-      const marks = await badges();
-      const traced = await evaluate(() => [...new Set([...document.querySelectorAll('.routine-workspace-field path[data-role="rpath"]')].map(el => el.dataset.idx))].sort());
-      assert.deepEqual(marks.badges.map(b => b.id).sort(), traced, 'One badge per path step on the field: ' + JSON.stringify(marks.badges));
-      assert.ok(marks.badges.length >= 2 && marks.badges.every(b => b.step === b.row && b.hit), 'Badges show their step numbers from the flow and can be pressed: ' + JSON.stringify(marks.badges));
-      for (const [i, a] of marks.badges.entries()) for (const b of marks.badges.slice(i + 1)) {
-        assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, 'Badges do not overlap: ' + JSON.stringify([a, b]));
-      }
-      const selectedStep = marks.badges.find(b => b.id === onField.id).step;
-      assert.deepEqual(marks.labels.map(l => l.step), [selectedStep], 'Only the selected step shows its name on the field');
-      // A long name ends in an ellipsis rather than leaving the field.
-      assert.ok(marks.labels[0].inside && route.name.startsWith(marks.labels[0].name.replace(/\u2026$/, '')) && marks.labels[0].name.length > 12, 'The label names the path inside the field: ' + JSON.stringify(marks.labels[0]));
-      // The path under the pointer (its badge here) shows its name too, until the pointer leaves it.
-      const other = marks.badges.find(b => b.id !== onField.id);
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: other.x, y: other.y });
-      await wait(async () => (await badges()).labels.map(l => l.step).sort().join() === [selectedStep, other.step].sort().join(), 'hovering a badge shows its name');
-      await snapshot('field-badge-hover-' + width);
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(marks.field.left + 6), y: Math.round(marks.field.top + 6) });
-      await wait(async () => (await badges()).labels.map(l => l.step).join() === selectedStep, 'leaving the badge hides its name');
-      // Pressing a badge selects its step, like pressing its path.
+      // Focus: the selected step is white and wider with one name pill; the path before and after it stay readable and
+      // everything else fades, without numbers.
+      const focused = await fieldMarks();
+      const selectedRoutes = focused.routes.filter(r => r.id === onField.id), others = focused.routes.filter(r => r.id !== onField.id);
+      assert.ok(selectedRoutes.length && selectedRoutes.every(r => r.role === 'selected' && r.opacity === 1), 'The selected step draws in focus: ' + JSON.stringify(focused.routes));
+      assert.ok(others.every(r => ['before', 'after', 'faded'].includes(r.role) && r.opacity <= 0.7 && r.width < selectedRoutes[0].width)
+        && others.filter(r => r.role === 'faded').every(r => r.opacity <= 0.15), 'Focus dims every other path: ' + JSON.stringify(others));
+      assert.equal(focused.names.length, 1, 'Exactly one name pill while a step is selected: ' + JSON.stringify(focused.names));
+      const pill = focused.nameBoxes[0], controls = focused.controls;
+      assert.ok(pill.right <= controls.left || controls.right <= pill.left || pill.bottom <= controls.top || controls.bottom <= pill.top, 'The pill keeps clear of the view controls: ' + JSON.stringify({ pill, controls }));
+      assert.ok(focused.names[0].on && focused.names[0].id === onField.id && focused.names[0].inside && focused.names[0].name.length > 12
+        && route.name.startsWith(focused.names[0].name.replace(/…$/, '')), 'The pill names the selected path inside the field: ' + JSON.stringify(focused.names));
+      const focusedRoles = new Map(focused.routes.map(r => [r.id, r.role]));
+      assert.ok(focused.numbers.some(n => n.id === onField.id && n.on && n.step === n.row) && focused.numbers.every(n => n.id === onField.id || focused.routes.some(r => r.id === n.id && r.role !== 'faded')),
+        'Focus numbers only the selected step and its neighbors: ' + JSON.stringify({ numbers: focused.numbers, roles: [...focusedRoles] }));
+      noOverlap(focused.numbers);
+      assert.equal(focused.squares + focused.old, 0, 'No end squares or boxed labels while a step is selected');
+      // Pressing a step's number selects that step, like pressing its path.
+      await click('button[aria-label="Close step inspector"]');
+      await wait(async () => !(await fieldMarks()).selected, 'closing the inspector clears the selection');
+      const number = (await fieldMarks()).numbers.find(n => n.id !== onField.id) || (await fieldMarks()).numbers[0];
       await focus();
-      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, x: other.x, y: other.y });
-      await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id, other.id), 'a badge selects its step');
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(marks.field.left + 6), y: Math.round(marks.field.top + 6) });
-      await wait(async () => (await badges()).labels.map(l => l.step).join() === other.step, 'the newly selected step shows its name');
-      // Playback: the running row and the robot on the field show together.
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: number.x, y: number.y });
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, x: number.x, y: number.y });
+      await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id, number.id), 'a number selects its step');
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(idle.field.left + 6), y: Math.round(idle.field.top + 6) });
+      await wait(async () => { const marks = await fieldMarks(); return marks.names.length === 1 && marks.names[0].id === number.id && marks.names[0].on; }, 'the newly selected step shows its name');
+      // Playback: the running row and the robot on the field visible together.
       const lane = await evaluate(() => { const r = document.querySelector('.rt-timeline-editor').getBoundingClientRect(); return { x: Math.round(r.left + r.width * 0.3), y: Math.round(r.top + 30) }; });
       await focus();
       for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...lane });
@@ -478,18 +516,24 @@ app.whenReady().then(async () => {
           row: row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1 };
       });
       assert.ok(playing.robot && playing.row && playing.field > 150 && playing.flow > 130, 'The robot on the field and the running row are visible together: ' + JSON.stringify(playing));
-      // The running path step shows its name beside its badge during playback.
+      // The running path step is the one lit path, numbered, with one name pill; done paths are solid and pending dashed.
       const activeRow = await evaluate(() => { const row = document.querySelector('.rt-step.active'); return { id: row.dataset.id, step: row.querySelector('.rt-step-num').textContent }; });
-      const activeLabels = (await badges()).labels.map(l => l.step);
-      assert.ok((await badges()).badges.some(b => b.id === activeRow.id), 'The seek lands on a path step: ' + activeRow.id);
-      assert.ok(activeLabels.includes(activeRow.step), 'The running path step shows its name: ' + JSON.stringify({ activeRow, activeLabels }));
+      const played = await fieldMarks();
+      assert.ok(traced.includes(activeRow.id), 'The seek lands on a path step: ' + activeRow.id);
+      assert.ok(played.routes.filter(r => r.role === 'active').length === 1 && played.routes.every(r => ['done', 'active', 'pending'].includes(r.role)), 'Playback lights the running path: ' + JSON.stringify(played.routes));
+      assert.deepEqual(played.numbers.map(n => n.step), [activeRow.step], 'Playback numbers only the running step');
+      assert.ok(played.names.length === 1 && played.names[0].on && played.names[0].id === activeRow.id, 'The running step shows its name: ' + JSON.stringify({ activeRow, names: played.names }));
       await snapshot('playback-' + width);
       await click('[aria-label="Restart routine"]');
       await click('button[aria-label="Close step inspector"]');
-      // Pose jumps: the field's connector, the flow's mark and the inspector agree on the jump's size. A path that
-      // follows itself gets no link; a different previous path links this start to its end as one Undo step.
+      // Pose jumps: the field's dotted line, the flow's mark and the inspector agree on the jump's size. The jump into the
+      // selected step is the one amber line with its distance, as the inspector states it. A path that follows itself
+      // gets no link; a different previous path links this start to its end as one Undo step.
       const jumpState = (id) => evaluate((id) => ({
         field: [...document.querySelectorAll('.routine-workspace-field .routine-jump')].filter(el => el.dataset.node === id).map(el => el.dataset.size),
+        into: [...document.querySelectorAll('.routine-workspace-field .routine-jump.on')].map(el => el.dataset.node),
+        chips: [...document.querySelectorAll('.routine-workspace-field .routine-jump-distance')].map(el => ({ node: el.closest('.routine-jump').dataset.node, text: el.textContent })),
+        strokes: [...document.querySelectorAll('.routine-workspace-field .routine-jump line')].map(el => getComputedStyle(el).stroke),
         flow: document.querySelector('.rt-step[data-id="' + id + '"] .rt-step-flag')?.dataset.jump ?? null,
         inspector: [...document.querySelectorAll('.routine-insp .rt-jump')].map(el => el.dataset.size),
         links: document.querySelectorAll('.routine-insp .rt-jump-link').length,
@@ -499,6 +543,9 @@ app.whenReady().then(async () => {
       const selfJump = await jumpState('return');
       assert.ok(selfJump.links === 0 && selfJump.text.includes('this same path') && selfJump.field.length === 1 && selfJump.field[0] === selfJump.inspector[0] && selfJump.flow === selfJump.inspector[0],
         'A path following itself shows its jump, sized the same everywhere, without a link: ' + JSON.stringify(selfJump));
+      assert.ok(selfJump.into.join() === 'return' && selfJump.chips.length === 1 && selfJump.chips[0].node === 'return' && /\d/.test(selfJump.chips[0].text)
+        && selfJump.text.includes('Starts ' + selfJump.chips[0].text), 'The jump into the selected step carries its distance in the display units: ' + JSON.stringify(selfJump));
+      assert.ok(selfJump.strokes.every(stroke => !/rgb\(210, 101, 95\)/.test(stroke)), 'No red jump lines: ' + JSON.stringify(selfJump.strokes));
       await click('.routine-change-path');
       await wait(() => evaluate(() => document.activeElement?.matches('#rt-source.replace input')), 'Change path opens the path library');
       await click('#rt-source [data-row="path:' + spare.id + '"]');
@@ -506,7 +553,8 @@ app.whenReady().then(async () => {
       await planned();
       await wait(async () => (await jumpState('return')).links === 1, 'a jump from another path offers its link');
       const jump = await jumpState('return');
-      assert.ok(['medium', 'large'].includes(jump.inspector[0]) && jump.field.join() === jump.inspector.join() && jump.flow === jump.inspector[0] && jump.text.includes(route.name),
+      assert.ok(['medium', 'large'].includes(jump.inspector[0]) && jump.field.join() === jump.inspector.join() && jump.flow === jump.inspector[0] && jump.text.includes(route.name)
+        && jump.chips.length === 1 && jump.text.includes('Starts ' + jump.chips[0].text),
         'The jump names the previous path and has one size on the field, in the flow and in the inspector: ' + JSON.stringify(jump));
       await snapshot('pose-jump-' + width);
       const pathsBefore = structuredClone(published.paths);
@@ -520,7 +568,7 @@ app.whenReady().then(async () => {
       await wait(() => evaluate(() => document.activeElement?.classList.contains('rt-jump-done') && !document.querySelector('.rt-jump-link')), 'a note takes the link\'s place and focus');
       await planned();
       const linked = await jumpState('return');
-      assert.ok(linked.links === 0 && linked.field.every(size => size === 'small') && (linked.flow === null || linked.flow === 'small'), 'After the link only a facing difference can remain: ' + JSON.stringify(linked));
+      assert.ok(linked.links === 0 && linked.field.length === 0 && linked.chips.length === 0 && (linked.flow === null || linked.flow === 'small'), 'After the link only a facing difference can remain, which draws nothing: ' + JSON.stringify(linked));
       await snapshot('pose-jump-linked-' + width);
       await key('z', ['meta']);
       await wait(() => JSON.stringify(published.paths) === JSON.stringify(pathsBefore), 'one Undo restores both paths');
@@ -742,7 +790,7 @@ app.whenReady().then(async () => {
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field step badges: flow numbers, no overlap, labels on select/hover/playback, badge selects', 'pose jumps: one size on field, flow and inspector, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));
