@@ -1,15 +1,10 @@
-import type { BordeauxProject, ControlPoint, PathDoc, RobotConfig, RotationDirection, TurnInPlace, Waypoint } from "../types";
+import type { ControlPoint, PathDoc, RobotConfig, RotationDirection, TurnInPlace, Waypoint } from "../types";
 import { wrapRadians } from "../math/angles";
 import { deriveHeadingGeometry } from "../math/pm";
-import { acceptedTrajectoryShapeError, optimizationInputKey } from "../planners/acceptedTrajectoryIdentity";
 import { MAX_AUTHORED_ANGLE_DEG } from "../planners/limits";
-import { routeIntentKey } from "../planners/routeIdentity";
-import { routePlanningPath } from "../planners/routeGeometry";
 
 export type FieldFlipDirection = "horizontal" | "vertical" | "rotate";
-type PlanningContext = Pick<BordeauxProject, "robot" | "field">;
 
-const oppositeAlliancePoint = ({ x, y }: ControlPoint): ControlPoint => ({ x: -x, y: -y });
 const mirrorMoving = (direction: RotationDirection): RotationDirection => direction === "cw" ? "ccw" : direction === "ccw" ? "cw" : direction;
 const mirrorStationary = (direction: NonNullable<TurnInPlace["direction"]>): NonNullable<TurnInPlace["direction"]> =>
   direction === "clockwise" ? "counterclockwise" : direction === "counterclockwise" ? "clockwise" : direction;
@@ -74,31 +69,7 @@ function flipFieldPath(path: PathDoc, direction: FieldFlipDirection, robot: Robo
   };
 }
 
-/** Only a rigid half-turn of the current path can carry its qualified robot trajectory forward. */
-export function flipPath(path: PathDoc, direction: FieldFlipDirection, { robot, field }: PlanningContext,
-  qualifyAccepted: (path: PathDoc) => boolean, copy = false): PathDoc {
-  const flipped = flipFieldPath(path, direction, robot), accepted = path.optimization?.accepted;
-  if (accepted?.requiresFieldReview && !copy) return flipped;
-  const keyFor = accepted?.version === 2 ? routeIntentKey : optimizationInputKey;
-  if (direction !== "rotate" || copy || accepted && accepted.inputKey !== keyFor(path, robot, field)) {
-    // Replan a reflection with the actual robot. A stale selection cannot reactivate at the transformed geometry.
-    const corridorM = path.optimization?.corridorM;
-    if (corridorM === undefined) delete flipped.optimization;
-    else flipped.optimization = { corridorM };
-    return flipped;
-  }
-  if (!accepted) return flipped;
-  if (acceptedTrajectoryShapeError(accepted) || !qualifyAccepted(path)) {
-    throw new Error(`${path.name}: The applied optimization is invalid or unverified. Choose Use normal or optimize and apply again before flipping.`);
-  }
-  const result = accepted.result;
-  const routeGeometry = result.routeGeometry && { ...result.routeGeometry, knots: result.routeGeometry.knots.map((knot) => ({ ...knot,
-    ...oppositeAlliancePoint(knot), prevC: oppositeAlliancePoint(knot.prevC), nextC: oppositeAlliancePoint(knot.nextC) })) };
-  const transformed = { ...result,
-    samples: result.samples.map((sample) => ({ ...sample, ...oppositeAlliancePoint(sample), headingRad: sample.headingRad + Math.PI })),
-    ...(routeGeometry ? { routeGeometry, optimizedPath: routePlanningPath(flipped, routeGeometry) }
-      : result.optimizedPath ? { optimizedPath: flipFieldPath(result.optimizedPath, "rotate", robot) } : {}),
-  };
-  flipped.optimization = { ...flipped.optimization, accepted: { ...accepted, result: transformed, inputKey: keyFor(flipped, robot, field) } };
-  return flipped;
+/** The path moved to the other side of the field. Waypoints Optimize added stay flagged; timing is replanned. */
+export function flipPath(path: PathDoc, direction: FieldFlipDirection, robot: RobotConfig): PathDoc {
+  return flipFieldPath(path, direction, robot);
 }

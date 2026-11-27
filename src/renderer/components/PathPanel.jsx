@@ -120,6 +120,7 @@ export function PathPanel({ doc, sel, derived, tl, robot, drive, project, action
       plain.where && h('p', { className: 'pp-problem-line' }, plain.where),
       plain.values && h('p', { className: 'pp-problem-line num' }, plain.values),
       plain.by && h('p', { className: 'pp-problem-line' }, 'Limit: ' + plain.by),
+      plain.advice && h('p', { className: 'pp-problem-line' }, plain.advice),
       plain.fixable && onFixIssue && h('button', { type: 'button', className: 'qbtn pp-action', onClick: () => onFixIssue(issue) }, 'Slow here'),
       plain.engine && h('details', { className: 'pp-details' }, h('summary', null, 'Details'), h('p', null, plain.engine)));
   } else if (sel.kind === 'wp' && wps[sel.idx]) {

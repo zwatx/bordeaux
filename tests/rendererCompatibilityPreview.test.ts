@@ -124,7 +124,7 @@ describe("renderer application", () => {
   it("presents deliberate optimization and BDX export", () => {
     const panels = fs.readFileSync(new URL("../src/renderer/components/Panels.jsx", import.meta.url), "utf8");
     const app = fs.readFileSync(new URL("../src/renderer/app/App.jsx", import.meta.url), "utf8");
-    expect(panels).toContain("optimizationApplied ? 'Optimized' : 'Optimize'");
+    expect(panels).toContain("onClick: toggleOptimization }, 'Optimize')");
     expect(panels).not.toContain("function PlannerFamily");
     expect(app).toContain("exportBdx");
     expect(app).not.toContain("exportRobot");
@@ -167,7 +167,8 @@ describe("renderer application", () => {
     expect(app).not.toMatch(/project\.routine(?!s)/);
     expect(app).not.toMatch(/\.\.\.project,\s*routine[,}]/);
     expect(app).toContain("const plannerId = 'profiledSpline'");
-    expect(app).toContain("doc.optimization?.accepted");
+    expect(app).not.toContain("optimization?.accepted");
+    expect(app).toContain("applyRoute(currentPath, geometry)");
     expect(app).not.toContain("setPlannerId");
   });
 
