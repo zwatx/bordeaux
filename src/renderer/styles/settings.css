@@ -87,7 +87,7 @@
 /* The view shows no focus ring: its controls sit inside it, and a ring around the whole drawing reads as an error.
    Plain :focus is named too, because Safari rings a clicked SVG that does not match :focus-visible. */
 .rp-cam-stage svg:is(:focus,:focus-visible){outline:none!important}
-.rp-cam-picks,.rp-cam-views,.rp-cam-tip,.rp-cam-zoom{position:absolute}
+.rp-cam-picks,.rp-cam-views,.rp-cam-zoom{position:absolute}
 .rp-cam-picks{top:10px;left:10px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 210px)}
 .rp-cam-pick{max-width:160px;height:28px;padding:0 10px;overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--txt-2);font-size:12px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
 .rp-cam-pick.on{border-color:var(--accent-line);background:var(--bg-3);color:var(--txt)}
@@ -99,7 +99,6 @@
 .rp-cam-zoom .rp-cam-action{width:24px;height:24px}
 .rp-cam-action:disabled{opacity:.4}
 .rp-cam-action:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-.rp-cam-tip{bottom:9px;left:12px;color:var(--txt-3);font-size:11px;pointer-events:none}
 .rp-cam-grid{stroke:var(--line-2)}
 /* The block is see-through, so a camera mounted inside a tall robot still shows. */
 :is(.rp-cam-body,.rp-cam-bodyTop){fill:oklch(.34 .003 286/.4);stroke:var(--line-3);stroke-width:1.5;stroke-linejoin:round}
@@ -124,7 +123,7 @@
 /* An error under a box needs room below the band. */
 .rp-cam-fields:has(.cmd-param-error){padding-bottom:18px}
 .rp-cam-fields .rp-big .cmd-param-error{right:auto;left:0}
-@media(max-width:700px){.rp-cam-picks{max-width:calc(100% - 20px)}.seg.rp-cam-views{top:auto;right:auto;bottom:8px;left:10px}.rp-cam-tip{display:none}}
+@media(max-width:700px){.rp-cam-picks{max-width:calc(100% - 20px)}.seg.rp-cam-views{top:auto;right:auto;bottom:8px;left:10px}}
 
 /* The footprint preview sits beside the dimensions that draw it. */
 .rp-robot{display:grid;grid-template-columns:minmax(0,1fr) auto}

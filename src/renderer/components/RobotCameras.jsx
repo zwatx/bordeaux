@@ -100,7 +100,6 @@ export function RobotCameras({ robot, setRobot, footprint, BigNum }) {
         cameras.map((camera) => h('button', { key: camera.id, type: 'button', className: 'rp-cam-pick' + (camera === selected ? ' on' : ''), 'aria-pressed': camera === selected, onClick: () => pick(camera.id) }, camera.name)),
         cameras.length < CAMERA_LIMIT && h('button', { type: 'button', className: 'rp-cam-pick new', onClick: add }, '+ New camera')),
       h(UI.Seg, { className: 'rp-cam-views', ariaLabel: '3D view angle', value: namedView, options: VIEW_OPTIONS, onChange: (key) => setView(CAMERA_SCENE_VIEWS[key]) }),
-      h('span', { className: 'rp-cam-tip', 'aria-hidden': true }, 'Drag to turn'),
       h('div', { className: 'rp-cam-zoom', role: 'group', 'aria-label': 'Zoom' },
         h('button', { type: 'button', className: 'rp-cam-action', 'aria-label': 'Zoom out', title: 'Zoom out', disabled: zoom <= ZOOM.min, onClick: () => zoomBy(1 / ZOOM.step) }, h(UI.Icon, { name: 'minus', size: 14 })),
         h('button', { type: 'button', className: 'rp-cam-action', 'aria-label': 'Zoom in', title: 'Zoom in', disabled: zoom >= ZOOM.max, onClick: () => zoomBy(ZOOM.step) }, h(UI.Icon, { name: 'plus', size: 14 })))),
