@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('bordeauxAPI', {
   saveRobotFileSettings: process.argv.includes('--robot-list-ui-fixture')
     ? (endpoint) => ipcRenderer.invoke('branches:save-endpoint', endpoint)
     : forbidden('saveRobotFileSettings'),
+  // The robot list check reads robot files from a mocked push folder (read-only) and validates as the desktop host does.
+  ...(process.argv.includes('--robot-list-ui-fixture') ? {
+    readRobotFiles: (fileNames) => ipcRenderer.invoke('branches:read-robot-files', fileNames),
+    validateProject: (project) => ipcRenderer.invoke('branches:validate', project),
+  } : {}),
   ...Object.fromEntries(['prepareRobotFiles', 'probeRobotFiles', 'trustRobotFiles', 'confirmRobotFiles', 'cancelRobotFiles',
     'prepareRobotPush', 'confirmRobotPush', 'cancelRobotPush', 'pinRobotRevision', 'rollbackRobotRevision', 'connectRobot', 'disconnectRobot', 'exportRobot'].map(name => [name, forbidden(name)])),
   autosaveProject: async () => ({ saved: false }), setDirty: () => undefined,

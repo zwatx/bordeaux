@@ -55,7 +55,7 @@ export function RoutineWorkspace({ routine, flow, field, transport, status, run,
   return h('section', { className: 'routine-workspace', 'aria-label': 'Routine workspace: ' + routine.name },
     h('header', { className: 'routine-workspace-head' },
       h('div', { className: 'routine-workspace-actions' },
-        robot && h(PowerAnalysis, { robot, run }),
+        robot && h(PowerAnalysis, { robot, run, routine }),
         h('button', { ref: trigger, type: 'button', className: 'routine-workspace-about', popovertarget: 'routine-preview-notes',
           'aria-expanded': help, 'aria-controls': 'routine-preview-notes', 'aria-label': 'About preview', title: 'About preview',
           // Tabbing on closes it, so it never covers the control that takes focus next.

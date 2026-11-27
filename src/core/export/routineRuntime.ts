@@ -3,6 +3,7 @@ import type { BordeauxProject, CommandInvocation, RoutineNode, RoutineOutputStop
 import { commandInvocationValueErrors, robotParameterValueError } from '../robotCommands';
 import { preflightRoutine } from '../routineExecution';
 import { routineChildLists } from '../routineChildren';
+import { exportedInvocation } from '../markerCommands';
 import { binaryFileName, buildRobotBinary, encodeBdxArgument, type BinaryBindings } from './robotBinary';
 
 export const ROUTINE_RUNTIME_SCHEMA = 'bordeaux-routine-runtime/1';
@@ -64,7 +65,7 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
         args[parameter.name] = structuredClone(parameter.defaultValue!);
       }
     }
-    const result = { ...invocation, arguments: args };
+    const result = { ...exportedInvocation(invocation), arguments: args };
     const errors = commandInvocationValueErrors(result, descriptor);
     if (errors.length) throw new Error(errors.join('; '));
     return result;

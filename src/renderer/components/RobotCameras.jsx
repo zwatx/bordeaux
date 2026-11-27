@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { UI } from './ui';
-import { NameInput } from './RobotCards';
+import { NameInput } from './NameInput';
 import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES, CAMERA_RANGE_DEFAULT_M, addCamera, removeCamera, updateCamera } from '../../core/robotCameras';
 import { CAMERA_SCENE_VIEWS, cameraScene } from '../lib/cameraScene';
 

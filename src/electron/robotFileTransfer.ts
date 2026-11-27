@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { RobotFileConnection, RobotFileEndpoint, RobotPathFiles } from "../core/robotFileDelivery";
 import { ROBOT_TARGETS, allowsCustomPassword, isRobotTargetId } from "../core/robotTargets";
 import { COMMANDS_FILE_NAME } from "../core/export/commandsFile";
-import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
+import { RobotFileKeptError, RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession, type RobotSftpSessionFactory } from "./robotSftpTransport";
 import { connectRobotSftp, isDeployedPathName, validateRobotFileDirectory, validateRobotFileName } from "./robotSsh2Session";
 
 const MAX_BYTES = 24 * 1024 * 1024;
@@ -104,14 +104,17 @@ export async function listRobotPathFiles(
   });
 }
 
-/** Read the named path and routine files without changing the robot. Missing files are null. */
+/**
+ * Read the named path, routine and robot files without changing the robot. Missing files are null. When a `.robot`
+ * file is missing, `robotConfigs` lists the `.robot` files the folder holds, so the user can choose one.
+ */
 export async function readRobotFiles(
   connection: RobotFileConnection, fileNames: readonly string[], signal?: AbortSignal,
   factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
-): Promise<Array<{ fileName: string; contents: Buffer | null }>> {
+): Promise<{ files: Array<{ fileName: string; contents: Buffer | null }>; robotConfigs?: string[] }> {
   if (!Array.isArray(fileNames) || fileNames.length < 1 || fileNames.length > 64 || fileNames.includes(COMMANDS_FILE_NAME)
     || new Set(fileNames.map((name) => isDeployedPathName(name) ? name : validateRobotFileName(name))).size !== fileNames.length) {
-    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different .bdx or .bdr robot files to read");
+    throw new RobotTransportError("invalid_request", "Name between 1 and 64 different .bdx, .bdr or .robot robot files to read");
   }
   return withPinnedReadSession(connection, signal, factory, password, async (session, directory, operation) => {
     const files: Array<{ fileName: string; contents: Buffer | null }> = [];
@@ -130,7 +133,10 @@ export async function readRobotFiles(
       if (total > MAX_BYTES) throw new RobotTransportError("transfer_failed", "The robot's files total more than 24 MiB; read fewer at once");
       files.push({ fileName, contents });
     }
-    return files;
+    if (!files.some((file) => file.contents === null && /\.robot$/i.test(file.fileName))) return { files };
+    if (!session.listPathFiles) throw new RobotTransportError("unavailable", "Robot file listing is unavailable");
+    const listed = await session.listPathFiles(directory, operation, true);
+    return { files, robotConfigs: listed.files.map((file) => file.fileName).sort((a, b) => a.localeCompare(b)).slice(0, 64) };
   });
 }
 
@@ -140,11 +146,11 @@ export async function readRobotPathFile(
   factory: RobotSftpSessionFactory = connectRobotSftp, password: string | null = null,
 ): Promise<Buffer | null> {
   if (!isDeployedPathName(fileName)) throw new RobotTransportError("invalid_request", "Choose a safe BDX path basename");
-  const [file] = await readRobotFiles(connection, [fileName], signal, factory, password);
+  const { files: [file] } = await readRobotFiles(connection, [fileName], signal, factory, password);
   return file.contents;
 }
 
-/** Publishes each reviewed BDX file independently; never activates robot code. */
+/** Publishes each reviewed file (paths, routines, a robot's `.robot` file) independently; never activates robot code. */
 export async function uploadRobotFiles(
   connection: RobotFileConnection,
   files: Array<{ fileName: string; contents: Buffer }>,
@@ -157,7 +163,7 @@ export async function uploadRobotFiles(
   if (!/^SHA256:[A-Za-z0-9+/]{20,128}$/.test(connection.hostKeyFingerprint)) {
     throw new RobotTransportError("invalid_request", "Review the robot SSH identity before transferring files");
   }
-  const paths = Array.isArray(files) ? files.filter((file) => file?.fileName !== COMMANDS_FILE_NAME).length : 0;
+  const paths = Array.isArray(files) ? files.filter((file) => file?.fileName !== COMMANDS_FILE_NAME && !/\.robot$/i.test(file?.fileName ?? "")).length : 0;
   if (paths < 1 || paths > 64) {
     throw new RobotTransportError("invalid_request", "Select between 1 and 64 robot path files");
   }
@@ -223,6 +229,8 @@ export async function uploadRobotFiles(
     }
     return { directoryCreated };
   } catch (error) {
+    // The transport refused before touching the destination, so the file is not "possibly replaced".
+    if (error instanceof RobotFileKeptError && error.fileName === publishing) publishing = undefined;
     const reason = deadline.aborted ? "SFTP transfer timed out" : signal?.aborted ? "SFTP transfer was cancelled"
       : error instanceof Error ? error.message : "SFTP transfer failed";
     const code = deadline.aborted ? "timed_out" : signal?.aborted ? "cancelled"

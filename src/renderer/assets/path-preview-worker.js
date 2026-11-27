@@ -491,7 +491,7 @@ export function processPathPreviewJob(
   try {
     if (job.mode === 'power') {
       const value = job.segments
-        ? analyzeRoutinePower(job.robot, job.segments, job.totalTimeS)
+        ? analyzeRoutinePower(job.robot, job.segments, job.totalTimeS, job.commandSteps)
         : analyzeTrajectoryPower(job.robot, job.path, job.trajectory);
       return { id: job.id, value, durationMs: performance.now() - startedAt };
     }

@@ -78,7 +78,7 @@ describe('command load windows', () => {
     expect(windowsFor(loads, [marker('r', { invocation: run('feed'), schedule: { repeatEveryS: 2, endTimeS: 6.5 } }), marker('x', { invocation: run('unknown') })], [1, 2]))
       .toEqual([['feed', 1, 1.5, 10], ['feed', 3, 3.5, 10], ['feed', 5, 5.5, 10]]);
     expect(windowsFor(loads, [marker('expired', { invocation: run('feed'), schedule: { endTimeS: 0.5 } })], [1])).toEqual([]);
-    expect(commandsWithoutLoad(loads.driveModel, [marker('x', { invocation: run('unknown') }), marker('y', { invocation: run('shoot') })])).toEqual(['unknown']);
+    expect(commandsWithoutLoad(loads, [marker('x', { invocation: run('unknown') }), marker('y', { invocation: run('shoot') })])).toEqual(['unknown']);
   });
 
   it('bounds a later command over every start the sequence allows', () => {
@@ -160,7 +160,7 @@ describe('per-path planning reserve', () => {
 
   it('reserves each command a path starts once, and folds it into Other mechanisms only once', () => {
     const path = pathWith([run('shoot'), run('intake'), run('shoot'), run('unknown')]);
-    expect(pathCommandReserveA(heavy.driveModel, path.markers)).toBe(180);
+    expect(pathCommandReserveA(heavy, path.markers)).toBe(180);
     const planned = planningRobotForPath(heavy, path);
     expect(planned.driveModel!.otherLoadA).toBe(185);
     expect(planned.driveModel!.commandLoads).toBeUndefined();

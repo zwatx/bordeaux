@@ -29,6 +29,19 @@ export interface RobotCamera {
 }
 
 export interface RobotConfig {
+  /**
+   * On `BordeauxProject.robot`: the selected robot's project id (`activeRobotId`, or "robot" for a project without a
+   * robot list). Per-use command power estimates are keyed by it. Loading a project and the functions in
+   * src/core/project/robots.ts keep it current; planning drops it once the estimates are folded in.
+   */
+  id?: string;
+  /**
+   * Project robot ids whose per-use command power estimates this robot plans with on a use that has none of its own,
+   * nearest first. Duplicate sets it to the original and the original's own list, so a copy shares the original's
+   * estimates until it enters its own. The ids may name robots no longer in the project: their estimates stay on the
+   * uses. Saved with the robot's details.
+   */
+  estimatesFrom?: string[];
   drive: DriveType;
   w: number;
   l: number;
@@ -94,8 +107,10 @@ export interface RobotConfig {
     /** Minimum planned bus voltage, including margin above the configured brownout threshold. Default 7.25 V. */
     minimumBusVoltageV?: number;
     /**
-     * Supply current each command draws while it runs, on top of Other mechanisms. Path timing reserves the
-     * commands each path's events start; see commandLoads.ts for how their windows are timed.
+     * Legacy per-command supply current. Each use of a command now carries its own estimate
+     * (`CommandInvocation.power`); a use without one for this robot falls back to its command's load here, so older
+     * projects plan the same. `migrateLegacyCommandLoads` copies these onto the uses and keeps the table
+     * (removing it could strand a use an Undo brings back). See commandLoads.ts and project/commandPower.ts.
      */
     commandLoads?: CommandLoad[];
     /**
@@ -272,6 +287,24 @@ export interface CommandInvocation {
   cancelOnPathEnd?: boolean;
   /** Restart the command each time it finishes until the limit, then let the last run finish. */
   loop?: CommandLoop;
+  /**
+   * Planning-only power estimate of this one use, per project robot id (`ProjectRobot.id`, or "robot" for a project
+   * without a robot list). Never sent to the robot. See commandLoads.ts.
+   */
+  power?: Record<string, CommandPowerEstimate>;
+}
+
+/** What one use of a command draws on one robot, as the user estimated it. */
+export interface CommandPowerEstimate {
+  /** Additional battery current while the command runs, 0–500 A. */
+  currentA: number;
+  /** How long one run lasts, 0.01–3600 s. Unset: until a loop limit or path-end cancel stops it, else to the end. */
+  runTimeS?: number;
+  /**
+   * `commandInputKey` of the use when the estimate was entered. A different current key means the command or its
+   * arguments changed since: the estimate still plans (it may now be wrong either way) and is flagged for review.
+   */
+  inputKey: string;
 }
 
 /**
@@ -584,7 +617,16 @@ export interface PathConstraints {
   maxAngDecel?: number;
   maxJerk?: number;
   maxAngJerk?: number;
+  /**
+   * Limits that follow the path's robot: each plans at that robot's ceiling (with this path's command reserve), so
+   * switching robots never loses a value. The number stays as the last fixed value. Following maxAccel also follows
+   * maxDecel. See followRobotLimits in robotLimits.ts.
+   */
+  followRobotMax?: FollowableLimit[];
 }
+
+/** Path limits that can follow the robot's max. */
+export type FollowableLimit = "maxVel" | "maxAccel" | "maxCentripetalAccel" | "maxAngVel" | "maxAngAccel";
 
 export interface RoutineCommandOutputRoute {
   id: string;

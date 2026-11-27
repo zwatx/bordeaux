@@ -110,6 +110,16 @@ describe("reviewed robot file delivery", () => {
     await expect(delivery.confirm(second.operationId)).rejects.toThrow("Catalog changed");
     expect(transport.upload).not.toHaveBeenCalled();
   });
+  it("reviews a robot's .robot file beside its paths without counting it as a path, and only one", async () => {
+    const { delivery, transport } = setup();
+    const robot: PreparedRobotFile = { pathId: "robot:robot_1", name: "Comp bot", fileName: "Comp-bot.robot", contents: Buffer.from("{}\n") };
+    expect(() => delivery.prepare([robot], async () => undefined)).toThrow("Select between 1 and 64 paths to push");
+    expect(() => delivery.prepare([file(), robot, { ...robot, fileName: "Other.robot" }], async () => undefined)).toThrow(/one robot's details/);
+    const preview = delivery.prepare([file(), robot], async () => undefined);
+    expect(preview.files.map((item) => item.fileName)).toEqual(["Opening.bdx", "Comp-bot.robot"]);
+    expect((await delivery.confirm(preview.operationId)).files.map((item) => item.fileName)).toEqual(["Opening.bdx", "Comp-bot.robot"]);
+    expect(transport.upload.mock.calls[0][1].map((item) => item.fileName)).toEqual(["Opening.bdx", "Comp-bot.robot"]);
+  });
   it("rejects colliding file names before any transfer", () => {
     const { delivery, transport } = setup();
     expect(() => delivery.prepare([file(), { ...file(), pathId: "path-2", fileName: "opening.bdx" }], async () => undefined)).toThrow(/matching BDX filenames/);

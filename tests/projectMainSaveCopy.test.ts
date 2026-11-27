@@ -181,7 +181,8 @@ it("copies an admitted existing folder into a sibling while preserving every ori
   expect(await fileTree(original)).toEqual(before);
   const copied = await fileTree(destination), saved = (await openProjectFolder(destination)).project!;
   expect(Object.keys(copied).length).toBeGreaterThan(2);
-  expect(Object.keys(copied).every(file => file === ".bordeaux-workspace.json" || /^Paths\/.+\.path$/.test(file) || /^Routines\/.+\.routine$/.test(file))).toBe(true);
+  expect(Object.keys(copied).every(file => file === ".bordeaux-workspace.json" || /^Paths\/.+\.path$/.test(file) || /^Routines\/.+\.routine$/.test(file) || /^Robots\/.+\.robot$/.test(file))).toBe(true);
+  expect(copied["Robots/Robot.robot"]).toBeDefined();
   expect(canonicalProjectDigest(saved)).toBe(canonicalProjectDigest({ ...authored, name: "Sibling copy" }));
   expect(saved.paths[0].name).toBe("Current authored path"); expect(saved.routines[0].name).toBe("Current authored routine");
   expect(Object.keys(copied).some(file => /^Paths\/.+\.path$/.test(file) && copied[file] !== before[file])).toBe(true);

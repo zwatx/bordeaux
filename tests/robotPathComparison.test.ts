@@ -166,7 +166,7 @@ const connection = { endpoint: { target: "roborio" as const, host: "robot.local"
 function deliveryWith(read: (target: RobotFileConnection, fileName: string, signal?: AbortSignal) => Promise<Buffer | null>) {
   const upload = vi.fn();
   return { upload, delivery: new RobotFileDelivery(connection, vi.fn(), {
-    probe: vi.fn(), upload, read: async (target, [fileName], signal) => [{ fileName, contents: await read(target, fileName, signal) }],
+    probe: vi.fn(), upload, read: async (target, [fileName], signal) => ({ files: [{ fileName, contents: await read(target, fileName, signal) }] }),
   }) };
 }
 

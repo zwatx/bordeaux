@@ -578,3 +578,92 @@ describe('shipping robot delivery selection', () => {
     expect(bridge.prepareRobotFiles).not.toHaveBeenCalled();
   });
 });
+describe('robot details in a push', () => {
+  it('includes the robot file unless the robot is known to hold it, lets the user leave it out, and remembers a verified push', async () => {
+    const { createDemoProject } = await import('../src/core/project/defaults');
+    const { selectedRobotFile } = await import('../src/renderer/lib/robotFileMemory');
+    project = createDemoProject();
+    const pathId = project.paths[0].id, file = selectedRobotFile(project);
+    const files = (included) => [{ pathId, name: 'P', fileName: 'P.bdx', size: 64, sha256: 'abc' },
+      ...(included ? [{ pathId: 'robot:robot', name: 'Robot', fileName: file.fileName, size: file.size, sha256: file.sha256 }] : [])];
+    bridge.prepareRobotFiles = vi.fn(async (_project, _ids, options) => ({ operationId: 'op' + bridge.prepareRobotFiles.mock.calls.length, connection, files: files(options?.robotFile) }));
+    bridge.confirmRobotFiles = vi.fn(async () => ({ state: 'transferred', files: files(true), directory: connection.endpoint.directory }));
+    const c = await ready(); await c.requestPush({ kind: 'paths', pathIds: [pathId] });
+    expect(bridge.prepareRobotFiles.mock.calls[0][2]).toEqual({ robotFile: true });
+    expect(render().preview.robotFile).toMatchObject({ fileName: 'Robot.robot', name: 'Robot', status: 'unknown', included: true });
+    await render().includeRobotFile('stale', false);
+    await render().includeRobotFile('op1', true);
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+    await render().includeRobotFile('op1', false);
+    expect(bridge.cancelRobotFiles).toHaveBeenCalledExactlyOnceWith('op1');
+    expect(bridge.prepareRobotFiles.mock.calls[1]).toEqual([bridge.prepareRobotFiles.mock.calls[0][0], [pathId], { robotFile: false }]);
+    expect(render()).toMatchObject({ phase: 'review', preview: { operationId: 'op2', robotFile: { included: false } } });
+    expect(render().preview.files.map((item) => item.fileName)).toEqual(['P.bdx']);
+    await render().includeRobotFile('op2', true);
+    expect(render().preview.files.map((item) => item.fileName)).toEqual(['P.bdx', 'Robot.robot']);
+    await render().confirmPush();
+    expect(bridge.confirmRobotFiles).toHaveBeenCalledExactlyOnceWith('op3');
+    // The robot now holds exactly these bytes, so the next push leaves them out until they change.
+    await render().requestPush({ kind: 'paths', pathIds: [pathId] });
+    expect(bridge.prepareRobotFiles.mock.calls.at(-1)[2]).toEqual({ robotFile: false });
+    expect(render().preview.robotFile).toMatchObject({ status: 'same', included: false });
+    render().close();
+    project = { ...project, robot: { ...project.robot, w: project.robot.w + 0.01 } };
+    await render().requestPush({ kind: 'paths', pathIds: [pathId] });
+    expect(bridge.prepareRobotFiles.mock.calls.at(-1)[2]).toEqual({ robotFile: true });
+    expect(render().preview.robotFile).toMatchObject({ status: 'changed', included: true });
+  });
+
+  it('forgets what the robot held under the robot file after a push that included it failed', async () => {
+    const { createDemoProject } = await import('../src/core/project/defaults');
+    const { selectedRobotFile } = await import('../src/renderer/lib/robotFileMemory');
+    project = createDemoProject();
+    const pathId = project.paths[0].id;
+    const files = (included) => { const file = selectedRobotFile(project); return [{ pathId, name: 'P', fileName: 'P.bdx', size: 64, sha256: 'abc' },
+      ...(included ? [{ pathId: 'robot:robot', name: 'Robot', fileName: file.fileName, size: file.size, sha256: file.sha256 }] : [])]; };
+    bridge.prepareRobotFiles = vi.fn(async (_project, _ids, options) => ({ operationId: 'op' + bridge.prepareRobotFiles.mock.calls.length, connection, files: files(options?.robotFile) }));
+    bridge.confirmRobotFiles = vi.fn(async () => ({ state: 'transferred', files: files(true), directory: connection.endpoint.directory }));
+    const c = await ready(); await c.requestPush({ kind: 'paths', pathIds: [pathId] });
+    await render().confirmPush();
+    const pushed = project;
+    // Changed details go out, and the transfer fails part way: the robot may now hold either file.
+    project = { ...project, robot: { ...project.robot, w: project.robot.w + 0.01 } };
+    await render().requestPush({ kind: 'paths', pathIds: [pathId] });
+    expect(render().preview.robotFile).toMatchObject({ status: 'changed', included: true });
+    bridge.confirmRobotFiles.mockRejectedValueOnce(new Error('Read-back of Robot.robot failed.'));
+    await render().confirmPush();
+    expect(render().phase).toBe('failed');
+    // Back to the details of the verified push: not called the same, so the next Push sends them.
+    render().close();
+    project = pushed;
+    await render().requestPush({ kind: 'paths', pathIds: [pathId] });
+    expect(render().preview.robotFile).toMatchObject({ status: 'unknown', included: true });
+  });
+
+  it('never sends a robot file whose name another robot of the project also uses, and ignores a request to include it', async () => {
+    const { createDemoProject } = await import('../src/core/project/defaults');
+    const { prepareProjectFile } = await import('../src/core/project/fileFormat');
+    const { addRobot, renameRobot, selectRobot, setRobotConnection } = await import('../src/core/project/robots');
+    const base = setRobotConnection(prepareProjectFile(createDemoProject()), connection.endpoint);
+    project = selectRobot(addRobot(renameRobot(base, 'robot', 'Comp bot'), 'Comp-bot'), 'robot');
+    bridge.prepareRobotFiles = vi.fn(async () => ({ operationId: 'op' + bridge.prepareRobotFiles.mock.calls.length, connection, files: [{ pathId: project.paths[0].id, name: 'P', fileName: 'P.bdx', size: 64, sha256: 'abc' }] }));
+    const c = await ready(); await c.requestPush({ kind: 'paths', pathIds: [project.paths[0].id] });
+    expect(bridge.prepareRobotFiles.mock.calls[0][2]).toEqual({ robotFile: false });
+    expect(render().preview.robotFile).toMatchObject({ fileName: 'Comp-bot.robot', included: false, conflict: expect.stringContaining('“Comp bot” and “Comp-bot”') });
+    await render().includeRobotFile('op1', true);
+    expect(bridge.prepareRobotFiles).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('what this session knows a robot holds', () => {
+  it('belongs to the verified host key as well as the address, and a missing read forgets it', async () => {
+    const { forgetRobotFile, rememberRobotFile, robotFileStatus } = await import('../src/renderer/lib/robotFileMemory');
+    const file = { fileName: 'Memory-bot.robot', sha256: 'aa' };
+    rememberRobotFile(connection, file.fileName, 'aa');
+    expect(robotFileStatus(connection, file)).toBe('same');
+    expect(robotFileStatus({ ...connection, endpoint: { ...connection.endpoint, directory: connection.endpoint.directory + '/' } }, file)).toBe('same');
+    expect(robotFileStatus({ ...connection, hostKeyFingerprint: 'SHA256:other' }, file)).toBe('unknown');
+    forgetRobotFile(connection, file.fileName);
+    expect(robotFileStatus(connection, file)).toBe('unknown');
+  });
+});

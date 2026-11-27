@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { minimumBusVoltage } from '../../core/electricalPower';
+import { AUTO, routinePowerCommandSteps, routinePowerRun } from '../lib/routineModel';
 import '../styles/power-analysis.css';
 
 const h = React.createElement;
@@ -22,7 +23,8 @@ const heat = value => value == null ? { value: 'Not set', unset: true } : { valu
 /** The readout itself: problems first, then the five estimated quantities with the limit each is read against. */
 export function PowerReportBody({ report, robot, routine = false, error = '', updating = false, titleId }) {
   const findings = report ? powerFindings(report) : [];
-  const unloaded = report?.commandsWithoutLoad?.length || 0;
+  // Uses, not command names: two uses of one command with different arguments each need their own estimate.
+  const unloaded = report?.commandUses ? report.commandUses.uses - report.commandUses.estimated : report?.commandsWithoutLoad?.length || 0;
   const rows = report ? [
     ['Lowest bus voltage', { value: `${number(report.minimumBusVoltageV, 2)} V`, context: `floor ${number(minimumBusVoltage(robot), 2)} V`, bad: report.brownoutRisk || report.collapsed }],
     ['Peak battery current', { value: `${number(report.peakSupplyCurrentA)} A` }],
@@ -49,13 +51,64 @@ export function PowerReportBody({ report, robot, routine = false, error = '', up
         h('dd', { className: cell.unset ? 'power-value power-unset' : 'power-value' }, cell.value),
         h('dd', { className: 'power-context' }, cell.context || '')))),
     report && !error && unloaded > 0 && h('p', { className: 'power-note power-unloaded' },
-      `${unloaded === 1 ? '1 command' : unloaded + ' commands'} started here ${unloaded === 1 ? 'has' : 'have'} no load set, so ${unloaded === 1 ? 'it adds' : 'they add'} no current. Set command loads on the Robot page.`),
-    h('p', { className: 'power-note' }, 'Uses your battery condition, command loads and breaker curves. Breaker heat fits one cold-curve point, so it does not certify a no-trip run. Regenerative braking is not credited as extra battery capacity.'));
+      `${unloaded === 1 ? '1 command use' : unloaded + ' command uses'} here ${unloaded === 1 ? 'has' : 'have'} no power estimate, so ${unloaded === 1 ? 'it adds' : 'they add'} no estimated current. Add one with Add power estimate in the path event${routine ? ' or routine step' : ''} inspector.`),
+    h('p', { className: 'power-note' }, 'Uses your battery condition, command power estimates and breaker curves. Breaker heat fits one cold-curve point, so it does not certify a no-trip run. Regenerative braking is not credited as extra battery capacity.'));
 }
 
-function analyze({ robot, path, trajectory, run }) {
-  if (run?.truncated) return Promise.reject(new Error('This routine preview was truncated. A whole-routine heat estimate needs the complete sequence; analyze its individual paths instead.'));
-  if (run && (run.duration.unknownCount || run.duration.usesLimits)) return Promise.reject(new Error('This routine contains unknown or conditional durations. A whole-routine heat estimate needs exact timing; analyze its individual paths instead.'));
+const UNTIMED_ROUTINE = 'This routine contains unknown or conditional durations. A whole-routine heat estimate needs exact timing; analyze its individual paths instead.';
+
+/** A step as the flow numbers it: top-level steps by their number, nested ones by the numbered step they are in. */
+function stepName(node, routine) {
+  const title = AUTO.nodeTitle(node);
+  const top = (routine?.nodes || []).findIndex((candidate) => {
+    let found = false;
+    AUTO.walk([candidate], (item) => { if (item.id === node.id) found = true; });
+    return found;
+  });
+  if (top < 0) return title;
+  return routine.nodes[top].id === node.id ? `${title} (step ${top + 1})` : `${title} (in step ${top + 1})`;
+}
+
+const listed = (names) => names.length < 3 ? names.join(' and ')
+  : names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more steps`;
+
+/**
+ * Why a routine has no whole-routine estimate yet (`untimed` from routinePowerRun). Command steps a Runs for would time
+ * are named so they can be fixed, and steps that end on a condition are named with that reason; any other unknown or
+ * limit-bound step keeps the general refusal.
+ */
+export function untimedRoutineMessage(untimed, routine) {
+  const fixable = untimed.filter((step) => step.runTimeHelps).map((step) => stepName(step.node, routine));
+  const conditional = untimed.filter((step) => step.condition).map((step) => stepName(step.node, routine));
+  if (!fixable.length && !conditional.length) return UNTIMED_ROUTINE;
+  const parts = [
+    fixable.length && `Add a Runs for to ${listed(fixable)}`,
+    conditional.length && `${listed(conditional)} can’t be timed: ${conditional.length === 1 ? 'its end depends' : 'their ends depend'} on a condition`,
+  ].filter(Boolean);
+  const tail = fixable.length + conditional.length < untimed.length ? '. Other steps also have unknown or conditional durations, so analyze the routine’s paths individually.'
+    : conditional.length ? '. Analyze the routine’s paths individually instead.' : ', or analyze the routine’s paths individually.';
+  return `A whole-routine estimate needs every step's duration. ${parts.join('. ')}${tail}`;
+}
+
+/** The worker's power job: a path and its trajectory, or a routine timed by routinePowerRun with its command steps. */
+export function powerJob({ robot, path, trajectory, run }) {
+  return { id: 1, mode: 'power', robot, ...(run ? {
+    segments: run.segs.map(s => ({ t0: s.t0, t1: s.t1, doc: s.doc, trajectory: s.trajectory })), totalTimeS: run.total,
+    commandSteps: routinePowerCommandSteps(run),
+  } : { path, trajectory }) };
+}
+
+/** A job refused before it starts; like a running one it can be cancelled, which does nothing. */
+function refused(message) {
+  const promise = Promise.reject(new Error(message));
+  promise.cancel = () => {};
+  return promise;
+}
+
+/** `timed` is routinePowerRun's result for a routine. The returned job can be cancelled. */
+export function startPowerAnalysis({ robot, path, trajectory, timed, routine }) {
+  if (timed?.run.truncated) return refused('This routine preview was truncated. A whole-routine heat estimate needs the complete sequence; analyze its individual paths instead.');
+  if (timed?.untimed.length) return refused(untimedRoutineMessage(timed.untimed, routine));
   let worker, timer;
   const promise = new Promise((resolve, reject) => {
     worker = new Worker(new URL('../assets/path-preview-worker.js', import.meta.url), { type: 'module' });
@@ -67,9 +120,7 @@ function analyze({ robot, path, trajectory, run }) {
     };
     worker.onerror = () => { clearTimeout(timer); worker.terminate(); reject(new Error('Power analysis could not finish. Close this report and try again.')); };
     timer = setTimeout(() => { worker.terminate(); reject(new Error('Power analysis exceeded its time limit. Analyze a shorter sequence.')); }, 30000);
-    worker.postMessage({ id: 1, mode: 'power', robot, ...(run ? {
-      segments: run.segs.map(s => ({ t0: s.t0, t1: s.t1, doc: s.doc, trajectory: s.trajectory })), totalTimeS: run.total,
-    } : { path, trajectory }) });
+    worker.postMessage(powerJob({ robot, path, trajectory, run: timed?.run }));
   });
   promise.cancel = () => { clearTimeout(timer); worker?.terminate(); };
   return promise;
@@ -79,12 +130,14 @@ function analyze({ robot, path, trajectory, run }) {
  * A nonmodal readout anchored to its Power button. The native popover gives light dismiss; focus stays
  * with the button, and the verdict is a live status so it is announced when it arrives.
  */
-export function PowerAnalysis({ robot, path, trajectory, run, stale = false }) {
+export function PowerAnalysis({ robot, path, trajectory, run, routine, stale = false }) {
   const [open, setOpen] = React.useState(false);
   const [state, setState] = React.useState({ report: null, error: '', pending: false });
   const trigger = React.useRef(null), panel = React.useRef(null);
   const id = React.useId();
-  const available = !stale && (run ? !run.blocked && run.total > 0 : trajectory?.samples?.length > 1);
+  // A routine is timed for power with its command steps' estimates; a step still untimed opens the report to say so.
+  const timed = React.useMemo(() => run && !run.blocked ? routinePowerRun(run, robot) : null, [run, robot]);
+  const available = !stale && (run ? Boolean(timed) && (timed.run.total > 0 || timed.untimed.length > 0) : trajectory?.samples?.length > 1);
   const subject = run ? 'routine' : path?.id;
 
   // A report never carries over to a different path.
@@ -100,12 +153,12 @@ export function PowerAnalysis({ robot, path, trajectory, run, stale = false }) {
     setState(previous => ({ ...previous, error: '', pending: true }));
     // Edits while the report is open replan often; analyze the settled plan, not every intermediate one.
     const timer = setTimeout(() => {
-      job = analyze({ robot, path, trajectory, run });
+      job = startPowerAnalysis({ robot, path, trajectory, timed, routine });
       job.then(report => { if (active) setState({ report, error: '', pending: false }); },
         failure => { if (active) setState({ report: null, error: failure.message || String(failure), pending: false }); });
     }, 120);
     return () => { active = false; clearTimeout(timer); job?.cancel(); };
-  }, [open, robot, path, trajectory, run, available]);
+  }, [open, robot, path, trajectory, timed, routine, available]);
 
   React.useLayoutEffect(() => {
     const element = panel.current;

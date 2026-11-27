@@ -19,7 +19,8 @@ export interface RobotSftpSession {
   readonly hostKeyFingerprint: string;
   /** created refers to the selected directory, not any missing ancestors. */
   ensureDirectory?(directory: string, create: boolean, signal: AbortSignal): Promise<{ created: boolean }>;
-  listPathFiles?(directory: string, signal: AbortSignal): Promise<RobotPathFiles>;
+  /** Deployed `.bdx` files, or with `robotFiles` the folder's `.robot` files. */
+  listPathFiles?(directory: string, signal: AbortSignal, robotFiles?: boolean): Promise<RobotPathFiles>;
   read(file: RobotRemoteFile, maxBytes: number, signal: AbortSignal): Promise<Buffer>;
   write(file: RobotRemoteFile, contents: Buffer, signal: AbortSignal): Promise<void>;
   exists(file: RobotRemoteFile, signal: AbortSignal): Promise<boolean>;
@@ -57,5 +58,12 @@ export class RobotTransportError extends Error {
   constructor(readonly code: RobotTransportErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "RobotTransportError";
+  }
+}
+
+/** A publish refused before the destination was touched: the robot's file at that name is exactly as it was. */
+export class RobotFileKeptError extends RobotTransportError {
+  constructor(readonly fileName: string, message: string) {
+    super("transfer_failed", message);
   }
 }

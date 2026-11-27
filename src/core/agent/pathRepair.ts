@@ -1,6 +1,7 @@
 import { FIELD_H, clampWorldPoint } from "../math/fieldBounds";
 import { clone } from "../project/defaults";
-import type { BordeauxProject, PathDoc } from "../types";
+import { planningPathConstraints } from "../robotLimits";
+import type { BordeauxProject, PathConstraints, PathDoc } from "../types";
 import { analyzePath } from "./pathAnalysis";
 import type { PathAnalysis, PathAnalysisFinding, RepairCandidate } from "./types";
 
@@ -34,7 +35,11 @@ function hasNewOrWorseError(before: PathAnalysis, after: PathAnalysis, targetIds
   });
 }
 
-function localSpeedRepair(path: PathDoc, finding: PathAnalysisFinding, scale: number): { path: PathDoc; fields: string[] } | null {
+/**
+ * A zone around the finding at `scale` of the speed the path plans at (`limits`, planningPathConstraints). Its other
+ * limits are omitted, so they inherit the path's, including any that follow the robot's max.
+ */
+function localSpeedRepair(path: PathDoc, limits: PathConstraints, finding: PathAnalysisFinding, scale: number): { path: PathDoc; fields: string[] } | null {
   if (!finding.sample || !finding.metric || !["acceleration", "deceleration", "angularVelocity", "angularAcceleration", "angularDeceleration", "jerk", "angularJerk"].includes(finding.metric)) return null;
   const repaired = clone(path);
   const fraction = finding.sample.fraction;
@@ -42,11 +47,7 @@ function localSpeedRepair(path: PathDoc, finding: PathAnalysisFinding, scale: nu
     anchor: "param",
     f0: Math.max(0, fraction - 0.1),
     f1: Math.min(1, fraction + 0.1),
-    maxVel: repaired.constraints.maxVel * scale,
-    maxAccel: repaired.constraints.maxAccel,
-    maxDecel: repaired.constraints.maxDecel,
-    maxAngVel: repaired.constraints.maxAngVel,
-    maxAngAccel: repaired.constraints.maxAngAccel,
+    maxVel: limits.maxVel * scale,
     name: "Agent repair preview",
   });
   return { path: repaired, fields: ["ranges"] };
@@ -83,9 +84,10 @@ export function generateRepairCandidates(
   const findings = findingIds.map((id) => before.findings.find((item) => item.id === id));
   if (findings.some((finding) => !finding)) throw new Error("A requested finding is stale or does not belong to this path analysis.");
   const primary = findings[0]!;
+  const limits = planningPathConstraints(path, project.robot);
   const mutations = [
-    localSpeedRepair(path, primary, 0.75),
-    localSpeedRepair(path, primary, 0.6),
+    localSpeedRepair(path, limits, primary, 0.75),
+    localSpeedRepair(path, limits, primary, 0.6),
     geometryRepair(path, primary, -1),
     geometryRepair(path, primary, 1),
   ].filter((item): item is { path: PathDoc; fields: string[] } => item !== null);

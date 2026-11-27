@@ -81,7 +81,7 @@ const copy = <T>(value: T): T => structuredClone(value);
 const boundedName = (name: string) => name.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 256).trim() || "Untitled";
 function sourceChangeFact(error: unknown): ProjectCheckpointUpdate["sourceChange"] {
   if (!(error instanceof ProjectSourceChangedError)) return undefined;
-  const file = error.scope === "document" && error.file && /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine)$/.test(error.file) ? error.file : undefined;
+  const file = error.scope === "document" && error.file && /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine|Robots\/[^/\\]+\.robot)$/.test(error.file) ? error.file : undefined;
   return { scope: error.scope, ...(file ? { file } : {}) };
 }
 

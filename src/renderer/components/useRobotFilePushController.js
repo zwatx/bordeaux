@@ -3,6 +3,8 @@ import { pushConnectionProblem } from '../../core/project/robots';
 import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 import { focusIfAvailable } from '../lib/focusReturn';
 import { linkedPathIds } from '../lib/undoHistory';
+import { forgetRobotFile, rememberRobotFile, robotFileStatus, selectedRobotFile } from '../lib/robotFileMemory';
+import { isRobotFileName } from '../../core/project/robotFile';
 
 const message = (error) => (error?.message || String(error || 'File transfer failed'))
   .replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:RobotTransportError|Error):\s*/, '');
@@ -97,13 +99,17 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
       return;
     }
     update({ phase: 'preparing', ...emptyReview, error: '' });
+    // The selected robot's details ride along when the robot isn't known to hold them already, unless the user chose.
+    // One whose file name another robot also maps to is never sent (the row says why).
+    const file = captured.robotFile, status = file ? robotFileStatus(state.current.connection, file) : null;
+    const options = file ? [{ robotFile: !file.conflict && (captured.robotFileChoice ?? status !== 'same') }] : [];
     try {
       const preview = captured.scope.kind === 'routine'
-        ? await api.prepareRobotRoutine(captured.project, captured.scope.routineId)
-        : await api.prepareRobotFiles(captured.project, captured.pathIds);
+        ? await api.prepareRobotRoutine(captured.project, captured.scope.routineId, ...options)
+        : await api.prepareRobotFiles(captured.project, captured.pathIds, ...options);
       if (request !== generation.current || intent.current !== captured) { await discard(preview); return; }
-      // The linked note is a renderer-only annotation; it shares the preview's lifecycle and never reaches main.
-      update({ preview: { ...preview, linked: captured.linked }, phase: 'review' });
+      // The linked and robot file notes are renderer-only annotations; they share the preview's lifecycle and never reach main.
+      update({ preview: { ...preview, linked: captured.linked, ...(file ? { robotFile: { ...file, status, included: options[0].robotFile } } : {}) }, phase: 'review' });
     } catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); }
   };
   useEffect(() => {
@@ -207,7 +213,8 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const previous = state.current.preview;
     discardRead();
     const project = structuredClone(source.current()), pathIds = [...(scope.pathIds ?? [])];
-    const captured = intent.current = { project, scope: structuredClone(scope), pathIds, projectKey, linked: scope.kind === 'paths' ? linkedOutside(project, pathIds) : [] };
+    const captured = intent.current = { project, scope: structuredClone(scope), pathIds, projectKey, linked: scope.kind === 'paths' ? linkedOutside(project, pathIds) : [],
+      robotFile: reading ? null : selectedRobotFile(project), robotFileChoice: null };
     const request = generation.current;
     const wasLoading = state.current.phase === 'loading';
     const detail = scope.kind === 'compare' && scope.fileName;
@@ -331,12 +338,20 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     const operationId = state.current.preview.operationId;
     generation.current += 1; // Older liveness evidence cannot override this transfer's result.
     update({ phase: 'uploading', error: '' });
+    const reviewed = state.current.preview;
     try {
       const result = await api.confirmRobotFiles(operationId);
       intent.current = null;
+      // The robot now holds these verified bytes, so the next Push leaves an unchanged robot file out by default.
+      for (const file of result.files ?? []) if (isRobotFileName(file.fileName)) rememberRobotFile(reviewed.connection, file.fileName, file.sha256);
       update({ result, preview: null, phase: 'transferred', monitoring: true, reachability: 'online' });
     }
-    catch (error) { update({ phase: 'failed', error: message(error), reachability: 'offline' }); }
+    catch (error) {
+      // The transfer may have replaced a reviewed robot file, or failed to read it back: what the robot holds under
+      // that name is no longer known, so the next Push mustn't call it the same.
+      for (const file of reviewed.files ?? []) if (isRobotFileName(file.fileName)) forgetRobotFile(reviewed.connection, file.fileName);
+      update({ phase: 'failed', error: message(error), reachability: 'offline' });
+    }
   };
   const cancel = async () => {
     const preview = state.current.preview;
@@ -364,12 +379,24 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     if (!add.size) return;
     const pathIds = captured.project.paths.map((path) => path.id).filter((id) => add.has(id) || captured.pathIds.includes(id));
     if (pathIds.length > MAX_PUSH_PATHS) { update({ error: 'Push sends at most ' + MAX_PUSH_PATHS + ' paths at once. Including these would make ' + pathIds.length + '.' }); return; }
-    const next = intent.current = { project: captured.project, scope: { kind: 'paths', pathIds }, pathIds, projectKey: captured.projectKey, linked: linkedOutside(captured.project, pathIds) };
+    const next = intent.current = { project: captured.project, scope: { kind: 'paths', pathIds }, pathIds, projectKey: captured.projectKey, linked: linkedOutside(captured.project, pathIds),
+      robotFile: captured.robotFile, robotFileChoice: captured.robotFileChoice };
     const request = ++generation.current;
     update({ phase: 'preparing', ...emptyReview, error: '' });
     try { await discard(reviewed); }
     catch (error) { if (request === generation.current && intent.current === next) update({ phase: 'failed', error: message(error) }); return; }
     if (request === generation.current && intent.current === next) await prepare();
+  };
+  // Adds or leaves out the robot's .robot file: the same captured project and paths, then a new review.
+  const includeRobotFile = async (operationId, included) => {
+    const captured = intent.current, reviewed = state.current.preview;
+    if (state.current.phase !== 'review' || !captured?.robotFile || captured.robotFile.conflict || reviewed?.operationId !== operationId || reviewed.robotFile?.included === included) return;
+    captured.robotFileChoice = included;
+    const request = ++generation.current;
+    update({ phase: 'preparing', ...emptyReview, error: '' });
+    try { await discard(reviewed); }
+    catch (error) { if (request === generation.current && intent.current === captured) update({ phase: 'failed', error: message(error) }); return; }
+    if (request === generation.current && intent.current === captured) await prepare();
   };
   const chooseAnotherRobot = async () => {
     if (working(state.current.phase)) return;
@@ -402,6 +429,6 @@ export function useRobotFilePushController({ getProject, projectKey, catalogKey,
     itemStatus: (kind, id) => working(view.phase) && !readScope(intent.current?.scope) && intent.current?.projectKey === projectKey && (kind === 'path' ? intent.current.pathIds.includes(id) : kind === 'routine' && intent.current.scope.routineId === id)
       ? { label: view.phase === 'uploading' ? 'Uploading' : 'Preparing', detail: 'Selected for SFTP upload.', tone: 'pending' }
       : { label: 'Local', detail: 'Saved locally. Push uploads the selected files over SFTP.', tone: 'muted' },
-    openConnection: show, close, returnFocus, useEndpoint, saveDirectory, requestPush, probeRobot, saveSettings, saveCopy, openRobotFiles, openRobotRow, backToRobotFiles, confirmPairing, confirmPush, cancel, includeLinked, chooseAnotherRobot, editConnection, connectionHome,
+    openConnection: show, close, returnFocus, useEndpoint, saveDirectory, requestPush, probeRobot, saveSettings, saveCopy, openRobotFiles, openRobotRow, backToRobotFiles, confirmPairing, confirmPush, cancel, includeLinked, includeRobotFile, chooseAnotherRobot, editConnection, connectionHome,
     retry: () => intent.current && requestPush(intent.current.scope) };
 }

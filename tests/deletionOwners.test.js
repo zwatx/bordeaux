@@ -9,6 +9,7 @@ import {AUTO} from '../src/renderer/lib/routineModel';
 import {referencingRoutines} from '../src/renderer/components/EditorLibrary';
 import {commandArguments} from '../src/renderer/components/ContextInspector';
 import {robotValueSchemasEqual} from '../src/core/robotValueSchema';
+import {selectedRobotId} from '../src/core/project/robots';
 const source=ts.createSourceFile('App.jsx',readFileSync(new URL('../src/renderer/app/App.jsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
 const names=['retireDeletion','recordUndo','commitRoutineState','setRoutine','preflightDeletion','announceDeletion','undoDeletion','showPathAfterProjectChange','applyUndoEntry','commitProjectChange','keepOpenPath','delPaths','delPath','deletePathFolder','deleteRoutine','stepHistory','setActiveRoutine','stepCount','branchNotice','branchIntent','deleteFeature'];
 const declarations=new Map();let step,branchCapture;
@@ -24,7 +25,7 @@ function harness(){
  document:{activeElement:null,querySelector:()=>state.modal?{}:null,querySelectorAll:()=>[]},force:vi.fn(),setDeletionNotice:n=>{state.notice=n;},setProject:p=>{ctx.projectRef.current=typeof p==='function'?p(ctx.projectRef.current):p;},setRoutineSel:vi.fn(),setSel:vi.fn(),setActiveIdx:n=>{state.active=typeof n==='function'?n(state.active):n;},playbackStore:{reset:vi.fn()},resetForRoutine:vi.fn(),alert:vi.fn(),
  flushProjectDraft:()=>{state.flush();return state.valid;},flushSync:fn=>fn(),finishEdit:()=>state.finish(),cancelEdit:()=>false,scopeKey:PROJECT_SCOPE,commit:vi.fn(),select:vi.fn(),
  requestAnimationFrame:fn=>state.scheduled.push(fn),applyUndoEntryRef:{current:null},writeDoc:()=>{},editablePath:p=>p,
- branchGeneration:{current:0},catalogRef:{current:null},commandArguments,robotValueSchemasEqual,page:'auto',commitFocusedDraft:()=>{},setPage:vi.fn()};
+ branchGeneration:{current:0},catalogRef:{current:null},commandArguments,robotValueSchemasEqual,selectedRobotId,page:'auto',commitFocusedDraft:()=>{},setPage:vi.fn()};
  Object.defineProperty(ctx,'docRef',{get:()=>({current:ctx.projectRef.current.paths[state.active]})});
  Object.defineProperty(ctx,'routines',{get:()=>routineState(ctx.projectRef.current).routines});
  const owner=new Function('ctx','with(ctx){'+code+'}')(ctx);ctx.applyUndoEntryRef.current=owner.applyUndoEntry;

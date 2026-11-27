@@ -40,6 +40,15 @@ async function typeInto(label, text, finish = 'Enter') {
   await win.webContents.insertText(text);
   await key(finish);
 }
+// A field in the event's power estimate, found by its visible label.
+async function typeField(label, text) {
+  const id = await evaluate((label) => [...document.querySelectorAll('.cmd-power label')].find((el) => el.textContent === label)?.htmlFor, label);
+  await click('#' + CSS_escape(id));
+  await key('Home'); await key('End', ['shift']);
+  await win.webContents.insertText(text);
+  await key('Enter');
+}
+const CSS_escape = (id) => id.replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
 const placeholder = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.placeholder ?? null, label);
 // Row explanations are the label's hover tooltip.
 const labelNote = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.closest('.settings-row')?.querySelector('.settings-hint')?.title ?? null, label);
@@ -71,7 +80,7 @@ async function snapshotBothSizes(name) {
   win.setContentSize(1440, 900); await delay(120);
 }
 ipcMain.handle('branches:restore', () => ({ project: saved }));
-// One linked command, so command loads offer its label; the path's event starts it.
+// One linked command; the path's event starts it, and its power estimate is entered on that event.
 const shooter = { id: 'shoot', label: 'Shoot note', member: 'Shoot.vi', ownerType: 'LabVIEW', kind: 'factory', confidence: 'confirmed', source: { file: 'Shoot.vi', line: 1 }, parameters: [] };
 ipcMain.handle('branches:catalog', () => ({ catalog: { runtime: 'labview', projectName: 'Fixture', sourceFileCount: 1, scannedAt: '', commands: [shooter], warnings: [] }, bookmarkId: 'fixture' }));
 ipcMain.handle('branches:save', (_event, project) => { saved = project; saves++; return { saved: true }; });
@@ -174,7 +183,7 @@ app.whenReady().then(async () => {
     assert.equal('motorStallCurrentA' in saved.robot.driveModel, false, 'the preset supplies stall current');
     assert.equal(await fieldText('Battery resistance'), '25.0');
     assert.equal(await labelNote('Drive current limit'), 'Stator current limit for each drive motor.');
-    assert.equal(await labelNote('Other mechanisms'), 'Using the default. Constant current from everything without a command load, such as controllers and sensors.');
+    assert.equal(await labelNote('Other mechanisms'), 'Using the default. Constant current from everything without a power estimate on its command, such as controllers and sensors.');
     assert.ok(saved.robot.maxSpeed < 4.9);
     await snapshotBothSizes('edited-metric');
     console.log('PASS Keyboard edits store exact canonical values (A, mΩ to Ω, % to fraction); Escape keeps the default');
@@ -206,27 +215,28 @@ app.whenReady().then(async () => {
 
     // Electrical configuration uses the existing numeric drafts and commits exact canonical values.
     await typeInto('Minimum bus voltage', '8');
-    // The legacy load is listed, not editable; command loads are where new loads go.
+    // The legacy load is listed, not editable; power estimates go on the command uses.
     assert.equal(await evaluate(() => [...document.querySelectorAll('.power-legacy .settings-label strong')].map((el) => el.textContent).join('|')), '0.5 s – 2 s');
     assert.equal(await evaluate(() => document.querySelectorAll('.power-legacy input').length), 0);
-    await click('#robot-command-load-add');
-    await click('[role="option"][data-value="shoot"]');
-    // Choosing a command moves focus to its new current field.
-    await wait(() => evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Shoot note current'), 'new load focus');
-    await win.webContents.insertText('40'); await key('Enter');
-    await typeInto('Shoot note run time', '1.5');
-    assert.equal(await placeholder('Shoot note run time'), 'Until stopped');
+    assert.match(await evaluate(() => document.querySelector('#settings-power .settings-row').textContent), /0 of 1 command uses have an estimate/);
+    // Next missing opens the event in its path; its power estimate is added there.
+    await click('#settings-power button', 'Next missing');
+    await wait(() => evaluate(() => !!document.querySelector('.cmd-power-add')), 'event power estimate');
+    await click('.cmd-power-add');
+    await typeField('Current', '40');
+    await typeField('Runs for', '1.5');
+    const estimate = () => Object.values(saved.paths[0].markers[0].invocation.power || {})[0];
     await save();
-    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40, runTimeS: 1.5 }]);
+    assert.deepEqual([estimate().currentA, estimate().runTimeS], [40, 1.5]);
+    assert.equal('commandLoads' in saved.robot.driveModel, false, 'Nothing is stored per command');
     // Emptying the run time returns it to "until stopped".
-    await typeInto('Shoot note run time', '');
+    await typeField('Runs for', '');
     await save();
-    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40 }]);
-    await typeInto('Shoot note run time', '1.5');
-    assert.equal(await evaluate(() => document.querySelector('#robot-command-load-add')?.disabled), false);
-    await click('#robot-command-load-add');
-    assert.equal(await evaluate(() => document.querySelectorAll('[role="option"][data-value="shoot"]').length), 0, 'a configured command is not offered again');
-    await key('Escape');
+    assert.deepEqual([estimate().currentA, 'runTimeS' in estimate()], [40, false]);
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.cmd-power input')].at(-1).placeholder), 'Until stopped');
+    await typeField('Runs for', '1.5');
+    await click('.places .place', 'Robot');
+    await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Minimum bus voltage"]')), 'robot page again');
     await choose('robot-driveBreaker', 'preset');
     await choose('robot-mainBreaker', 'custom');
     await typeInto('Main breaker rating', '120');
@@ -235,7 +245,7 @@ app.whenReady().then(async () => {
     await save();
     assert.equal(saved.robot.driveModel.minimumBusVoltageV, 8);
     assert.deepEqual(saved.robot.driveModel.loadBursts, [{ startTimeS: 0.5, endTimeS: 2, currentA: 15 }]);
-    assert.deepEqual(saved.robot.driveModel.commandLoads, [{ commandId: 'shoot', currentA: 40, runTimeS: 1.5 }]);
+    assert.deepEqual([estimate().currentA, estimate().runTimeS], [40, 1.5]);
     assert.deepEqual(saved.robot.driveModel.driveBreaker, { ratedCurrentA: 40, tripTimeAt2xS: 5, initialHeat: 0 });
     assert.deepEqual(saved.robot.driveModel.mainBreaker, { ratedCurrentA: 120, tripTimeAt2xS: 10, initialHeat: 0.25 });
     await win.reload();
@@ -244,8 +254,9 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(() => !!document.querySelector('input[aria-label="Minimum bus voltage"]')), 'power settings restored');
     await wait(async () => await fieldText('Minimum bus voltage') === '8.00', 'restored voltage floor');
     assert.equal(await fieldText('Minimum bus voltage'), '8.00');
-    await wait(async () => await fieldText('Shoot note current') === '40.0', 'restored command load');
-    assert.equal(await fieldText('Shoot note run time'), '1.50');
+    await wait(() => evaluate(() => document.querySelector('.cmd-power-row')?.textContent.includes('40 A')), 'restored power estimate');
+    assert.match(await evaluate(() => document.querySelector('.cmd-power-row').textContent), /Shoot note.*40 A.*1\.5 s/);
+    assert.match(await evaluate(() => document.querySelector('#settings-power .settings-row').textContent), /1 of 1 command uses have an estimate/);
     for (const [width, height] of [[1440, 900], [1100, 720]]) {
       win.setContentSize(width, height); await delay(150);
       await snapshot(`power-loads-${width}`, 'Loads and breakers');
@@ -255,12 +266,12 @@ app.whenReady().then(async () => {
     }
     await click('.power-legacy button[aria-label="Remove timed load 1"]');
     await wait(() => evaluate(() => !document.querySelector('.power-legacy')), 'legacy load removed');
-    assert.equal(await evaluate(() => document.activeElement?.id), 'robot-command-load-add', 'removing the last legacy load returns focus to Add command');
+    assert.equal(await evaluate(() => !!document.activeElement?.closest('#settings-power')), true, 'removing the last legacy load keeps focus in Loads and breakers');
     await save();
     assert.equal('loadBursts' in saved.robot.driveModel, false);
     win.setContentSize(1440, 900); await delay(150);
     await snapshot('power-command-loads-1440', 'Loads and breakers');
-    console.log('PASS Command loads, voltage floor and breaker curves survive save/reload; run time clears; legacy loads list and remove; Escape cancels drafts');
+    console.log('PASS Power estimates on a command use, voltage floor and breaker curves survive save/reload; run time clears; legacy loads list and remove; Escape cancels drafts');
     await click('.places .place', 'Paths');
     await wait(() => evaluate(() => !!document.querySelector('.pp-head-actions button') && [...document.querySelectorAll('.pp-head-actions button')].some(b => b.textContent === 'Power' && !b.disabled)), 'current power report');
     // The report is a bounded, nonmodal popover anchored to its button; focus stays on Power.
@@ -272,14 +283,14 @@ app.whenReady().then(async () => {
         inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, gap: Math.min(Math.abs(r.top - b.bottom), Math.abs(b.top - r.bottom)),
         rightAligned: Math.abs(r.right - b.right) < 1 || Math.abs(r.right - (innerWidth - 8)) < 1, rows: panel.querySelectorAll('.power-results dt').length };
     }, scope);
-    async function checkReport(scope, label, width) {
+    async function checkReport(scope, label, width, peak = '40.0 A') {
       await wait(() => evaluate(() => !!document.querySelector('.power-report .power-results')), label + ' power results');
       const layout = await reportLayout(scope);
       assert.equal(layout.open, true); assert.equal(layout.modal, false); assert.equal(layout.expanded, 'true');
       assert.equal(layout.alert, false, label + ' report failed');
       assert.equal(layout.focus, 'Power', label + ' report took focus');
       assert.equal(layout.rows, 6);
-      assert.equal(await evaluate(() => [...document.querySelectorAll('.power-report .power-results > div')].find((row) => row.querySelector('dt').textContent === 'Peak mechanism current')?.querySelector('.power-value').textContent), '40.0 A');
+      assert.equal(await evaluate(() => [...document.querySelectorAll('.power-report .power-results > div')].find((row) => row.querySelector('dt').textContent === 'Peak mechanism current')?.querySelector('.power-value').textContent), peak);
       assert.ok(layout.width <= 320 && layout.height <= 440, `${label} report is unbounded at ${width}: ${layout.width}×${layout.height}`);
       assert.ok(layout.inside && layout.gap < 12 && layout.rightAligned, `${label} report is not anchored to Power at ${width}: ${JSON.stringify(layout)}`);
     }
@@ -313,6 +324,60 @@ app.whenReady().then(async () => {
       await wait(closed, 'Power toggles routine report closed');
     }
     console.log('PASS Nonmodal anchored power report: pointer, Enter, Escape, Tab and toggle close; path/routine results at both supported sizes');
+
+    // A routine command step: its estimated Runs for is its duration in the routine report only.
+    saved = { ...saved, routines: saved.routines.map((routine) => ({ ...routine, nodes: [...routine.nodes,
+      { id: 'power-spin', type: 'function', cat: 'command', title: 'Spin up', invocation: { commandId: 'shoot', arguments: {} } }] })) };
+    win.setContentSize(1440, 900); await win.reload();
+    await wait(() => evaluate(() => document.querySelectorAll('.places .place').length > 0), 'routine step restored');
+    await click('.places .place', 'Routines');
+    await wait(() => evaluate(() => !!document.querySelector('.rt-step[data-id="power-spin"]')), 'routine command step');
+    await click('.rt-step[data-id="power-spin"] .rt-step-body');
+    await wait(() => evaluate(() => !!document.querySelector('.cmd-power-add')), 'step power estimate');
+    await click('.cmd-power-add');
+    await typeField('Current', '90');
+    await save();
+    const stepEstimate = () => Object.values(saved.routines[0].nodes.find((node) => node.id === 'power-spin').invocation.power || {})[0];
+    assert.deepEqual([stepEstimate().currentA, 'runTimeS' in stepEstimate()], [90, false]);
+    const scrub = () => evaluate(() => Number(document.querySelector('.rt-tp-scrub')?.getAttribute('aria-valuemax')));
+    const previewTotal = await scrub();
+    const alertText = () => evaluate(() => document.querySelector('.power-report [role="alert"]')?.textContent ?? null);
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('.routine-workspace-actions button', 'Power');
+      await wait(async () => !!(await alertText()), 'named untimed step');
+      assert.equal(await alertText(), "A whole-routine estimate needs every step's duration. Add a Runs for to Spin up (step 4), or analyze the routine’s paths individually.");
+      const layout = await reportLayout('.routine-workspace-actions');
+      assert.ok(layout.inside && layout.gap < 12 && layout.rightAligned && layout.width <= 320, `untimed routine report at ${width}: ${JSON.stringify(layout)}`);
+      assert.equal(layout.focus, 'Power');
+      await delay(300);
+      await fs.writeFile(path.join(output, `power-routine-untimed-${width}.png`), (await capture()).toPNG());
+      await key('Escape');
+      await wait(closed, 'Escape closes untimed routine report');
+    }
+    win.setContentSize(1440, 900); await delay(150);
+    // The step stays selected while the report opens and closes; selecting it again would close its inspector.
+    const stepInspector = () => evaluate(() => !!document.querySelector('.cmd-power'));
+    if (!await stepInspector()) await click('.rt-step[data-id="power-spin"] .rt-step-body');
+    await wait(() => evaluate(() => [...document.querySelectorAll('.cmd-power label')].some((el) => el.textContent === 'Runs for')), 'step Runs for');
+    await typeField('Runs for', '0.5');
+    await save();
+    assert.deepEqual([stepEstimate().currentA, stepEstimate().runTimeS], [90, 0.5]);
+    // The preview's own timing does not take the estimate.
+    assert.equal(await scrub(), previewTotal, 'preview total unchanged by the step estimate');
+    for (const [width, height] of [[1440, 900], [1100, 720]]) {
+      win.setContentSize(width, height); await delay(150);
+      await click('.routine-workspace-actions button', 'Power');
+      await checkReport('.routine-workspace-actions', 'routine with step estimate', width, '90.0 A');
+      assert.equal(await evaluate(() => !!document.querySelector('.power-report .power-unloaded')), false, 'every command use has a load');
+      await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await delay(600);
+      await fs.writeFile(path.join(output, `power-routine-step-${width}.png`), (await capture()).toPNG());
+      await click('.routine-workspace-actions button', 'Power');
+      await wait(closed, 'Power toggles step routine report closed');
+    }
+    console.log('PASS Routine report counts a command step\'s Runs for as its duration and names a step that still needs one; preview timing unchanged');
+
 
     assert.deepEqual(errors, []);
     app.exit(0);

@@ -230,6 +230,52 @@ describe.skipIf(!python)("SystemCore server", () => {
     expect(await fs.readFile(path.join(folder, "Opening.bdx"))).toEqual(bytes);
   });
 
+  it("saves robot files with a project, pushes a reviewed .robot file and reads it back without changing anything", async () => {
+    const robot = path.join(home, "robot"), project = path.join(robot, "projects", "Robots team"), folder = path.join(robot, "robot-push");
+    const commit = (file: string, data: string, create = true, expected: string | null = null, workspace = "{}") => post("/api/commit", { name: "Robots team", create,
+      expectedWorkspaceSha256: create ? null : sha256("{}"), workspace, writes: [{ file, base64: b64(data), expectedSha256: expected }], removes: [] }).then(json);
+    expect((await commit("Robots/Comp bot.robot", "r1")).status).toBe(200);
+    expect(await fs.readFile(path.join(project, "Robots", "Comp bot.robot"), "utf8")).toBe("r1");
+    for (const file of ["Robots/nested/Comp.robot", "Robots/Comp.json", "Paths/Comp.robot", "Robots/../Comp.robot"]) {
+      expect((await post("/api/commit", { name: "Other robots", create: true, expectedWorkspaceSha256: null, workspace: "{}",
+        writes: [{ file, base64: b64("x"), expectedSha256: null }], removes: [] })).status, file).toBe(400);
+    }
+    await fs.writeFile(path.join(project, "Robots", "Comp bot.robot"), "edited over ssh");
+    expect(await commit("Robots/Comp bot.robot", "r2", false, sha256("r1"), "{\"next\":1}"))
+      .toMatchObject({ status: 409, body: { error: expect.stringContaining("Robots/Comp bot.robot changed on the robot") } });
+    expect(await fs.readFile(path.join(project, "Robots", "Comp bot.robot"), "utf8")).toBe("edited over ssh");
+
+    const files = [{ fileName: "A.bdx", sha256: sha256("a"), base64: b64("a") }, { fileName: "Comp-bot.robot", sha256: sha256("{}\n"), base64: b64("{}\n") }];
+    const review = await json(await post("/api/push/prepare", { directory: folder, files }));
+    expect(review.body.files.map((file: { fileName: string }) => file.fileName)).toEqual(["A.bdx", "Comp-bot.robot"]);
+    expect(await json(await post("/api/push/confirm", { operationId: review.body.operationId }))).toMatchObject({ status: 200, body: { files: ["A.bdx", "Comp-bot.robot"] } });
+    expect(await fs.readFile(path.join(folder, "Comp-bot.robot"), "utf8")).toBe("{}\n");
+    expect((await post("/api/push/prepare", { directory: folder, files: [{ fileName: "../x.robot", sha256: sha256("x"), base64: b64("x") }] })).status).toBe(400);
+
+    const read = (names: string[]) => fetch(`${base}/api/push/files?${new URLSearchParams([["directory", folder], ...names.map((name) => ["name", name])])}`).then(json);
+    const before = (await fs.readdir(folder)).sort();
+    expect(await read(["Comp-bot.robot"])).toEqual({ status: 200, body: { directory: folder, files: [{ fileName: "Comp-bot.robot", base64: b64("{}\n") }] } });
+    await fs.writeFile(path.join(folder, "Practice.robot"), "{}");
+    await fs.symlink(path.join(project, "Robots", "Comp bot.robot"), path.join(folder, "Linked.robot"));
+    expect(await read(["Missing.robot"])).toEqual({ status: 200, body: { directory: folder, files: [{ fileName: "Missing.robot", base64: null }],
+      robotConfigs: ["Comp-bot.robot", "Practice.robot"] } });
+    expect((await read(["Missing.bdx"])).body).not.toHaveProperty("robotConfigs");
+    expect((await fs.readdir(folder)).sort()).toEqual([...before, "Linked.robot", "Practice.robot"].sort());
+  });
+
+  it("counts 1 to 64 paths and routines per push, with at most one robot details file beside them", async () => {
+    const folder = path.join(home, "robot", "robot-push"), file = (name: string) => ({ fileName: name, sha256: sha256(name), base64: b64(name) });
+    const paths = Array.from({ length: 64 }, (_, index) => file(`P${index}.bdx`));
+    const full = await json(await post("/api/push/prepare", { directory: folder, files: [...paths, file("Comp-bot.robot")] }));
+    expect(full).toMatchObject({ status: 200 });
+    expect(full.body.files).toHaveLength(65);
+    await post("/api/push/cancel", { operationId: full.body.operationId });
+    for (const files of [[file("Comp-bot.robot")], [file("A.bdx"), file("One.robot"), file("Two.robot")], [...paths, file("P64.bdr")]]) {
+      const refused = await json(await post("/api/push/prepare", { directory: folder, files }));
+      expect(refused.status).toBe(400);
+    }
+  });
+
   it("reads the command list from the push folder the page names", async () => {
     const robot = path.join(home, "robot"), other = path.join(robot, "other-paths");
     await fs.mkdir(other, { recursive: true });

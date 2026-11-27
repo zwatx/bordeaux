@@ -8,11 +8,12 @@ import { DRIVE_MOTOR_PRESETS } from "../../core/motorPresets";
 import { resolveElectricalDriveInputs, startingDriveModel } from "../../core/robotLimits";
 import { resolveCgHeightM } from "../../core/loadTransfer";
 import { PowerSettings } from './PowerSettings';
-import { RobotCards } from './RobotCards';
 import { RobotCameras } from './RobotCameras';
+import { RobotTabs } from './RobotTabs';
 import "../styles/settings.css";
 
-// The Robot page: the project's robots, saved in the project file. Robots picks one; the sections below edit it.
+// The Robot page: the project's robots, saved in the project file. Robot tabs along the bottom of the page pick one; the
+// rail names it and its connection, and the sections edit it.
 // App preferences live in the toolbar's global settings.
   const { useRef, useState, useEffect } = React;
   const h = React.createElement;
@@ -27,7 +28,7 @@ import "../styles/settings.css";
   ];
   // Electrical values a project may leave to the shared planning defaults.
   const ELECTRICAL_DEFAULT_KEYS = ['driveCurrentLimitA', 'batteryVoltageV', 'batteryResistanceOhm', 'otherLoadA', 'driveEfficiency', 'controlReserve', 'minimumBusVoltageV'];
-  const SECTIONS = [['push', 'Push folder'], ['robots', 'Robots'], ['robot', 'Dimensions'], ['cameras', 'Cameras'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
+  const SECTIONS = [['push', 'Push folder'], ['robot', 'Dimensions'], ['cameras', 'Cameras'], ['drive', 'Drivetrain'], ['electrical', 'Electrical'], ['limits', 'Limits'], ['power', 'Loads and breakers'], ['agent', 'Agent profile']];
   const SHAPES = ['Rectangle', 'Round', 'Trapezoid', 'Custom'].map((label) => ({ v: label.toLowerCase(), label }));
 
   // Explanations are a hover tooltip on an info mark, and screen-reader text beside the name.
@@ -108,12 +109,13 @@ import "../styles/settings.css";
   }
 
   // `robots` and its handlers come from App; without them the page edits the one robot it is given. An editor served by
-  // the robot (`connection.servedByRobot`) pushes only to that robot, so it shows its push folder instead of a robot list.
-  function RobotPage({ robot, setRobot, commands = [], unitSystem, mcpEnabled, agentProposal, onApplyProposal, onRejectProposal, robots, onSelectRobot, onAddRobot, onDuplicateRobot, onRenameRobot, onRemoveRobot, connection, fallbackHost }) {
+  // the robot (`connection.servedByRobot`) pushes only to that robot, so it shows its push folder instead of robot tabs.
+  function RobotPage({ robot, setRobot, power, unitSystem, mcpEnabled, agentProposal, onApplyProposal, onRejectProposal, robots, onSelectRobot, onAddRobot, onDuplicateRobot, onRenameRobot, onRemoveRobot, connection, fallbackHost, onPull }) {
     const isSwerve = robot.drive === 'swerve';
     const [customEditing, setCustomEditing] = useState(false);
     const servedByRobot = connection?.servedByRobot === true, listed = Boolean(robots) && !servedByRobot;
-    const [current, setCurrent] = useState(servedByRobot ? 'push' : listed ? 'robots' : 'robot');
+    const [current, setCurrent] = useState(servedByRobot ? 'push' : 'robot');
+    const selectedRobot = listed ? robots.find((item) => item.selected) : null;
     const pageRef = useRef(null), jumped = useRef(false);
     const [selectedVertex, setSelectedVertex] = useState(0);
     const [dragVertices, setDragVertices] = useState(null);
@@ -201,7 +203,7 @@ import "../styles/settings.css";
       { key: 'driveCurrentLimitA', label: 'Drive current limit', hint: 'Stator current limit for each drive motor.', ...effective('driveCurrentLimitA'), unit: 'A', min: 5, max: 1000, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveCurrentLimitA: value }) },
       { key: 'batteryVoltageV', label: 'Battery voltage', hint: 'Resting voltage with no load.', ...effective('batteryVoltageV'), unit: 'V', min: 8, max: 14, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ batteryVoltageV: value }) },
       { key: 'batteryResistanceOhm', label: 'Battery resistance', hint: 'Battery and wiring resistance. Measure it for the condition you plan for.', ...effective('batteryResistanceOhm', 1000), unit: 'mΩ', min: 0, max: 100, precision: 1, step: 0.5, onChange: (value) => setDriveModel({ batteryResistanceOhm: value / 1000 }) },
-      { key: 'otherLoadA', label: 'Other mechanisms', hint: 'Constant current from everything without a command load, such as controllers and sensors.', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
+      { key: 'otherLoadA', label: 'Other mechanisms', hint: 'Constant current from everything without a power estimate on its command, such as controllers and sensors.', ...effective('otherLoadA'), unit: 'A', min: 0, max: 300, precision: 0, step: 5, onChange: (value) => setDriveModel({ otherLoadA: value }) },
       { key: 'driveEfficiency', label: 'Drive efficiency', hint: 'Gearbox and wheel losses between motor and floor.', ...effective('driveEfficiency', 100), unit: '%', min: 50, max: 100, precision: 0, step: 1, onChange: (value) => setDriveModel({ driveEfficiency: value / 100 }) },
       { key: 'controlReserve', label: 'Control reserve', hint: 'Torque held back for path-following corrections.', ...effective('controlReserve', 100), unit: '%', min: 0, max: 50, precision: 0, step: 1, onChange: (value) => setDriveModel({ controlReserve: value / 100 }) },
       { label: 'Minimum bus voltage', hint: (driveModel.minimumBusVoltageV === undefined ? 'Using the default. ' : '') + 'Lowest voltage plans may sag to. Keep it above your brownout threshold.', value: driveModel.minimumBusVoltageV, placeholder: '7.25', unit: 'V', min: 1, max: (driveModel.batteryVoltageV ?? 12) - 0.01, precision: 2, step: 0.05, onChange: (value) => setDriveModel({ minimumBusVoltageV: value }) },
@@ -319,7 +321,7 @@ import "../styles/settings.css";
       !footprintValid && h('div', { className: 'rp-note invalid', role: 'status' }, 'Use a convex footprint around the center, within the robot bounds.'));
 
     // The rail jumps between sections and follows the reader's scroll position.
-    const sections = SECTIONS.filter(([id]) => (id !== 'agent' || mcpEnabled) && (id !== 'robots' || listed) && (id !== 'push' || servedByRobot));
+    const sections = SECTIONS.filter(([id]) => (id !== 'agent' || mcpEnabled) && (id !== 'push' || servedByRobot));
     const followScroll = () => {
       if (jumped.current) { jumped.current = false; return; }
       const page = pageRef.current, line = page.getBoundingClientRect().top + 120;
@@ -341,25 +343,33 @@ import "../styles/settings.css";
 
     return h('div', { className: 'robotpage', ref: pageRef, onScroll: followScroll },
       h('div', { className: 'settings-layout' },
-        h('div', { className: 'settings-side' },
-          h('h1', { className: 'rp-title' }, 'Robot'),
+        h('div', { className: 'settings-side' }, h('div', { className: 'settings-side-pin' },
+          selectedRobot
+            // Whose details these are, and where Push sends its files.
+            ? h('div', { className: 'rp-identity' },
+                h('h1', { className: 'rp-title', title: selectedRobot.name }, selectedRobot.name),
+                connection && h('div', { className: 'robot-connection' },
+                  // The active connection is this robot's: App makes the selected robot's address active.
+                  h('span', { className: 'robot-connection-status', title: connection.pairing || connection.busy ? connection.connectionLabel : undefined },
+                    h('span', { className: 'robot-tab-dot', 'data-tone': connection.pairing ? 'set' : 'unset', 'aria-hidden': true }),
+                    connection.pairing || connection.busy ? connection.connectionLabel : 'Not set up'),
+                  h('button', { className: 'qbtn quiet library-connection', type: 'button', onClick: connection.openConnection },
+                    connection.busy ? 'Show progress' : connection.pairing ? 'Edit' : 'Set up')),
+                // Reading this robot's details back is explicit and read-only, like comparing pushed paths.
+                connection?.pairing && onPull && h('button', { className: 'qbtn quiet rp-pull', type: 'button', disabled: connection.busy, onClick: onPull }, 'Pull from robot…'))
+            : h('h1', { className: 'rp-title' }, 'Robot'),
           h('nav', { className: 'settings-nav', 'aria-label': 'Robot sections' },
-            sections.map(([id, title]) => h('button', { key: id, type: 'button', 'aria-current': current === id || undefined, onClick: () => jump(id) }, title)))),
-        h('div', { className: 'settings-content' },
+            sections.map(([id, title]) => h('button', { key: id, type: 'button', 'aria-current': current === id || undefined, onClick: () => jump(id) }, title))))),
+        // The sections, with the robot tabs held at the bottom of this column while the page scrolls.
+        h('div', { className: 'settings-main' }, h('div', { className: 'settings-content' },
           servedByRobot && h(Section, { id: 'push', title: 'Push folder' },
             h('div', { className: 'settings-card' },
               h(Row, { label: 'Folder on robot', hint: 'Push writes path files here, and robot code reads them from this folder.' },
                 h(UI.DraftText, { className: 'rp-text', style: { width: 'min(360px, 50vw)' }, 'aria-label': 'Folder on robot', spellCheck: false, disabled: connection.busy,
-                  owner: connection.pairing?.endpoint?.directory, value: connection.pairing?.endpoint?.directory ?? '', onCommit: (value) => connection.saveDirectory?.(value) }))),
+                  owner: connection.pairing?.endpoint?.directory, value: connection.pairing?.endpoint?.directory ?? '', onCommit: (value) => connection.saveDirectory?.(value) })),
+              onPull && h(Row, { label: 'Robot details', hint: 'Push can send the robot’s details beside its paths. Pull reads them back from this folder.' },
+                h('button', { className: 'qbtn', type: 'button', disabled: connection.busy, onClick: onPull }, 'Pull from robot…'))),
             connection.error && h('p', { className: 'rp-note invalid', role: 'alert' }, connection.error)),
-
-          listed && h(Section, { id: 'robots', title: 'Robots' },
-            h(RobotCards, { robots, currentHost: fallbackHost, onSelect: onSelectRobot, onAdd: onAddRobot, onDuplicate: onDuplicateRobot, onRename: onRenameRobot, onRemove: onRemoveRobot }),
-            // Where Push sends the selected robot's files. Setting it up here stores the address on that robot.
-            connection && h('div', { className: 'settings-card robot-connection' },
-              h(Row, { label: 'Connection', status: connection.pairing || connection.busy ? connection.connectionLabel : 'Not set up' },
-                h('button', { className: 'qbtn library-connection', type: 'button', onClick: connection.openConnection },
-                  connection.busy ? 'Show progress' : connection.pairing ? 'Edit' : 'Set up')))),
 
           h(Section, { id: 'robot', title: 'Dimensions' },
             h('div', { className: 'settings-card rp-robot' },
@@ -442,7 +452,7 @@ import "../styles/settings.css";
                     h('div', { className: 'rp-drive-result', key: label }, h('span', null, label), h('strong', null, UnitPrefs.fromCanonical(value, unit).toFixed(precision), h('small', null, ' ' + UnitPrefs.label(unit))))))
               : h('button', { className: 'qbtn', type: 'button', onClick: () => setDriveModel({}) }, 'Use physical limits')),
 
-          h(Section, { id: 'power', title: 'Loads and breakers' }, h(PowerSettings, { model: driveModel, setModel: setDriveModel, commands, BigNum, Row })),
+          h(Section, { id: 'power', title: 'Loads and breakers' }, h(PowerSettings, { model: driveModel, setModel: setDriveModel, power, BigNum, Row })),
 
           mcpEnabled && h(Section, { id: 'agent', title: 'Agent profile', hint: 'Guides agent plans. Review changes before applying.' },
             agentProposal && h('div', { className: 'settings-card rp-proposal', role: 'region', 'aria-label': 'Agent robot profile proposal' },
@@ -477,7 +487,9 @@ import "../styles/settings.css";
                   ]
                 : h(Row, { label: 'Shooter' }, h('button', { className: 'qbtn', type: 'button', onClick: () => setPlanning({ shooter: { directionDeg: 0, requiresTargetFacing: true } }) }, 'Add shooter details'))),
             h('h3', { className: 'rp-subh' }, 'Planning notes'),
-            h('textarea', { className: 'rp-notes', value: planning.notes || '', maxLength: 4000, 'aria-label': 'Robot planning notes', placeholder: 'Mechanism timing, preferred lanes, stability limits…', onChange: (e) => setPlanning({ notes: e.target.value }) })))));
+            h('textarea', { className: 'rp-notes', value: planning.notes || '', maxLength: 4000, 'aria-label': 'Robot planning notes', placeholder: 'Mechanism timing, preferred lanes, stability limits…', onChange: (e) => setPlanning({ notes: e.target.value }) }))),
+          listed && onSelectRobot && h(RobotTabs, { robots, currentHost: fallbackHost, onSelect: onSelectRobot, onAdd: onAddRobot, onDuplicate: onDuplicateRobot,
+            onRename: onRenameRobot, onRemove: onRemoveRobot, onConnection: connection?.openConnection, onPull: connection?.pairing && !connection.busy ? onPull : undefined }))));
   }
 
 export { RobotPage };

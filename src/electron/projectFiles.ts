@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { BordeauxProject } from "../core/types";
 import { decodeProjectFile, encodeProjectFile, prepareProjectFile } from "../core/project/fileFormat";
-import { MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, PROJECT_WORKSPACE_FILE, decodeWorkspace, jsonContents, projectDocuments, withinReadLimit, workspaceContents, type FolderState } from "../core/project/folderLayout";
+import { MANAGED_SOURCE_FILE, MAX_PROJECT_FILE_BYTES, MAX_WORKSPACE_FILE_BYTES, PROJECT_WORKSPACE_FILE, decodeWorkspace, jsonContents, projectDocuments, withinReadLimit, workspaceContents, type FolderState } from "../core/project/folderLayout";
 import type { DecodedProjectFile } from "../core/project/fileFormat";
 import { MAX_FILE_NAME_BYTES, portableFileStem, truncateUtf8 } from "../core/portableFileName";
 
@@ -303,6 +303,9 @@ async function fileOwnership(folder: string, file: string, stat: { dev: number |
   return { hashes, aliases };
 }
 
+/** Folders that hold the readable source documents (folderLayout.ts). */
+const SOURCE_DIRECTORIES = ["Paths", "Routines", "Robots"];
+
 // Rejects a symlinked or non-directory entry before ownership data is read.
 // Saves create it only after every size check, so a rejected save adds no folders.
 async function checkRegularDirectory(directory: string, label: string, create = false): Promise<void> {
@@ -315,7 +318,7 @@ async function checkRegularDirectory(directory: string, label: string, create = 
 
 async function removeOwnedDocument(folder: string, file: string, hashes: readonly (string | undefined)[], binary = false, effect?: { assertCurrent(): void; onWriteStarted?(): void }): Promise<void> {
   if (binary && !/^Paths\/[^/\\]+\.bdx$/i.test(file)) return;
-  if (!binary && !/^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine)$/i.test(file)) return;
+  if (!binary && !MANAGED_SOURCE_FILE.test(file)) return;
   const destination = path.join(folder, file);
   try {
     effect?.assertCurrent();
@@ -513,7 +516,7 @@ export async function autosaveProjectFolder(folder: string, value: unknown, proj
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       }
       const documents = projectDocuments(project, old?.documentFiles);
-      for (const directory of ["Paths", "Routines"]) await checkRegularDirectory(path.join(target, directory), directory);
+      for (const directory of SOURCE_DIRECTORIES) await checkRegularDirectory(path.join(target, directory), directory);
       const observedFiles = { ...old?.files };
       const existing = new Map<string, string>();
       const replacedAliases = new Set<string>();
@@ -541,7 +544,7 @@ export async function autosaveProjectFolder(folder: string, value: unknown, proj
       const effect = { assertCurrent: () => options.assertCurrent?.() };
       const replaceWorkspace = (contents: string) => replaceFile(workspace, contents, false, { ...effect,
         onReplaced: () => { if (owner) owner.head = { ...owner.head, workspace: workspaceHead(JSON.parse(contents)) }; } });
-      for (const directory of ["Paths", "Routines"]) {
+      for (const directory of SOURCE_DIRECTORIES) {
         effect.assertCurrent(); await checkRegularDirectory(path.join(target, directory), directory, true); effect.assertCurrent();
       }
       // Journal the complete source before mirrors; retries recognize both old and

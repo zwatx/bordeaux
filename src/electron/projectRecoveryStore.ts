@@ -4,7 +4,7 @@ import { constants, type Stats } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { BordeauxProject } from "../core/types";
-import { encodeProjectFile, prepareProjectFile } from "../core/project/fileFormat";
+import { encodeProjectFile, prepareProjectFile, storedProject } from "../core/project/fileFormat";
 import { MAX_WORKSPACE_FILE_BYTES } from "./projectFiles";
 
 export const MAX_RECOVERY_RECORD_BYTES = MAX_WORKSPACE_FILE_BYTES;
@@ -97,6 +97,7 @@ export class RecoveryStoreError extends Error {
   constructor(public readonly code: RecoveryErrorCode, public readonly metadata?: RecoveryMetadata) { super(DETAILS[code]); this.name = "RecoveryStoreError"; }
 }
 
+/** A recovery record. `project` is stored as files store it (storedProject); readers prepare it again. */
 interface Envelope { format: typeof FORMAT; metadata: RecoveryMetadata; project: BordeauxProject; digest: string; resolved?: RecoveryResolution }
 interface Capture { originIdentity?: RecoveryOriginIdentity; envelope: Envelope; contents: string; receipt: RecoveryReceipt }
 interface QueuedWrite { capture: Capture; branch?: RecoveryBranch; isCurrent(): boolean; resolve: (receipt: RecoveryWriteReceipt) => void; reject: (error: unknown) => void }
@@ -194,7 +195,7 @@ function capture(value: unknown): Capture {
   const meta = metadata(value);
   try {
     const encoded = encodeProjectFile(value.project);
-    const digest = hash(encoded.contents), envelope: Envelope = { format: FORMAT, metadata: meta, project: encoded.project, digest };
+    const digest = hash(encoded.contents), envelope: Envelope = { format: FORMAT, metadata: meta, project: storedProject(encoded.project), digest };
     return { envelope, contents: serialize(envelope), receipt: { recordId: meta.recordId, revision: meta.revision, digest }, ...(value.originIdentity === undefined ? {} : { originIdentity: originIdentity(value.originIdentity) }) };
   } catch (error) { if (error instanceof RecoveryStoreError) throw error; throw new RecoveryStoreError("invalid-project"); }
 }
@@ -319,7 +320,7 @@ export class ProjectRecoveryStore {
         || parsed.project.field.coordinateSchemaId !== ACTIVE_FIELD_REFERENCE.coordinateSchemaId);
       const source = legacy ? `${JSON.stringify(parsed.project, null, 2)}\n` : encoded.contents;
       if (typeof parsed.digest !== "string" || !DIGEST.test(parsed.digest) || parsed.digest !== hash(source)) throw new RecoveryStoreError("invalid-record", meta);
-      const envelope: Envelope = { format: FORMAT, metadata: meta, project: legacy ? parsed.project as unknown as BordeauxProject : encoded.project, digest: parsed.digest,
+      const envelope: Envelope = { format: FORMAT, metadata: meta, project: legacy ? parsed.project as unknown as BordeauxProject : storedProject(encoded.project), digest: parsed.digest,
         ...(parsed.resolved === undefined ? {} : { resolved: resolution(parsed.resolved, { recordId, revision: meta.revision, digest: parsed.digest }) }) };
       const uncertain = uncertainResolutions.get(pathKey(this.file(recordId)));
       if (uncertain?.revision === meta.revision && uncertain.digest === parsed.digest) delete envelope.resolved;

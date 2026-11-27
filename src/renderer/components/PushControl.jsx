@@ -36,7 +36,7 @@ export function robotStatus(controller, resultAt) {
  * Follows the project menu: arrows, Home/End, Escape and Tab close it and return focus to the trigger. Unavailable
  * items stay focusable with aria-disabled so their visible reason can be read.
  */
-function PushMenu({ controller, status, total, incomplete, onPushAll }) {
+function PushMenu({ controller, status, total, incomplete, onPushAll, robotName }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null), trigger = useRef(null), menu = useRef(null);
   const close = (restoreFocus) => { setOpen(false); if (restoreFocus) trigger.current?.focus(); };
@@ -82,8 +82,10 @@ function PushMenu({ controller, status, total, incomplete, onPushAll }) {
         }
       } },
       h('div', { className: 'push-menu-heading', role: 'presentation' },
-        h('strong', null, endpoint ? endpoint.host : 'Robot not set up'),
-        endpoint ? h('span', { className: 'push-menu-where', title: endpoint.directory }, endpoint.directory) : h('span', { className: 'push-menu-note' }, 'Push opens setup first'),
+        // A project with several robots names the one Push sends to; its address follows.
+        h('strong', null, robotName || (endpoint ? endpoint.host : 'Robot not set up')),
+        endpoint ? h('span', { className: 'push-menu-where', title: endpoint.host + ':' + endpoint.directory }, robotName ? endpoint.host + ' · ' + endpoint.directory : endpoint.directory)
+          : h('span', { className: 'push-menu-note' }, robotName ? 'Not set up. Push opens setup first' : 'Push opens setup first'),
         status.tone && status.tone !== 'unset' && h('span', { className: 'push-menu-result', 'data-tone': status.tone, title: status.title }, status.text)),
       item({ className: 'push-all', 'aria-disabled': allInert || undefined, title: allUnavailable || undefined,
         'aria-label': 'Push all ' + total + (total === 1 ? ' path' : ' paths'), onClick: allInert ? undefined : run(onPushAll) },
@@ -102,7 +104,7 @@ function PushMenu({ controller, status, total, incomplete, onPushAll }) {
  * result, Push all and the connection. Push all sends every path in the project, including ones search or a collapsed
  * folder hides, through the same reviewed request; it has no shortcut and is never reached from the primary half.
  */
-export function PushControl({ place, paths, selection, activeRoutine, controller }) {
+export function PushControl({ place, paths, selection, activeRoutine, controller, robotName }) {
   useKeyRules();
   const pathsPlace = place === 'paths';
   const routinePushAvailable = typeof window !== 'undefined' && window.bordeauxAPI?.robotDeliveryCapabilities?.routinePush === true;
@@ -152,5 +154,5 @@ export function PushControl({ place, paths, selection, activeRoutine, controller
     // The persistent live region announces progress and each complete result; the dot only summarizes it.
     h('span', { className: 'sr-only', role: 'status' }, status.text),
     h('div', { className: 'push-split', role: 'group', 'aria-label': 'Push' }, push,
-      h(PushMenu, { controller, status, total, incomplete, onPushAll: sendAll })));
+      h(PushMenu, { controller, status, total, incomplete, onPushAll: sendAll, robotName })));
 }

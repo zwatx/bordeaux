@@ -30,6 +30,17 @@ describe('Power report', () => {
     expect(markup).not.toContain('data-tone');
   });
 
+  it('points a command without an estimate to its use\'s Add power estimate', () => {
+    const path = text(renderToStaticMarkup(h(PowerReportBody, { report: { ...clean, commandsWithoutLoad: ['intake'] }, robot })));
+    expect(path).toContain('1 command use here has no power estimate, so it adds no estimated current. Add one with Add power estimate in the path event inspector.');
+    expect(path).not.toContain('Robot page');
+    const routine = text(renderToStaticMarkup(h(PowerReportBody, { report: { ...clean, commandsWithoutLoad: ['intake', 'shoot'] }, robot, routine: true })));
+    expect(routine).toContain('2 command uses here have no power estimate, so they add no estimated current. Add one with Add power estimate in the path event or routine step inspector.');
+    // Counted by use: two uses of one command with different arguments are two missing estimates.
+    const uses = text(renderToStaticMarkup(h(PowerReportBody, { report: { ...clean, commandsWithoutLoad: ['intake'], commandUses: { uses: 3, estimated: 1, stale: 0 } }, robot })));
+    expect(uses).toContain('2 command uses here have no power estimate');
+  });
+
   it('lists problems first and marks the quantity behind each one', () => {
     const report = { ...clean, minimumBusVoltageV: 6.9, brownoutRisk: true, currentOverload: true, mainBreakerPeakHeat: 1.12, driveBreakerPeakHeat: null };
     expect(powerFindings(report).map(f => f.tone)).toEqual(['bad', 'bad', 'warn']);

@@ -1,6 +1,7 @@
 import { normalizeLabviewProjectPath } from "./labviewLink";
 import { alignedWaypointHandles } from "./waypointHandles";
 import { createMarkerId, createPathId, createPathLinkId, createRoutineId } from "./ids";
+import { UNLISTED_ROBOT_ID } from "./robots";
 
 /** Editor selection state that is never saved and never affects planning identity. */
 export const TRANSIENT_EDITOR_KEYS: ReadonlySet<string> = new Set(["_selAfter", "_selT", "_selM", "_selR"]);
@@ -62,6 +63,19 @@ function normalizeNodes(nodes: unknown, paths: readonly unknown[], depth = 0): u
     }
     return node;
   });
+}
+
+/** Whether any command use in unvalidated paths and routines carries a power estimate. */
+function hasCommandPower(paths: readonly unknown[], routines: readonly unknown[]): boolean {
+  const powered = (invocation: unknown) => isRecord(invocation) && invocation.power !== undefined;
+  const inNodes = (nodes: unknown, depth: number): boolean => Array.isArray(nodes) && depth <= 64 && nodes.some((node) => isRecord(node) && (
+    powered(node.invocation) || inNodes(node.nodes, depth + 1) || inNodes(node.then, depth + 1) || inNodes(node.else, depth + 1)
+    || (isRecord(node.fallback) && inNodes(node.fallback.nodes, depth + 1))
+    || (isRecord(node.outputBranch) && Array.isArray(node.outputBranch.routes)
+      && node.outputBranch.routes.some((route) => isRecord(route) && inNodes(route.nodes, depth + 1)))));
+  return paths.some((path) => isRecord(path) && Array.isArray(path.markers) && path.markers.some((marker) => isRecord(marker)
+    && (powered(marker.invocation) || (isRecord(marker.commandGroup) && Array.isArray(marker.commandGroup.commands) && marker.commandGroup.commands.some(powered)))))
+    || routines.some((routine) => isRecord(routine) && inNodes(routine.nodes, 0));
 }
 
 export function normalizeProject(value: unknown): unknown {
@@ -146,6 +160,13 @@ export function normalizeProject(value: unknown): unknown {
   if (Array.isArray(canonicalSource.robots)) {
     canonicalSource.robots = canonicalSource.robots.map((robot) => isRecord(robot) && isRecord(robot.connection)
       ? { ...robot, connection: { target: robot.connection.target, host: robot.connection.host, port: robot.connection.port, directory: robot.connection.directory } } : robot);
+  }
+  // The selected robot carries its project id, which keys per-use command power estimates (commandLoads.ts). A project
+  // without a robot list or any estimate does not need it, and loads exactly as before.
+  const listed = Array.isArray(canonicalSource.robots) && canonicalSource.robots.length > 0 && typeof canonicalSource.activeRobotId === "string";
+  if (isRecord(canonicalSource.robot) && (listed || hasCommandPower(paths, routines))) {
+    const id = listed ? canonicalSource.activeRobotId : UNLISTED_ROBOT_ID;
+    if (canonicalSource.robot.id !== id) canonicalSource.robot = { ...canonicalSource.robot, id };
   }
   return { ...canonicalSource, paths, pathLinks, routines, activeRoutineId, plannerId };
 }

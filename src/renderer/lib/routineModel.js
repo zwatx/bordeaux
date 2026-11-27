@@ -3,6 +3,7 @@ import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { PM } from "./pathMath";
 import { createRoutineNodeId } from "../../core/project/ids";
+import { routineCommandStepRunS, routineStepTimedByRunTime } from "../../core/commandLoads";
 
 // Autonomous Routine — autonomous routine model + run engine (no React).
 // A routine is an ordered list of STEPS. Three step kinds: Path, Decision, Function.
@@ -445,37 +446,15 @@ import { createRoutineNodeId } from "../../core/project/ids";
         if (route) frames.push({ kind: 'list', nodes: route.nodes || [], index: 0, depth: frame.depth + 1, passStack });
       }
     }
-    let t = 0, pIdx = 0, lastPose = null, previousPath = null, exactS = 0, parallel = false;
-    const continuityEdges = new Set();
-    // Open groups, innermost last. Each child of a parallel group starts at the group's start; the group ends with
-    // its latest child. A sequential group runs its children one after another.
-    const groups = [];
-    const closeGroup = () => {
-      const group = groups.pop();
-      if (group.mode === 'parallel') { t = group.end; exactS = group.exactEnd; }
-      const parent = groups.at(-1);
-      if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
-      result.groupSpans.push({ nodeId: group.node.id, occurrenceId: group.occurrenceId, passStack: group.passStack, mode: group.mode, t0: group.start, t1: t });
-    };
-    const startChild = () => {
-      const parent = groups.at(-1);
-      if (parent?.mode === 'parallel') { t = parent.start; exactS = parent.exactStart; }
-    };
-    const endChild = () => {
-      const parent = groups.at(-1);
-      if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
-    };
-    result.groupSpans = [];
+    let pIdx = 0, lastPose = null, previousPath = null;
+    const continuityEdges = new Set(), clock = routineClock();
+    // The trace in emission order, group bounds included, so routinePowerRun can retime it.
+    result.trace = flat;
+    result.groupSpans = clock.spans;
     for (const it of flat) {
-      if (it.kind === 'groupStart') {
-        startChild();
-        const mode = it.node.mode === 'sequential' ? 'sequential' : 'parallel';
-        if (mode === 'parallel') parallel = true;
-        groups.push({ node: it.node, occurrenceId: it.occurrenceId, passStack: it.passStack, mode, start: t, end: t, exactStart: exactS, exactEnd: exactS });
-        continue;
-      }
-      if (it.kind === 'groupEnd') { if (groups.length) closeGroup(); continue; }
-      startChild();
+      if (it.kind === 'groupStart') { clock.openGroup(it); continue; }
+      if (it.kind === 'groupEnd') { clock.closeGroup(); continue; }
+      const t = clock.startStep();
       let dur = 0, timing = 'instant', extras = { pose: lastPose ? { ...lastPose, speed: 0 } : null };
       if (it.kind === 'path' || it.kind === 'gen') {
         const dp = derivePathNode(it.node, pathsById, robot, plannerId, plannedValues, derivedPaths, derivePath);
@@ -509,20 +488,65 @@ import { createRoutineNodeId } from "../../core/project/ids";
         else timing = 'unknown';
         if (it.kind === 'dynamic') extras.dynamic = true;
       }
-      if (timing === 'exact') exactS += dur;
       if (timing === 'unknown') result.duration.unknownCount++;
       if (timing === 'upperBound') result.duration.usesLimits = true;
-      result.steps.push({ ...it, t0: t, t1: t + dur, dur, timing, ...extras }); t += dur;
-      endChild();
+      result.steps.push({ ...it, t0: t, t1: t + dur, dur, timing, ...extras });
+      clock.endStep(dur, timing === 'exact');
     }
     // A truncated trace can stop inside a group.
-    while (groups.length) closeGroup();
-    result.duration.minS = exactS;
+    const t = clock.finish();
+    result.duration.minS = clock.exactS;
     result.duration.maxS = result.duration.unknownCount ? null : t;
-    // Parallel children overlap; keep steps ordered by end time so time lookup stays a binary search.
-    if (parallel) result.steps = result.steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
+    if (clock.parallel) result.steps = byEndTime(result.steps);
     result.total = t; result.timedPlayable = !result.blocked && t > 0;
     return result;
+  }
+
+  // Parallel children overlap; keep steps ordered by end time so time lookup stays a binary search.
+  function byEndTime(steps) {
+    return steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
+  }
+
+  /**
+   * The routine clock over a trace: steps run one after another, each child of a parallel group starts at the group's
+   * start and the group ends with its latest child, and a sequential group runs its children in turn. `exactS` counts
+   * only exactly timed steps, the same way. Group spans collect in `spans` as groups close.
+   */
+  function routineClock() {
+    let t = 0, exactS = 0, parallel = false;
+    const groups = [], spans = [];
+    const startChild = () => {
+      const parent = groups.at(-1);
+      if (parent?.mode === 'parallel') { t = parent.start; exactS = parent.exactStart; }
+    };
+    const endChild = () => {
+      const parent = groups.at(-1);
+      if (parent?.mode === 'parallel') { parent.end = Math.max(parent.end, t); parent.exactEnd = Math.max(parent.exactEnd, exactS); }
+    };
+    const closeGroup = () => {
+      const group = groups.pop();
+      if (!group) return;
+      if (group.mode === 'parallel') { t = group.end; exactS = group.exactEnd; }
+      endChild();
+      spans.push({ nodeId: group.node.id, occurrenceId: group.occurrenceId, passStack: group.passStack, mode: group.mode, t0: group.start, t1: t });
+    };
+    return {
+      spans,
+      get exactS() { return exactS; },
+      get parallel() { return parallel; },
+      openGroup(it) {
+        startChild();
+        const mode = it.node.mode === 'sequential' ? 'sequential' : 'parallel';
+        if (mode === 'parallel') parallel = true;
+        groups.push({ node: it.node, occurrenceId: it.occurrenceId, passStack: it.passStack, mode, start: t, end: t, exactStart: exactS, exactEnd: exactS });
+      },
+      closeGroup,
+      /** The time the next step starts. */
+      startStep() { startChild(); return t; },
+      endStep(dur, exact) { t += dur; if (exact) exactS += dur; endChild(); },
+      /** Closes any group a truncated trace left open; the routine's end time. */
+      finish() { while (groups.length) closeGroup(); return t; },
+    };
   }
 
   // ---- pose along the run at time ----
@@ -920,3 +944,94 @@ export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowS
     }
     return issues;
   }
+
+/** A routine command step's command, or null for any other step. */
+const commandStepInvocation = (step) => step.kind === 'event' && step.node?.type === 'function' ? step.node.invocation || null : null;
+
+/**
+ * The routine's own command steps as a preview run timed them, one per occurrence, for analyzeRoutinePower's
+ * `commandSteps` (src/core/planners/trajectoryPower.ts). Path events come from the run's path segments instead. A
+ * step routinePowerRun cut short where the routine ended carries that limit (`limitS`) in place of its own.
+ */
+export function routinePowerCommandSteps(run) {
+  return (run?.steps || []).filter(commandStepInvocation).map((step) => {
+    const timeoutS = step.limitS ?? step.node.ends?.timeoutS;
+    return { t0: step.t0, t1: step.t1, invocation: step.node.invocation, ...(Number.isFinite(timeoutS) ? { timeoutS } : {}) };
+  });
+}
+
+/** Whether a step's end depends on a condition: an early end (`endWhen`), or a command loop that stops on its output. */
+function endsOnCondition(step) {
+  const until = commandStepInvocation(step)?.loop?.until;
+  return Boolean(step.node?.ends?.endWhen) || Boolean(until && until.kind !== 'time');
+}
+
+/** Times closer than this are the same moment (run times add up in floating point). */
+const TIME_EPS = 1e-9;
+
+/**
+ * A preview run as the routine Power report times it. A command step whose estimate on `robot` makes its length
+ * exact (routineCommandStepRunS: its Runs for, or a time loop's runs, within its step time limit) lasts that long, and
+ * the steps, paths and groups after it move with it on buildRun's clock. A step that ends on a condition is unknown,
+ * whatever its estimate. A step whose run outlasts a time limit set to End routine ends the routine there: steps
+ * after it are dropped, and those running beside it in a group stop then too (paths and End steps can't be in a
+ * group, so no path is cut). Every other step keeps the preview's timing; the preview itself (scrubber, timeline,
+ * playback, totals) is unchanged. `untimed` lists the steps whose length is still unknown or only bounded by a limit,
+ * once per node in run order; `runTimeHelps` marks a command step that a Runs for would time, `condition` one that
+ * ends on a condition.
+ */
+export function routinePowerRun(run, robot) {
+  // A run built without a trace can't be retimed; its own untimed steps stand.
+  if (!run?.trace) {
+    const own = new Map((run?.steps || []).filter((step) => step.timing === 'unknown' || step.timing === 'upperBound')
+      .map((step) => [step.nodeId, { nodeId: step.nodeId, node: step.node, runTimeHelps: false, condition: endsOnCondition(step) }]));
+    return { run, untimed: [...own.values()] };
+  }
+  const byOccurrence = new Map(run.steps.map((step) => [step.occurrenceId, step]));
+  const clock = routineClock(), timedSteps = [];
+  // When a time limit ends the routine, if one does.
+  let endS = Infinity;
+  for (const it of run.trace) {
+    if (it.kind === 'groupStart') { clock.openGroup(it); continue; }
+    if (it.kind === 'groupEnd') { clock.closeGroup(); continue; }
+    const step = byOccurrence.get(it.occurrenceId);
+    // The preview stopped before this point (an invalid step); so does this timeline.
+    if (!step) break;
+    const t0 = clock.startStep(), invocation = commandStepInvocation(step), condition = endsOnCondition(step), ends = step.node.ends;
+    let runS = invocation && !condition ? routineCommandStepRunS(robot, { invocation, timeoutS: ends?.timeoutS }) : undefined;
+    // Run times add up in floating point (three 0.1 s runs are 0.30000000000000004 s), so a run that ends at its limit
+    // finishes there rather than timing out.
+    let timedOut = runS !== undefined && routineCommandStepRunS(robot, { invocation }) > runS + TIME_EPS;
+    // A time loop runs at least until its limit, so a step time limit at or before that ends the step exactly then, with
+    // or without a Runs for. At a limit equal to the loop's, the last run may finish on time or be cut off: the step
+    // ends at that moment either way, but whether End routine fires is unknown, so only that case still needs a Runs for.
+    const loopS = invocation && !condition && invocation.loop?.until?.kind === 'time' ? invocation.loop.until.seconds : undefined;
+    if (runS === undefined && loopS !== undefined && typeof ends?.timeoutS === 'number') {
+      const before = ends.timeoutS < loopS - TIME_EPS, atLoop = !before && ends.timeoutS <= loopS + TIME_EPS;
+      if (before || (atLoop && ends.onTimeout !== 'endRoutine')) { runS = ends.timeoutS; timedOut = before; }
+    }
+    const dur = runS ?? step.dur, timing = condition && invocation ? 'unknown' : runS !== undefined ? 'exact' : step.timing;
+    // The limit stops a run that would outlast it; with End routine, nothing after that moment runs.
+    if (timedOut && ends?.onTimeout === 'endRoutine') endS = Math.min(endS, t0 + runS);
+    timedSteps.push({ ...step, t0, t1: t0 + dur, dur, timing, condition, runTimeHelps: Boolean(invocation && !condition && routineStepTimedByRunTime(invocation)) });
+    clock.endStep(dur, timing === 'exact');
+  }
+  const total = Math.min(clock.finish(), endS);
+  const steps = [], segs = [], untimed = new Map();
+  const duration = { minS: Math.min(clock.exactS, total), maxS: 0, unknownCount: 0, usesLimits: false };
+  for (const { condition, runTimeHelps, ...timed } of timedSteps) {
+    if (timed.t0 >= endS) continue;
+    const step = timed.t1 > endS ? { ...timed, t1: endS, dur: endS - timed.t0, limitS: endS - timed.t0 } : timed;
+    if (step.timing === 'unknown') duration.unknownCount++;
+    if (step.timing === 'upperBound') duration.usesLimits = true;
+    if ((step.timing === 'unknown' || step.timing === 'upperBound') && !untimed.has(step.nodeId)) untimed.set(step.nodeId, { nodeId: step.nodeId, node: step.node, runTimeHelps, condition });
+    if (step.segIdx != null) { segs.push({ ...run.segs[step.segIdx], t0: step.t0, t1: step.t1 }); step.segIdx = segs.length - 1; }
+    steps.push(step);
+  }
+  duration.maxS = duration.unknownCount ? null : total;
+  const groupSpans = clock.spans.filter((span) => span.t0 < endS).map((span) => span.t1 > endS ? { ...span, t1: endS } : span);
+  return {
+    run: { ...run, steps: clock.parallel ? byEndTime(steps) : steps, segs, groupSpans, total, duration },
+    untimed: [...untimed.values()],
+  };
+}

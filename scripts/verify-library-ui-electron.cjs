@@ -493,7 +493,7 @@ app.whenReady().then(async () => {
     };
     // The box keeps a limit above the robot's, which planning caps and the box marks; only a slipped digit is refused.
     assert.equal(await enterVelocity('999'), 30, 'Typed velocity must respect its typing bound');
-    assert.equal(await evaluate(() => [...document.querySelectorAll('.numbox.capped')].some((box) => /^Your robot’s max .+ is .+$/.test(box.title))), true, 'A limit above the robot\'s is marked');
+    assert.equal(await evaluate(() => [...document.querySelectorAll('.numbox.capped')].some((box) => /^.+’s max .+ is .+$/.test(box.title))), true, 'A limit above the robot\'s is marked');
     assert.equal(await enterVelocity('-5'), 0.1, 'Typed velocity must respect its minimum');
     for (const invalid of ['Infinity', 'NaN', '2oops', '']) {
       assert.equal(await enterVelocity(invalid), 0.1, 'Invalid numeric text must preserve the current value: ' + invalid);

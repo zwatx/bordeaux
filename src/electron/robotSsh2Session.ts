@@ -5,7 +5,7 @@ import type { RobotPathFiles } from "../core/robotFileDelivery";
 import { ROBOT_DIRECTORY_ROOTS } from "../core/robotTargets";
 import { isCommandsFile } from "../core/export/commandsFile";
 import {
-  RobotTransportError,
+  RobotFileKeptError, RobotTransportError,
   type RobotConnectRequest,
   type RobotRemoteFile,
   type RobotSftpSession,
@@ -50,10 +50,10 @@ export function validateRobotFileDirectory(directory: unknown, roots: readonly s
   return directory as string;
 }
 
-/** A pushed .bdx or .bdr, or the command list sent to a SystemCore (core/export/commandsFile.ts). */
+/** A pushed .bdx, .bdr or .robot (core/project/robotFile.ts), or the command list sent to a SystemCore (core/export/commandsFile.ts). */
 export function validateRobotFileName(fileName: unknown): string {
-  if (typeof fileName !== "string" || !(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(?:bdx|bdr)$/.test(fileName) || isCommandsFile(fileName))) {
-    throw new RobotTransportError("invalid_request", "Robot filename must be a safe .bdx or .bdr basename");
+  if (typeof fileName !== "string" || !(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(?:bdx|bdr|robot)$/.test(fileName) || isCommandsFile(fileName))) {
+    throw new RobotTransportError("invalid_request", "Robot filename must be a safe .bdx, .bdr or .robot basename");
   }
   return fileName;
 }
@@ -199,7 +199,8 @@ class Ssh2RobotSession implements RobotSftpSession {
     return { created };
   }
 
-  async listPathFiles(directory: string, signal: AbortSignal): Promise<RobotPathFiles> {
+  /** Deployed `.bdx` files, or with `robotFiles` the folder's safely named `.robot` files. */
+  async listPathFiles(directory: string, signal: AbortSignal, robotFiles = false): Promise<RobotPathFiles> {
     const target = validateRobotFileDirectory(directory);
     const combined = AbortSignal.any([signal, this.sessionSignal]);
     const handle = await guarded<Buffer | null>(combined, this.timedOut, (resolve, reject) => {
@@ -226,7 +227,8 @@ class Ssh2RobotSession implements RobotSftpSession {
         if (!entries) return { files: [...files.values()], missing: false, truncated: false };
         for (const { filename, attrs } of entries) {
           if (++inspected > 10_000) throw new RobotTransportError("transfer_failed", "The robot folder has too many entries to inspect");
-          if (!isDeployedPathName(filename) || !attrs.isFile() || attrs.isSymbolicLink() || files.has(filename)) continue;
+          const listed = robotFiles ? /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.robot$/.test(filename) : isDeployedPathName(filename);
+          if (!listed || !attrs.isFile() || attrs.isSymbolicLink() || files.has(filename)) continue;
           if (files.size === 256) return { files: [...files.values()], missing: false, truncated: true };
           files.set(filename, { fileName: filename, size: attrs.size ?? 0, mtime: (attrs.mtime ?? 0) * 1000 });
         }
@@ -318,6 +320,12 @@ class Ssh2RobotSession implements RobotSftpSession {
       if (!await this.exists(to, combined)) {
         await callbackOperation(combined, this.timedOut, (callback) => this.sftp.rename(source, destination, callback));
         return;
+      }
+      // A robot's details are replaced only in one step: an overwrite cut short would leave a truncated file that
+      // Pull can't read, in place of details that may exist nowhere else. Paths and routines keep the verified
+      // overwrite below; a failure there is reported as possibly replaced, and the next Push sends them again.
+      if (/\.robot$/i.test(to.fileName)) {
+        throw new RobotFileKeptError(to.fileName, `The robot’s SFTP server can’t replace a file in one step (it lacks the posix-rename extension), so ${to.fileName} on the robot was left as it was. Delete it on the robot to push new details`);
       }
       const contents = await this.read(from, 24 * 1024 * 1024, combined);
       await this.exists(to, combined); // Recheck that the final filename is not a link.

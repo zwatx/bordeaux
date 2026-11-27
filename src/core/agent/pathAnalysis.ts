@@ -1,7 +1,7 @@
 import { REBUILT_2026_FIELD, officialToAppPoint } from "../field/rebuilt2026";
 import { pathTrajectory } from "../planners/pathTrajectory";
 import { clone } from "../project/defaults";
-import { effectivePathConstraints } from "../robotLimits";
+import { planningPathConstraints } from "../robotLimits";
 import type { BordeauxProject, PathDoc, TrajectorySample, ValidationIssue } from "../types";
 import { validateProject } from "../validation";
 import {
@@ -448,9 +448,10 @@ export function analyzePath(project: BordeauxProject, pathId: string, options: A
       plannerDiagnostics: [],
     };
   }
+  // Measure against the limits the planner used: followed limits at this robot's max, its command reserve included.
   const analyzedPath = {
     ...path,
-    constraints: effectivePathConstraints(path.constraints, project.robot),
+    constraints: planningPathConstraints(path, project.robot),
   };
   const measured = analyzeGeneratedPath(
     project,

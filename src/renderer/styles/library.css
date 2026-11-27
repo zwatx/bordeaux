@@ -120,6 +120,9 @@ body.library-dragging,body.library-dragging *{cursor:grabbing!important;user-sel
 
 /* A fixed local-feedback row; batch selection keeps its own count and Clear control. */
 .deletion-footer{flex:0 0 var(--side-foot,40px);height:var(--side-foot,40px);min-height:var(--side-foot,40px);padding:0 8px 0 14px;border-top:1px solid var(--line)}
+/* On Paths, with nothing to undo, the row collapses so the library runs down to the robot tabs; its live region stays.
+   Routines keep it: there its top rule continues the transport's. */
+.stage-plan .deletion-footer:not(:has(.deletion-notice)){flex-basis:0;height:0;min-height:0;overflow:hidden;border-top:0}
 .deletion-notice{height:100%;display:flex;align-items:center;gap:6px;color:var(--txt-2);font:500 12px/1.25 var(--ui)}
 .deletion-copy{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .deletion-notice button{flex:0 0 42px;width:42px;height:28px;color:var(--txt);font:500 12px/1.25 var(--ui);border-radius:var(--r)}

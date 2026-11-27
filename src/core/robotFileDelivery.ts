@@ -25,7 +25,14 @@ export interface RobotFileReading {
   /** When the read finished, as an ISO 8601 time. Another computer may push after it. */
   readAt: string;
   files: Array<{ fileName: string; contents: Uint8Array | null }>;
+  /**
+   * When a requested `.robot` file is missing: the `.robot` files the push folder does hold (at most 64, by name), so
+   * the user can choose one. Listed in the same read-only session.
+   */
+  robotConfigs?: string[];
 }
+/** What a path or routine push sends besides its files. `robotFile` adds the selected robot's `.robot` file. */
+export interface RobotPushOptions { robotFile?: boolean }
 export interface RobotFileResult {
   state: "transferred";
   files: RobotFilePreview["files"];

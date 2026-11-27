@@ -12,6 +12,9 @@ describe('changed source on disk: structured cause', () => {
   it('reads main’s structured field only, for this failed terminal', () => {
     expect(sourceChangeOf({ source: 'failed', sourceChange: { scope: 'workspace' } })).toEqual({ scope: 'workspace' });
     expect(sourceChangeOf({ source: 'failed', sourceChange: { scope: 'document', file: 'Paths/Auto 1.path' } })).toEqual({ scope: 'document', file: 'Paths/Auto 1.path' });
+    // A robot's file names itself too, so its notice keeps Show file.
+    expect(sourceChangeOf({ source: 'failed', sourceChange: { scope: 'document', file: 'Robots/Competition.robot' } })).toEqual({ scope: 'document', file: 'Robots/Competition.robot' });
+    expect(changedSourceFact({ scope: 'document', file: 'Robots/Competition.robot' })).toBe('Robots/Competition.robot changed on disk');
     // A message that merely reads like a change is never parsed into one.
     expect(sourceChangeOf({ source: 'failed', sourceFact: 'The project changed on disk' })).toBeUndefined();
     // Only failed terminals carry a cause; a timeout or save never inherits one.

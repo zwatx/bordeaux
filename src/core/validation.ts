@@ -6,7 +6,8 @@ import { ACTIVE_FIELD_REFERENCE, BLUE_ORIGIN_FIELD_SCHEMA_ID, WELDED_FIELD_REVIS
 import { routineGroupChildError } from "./routineChildren";
 import { isRobotTargetId } from "./robotTargets";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
-import { MAX_COMMAND_LOADS } from "./commandLoads";
+import { COMMAND_CURRENT_MAX_A, COMMAND_INPUT_KEY_MAX, COMMAND_POWER_ROBOTS_MAX, COMMAND_RUN_TIME_MAX_S, COMMAND_RUN_TIME_MIN_S, MAX_COMMAND_LOADS } from "./commandLoads";
+import { FOLLOWABLE_LIMITS } from "./robotLimits";
 import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES } from "./robotCameras";
 import { ROBOT_LIMIT, ROBOT_NAME_MAX } from "./project/robots";
 
@@ -254,6 +255,35 @@ export function validateCommandLoop(issues: ValidationIssue[], value: unknown, p
   }
 }
 
+/** Longest project robot id an estimate may be keyed by. */
+const ROBOT_ID_MAX = 256;
+
+/**
+ * A use's planning-only power estimates, one per project robot id. Ids of robots the project does not list are kept:
+ * robots that share estimates through `estimatesFrom` still plan with them, and a teammate's newer robot list may use
+ * them.
+ */
+function validateCommandPower(issues: ValidationIssue[], power: unknown, path: string): void {
+  if (power === undefined) return;
+  if (!isRecord(power)) { issues.push(issue(path, "Command power estimates must be an object")); return; }
+  const entries = Object.entries(power);
+  if (entries.length > COMMAND_POWER_ROBOTS_MAX) { issues.push(issue(path, `A command use has estimates for at most ${COMMAND_POWER_ROBOTS_MAX} robots`)); return; }
+  for (const [robotId, estimate] of entries) {
+    const at = `${path}.${robotId}`;
+    if (!robotId || robotId.length > ROBOT_ID_MAX) { issues.push(issue(at, "Power estimate robot id is invalid")); continue; }
+    if (!isRecord(estimate)) { issues.push(issue(at, "Power estimate must be an object")); continue; }
+    if (!finite(estimate.currentA) || estimate.currentA < 0 || estimate.currentA > COMMAND_CURRENT_MAX_A) {
+      issues.push(issue(`${at}.currentA`, `Estimated current must be from 0 to ${COMMAND_CURRENT_MAX_A} A`));
+    }
+    if (estimate.runTimeS !== undefined && (!finite(estimate.runTimeS) || estimate.runTimeS < COMMAND_RUN_TIME_MIN_S || estimate.runTimeS > COMMAND_RUN_TIME_MAX_S)) {
+      issues.push(issue(`${at}.runTimeS`, `Estimated run time must be from ${COMMAND_RUN_TIME_MIN_S} to ${COMMAND_RUN_TIME_MAX_S} seconds`));
+    }
+    if (typeof estimate.inputKey !== "string" || !estimate.inputKey || estimate.inputKey.length > COMMAND_INPUT_KEY_MAX) {
+      issues.push(issue(`${at}.inputKey`, "Power estimate needs the input key it was entered against"));
+    }
+  }
+}
+
 function validateMarkerInvocation(issues: ValidationIssue[], invocation: unknown, path: string): void {
   if (!isRecord(invocation)) {
     issues.push(issue(path, "Command invocation must be an object"));
@@ -271,6 +301,7 @@ function validateMarkerInvocation(issues: ValidationIssue[], invocation: unknown
     issues.push(issue(`${path}.cancelOnPathEnd`, "Cancel on path end must be true or false"));
   }
   if (invocation.loop !== undefined) validateCommandLoop(issues, invocation.loop, `${path}.loop`, "path");
+  validateCommandPower(issues, invocation.power, `${path}.power`);
 }
 
 function validateMarkerCommandGroup(issues: ValidationIssue[], marker: RecordValue, path: string): void {
@@ -421,6 +452,7 @@ function validateRoutineNodes(
       return;
     }
     if (!["command", "terminate", "sequence", "generate", "velocity"].includes(String(node.cat))) issues.push(issue(`${base}.cat`, "Routine function category is invalid"));
+    if (isRecord(node.invocation)) validateCommandPower(issues, node.invocation.power, `${base}.invocation.power`);
     if (node.cat === "command" && isRecord(node.invocation) && node.invocation.loop !== undefined) {
       validateCommandLoop(issues, node.invocation.loop, `${base}.invocation.loop`, "routine");
       if (node.outputBranch !== undefined) issues.push(issue(`${base}.invocation.loop`, "A looping command cannot branch on its output"));
@@ -482,6 +514,16 @@ function validateRobotConfig(issues: ValidationIssue[], robot: unknown, base: st
   validateFinite(issues, robot.l, `${base}.l`, "Robot length", { positive: true });
   validateOptionalFinite(issues, robot.heightM, `${base}.heightM`, "Robot height", { positive: true });
   validateFinite(issues, robot.maxSpeed, `${base}.maxSpeed`, "Robot max speed", { positive: true });
+  if (robot.id !== undefined && (typeof robot.id !== "string" || !robot.id || robot.id.length > ROBOT_ID_MAX)) {
+    issues.push(issue(`${base}.id`, "Robot id must be a short nonempty string"));
+  }
+  if (robot.estimatesFrom !== undefined) {
+    const from = robot.estimatesFrom;
+    if (!Array.isArray(from) || from.length > ROBOT_LIMIT || new Set(from).size !== from.length
+      || from.some((id) => typeof id !== "string" || !id || id.length > ROBOT_ID_MAX)) {
+      issues.push(issue(`${base}.estimatesFrom`, `Shared power estimates must name up to ${ROBOT_LIMIT} different robot ids`));
+    }
+  }
   if (robot.driveModel !== undefined) {
     const modelPath = `${base}.driveModel`;
     if (!isRecord(robot.driveModel)) issues.push(issue(modelPath, "Robot drive model must be an object"));
@@ -564,6 +606,13 @@ function validateRobotConfig(issues: ValidationIssue[], robot: unknown, base: st
   validateRobotFootprint(issues, robot, base);
   validateRobotCameras(issues, robot, base);
   validateRobotPlanning(issues, robot, base);
+}
+
+/** Problems with one robot's details as a `.robot` file holds them (src/core/project/robotFile.ts); paths start at `$`. */
+export function validateRobotDetails(robot: unknown): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  validateRobotConfig(issues, robot, "$");
+  return issues;
 }
 
 /** The named robot list: exactly the selected entry leaves its details to `$.robot`. */
@@ -875,6 +924,11 @@ function validateProjectInner(project: unknown, allowIncompletePaths = false): V
         validateOptionalFinite(issues, constraints.maxCentripetalAccel, `${base}.constraints.maxCentripetalAccel`, "maxCentripetalAccel", { positive: true });
         validateOptionalFinite(issues, constraints.maxAngDecel, `${base}.constraints.maxAngDecel`, "maxAngDecel", { positive: true });
         ["maxJerk", "maxAngJerk"].forEach((key) => validateOptionalFinite(issues, constraints[key], `${base}.constraints.${key}`, key, { nonnegative: true }));
+        const followed = constraints.followRobotMax;
+        if (followed !== undefined && (!Array.isArray(followed) || new Set(followed).size !== followed.length
+          || !followed.every((key) => (FOLLOWABLE_LIMITS as readonly unknown[]).includes(key)))) {
+          issues.push(issue(`${base}.constraints.followRobotMax`, `Limits that follow the robot must be distinct names from ${FOLLOWABLE_LIMITS.join(", ")}`));
+        }
       }
     });
   }

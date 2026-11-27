@@ -2,8 +2,8 @@
  * One bounded, chronological undo journal shared by every editor surface.
  *
  * Each entry belongs to a scope: the path it edits (`path:<id>`), the routine
- * library (`routines`), or the whole project (`project`, for deletions, library moves and
- * applied proposals). A surface undoes the newest entry in one of its scopes.
+ * library (`routines`), or the whole project (`project`, for deletions, library moves,
+ * applied proposals and robot details pulled from a robot). A surface undoes the newest entry in one of its scopes.
  * Entries from other surfaces are skipped, but never jumped over when they
  * touched the same state: undoing then would silently rewrite that surface.
  */
@@ -35,11 +35,13 @@ export function applicableIndex(stack: readonly UndoEntry[], scopes: readonly st
   return -1;
 }
 
+/** Returned by `apply` for an entry that can never be applied again: it is removed, and nothing is added to redo. */
+export const DROP_UNDO = Symbol("drop undo entry");
 /**
- * `apply` performs an entry and returns the entry that reverses it, or null
- * when the entry can no longer be applied. A refused entry stays in place.
+ * `apply` performs an entry and returns the entry that reverses it, null when the entry can't be applied now (it
+ * stays in place), or DROP_UNDO when it never can.
  */
-export type ApplyUndo<T extends UndoEntry> = (entry: T) => T | null;
+export type ApplyUndo<T extends UndoEntry> = (entry: T) => T | null | typeof DROP_UNDO;
 
 export function createUndoHistory<T extends UndoEntry>(limit = UNDO_LIMIT) {
   let past: T[] = [];
@@ -54,7 +56,7 @@ export function createUndoHistory<T extends UndoEntry>(limit = UNDO_LIMIT) {
     const inverse = apply(from[index]);
     if (!inverse) return false;
     from.splice(index, 1);
-    push(to, inverse);
+    if (inverse !== DROP_UNDO) push(to, inverse);
     return true;
   };
   return {
@@ -71,11 +73,11 @@ export function createUndoHistory<T extends UndoEntry>(limit = UNDO_LIMIT) {
 }
 
 type Link = { fromPathId: string; toPathId: string };
-type LibraryPath = { id: string; name?: string; folderId?: string; waypoints?: { positionLink?: string }[] };
+type LibraryPath = { id: string; name?: string; folderId?: string; waypoints?: { positionLink?: string; jiggle?: unknown }[] };
 type Folder = { id: string };
 type LinkedProject = { paths: LibraryPath[]; pathLinks?: Link[] | null };
 type Project = LinkedProject & { pathFolders?: Folder[] | null; robot: { planning?: unknown }; activeRobotId?: string;
-  robots?: { id: string; robot?: { planning?: unknown } }[] };
+  robots?: { id: string; name?: string; robot?: { planning?: unknown } }[] };
 
 /** Where a robot's planning is now: `project.robot` while it is selected, its list entry otherwise. Null once removed. */
 function robotPlanning(project: Project, robotId: string): { planning: unknown } | null {
@@ -120,8 +122,9 @@ const missingLinks = (from: Link[] | null | undefined, to: Link[] | null | undef
 
 type Fields = Record<string, unknown>;
 const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
-/** Structural equality for plain settings values; an undefined field equals a missing one. */
+/** Structural equality for plain settings values, lists included; an undefined field equals a missing one. */
 const sameValue = (a: unknown, b: unknown): boolean => Object.is(a, b)
+  || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameValue(value, b[index])))
   || (isFields(a) && isFields(b) && [...new Set([...Object.keys(a), ...Object.keys(b)])].every((key) => sameValue(a[key], b[key])));
 
 /**
@@ -252,10 +255,75 @@ export function restoreFolder<T extends FolderProject>(project: T, change: Folde
     paths: project.paths.map((path) => !path.folderId && change.memberIds.includes(path.id) ? withFolder(path, change.folder.id) : path) };
 }
 
+/**
+ * One robot's details replaced as one change (Pull from robot's Apply), before and after, without the in-memory `id`
+ * and the project's `estimatesFrom`, which Apply keeps. `redo` marks the entry Undo leaves for Redo.
+ */
+export type RobotChange = { robotId: string; before: Fields; after: Fields; redo?: boolean };
+
+const robotFields = (robot: Fields): Fields => {
+  const { id: _id, estimatesFrom: _from, ...details } = robot;
+  return details;
+};
+/** Where a robot's details are now: `project.robot` while it is selected, its list entry otherwise. Null once removed. */
+function robotDetails(project: Project, robotId: string): Fields | null {
+  if (robotId === (project.activeRobotId ?? UNLISTED_ROBOT_ID)) return project.robot as Fields;
+  return (project.robots?.find((robot) => robot.id === robotId)?.robot as Fields | undefined) ?? null;
+}
+
+/** The change from `before` to `after` on one robot's details, for the journal. */
+export const captureRobotChange = (robotId: string, before: object, after: object): RobotChange =>
+  ({ robotId, before: robotFields(before as Fields), after: robotFields(after as Fields) });
+
+/** A path whose endpoint jiggle needs a swerve drive, which a selected tank robot would make invalid (validation.ts). */
+const jiggledPath = (project: Project) => project.paths.find((path) => path.waypoints?.some((waypoint) => waypoint?.jiggle !== undefined));
+
+/** Why Undo (or Redo) can't step a robot change; `keep` says whether the entry stays in the journal. */
+export type RobotChangeRefusal = { refused: string; keep: boolean };
+
+/**
+ * Why a robot change can't be stepped in `project` now, or null when it can. Undo restores the robot's whole earlier
+ * details, and only while they are exactly what the change left: restoring a whole earlier snapshot can't pair a field
+ * with a newer partner it was never checked against (a collect speed added under a pulled max speed). Robot page edits
+ * are not in the journal, so a robot changed since can never be brought back to that state by Undo; the entry is
+ * dropped (`keep: false`), or it would block every older project-wide Undo for good. A tank drive returning under a
+ * path's newer endpoint jiggle would make Save refuse the project; that is refused too, but the entry stays
+ * (`keep: true`), since removing the jiggle makes it possible. A robot deleted since is no refusal: there is nothing
+ * to restore.
+ */
+export function robotChangeRefusal(project: Project, change: RobotChange): RobotChangeRefusal | null {
+  const current = robotDetails(project, change.robotId);
+  if (!current) return null;
+  const name = project.robots?.find((robot) => robot.id === change.robotId)?.name ?? "Robot";
+  const [done, step] = change.redo ? ["Undo", "Redo"] : ["Pull", "Undo"];
+  if (!sameValue(robotFields(current), change.after)) return { refused: `“${name}” changed after ${done}, so ${step} left its details as they are.`, keep: false };
+  const path = jiggledPath(project);
+  if (path && change.robotId === (project.activeRobotId ?? UNLISTED_ROBOT_ID) && change.before.drive === "tank" && current.drive !== "tank") {
+    return { refused: `${step} would make this robot a tank drive, but “${path.name ?? "a path"}” ends with a jiggle, which needs a swerve drive. Remove the jiggle, then ${step.toLowerCase()} again.`, keep: true };
+  }
+  return null;
+}
+
+/**
+ * Reverses a robot change on the robot it was made on, selected or not: its whole earlier details return, keeping its
+ * id and share list. Null when robotChangeRefusal refuses it. A robot deleted since leaves the project as it is.
+ */
+export function restoreRobotChange<T extends Project>(project: T, change: RobotChange): { project: T; change: RobotChange } | null {
+  const inverse: RobotChange = { robotId: change.robotId, before: change.after, after: change.before, redo: !change.redo };
+  const current = robotDetails(project, change.robotId);
+  if (!current) return { project, change: inverse };
+  if (robotChangeRefusal(project, change)) return null;
+  const next: Fields = { ...structuredClone(change.before), ...(current.id !== undefined ? { id: current.id } : {}),
+    ...(current.estimatesFrom !== undefined ? { estimatesFrom: current.estimatesFrom } : {}) };
+  if (change.robotId === (project.activeRobotId ?? UNLISTED_ROBOT_ID)) return { project: { ...project, robot: next }, change: inverse };
+  return { project: { ...project, robots: project.robots!.map((robot) => robot.id === change.robotId ? { ...robot, robot: next } : robot) }, change: inverse };
+}
+
 export type ProjectEntry = UndoEntry & (
   | { kind: "project" | "waypoints"; change: ProjectChange }
   | { kind: "folder"; restore?: FolderChange | null; folderId?: string }
-  | { kind: "library"; arrangement: Arrangement });
+  | { kind: "library"; arrangement: Arrangement }
+  | { kind: "robot"; change: RobotChange });
 
 /**
  * Applies a project-wide, shared-position, folder, or library arrangement entry. Returns the next
@@ -265,6 +333,10 @@ export function applyProjectEntry<T extends Project>(project: T, entry: ProjectE
   if (entry.kind === "library") {
     const next = restoreArrangement(project, entry.arrangement);
     return { project: next, inverse: { ...entry, arrangement: captureArrangement(project, next) } };
+  }
+  if (entry.kind === "robot") {
+    const restored = restoreRobotChange(project, entry.change);
+    return restored && { project: restored.project, inverse: { ...entry, change: restored.change } };
   }
   if (entry.kind !== "folder") {
     const next = restoreProjectChange(project, entry.change);

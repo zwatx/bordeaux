@@ -6,6 +6,7 @@ import { AUTO } from "../lib/routineModel";
 import { UnitPrefs } from "../lib/unitPreferences";
 import { CommandParameterEditor, DeleteAction, InspectorShell, commandArguments, parameterValueError, safeControlId } from "./ContextInspector";
 import { UI } from "./ui";
+import { CommandPowerEditor } from "./CommandPower";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { continuityText, describeStop, stepTitle } from "./RoutinePanel";
 import { Glyph } from "./routineGlyphs";
@@ -361,6 +362,8 @@ export function StepInspector(props) {
               value: argumentsValue[parameter.name],
               onChange: (value) => set({ invocation: { ...node.invocation, commandId: selected.id, arguments: { ...argumentsValue, [parameter.name]: value } } }),
             }))),
+      node.invocation?.commandId && h(CommandPowerEditor, { key: node.id, place: 'step', power: props.power,
+        invocation: node.invocation, onInvocation: (invocation) => set({ invocation }) }),
       selected && h(LoopSection, { node, command: selected, set }),
       h(EndsSection, { node, routine, catalog, set }),
       (selected || node.outputBranch) && h(CommandBranches, { node, command: selected, acq, ...(branchBlocked ? { blocked: branchBlocked } : {}) }),

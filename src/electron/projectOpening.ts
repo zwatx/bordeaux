@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createStarterProject } from "../core/project/defaults";
+import { projectRobots, selectRobot } from "../core/project/robots";
 import type { BordeauxProject } from "../core/types";
 import { openProjectFolderSource, readProjectSource, saveTargetForOpenedProject, workspaceContinuesLegacyFile, PROJECT_WORKSPACE_FILE, type ProjectReadOptions, type ProjectSourceEvidence } from "./projectFiles";
 export interface ProjectSelectionReadOptions extends ProjectReadOptions { requireSource?: boolean }
@@ -33,12 +34,24 @@ export async function loadProjectFolderSelection(folder: string, options: Projec
 export async function loadProjectSelection(filePath: string, options: ProjectSelectionReadOptions = {}): Promise<ProjectSelection> {
   if ((await lstatIfPresent(filePath))?.isDirectory()) return loadProjectFolderSelection(filePath, options);
   if (path.basename(filePath) === PROJECT_WORKSPACE_FILE) return loadProjectFolderSelection(path.dirname(filePath), options);
-  if (/\.(path|routine)$/i.test(filePath) && ["Paths", "Routines"].includes(path.basename(path.dirname(filePath)))) {
+  if (/\.(path|routine|robot)$/i.test(filePath) && ["Paths", "Routines", "Robots"].includes(path.basename(path.dirname(filePath)))) {
     const folder = path.dirname(path.dirname(filePath));
     if (await lstatIfPresent(path.join(folder, PROJECT_WORKSPACE_FILE))) {
       const stat = await fs.lstat(filePath);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16 * 1024 * 1024) throw new Error("Managed project document must be a regular file under 16 MiB");
       const item: unknown = JSON.parse(await fs.readFile(filePath, "utf8"));
+      // A robot file carries no project id; it opens its project with the robot of that name selected.
+      if (/\.robot$/i.test(filePath)) {
+        const name = item && typeof item === "object" && "name" in item && typeof item.name === "string" ? item.name.trim().toLowerCase() : null;
+        if (!name) throw new Error("Managed robot document must have a robot name");
+        const selection = await loadProjectFolderSelection(folder, options);
+        // Selecting is a convenience: a robot list that won't select is left for the project's own validation to report.
+        try {
+          const robot = projectRobots(selection.project).find((entry) => entry.name.toLowerCase() === name);
+          if (robot && !robot.selected) selection.project = selectRobot(selection.project, robot.id);
+        } catch { /* Opens with the saved selection. */ }
+        return selection;
+      }
       if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string") throw new Error("Managed project document must have an item ID");
       const selection = await loadProjectFolderSelection(folder, options);
       if (selection.project.paths.some((entry) => entry.id === item.id)) selection.project.editor = { ...selection.project.editor, activePathId: item.id };

@@ -133,6 +133,15 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
 .rfp-file-name{min-width:0;color:var(--txt);font-weight:500;overflow-wrap:anywhere}
 .rfp-file-meta{max-width:min(240px,40vw);color:var(--txt-3);font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .rfp-note{color:var(--txt-3);font-size:12px}
+/* The robot's details: a choice in the review, so its name is a label for the checkbox and its note sits below it. */
+.rfp-robot-file .rfp-file-name{display:flex;align-items:baseline;gap:9px;cursor:pointer}
+.rfp-robot-file input{flex:none;width:16px;height:16px;margin:0;translate:0 3px;accent-color:var(--accent)}
+.rfp-robot-file .rfp-file-name>span{display:grid;gap:1px;min-width:0}
+.rfp-robot-file small{color:var(--txt-3);font-size:11px;font-weight:400}
+.rfp-robot-file:not([data-included]) .rfp-file-name>span{color:var(--txt-2)}
+.rfp-robot-file[data-conflict] .rfp-file-name{cursor:default}
+.rfp-robot-file[data-conflict] small{color:var(--warn-txt);overflow-wrap:anywhere}
+
 .rfp-key{display:block;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-2);color:var(--txt);font:12px/1.5 var(--mono);overflow-wrap:anywhere;user-select:all}
 .rfp-alert{margin:0;padding:8px 11px;border-radius:var(--r);background:var(--bad-soft);color:var(--txt);overflow-wrap:anywhere}
 .rfp-error-details{margin-top:8px;color:var(--txt-3);font-size:12px}
@@ -237,3 +246,18 @@ dialog.robot-manager,dialog.robot-diagnostics{margin:auto;padding:0}
   .rfp-field-dialog{width:min(1040px,calc(100vw - 48px))}
   .rfp-field-review{grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:20px}
 }
+/* Pull from robot: the file's values beside this robot's, grouped by Robot page section, scrolling inside the dialog. */
+.rfp-pull{width:min(560px,calc(100vw - 32px))}
+.rfp-pull-scroll{max-height:min(380px,calc(100vh - 340px));overflow:auto;border:1px solid var(--line-2);border-radius:var(--r)}
+.rfp-pull-table{font-size:12px}
+.rfp-pull-problems{display:grid;gap:6px}
+.rfp-pull-problems ul{margin:0;padding:0 0 0 20px;font-size:12px;color:var(--txt-2);overflow-wrap:anywhere}
+.rfp-pull-table thead :is(td,th){position:sticky;top:0;z-index:1;background:var(--bg-1);color:var(--txt-3);font-weight:500}
+.rfp-pull-table thead td{width:38%}
+.rfp-pull-table tbody tr:last-child :is(th,td){border-bottom:0}
+.rfp-pull-table tbody+tbody .rfp-pull-section th{border-top:1px solid var(--line-2)}
+.rfp-pull-table .rfp-pull-section th{padding-top:10px;color:var(--txt);font-weight:600}
+.rfp-pull-table td{overflow-wrap:anywhere;white-space:pre-wrap}
+.rfp-pull-table .rfp-absent{color:var(--txt-3)}
+.rfp-pull-choices li{align-items:center}
+.rfp-pull-choices .qbtn{min-height:28px;padding:0 10px}
