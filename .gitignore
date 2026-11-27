@@ -31,9 +31,10 @@ npm-debug.log*
 # Release verification inputs remain versioned.
 !/docs/packaging.md
 
-# Agent docs and READMEs stay local.
+# Agent docs and READMEs stay local; the root README is the project front page.
 AGENTS.md
 CLAUDE.md
 CLAUDE.local.md
 /docs/agents/
 [Rr][Ee][Aa][Dd][Mm][Ee]*
+!/README.md
