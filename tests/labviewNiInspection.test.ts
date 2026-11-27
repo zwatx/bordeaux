@@ -9,6 +9,7 @@ import { bdxBindingsFromCatalog, commandListEvidence, prepareBdxBindings, prepar
 import { robotInvocationErrors } from "../src/core/robotCommands";
 import { buildRobotBinary } from "../src/core/export/robotBinary";
 import { decodeCommandsFile, encodeCommandsFile } from "../src/core/export/commandsFile";
+import { routineBindingsFromBinary } from "../src/electron/routineBindings";
 import { binaryWriterFixture } from "./fixtures/binaryWriterFixture";
 
 // Sanitized shape of NI 2025 _ExportInterface2 output. No private VI binary is included.
@@ -42,6 +43,21 @@ function report(vi = row()) {
   return { schemaVersion: "bordeaux-ni-inspection/1", projectFile: "C:\\Robot\\Robot.lvproj", labviewVersion: "25.3.3f3", inspectedAt: "2026-09-07T12:00:00.000Z", dirtyContext: false, vis: [vi] };
 }
 function decode(value = report()) { return decodeLabviewNiInspection(value, "C:\\Robot\\Robot.lvproj", [source]); }
+
+it.each(["\n", "\r", "\r\n"])("discovers and binds controller Booleans without an output connector (%j)", (lineEnding) => {
+  const vi = row();
+  vi.description += lineEnding + "Bordeaux controller Boolean: Ready Out | Intake Controller / Ready";
+  const { commands } = decode(report(vi));
+  expect(commands[0].description).toBe("Immediate subsystem action");
+  expect(commands[0].outputs).toEqual([completionOutput, {
+    name: "Ready Out", label: "Intake Controller / Ready", schema: { kind: "boolean", valueType: "Boolean" }, labviewControllerBoolean: true,
+  }]);
+  const binary = binaryWriterFixture().bindings;
+  const bindings = routineBindingsFromBinary({ ...binary, catalog: { ...binary.catalog, commands } });
+  expect(bindings.commands[commands[0].id].outputs[1]).toEqual({
+    name: "Ready Out", terminal: -1, fieldPath: ["Ready Out"], niType: "Boolean", tag: 1, choices: [],
+  });
+});
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true }))); });
 async function cacheFixture() {
