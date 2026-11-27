@@ -230,5 +230,7 @@ describe('preview boundary is stated once', () => {
     expect(summary).toContain('<span class="rt-summary-full">1 untimed step not counted</span>');
     expect(summary).toContain('<span class="rt-summary-short" aria-hidden="true">1 untimed</span>');
     expect(summary).toMatch(/title="Untimed preview\n1 untimed step not counted\nA command run time on the Robot page estimates an untimed command."/);
+    // While planning, the line keeps its place empty, so the rows below do not move when the preview arrives.
+    expect(renderToStaticMarkup(React.createElement(RoutineSummary, { run: { ...run, blocked: true } }))).toBe('<div class="rt-summary" aria-hidden="true"></div>');
   });
 });

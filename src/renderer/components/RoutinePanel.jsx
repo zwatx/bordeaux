@@ -421,7 +421,9 @@ const JUMP_SIZES = ['large', 'medium', 'small'];
  * for assistive technology and in the tooltip.
  */
 export function RoutineSummary({ run }) {
-  if (run.blocked) return null;
+  // While planning (or when planning fails, which the status banner explains) the line keeps its place, so the rows
+  // below it do not move when the preview arrives.
+  if (run.blocked) return h('div', { className: 'rt-summary', 'aria-hidden': true });
   const jumps = (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity');
   const timedPlayable = run.timedPlayable !== undefined ? run.timedPlayable : run.total > 0;
   const total = timedPlayable ? A.previewTotalLabel(run) : 'Untimed';
