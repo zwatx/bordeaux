@@ -76,6 +76,9 @@
 .rt-step:has(> .rt-step-body:focus-visible),.rt-panel[data-input=keyboard] .rt-step:has(> .rt-step-body:focus){outline:2px solid var(--focus);outline-offset:-2px}
 .rt-step-title{min-width:0;color:var(--txt);font-size:13px;font-weight:500;line-height:17px;overflow-wrap:anywhere}
 .rt-step-flag{flex:none;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+/* Pose jumps by size: a small one is a quiet gray dot, a large one a red dot with a ring. */
+.rt-step-flag[data-jump="small"]{background:var(--txt-3)}
+.rt-step-flag[data-jump="large"]{width:8px;height:8px;background:var(--bad);box-shadow:0 0 0 2px var(--bad-soft)}
 /* Explanations are tooltips and screen-reader text; errors and a collapsed group's contents stay visible. */
 .rt-step-meta,.rt-close.quiet{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rt-step-meta.bad,.rt-collapse.on~.rt-step-body .rt-step-meta{position:static;flex-basis:100%;width:auto;height:auto;clip-path:none;white-space:normal;color:var(--txt-3);font-size:11px;line-height:15px;overflow-wrap:anywhere}
@@ -354,3 +357,13 @@
 .rt-repair .rt-insp-problem{margin:0 0 8px}
 .rt-stop-compare{display:flex;flex-direction:column;gap:10px;margin-top:10px}
 .rt-route-names{display:grid;gap:10px;margin-top:10px}
+/* A pose jump in the step inspector: its size mark and sentence, the link action, then what the link moves. */
+.rt-jump{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.rt-jump-text{display:flex;align-items:baseline;gap:8px;margin:0;color:var(--txt-2);font-size:12px;line-height:1.5}
+.rt-jump-text .rt-step-flag{position:relative;top:-1px}
+.rt-jump-text strong{color:var(--txt);font-weight:600}
+.rt-jump[data-size="large"] .rt-jump-text strong{color:var(--bad-txt)}
+.rt-jump[data-size="medium"] .rt-jump-text strong{color:var(--warn-txt)}
+.rt-jump-path{color:var(--txt);font-weight:600}
+.rt-jump-review{margin:0;color:var(--txt-3);font-size:11.5px;line-height:1.45}
+.rt-jump-review.reach{color:var(--txt-2)}

@@ -451,7 +451,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
       }
     }
     const numbers = stepNumbers(routine);
-    let t = 0, lastPose = null, previousPath = null, exactS = 0, parallel = false;
+    let t = 0, lastPose = null, previousPath = null, previousDoc = null, exactS = 0, parallel = false;
     const continuityEdges = new Set();
     // Open groups, innermost last. Each child of a parallel group starts at the group's start; the group ends with
     // its latest child. A sequential group runs its children one after another.
@@ -494,15 +494,19 @@ import { createRoutineNodeId } from "../../core/project/ids";
           const headingRad = Math.abs(Math.atan2(Math.sin(lastPose.heading - startPose.heading), Math.cos(lastPose.heading - startPose.heading)));
           const edge = JSON.stringify([previousPath, it.node.id]);
           if ((distanceM > .001 || headingRad > .001) && !continuityEdges.has(edge)) {
+            // The jump names both paths and poses the trace used, so the field can draw it and the inspector can link
+            // this path's start to that previous path's end.
             continuityEdges.add(edge); issues.push({ nodeId: it.node.id, occurrenceId: it.occurrenceId, code: 'reference-discontinuity', severity: 'warning',
-              message: 'The next planned path starts at a different reference pose.', distanceM, headingRad });
+              message: 'The next planned path starts at a different reference pose.', distanceM, headingRad, size: jumpSize(distanceM, robot),
+              fromNodeId: previousPath, fromPathId: previousDoc.id, toPathId: dp.doc.id,
+              from: { x: lastPose.x, y: lastPose.y, heading: lastPose.heading }, to: { x: startPose.x, y: startPose.y, heading: startPose.heading } });
           }
         }
         result.segs.push({ nodeId: it.node.id, occurrenceId: it.occurrenceId, passStack: it.passStack, timing, kind: it.kind, label, step,
           pts: dp.pts, t0: t, t1: t + dur, deriv: dp.deriv, trajectory: dp.trajectory, doc: dp.doc });
         extras = { segIdx: result.segs.length - 1, step, label, dist: dp.trajectory ? dp.trajectory.totalDistanceM : dp.deriv.sample.length };
         lastPose = dp.trajectory ? trajectoryPoseAt(dp.trajectory, dp.total) : PM.poseAtTime(dp.total, dp.pts, dp.deriv.prof, dp.deriv.anchors, dp.deriv.mode, dp.deriv.rev);
-        previousPath = it.node.id;
+        previousPath = it.node.id; previousDoc = dp.doc;
       } else if (it.kind === 'wait') {
         dur = Math.max(0, Number.isFinite(it.node.arguments?.durationS) ? it.node.arguments.durationS : 0);
         timing = it.node.ends?.endWhen ? 'upperBound' : 'exact';
@@ -529,6 +533,24 @@ import { createRoutineNodeId } from "../../core/project/ids";
     if (parallel) result.steps = result.steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
     result.total = t; result.timedPlayable = !result.blocked && t > 0;
     return result;
+  }
+
+  /** The robot's smaller footprint extent in meters (its width for a rectangle). */
+  function robotSpan(robot) {
+    const vertices = robot?.footprint?.kind === 'polygon' && Array.isArray(robot.footprint.verticesM) ? robot.footprint.verticesM : null;
+    if (!vertices?.length) return Math.min(robot?.l || 0.8, robot?.w || 0.8);
+    const extent = (axis) => Math.max(...vertices.map((point) => point[axis])) - Math.min(...vertices.map((point) => point[axis]));
+    return Math.min(extent('x'), extent('y'));
+  }
+  /**
+   * How far a path starts from where the robot is, by the robot's own size. Small: within a tenth of the robot's
+   * width, where both footprints nearly coincide and a path follower closes the gap as it starts (the path library
+   * calls this "Starts here"). Large: a whole robot width or more, so the two footprints no longer touch and the robot
+   * would cross ground the routine never plans. Medium: anything between.
+   */
+  function jumpSize(distanceM, robot) {
+    const span = robotSpan(robot);
+    return distanceM <= span * 0.1 ? 'small' : distanceM >= span ? 'large' : 'medium';
   }
 
   // ---- pose along the run at time ----
@@ -586,7 +608,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
   }
 
 export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, newNode, walk, findNode, countSteps, stepNumbers, branchCount,
-    planningPaths, buildRun, poseAt, stepAt, fieldOverlay,
+    planningPaths, buildRun, poseAt, stepAt, fieldOverlay, jumpSize,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 
   // ---- immutable-ish routine edits (operate on a deep clone) ----
