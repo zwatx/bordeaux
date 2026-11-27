@@ -60,9 +60,12 @@ import path from "node:path";
 // measure 928,759 B (2026-11-25); 910 KiB keeps about 3 KiB of headroom.
 // Command loads (Robot page rows, the per-path planning reserve and the report row) measure 933,702 B against
 // 930,996 B before them (2026-11-26); 914 KiB keeps about 2 KiB of headroom.
-// Routine field step badges and their collision placement measure 938,522 B against 935,112 B before them (2026-11-26); 919 KiB keeps about 2.5 KiB of headroom.
-// Routine pose jump sizes, field connectors and the link action measure 943,295 B against 938,522 B before them (2026-11-26); 924 KiB keeps about 2.8 KiB of headroom.
-// The routine path library ghost preview and start hints measure 946,308 B against 943,295 B before them (2026-11-26); 927 KiB keeps about 2.9 KiB of headroom.
+// The routine field drawn as one route (step numbers, name pills, chevrons and focus) measures 933,491 B (2026-11-26);
+// 919 KiB keeps about 7 KiB of headroom for the routine stack's later layers.
+// Routine pose jump sizes, their dotted route joins and the link action measure 938,927 B against 933,491 B before them
+// (2026-11-26); 924 KiB keeps about 7 KiB of headroom.
+// The routine path library ghost preview and start hints measure 941,970 B against 938,927 B before them (2026-11-26);
+// 927 KiB keeps about 7 KiB of headroom.
 // Routine flow polish (Duplicate, the add-step rail, short transport facts) measure 950,167 B against 948,626 B before them (2026-11-26); 930 KiB keeps about 2.1 KiB of headroom.
 // Routine run time estimates measure 953,330 B against 950,167 B before them (2026-11-26); 933 KiB keeps about 2.0 KiB of headroom.
 // Routine library row summaries measure 955,836 B against 953,330 B before them (2026-11-26); 936 KiB keeps about 2.6 KiB of headroom.
