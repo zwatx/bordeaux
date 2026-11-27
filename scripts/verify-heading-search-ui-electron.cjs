@@ -5,11 +5,13 @@
 // - The Path tab changes: it must open first and read as it did before the tabs.
 // - The Heading tab runs a search before anyone asks, or leaves the path in the speed colors.
 // - The search reports numbers other than the planner's. For this path and robot, time with two tags goes from 0% to
-//   51% and the path from 2.53 s to 2.82 s with 2 rotation targets, computed apart from the app.
+//   44% and the path stays at 2.53 s with 2 rotation targets, computed apart from the app.
 // - Choosing a preview row does not change the field: only the turned path has green stretches here.
 // - Apply moves a waypoint or a handle, writes anything but the two targets, or cannot be undone as one step.
 // - A second search on the applied path offers more headings.
 // - Leaving the tab or closing the panel keeps the Tags seen colors that the tab turned on.
+// - A changed camera leaves a result based on the old camera available.
+// - Leaving the Heading tab lets its worker keep running or replace another tab's preview.
 // - A robot without cameras, or a path that sets its heading everywhere, is offered a search.
 // Screenshots at both supported sizes go to BORDEAUX_HEADING_SEARCH_UI_OUTPUT.
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -129,8 +131,8 @@ app.whenReady().then(async () => {
     await click('.optimizer-main');
     await wait(async () => (await shown()).rows.length === 2, 'heading result');
     now = await shown();
-    assert.equal(now.outcome, 'Two tags 51% of the time, up from 0%');
-    assert.deepEqual(now.rows, [['Current headings', '2.53 s', '0%', false], ['Turned for tags', '2.82 s, 2 rotation targets added', '51%', true]]);
+    assert.equal(now.outcome, 'Less time with poor tag coverage');
+    assert.deepEqual(now.rows, [['Current headings', '2.53 s', '0%', false], ['Turned for tags', '2.53 s, 2 rotation targets added', '44%', true]]);
     assert.deepEqual(now.main, ['Apply headings', false]);
     assert.ok(now.tagColors && now.green > 10, 'the turned path is previewed with green stretches');
     await snapshot('heading-result');
@@ -145,7 +147,7 @@ app.whenReady().then(async () => {
     await wait(async () => (await shown()).outcome === 'Headings added to the path', 'applied headings');
     await save();
     const applied = saved.paths[0];
-    assert.deepEqual(applied.targets, [{ f: 0.0769, deg: 152 }, { f: 0.7692, deg: -132 }]);
+    assert.deepEqual(applied.targets, [{ f: 0.0769, deg: 167 }, { f: 0.9231, deg: -106 }]);
     assert.deepEqual({ ...applied, targets: [] }, loaded, 'Apply changes nothing on the path but its rotation targets');
     await wait(async () => (await shown()).green > 10, 'the applied path keeps its green stretches');
     await click('.optimizer-main');
@@ -163,6 +165,45 @@ app.whenReady().then(async () => {
     await wait(async () => (await shown()).color === 'Velocity', 'the earlier path color returns on the Path tab');
     await click('.optimizer-tab', 'Heading');
     await wait(async () => (await shown()).color === 'Tags seen', 'Tags seen again');
+    await click('.optimizer-main');
+    await wait(async () => (await shown()).rows.length === 2, 'result before camera edit');
+    await click('.places .place', 'Robot');
+    const range = 'input[aria-label="Camera max range"]';
+    await wait(() => evaluate((selector) => Boolean(document.querySelector(selector)), range), 'camera range input');
+    await evaluate((selector) => document.querySelector(selector).scrollIntoView({ block: 'center' }), range);
+    await click(range);
+    await evaluate(() => document.activeElement.select());
+    await win.webContents.insertText('0.5');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+    await click('.places .place', 'Paths');
+    await wait(async () => (await shown()).main[0] === 'Find headings', 'camera edit retires the heading result');
+    assert.deepEqual((await shown()).rows, [], 'The result computed with the old camera is no longer offered');
+    pass('Editing a camera retires the heading preview and its Apply action');
+
+    // Hold only the Heading worker's command until a tab change. Keep all normal planning calls live.
+    await evaluate(() => {
+      const { postMessage, terminate } = Worker.prototype;
+      let held;
+      Worker.prototype.postMessage = function (job, ...rest) {
+        if (job?.mode === 'headingForTags') { held = this; return; }
+        return postMessage.call(this, job, ...rest);
+      };
+      Worker.prototype.terminate = function () {
+        if (this === held) window.headingWorkerTerminated = true;
+        return terminate.call(this);
+      };
+      window.restoreHeadingWorkerFixture = () => { Object.assign(Worker.prototype, { postMessage, terminate }); };
+    });
+    await click('.optimizer-main');
+    await wait(async () => (await shown()).outcome === 'Finding headings', 'heading search is pending');
+    await click('.optimizer-tab', 'Path');
+    await wait(() => evaluate(() => window.headingWorkerTerminated === true), 'obsolete heading worker terminates');
+    await evaluate(() => window.restoreHeadingWorkerFixture());
+    await click('.optimizer-tab', 'Heading');
+    await wait(async () => (await shown()).main[0] === 'Find headings' && (await shown()).main[1] === false, 'return to an idle heading search');
+    pass('Switching tabs cancels an in-flight heading search');
+
     await click('.optimizer-toggle');
     await wait(async () => (await shown()).color === 'Velocity' && (await shown()).tabs.length === 0, 'the earlier path color returns when the panel closes');
     assert.equal((await shown()).tagColors, false);

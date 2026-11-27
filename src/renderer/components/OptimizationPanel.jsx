@@ -22,10 +22,11 @@ const headingBlockers = { 'no-cameras': 'Add a camera on the Robot page', 'no-ta
  * The rows preview on the field like the path rows do: 'selected' is the path as it is, 'heading' the turned one.
  */
 function HeadingTab({ heading, mode, onCompare, onFind, onApply }) {
-  const { result = null, searched = false, blocker = null, applied = false, pending = false, error = '' } = heading || {};
+  const { result: found = null, searched = false, blocker = null, applied = false, pending = false, error = '' } = heading || {};
+  const result = blocker ? null : found;
   const outcome = blocker ? headingBlockers[blocker]
     : pending ? 'Finding headings' : error ? 'Couldn’t search headings'
-    : result ? `Two tags ${share(result.after.twoTagS, result.after.totalS)} of the time, up from ${share(result.before.twoTagS, result.before.totalS)}`
+    : result ? 'Less time with poor tag coverage'
     : applied ? 'Headings added to the path'
     : searched ? 'No headings found that read more tags' : 'Read more tags';
   const row = (label, coverage, detail, value) => h('button', { key: value, type: 'button', className: 'optimizer-choice', 'aria-pressed': mode === value || (value === 'selected' && mode !== 'heading'),

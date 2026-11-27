@@ -1,3 +1,8 @@
+/** The heading search depends on camera configuration as well as the path's physical plan. */
+export function headingSearchKey(documentKey, pathId, planningKey, cameras) {
+  return JSON.stringify([documentKey, pathId, planningKey, cameras ?? []]);
+}
+
 /**
  * Runs the Optimize panel's Heading search for one path in the planning worker, where the planner lives, and resolves
  * with its result or null when there is nothing to gain. The promise has `cancel()`, which stops the worker; a
