@@ -1,6 +1,6 @@
 import { deriveHeadingGeometry } from "../math/pm";
 import { visibleTags, type FieldTag } from "../tagVisibility";
-import type { PathDoc, PlannerInput, RobotCamera, RotationTarget } from "../types";
+import type { PathDoc, PlannerInput, PlannerResult, RobotCamera, RotationTarget } from "../types";
 import { planPath } from "./planPath";
 
 /** How long a path lasts, and for how much of that the robot reads at least two tags, and at least one. Seconds. */
@@ -13,7 +13,12 @@ export interface HeadingForTagsResult {
   /** Coverage of the given path and of `path`, both from the planner's own samples. */
   before: TagCoverage;
   after: TagCoverage;
+  /** The planner's plan of `path`, which `after` was measured on. */
+  trajectory: PlannerResult;
 }
+
+/** Why a path has nothing for the heading search to work on. */
+export type HeadingForTagsBlocker = "no-cameras" | "no-tags" | "tank" | "no-free-heading";
 
 /** One meter of path gets about this many places to try a heading, within the two bounds. */
 const SLOT_SPACING_M = 0.6, MIN_SLOTS = 3, MAX_SLOTS = 12;
@@ -56,6 +61,19 @@ export function tagCoverageOf(
 }
 
 /**
+ * Why the heading search cannot work on a path at all, or nothing when it can: the robot has no cameras, the field
+ * has no tags, the robot drives tank (its heading follows the path), or no stretch of the path uses the "targets"
+ * heading rule, the only one that leaves the robot free to face any way.
+ */
+export function headingForTagsBlocker({ path, robot }: PlannerInput, tags: readonly FieldTag[]): HeadingForTagsBlocker | null {
+  if (!robot.cameras?.length) return "no-cameras";
+  if (!tags.length) return "no-tags";
+  if (robot.drive === "tank") return "tank";
+  const free = path.waypoints.slice(0, -1).some((waypoint) => (waypoint.segmentHeadingMode || path.headingMode || "targets") === "targets");
+  return free ? null : "no-free-heading";
+}
+
+/**
  * Searches for robot headings that read more AprilTags along a path, without moving the path. The drawn curve, its
  * stops and every heading the user set (waypoint angles and rotation targets) stay as they are. The search only adds
  * rotation targets, and only on stretches whose heading rule is "targets", where the robot is free to face any way.
@@ -64,13 +82,12 @@ export function tagCoverageOf(
  * drawn path's timing with the new headings. A try is skipped when a turn between two neighboring headings cannot
  * fit the drawn path's time between them at the path's angular limits, since the planner would slow the whole path
  * to make it. The planner then plans the best try in full, and that plan decides. The result is returned only when
- * the planner's own samples lack tags for `MATERIAL_GAIN_S` less than the drawn path's and the path is not much slower. Returns nothing for a robot without cameras, a field without tags, a tank robot
- * (its heading follows the path), or a path with no free stretch or nothing to gain.
+ * the planner's own samples lack tags for `MATERIAL_GAIN_S` less than the drawn path's and the path is not much slower. Returns nothing when `headingForTagsBlocker` names a reason, or when there is nothing to gain.
  */
 export function optimizeHeadingForTags(input: PlannerInput, tags: readonly FieldTag[]): HeadingForTagsResult | null {
   const { path, robot } = input;
   const cameras = robot.cameras ?? [];
-  if (!cameras.length || !tags.length || robot.drive === "tank" || path.waypoints.length < 2) return null;
+  if (headingForTagsBlocker(input, tags) || path.waypoints.length < 2) return null;
   const drawnPlan = planPath(input);
   if (drawnPlan.status !== "ok" || !drawnPlan.trajectory || drawnPlan.trajectory.samples.length < 2) return null;
   const drawnSamples = drawnPlan.trajectory.samples;
@@ -176,7 +193,7 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
     const after = tagCoverageOf(plan.trajectory.samples, cameras, tags);
     if (after.totalS > before.totalS * (1 + SLOWER_SHARE) + SLOWER_ALLOWANCE_S) continue;
     if (lack(after) > lack(before) - MATERIAL_GAIN_S) continue;
-    return { path: candidate.path, addedTargets: candidate.added, before, after };
+    return { path: candidate.path, addedTargets: candidate.added, before, after, trajectory: plan.trajectory };
   }
   return null;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REBUILT_2026_FIELD } from "../src/core/field/rebuilt2026";
-import { optimizeHeadingForTags, tagCoverageOf } from "../src/core/planners/headingForTags";
+import { headingForTagsBlocker, optimizeHeadingForTags, tagCoverageOf } from "../src/core/planners/headingForTags";
 import { planPath } from "../src/core/planners/planPath";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { fieldTags } from "../src/core/tagVisibility";
@@ -21,6 +21,8 @@ import { validateProject } from "../src/core/validation";
  * 10. The returned path does not validate, or carries a heading that changes nothing.
  * 11. The same input gives different results on two runs.
  * 12. The path it was given is changed in place.
+ * 13. The reason given for having no result is wrong, or a reason is given for a path the search can work on.
+ * 14. The plan handed back for preview is not the planner's plan of the returned path.
  */
 const tags = fieldTags(REBUILT_2026_FIELD);
 const camera = (id: string, yawDeg: number, x: number): RobotCamera =>
@@ -61,6 +63,27 @@ describe("heading for tags", () => {
     expect(result!.after.anyTagS).toBeGreaterThanOrEqual(result!.before.anyTagS - 1e-9);
   });
 
+  it("hands back the planner's plan of the returned path, for preview", () => {
+    const plan = planPath(input(result!.path));
+    expect(result!.trajectory.totalTimeS).toBe(plan.trajectory!.totalTimeS);
+    expect(result!.trajectory.samples).toEqual(plan.trajectory!.samples);
+    expect(result!.after.totalS).toBeCloseTo(result!.trajectory.totalTimeS, 6);
+  });
+
+  it("says why a path has nothing to search", () => {
+    expect(headingForTagsBlocker(input(drawn), tags)).toBeNull();
+    expect(headingForTagsBlocker(input(drawn, robot({ cameras: undefined })), tags)).toBe("no-cameras");
+    expect(headingForTagsBlocker(input(drawn, robot({ cameras: [] })), tags)).toBe("no-cameras");
+    expect(headingForTagsBlocker(input(drawn), [])).toBe("no-tags");
+    expect(headingForTagsBlocker(input(drawn, robot({ drive: "tank" })), tags)).toBe("tank");
+    expect(headingForTagsBlocker(input(diagonal({ headingMode: "tangent" })), tags)).toBe("no-free-heading");
+    const mixed = diagonal({ headingMode: "manual" });
+    mixed.waypoints[1] = { ...mixed.waypoints[1], segmentHeadingMode: "targets" };
+    expect(headingForTagsBlocker(input(mixed), tags)).toBeNull();
+    // Cameras come before the drive type: a tank robot without cameras is first told to add one.
+    expect(headingForTagsBlocker(input(drawn, robot({ drive: "tank", cameras: undefined })), tags)).toBe("no-cameras");
+  });
+
   it("stays close to the drawn path's time", () => {
     expect(result!.after.totalS).toBeLessThanOrEqual(result!.before.totalS * 1.1 + 0.05);
   });
@@ -99,7 +122,10 @@ describe("heading for tags", () => {
 
   it("gives the same result twice and leaves its input alone", () => {
     const before = structuredClone(drawn);
-    expect(optimizeHeadingForTags(input(drawn), tags)).toEqual(result);
+    // The planner stamps each plan with how long it took to solve. That one clock reading is left out; every sample,
+    // heading and number the search decided must match.
+    const steady = (value: typeof result) => ({ ...value!, trajectory: { ...value!.trajectory, optimization: { ...value!.trajectory.optimization, solveTimeMs: 0 } } });
+    expect(steady(optimizeHeadingForTags(input(drawn), tags))).toEqual(steady(result));
     expect(drawn).toEqual(before);
   });
 
