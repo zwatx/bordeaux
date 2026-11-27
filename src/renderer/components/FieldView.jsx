@@ -127,16 +127,18 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
     return geometry;
   }
 
-  function HoverGhost({ store, context, derived, doc, robot, W2P, P }) {
+  // `sight` draws what a robot at a pose reads, when the path is colored by tags seen: the ghost gets the same
+  // camera wedges and lines to tags as the playhead robot, for the time under the pointer.
+  function HoverGhost({ store, context, derived, doc, robot, W2P, P, sight }) {
     const hover = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     if (!context.eligible || hover?.context !== context || hover.source !== 'timeline') return null;
     const pose = displayedPoseAtTime(hover.t, derived, doc);
     if (!pose) return null;
-    const point = W2P(pose);
-    return h('g', { className: 'field-hover-ghost', transform: `translate(${point.x} ${point.y}) rotate(${-pose.heading * 180 / Math.PI})`,
+    const point = W2P(pose), seen = sight?.(pose);
+    return h(React.Fragment, null, seen && h('g', { className: 'field-hover-sight' }, seen.under, seen.over), h('g', { className: 'field-hover-ghost', transform: `translate(${point.x} ${point.y}) rotate(${-pose.heading * 180 / Math.PI})`,
       'aria-hidden': true, style: { pointerEvents: 'none' } },
       h('polygon', { points: footprintPoints(robot, 1), fill: 'none', stroke: 'rgba(255,255,255,.65)', strokeWidth: P(2), strokeDasharray: `${P(5)} ${P(4)}`, strokeLinejoin: 'round' }),
-      h('line', { x1: 0, y1: 0, x2: forwardExtent(robot) + P(3), y2: 0, stroke: 'rgba(255,255,255,.65)', strokeWidth: P(2) }));
+      h('line', { x1: 0, y1: 0, x2: forwardExtent(robot) + P(3), y2: 0, stroke: 'rgba(255,255,255,.65)', strokeWidth: P(2) })));
   }
 
   function FieldView(props) {
@@ -1192,7 +1194,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       const degHead = pose.heading * 180 / Math.PI;
       const front = forwardExtent(robot);
       const bump = accent;
-      return h('g', { transform: `translate(${c.x} ${c.y}) rotate(${-degHead})`, style: { pointerEvents: 'none' } },
+      return h('g', { className: 'field-robot', transform: `translate(${c.x} ${c.y}) rotate(${-degHead})`, style: { pointerEvents: 'none' } },
         h('polygon', { points: footprintPoints(robot, 1), fill: 'rgba(14,16,20,0.82)', stroke: bump, strokeWidth: P(3), strokeLinejoin: 'round' }),
         h('polygon', { points: footprintPoints(robot, 0.86), fill: 'none', stroke: 'rgba(255,255,255,0.10)', strokeWidth: P(1), strokeLinejoin: 'round' }),
         h('line', { x1: 0, y1: 0, x2: front + P(3), y2: 0, stroke: '#e8ecf2', strokeWidth: P(2.5) }),
@@ -1344,13 +1346,12 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         h('text', { ...text, x: box.x + P(9), y: box.y + P(17), fontWeight: 600, style: { fill: 'var(--txt)' } }, title));
     }, [tagsShown, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
 
-    // With the path colored by tags seen, the robot at the playhead shows why: each camera's horizontal view as a
+    // With the path colored by tags seen, a robot on the field shows why: each camera's horizontal view as a
     // dashed wedge, a line from its lens to every tag it reads, and those tags drawn bright. The wedges lie under the
     // path. The lines and bright tags lie over it, since a line to a tag straight ahead runs along the path itself.
-    const tagSight = useMemo(() => {
-      if (metric !== 'tags' || routine || !robot.cameras?.length) return null;
-      const pose = displayedPoseAtTime(playTime, derived, doc);
-      if (!pose) return null;
+    // `sightFor` draws this for any displayed pose: the playhead robot's, and the hover ghost's.
+    const sightFor = (pose) => {
+      if (metric !== 'tags' || routine || !robot.cameras?.length || !pose) return null;
       const cos = Math.cos(pose.heading), sin = Math.sin(pose.heading);
       const lensOf = new Map(robot.cameras.map((camera) => [camera.id,
         { x: pose.x + camera.positionM.x * cos - camera.positionM.y * sin, y: pose.y + camera.positionM.x * sin + camera.positionM.y * cos }]));
@@ -1373,7 +1374,9 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
             h('line', { ...ends, className: 'field-tag-sightline', stroke: '#ffffff', strokeWidth: P(1.6) }));
         }),
         FIELD_TAG_MARKS.filter((tag) => read.has(tag.id)).map((tag) => tagMark(tag, 'field-apriltag-read', true))) };
-    }, [metric, routine, robot.cameras, playTime, derived, doc, view.w, cw, accent]);
+    };
+    const tagSight = useMemo(() => sightFor(displayedPoseAtTime(playTime, derived, doc)),
+      [metric, routine, robot.cameras, playTime, derived, doc, view.w, cw, accent]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const vb = `${view.x} ${view.y} ${view.w} ${view.h}`;
 
@@ -1413,7 +1416,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       routine ? null : proposalGhosts,
       tagSight?.over,
       routine ? routineRobot : robotEl,
-      !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
+      !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P, sight: sightFor }),
       routine ? null : snapEl,
       routine ? null : problemBadgeEls,
       tagCard,

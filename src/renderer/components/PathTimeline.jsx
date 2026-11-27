@@ -29,7 +29,7 @@ const SERIES = {
   angvel: { key: 'w', unit: '°/s', label: 'Turn', signed: true },
   curvature: { key: 'k', unit: '1/m', label: 'Curve', signed: false },
   // A count from the timeline's `tags` points, drawn on the same 0 to 2 scale as the field's three colors.
-  tags: { key: 'tags', unit: 'tags', label: 'Seen', signed: false, digits: 0, full: TAGS_SEEN_FULL },
+  tags: { key: 'tags', unit: 'tags', label: 'Seen', signed: false, full: TAGS_SEEN_FULL },
 };
 
 const invocationLabel = (id, catalog) => (id && catalog?.commands?.find((candidate) => candidate.id === id)?.label) || 'Command';
@@ -127,7 +127,10 @@ export function PathHoverReadout({ store, context, tl, metric }) {
   const sampled = hover.source === 'timeline' && SERIES[metric];
   const unit = sampled ? sampled.unit : 'm/s';
   const text = times.map(t => fmt(t)).join(' · ') + ' s · '
-    + fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled ? sampled.digits ?? (sampled.key === 'k' ? 2 : 1) : 1) + ' ' + UnitPrefs.label(unit);
+    + (sampled?.key === 'tags'
+      // A count: whole tags, and "1 tag" without the plural.
+      ? (() => { const count = Math.round(vAtT(tl, time, 'tags')); return count + (count === 1 ? ' tag' : ' tags'); })()
+      : fmt(UnitPrefs.fromCanonical(vAtT(tl, time, sampled ? sampled.key : 'v'), unit), sampled && sampled.key === 'k' ? 2 : 1) + ' ' + UnitPrefs.label(unit));
   return h('div', { className: 'pt-readout path-hover-readout', 'aria-hidden': true }, text);
 }
 

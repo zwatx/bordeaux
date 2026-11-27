@@ -9,6 +9,9 @@
 // - The playhead robot shows no camera wedges, or its sight lines go to the wrong tags. The tags read at the start
 //   and the end of this path were computed apart from the app, from the planner and the visibility function.
 // - The graph keeps plotting speed, or its hover readout shows a fraction of a tag.
+// - Pointing at the graph shows the ghost robot without the lines for that moment.
+// - The path is amber or green where the playhead robot reads nothing, because the color and the robot use
+//   different headings.
 // - A robot without cameras gets no hint, or still draws wedges and lines.
 // - Going back to Velocity leaves tags, wedges or lines on the field.
 // Screenshots at both supported sizes go to BORDEAUX_TAG_COVERAGE_UI_OUTPUT.
@@ -69,6 +72,31 @@ const field = () => evaluate(() => {
     graph: [...document.querySelectorAll('.pt-gutter')].map((gutter) => gutter.textContent).find((text) => /^(Seen|Speed)/.test(text)) ?? null,
   };
 });
+// The path's color under the playhead robot, as how many tags it stands for (2 means two or more), next to how many
+// tags the robot is drawn reading there.
+const underRobot = () => evaluate((colors) => {
+  const [x, y] = document.querySelector('.fieldsvg .field-robot').getAttribute('transform').match(/translate\(([-\d.]+) ([-\d.]+)\)/).slice(1).map(Number);
+  const segments = [...document.querySelectorAll('.fieldsvg line[stroke-linecap="butt"]')];
+  const distance = (line) => Math.hypot((Number(line.getAttribute('x1')) + Number(line.getAttribute('x2'))) / 2 - x, (Number(line.getAttribute('y1')) + Number(line.getAttribute('y2'))) / 2 - y);
+  const nearest = segments.reduce((best, line, index) => distance(line) < distance(segments[best]) ? index : best, 0);
+  // A change of color within two drawn segments of the robot counts for either side.
+  const near = segments.slice(Math.max(0, nearest - 2), nearest + 3).map((line) => colors.indexOf(line.getAttribute('stroke')));
+  const read = document.querySelector('.fieldsvg .field-tag-sight').dataset.tagsRead.split(' ').filter(Boolean).length;
+  return { near, read: Math.min(2, read) };
+}, [NONE, ONE, MANY]);
+// Steps the playhead along the whole path and returns each place where the color and the robot disagree.
+async function disagreements() {
+  await seek('Home');
+  const found = [];
+  for (let step = 0; step < 60; step++) {
+    const { near, read } = await underRobot();
+    if (!near.includes(read)) found.push({ step, near, read });
+    const before = await evaluate(() => document.querySelector('.pt-ruler').getAttribute('aria-valuenow'));
+    await key('Right');
+    if (await evaluate(() => document.querySelector('.pt-ruler').getAttribute('aria-valuenow')) === before) break;
+  }
+  return found;
+}
 async function capture() {
   for (let attempt = 0; attempt < 3; attempt++) {
     await delay(250);
@@ -154,6 +182,35 @@ app.whenReady().then(async () => {
     await wait(async () => (await field()).read.join() === '21,24,25,26', 'tags read at the start of the path');
     await snapshot('tags-seen-start');
     pass('The playhead robot shows both camera wedges and lines to the tags it reads at the start and the end');
+
+    assert.deepEqual(await disagreements(), [], 'the path color under the robot matches the tags it reads');
+    // Pointing at an amber stretch of the graph shows the ghost robot there with its one line, while the playhead
+    // robot keeps its own. At 0.65 s this path reads one tag.
+    await seek('Home');
+    const total = Number(await evaluate(() => document.querySelector('.pt-ruler').getAttribute('aria-valuemax')));
+    const hoverAt = await evaluate((share) => { const r = document.querySelector('.pt-ruler').getBoundingClientRect(); return { x: Math.round(r.x + r.width * share), y: Math.round(r.bottom + 50) }; }, 0.65 / total);
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...hoverAt });
+    await wait(() => evaluate(() => !!document.querySelector('.fieldsvg .field-hover-ghost')), 'hover ghost');
+    const ghost = await evaluate(() => { const sight = document.querySelector('.fieldsvg .field-hover-sight'); return sight && { lines: sight.querySelectorAll('.field-tag-sightline').length, wedges: sight.querySelectorAll('.field-tag-wedge').length, read: sight.querySelector('.field-tag-sight').dataset.tagsRead.split(' ').filter(Boolean).length }; });
+    assert.deepEqual(ghost, { lines: 1, wedges: 2, read: 1 }, 'the ghost on an amber stretch shows its one line');
+    assert.deepEqual((await field()).read, [21, 24, 25, 26], 'the playhead robot keeps its own lines');
+    assert.equal(await evaluate(() => document.querySelector('.path-hover-readout')?.textContent), '0.65 s · 1 tag');
+    await snapshot('hover-one-tag');
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 5, y: 5 });
+    await wait(() => evaluate(() => !document.querySelector('.fieldsvg .field-hover-ghost')), 'hover ghost gone');
+    // A path that turns the robot half way round while it drives: the color has to follow the planned heading the
+    // playhead robot uses, not the heading drawn between waypoints.
+    const turning = structuredClone(first);
+    turning.headingMode = 'manual';
+    turning.waypoints.forEach((waypoint, index) => { waypoint.thetaOn = true; waypoint.theta = [180, 90, 0][index]; });
+    await open({ ...project, paths: [turning], robot: { ...corpus.robot, cameras } });
+    await pickColor('tags');
+    await wait(async () => (await field()).sight, 'sight overlay on the turning path');
+    assert.deepEqual(await disagreements(), [], 'the color matches the tags read while the robot turns');
+    await seek('Home');
+    await key('Right'); await key('Right'); await key('Right');
+    await snapshot('turning-path');
+    pass('The path color under the robot always matches the tags it is drawn reading, on a straight-facing and a turning path');
 
     await pickColor('velocity');
     await wait(async () => !(await field()).sight, 'sight overlay removed');
