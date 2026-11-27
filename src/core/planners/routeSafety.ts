@@ -2,8 +2,8 @@ import { minimumRobotFieldClearance, observeRobotFieldPortalSequence } from "../
 import { boundsPolygon, convexPolygonClearance, footprintBoundsClearance, interpolateHeading, robotFootprintRadius, robotFootprintVertices, transformFootprint, type FootprintPose } from "../agent/robotFootprint";
 import { ACTIVE_FIELD_REFERENCE, REBUILT_2026_FIELD, officialToAppRect } from "../field/rebuilt2026";
 import { FIELD_H, FIELD_W, FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../math/fieldBounds";
-import type { ControlPoint, FieldReference, PlannerResult, RobotConfig } from "../types";
-import { stable } from "./acceptedTrajectoryIdentity";
+import type { ControlPoint, FieldReference, PlannerResult, RobotConfig, TrajectorySample } from "../types";
+import { stable } from "./routeGeometry";
 
 type Box = { xMin: number; xMax: number; yMin: number; yMax: number };
 export interface RouteFieldModel { obstacles: Box[]; radius: number; vertices: ControlPoint[] }
@@ -41,6 +41,29 @@ function clearBox(bounds: Box, model: RouteFieldModel): boolean {
 }
 const mid = (a: ControlPoint, b: ControlPoint): ControlPoint => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
+/** Signed clearance of the footprint at one pose: negative inside a wall, field element or closed barrier. */
+function poseClearance(pose: FootprintPose, model: RouteFieldModel): number {
+  const polygon = transformFootprint(model.vertices, pose);
+  return Math.min(footprintBoundsClearance(polygon, FIELD_W, FIELD_H), ...model.obstacles.map((o) =>
+    convexPolygonClearance(polygon, boundsPolygon({ min: { x: o.xMin, y: o.yMin }, max: { x: o.xMax, y: o.yMax } }))));
+}
+
+/**
+ * The stretch of a timed path, as path fractions, where the robot's footprint overlaps the field
+ * (walls, field elements, barrier depth, or a trench it is too tall for). Undefined when every
+ * sample is clear. Checks the planned samples only; route qualification also checks between them.
+ */
+export function fieldCollisionRange(robot: RobotConfig, samples: readonly TrajectorySample[]): { f0: number; f1: number } | undefined {
+  const model = routeFieldModel(robot);
+  let f0 = Number.POSITIVE_INFINITY, f1 = Number.NEGATIVE_INFINITY;
+  for (const sample of samples) {
+    if (clearBox(box([sample]), model) || poseClearance(sample, model) > 0) continue;
+    f0 = Math.min(f0, sample.f);
+    f1 = Math.max(f1, sample.f);
+  }
+  return f0 <= f1 ? { f0, f1 } : undefined;
+}
+
 /** The exported pose interpolation is authoritative: linear translation and
  * shortest-angle rotation on each interval. At its midpoint, every footprint
  * vertex moves by at most |b-a|/2 + 2 R sin(|deltaHeading|/4). Signed polygon
@@ -50,11 +73,7 @@ const mid = (a: ControlPoint, b: ControlPoint): ControlPoint => ({ x: (a.x + b.x
  * Convex polygons (including the rectangle default) use the existing SAT helper.
  */
 export function routeSweepStatus(a: FootprintPose, b: FootprintPose, model: RouteFieldModel, budget = { remaining: 4096 }): "clear" | "collision" | "unknown" {
-  const clearance = (pose: FootprintPose) => {
-    const polygon = transformFootprint(model.vertices, pose);
-    return Math.min(footprintBoundsClearance(polygon, FIELD_W, FIELD_H), ...model.obstacles.map((o) =>
-      convexPolygonClearance(polygon, boundsPolygon({ min: { x: o.xMin, y: o.yMin }, max: { x: o.xMax, y: o.yMax } }))));
-  };
+  const clearance = (pose: FootprintPose) => poseClearance(pose, model);
   const visit = (first: FootprintPose, second: FootprintPose, depth: number): "clear" | "collision" | "unknown" => {
     if (--budget.remaining < 0) return "unknown";
     if (clearBox(box([first, second]), model)) return "clear";

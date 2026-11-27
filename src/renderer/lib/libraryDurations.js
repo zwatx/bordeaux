@@ -1,4 +1,4 @@
-import { isOptimizationOutdated, optimizationInputKey } from "../../core/planners/acceptedTrajectoryIdentity";
+import { pathPlanningKey } from "../../core/planners/planningKey";
 import { durationResult, finalPlanningOutcome } from "./finalPlanningResult";
 
 // Agent-only strategy notes never change a trajectory. Everything else in the
@@ -34,29 +34,27 @@ export function createLibraryDurations(planner) {
     request.promise.then((result) => {
       if (running !== job || entries.get(entry.id) !== entry) return;
       running = null;
-      entry.result = durationResult(finalPlanningOutcome(result, entry.path, entry.outdated));
+      entry.result = durationResult(finalPlanningOutcome(result));
       publish();
       advance();
     });
   };
   // Unchanged path objects in an unchanged context keep their entry without
-  // recomputing keys. A new path object keeps its result only for the same
-  // inputs and the same immutable accepted artifact.
+  // recomputing keys. A new path object keeps its result only for the same inputs.
   const entryFor = (path, context, input) => {
     const previous = entries.get(path.id);
     if (previous?.path === path && previous.context === context) return previous;
-    const inputKey = path === input.currentPath ? input.currentKey : optimizationInputKey(path, input.robot, input.field);
-    const accepted = path.optimization?.accepted || null;
-    const next = { id: path.id, path, robot: input.robot, field: input.field, plannerId: input.plannerId, context, inputKey, accepted };
-    if (previous && previous.inputKey === inputKey && previous.accepted === accepted && previous.plannerId === input.plannerId) {
+    const inputKey = path === input.currentPath ? input.currentKey : pathPlanningKey(path, input.robot, input.field);
+    const next = { id: path.id, path, robot: input.robot, field: input.field, plannerId: input.plannerId, context, inputKey };
+    if (previous && previous.inputKey === inputKey && previous.plannerId === input.plannerId) {
       return Object.assign(previous, next);
     }
-    return { ...next, outdated: isOptimizationOutdated(path, input.robot, input.field), result: { status: 'pending' } };
+    return { ...next, result: { status: 'pending' } };
   };
   return {
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     getSnapshot: () => snapshot,
-    /** `currentKey` is the caller's optimizationInputKey for `currentPath` in this context. */
+    /** `currentKey` is the caller's pathPlanningKey for `currentPath` in this context. */
     update(input, { id, ...selected }) {
       const context = planningContext(input.robot, input.field, input.plannerId);
       entries = new Map(input.paths.map((path) => [path.id, entryFor(path, context, input)]));

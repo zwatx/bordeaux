@@ -9,8 +9,7 @@ import { planPath } from '../src/core/planners/planPath';
 import { physicalPlannerInput } from '../src/core/robotLimits';
 import { validateProject } from '../src/core/validation';
 import { validateOptimizedTrajectory } from '../src/core/planners/trajectoryValidation';
-import { optimizationInputKey } from '../src/core/planners/acceptedTrajectoryIdentity';
-import { routeIntentKey } from '../src/core/planners/routeIdentity';
+import { pathPlanningKey } from '../src/core/planners/planningKey';
 import { buildRobotBinary } from '../src/core/export/robotBinary';
 import { binaryWriterFixture } from './fixtures/binaryWriterFixture';
 import type { CommandInvocation, Marker, PathDoc, RobotConfig, TrajectorySample } from '../src/core/types';
@@ -200,18 +199,16 @@ describe('per-path planning reserve', () => {
     }
   });
 
-  it('keeps applied trajectories when a load edit leaves this path\'s reserve unchanged', () => {
+  it('keeps search results and durations when a load edit leaves this path\'s reserve unchanged', () => {
     const path = pathWith([run('shoot')]);
-    const keys = (r: RobotConfig) => [optimizationInputKey(path, r), routeIntentKey(path, r)];
-    const before = keys(heavy);
+    const before = pathPlanningKey(path, heavy);
     const edited = robot([{ commandId: 'shoot', currentA: 150, runTimeS: 2 }, { commandId: 'intake', currentA: 30 }, { commandId: 'other', currentA: 9 }]);
-    expect(keys(edited)).toEqual(before);
-    expect(keys(robot([{ commandId: 'shoot', currentA: 120 }]))[0]).not.toBe(before[0]);
-    expect(keys(robot([{ commandId: 'shoot', currentA: 120 }]))[1]).not.toBe(before[1]);
-    // A project without command loads keeps the keys it always had.
-    expect(optimizationInputKey(path, robot([]))).toBe(optimizationInputKey(path, robot()));
+    expect(pathPlanningKey(path, edited)).toEqual(before);
+    expect(pathPlanningKey(path, robot([{ commandId: 'shoot', currentA: 120 }]))).not.toBe(before);
+    // A project without command loads keeps the key it always had.
+    expect(pathPlanningKey(path, robot([]))).toBe(pathPlanningKey(path, robot()));
     const plain = robot();
-    expect(optimizationInputKey(path, plain)).toBe(optimizationInputKey(path, { ...plain }));
+    expect(pathPlanningKey(path, plain)).toBe(pathPlanningKey(path, { ...plain }));
   });
 
   it('exports the module forces the planner allocated under the path\'s reserve', () => {

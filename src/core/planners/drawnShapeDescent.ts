@@ -2,7 +2,7 @@ import { PM } from "../math/pm";
 import type { ControlPoint, PlannerInput, RouteGeometry } from "../types";
 import { curveDeviation } from "./corridorFinal";
 import { materialGainS } from "./limits";
-import { geometryFromPath } from "./routeGeometry";
+import { routeTask } from "./routeGeometry";
 
 /** One Bézier handle whose length the descent may change. Its direction never changes. */
 interface Handle {
@@ -65,7 +65,8 @@ export function* drawnShapeDescent(
   batchCurves: number,
 ): Generator<RouteGeometry[], RouteGeometry[], number[]> {
   const source = input.path;
-  const drawn = geometryFromPath(source);
+  // Every waypoint is a knot, so the waypoints below line up with the knots.
+  const drawn = routeTask(source).seed;
   const distance = (a: ControlPoint, b: ControlPoint) => Math.hypot(a.x - b.x, a.y - b.y);
   const handles: Handle[] = [];
   const drawnLengths: number[] = [];

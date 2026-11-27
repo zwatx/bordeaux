@@ -3,13 +3,10 @@ import { waypointHeadingSemantics } from "../math/waypointHeading";
 import { activeAngularLimits, waypointTurnDelta } from "./stationaryActions";
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import type { FieldReference, PlannerInput, PlannerResult } from "../types";
-import { markersMatch, stationaryActionsMatch } from "./acceptedTrajectoryChecks";
-import { acceptedTrajectoryShapeError } from "./acceptedTrajectoryIdentity";
-import { invariantFailure, validateFinal } from "./fixedGeometryFinal";
+import { validateFinal } from "./fixedGeometryFinal";
 import { getPlanner } from "./index";
-import { DEFAULT_SAMPLES_PER_SEGMENT } from "./limits";
 import { segmentHeadingLaws } from "./headingTransitions";
-import { routePlanningPath, routeResultToPlanning, routeUnsupportedReason, samePlanningGeometry } from "./routeGeometry";
+import { routePlanningPath, routeTask, routeUnsupportedReason, stable } from "./routeGeometry";
 import { routeSafetyIssue } from "./routeSafety";
 
 export interface RouteCandidateIssue {
@@ -55,7 +52,11 @@ function stationaryFailure(input: PlannerInput, result: PlannerResult, reference
   return undefined;
 }
 
-/** Independent source -> solved geometry -> exact samples qualification. */
+/**
+ * Independent qualification of a route candidate for the path `input.path`: the candidate must be
+ * the Normal plan of exactly the path Apply would write, keep every required waypoint, stop and
+ * heading, clear the field for this robot, and meet every physical limit.
+ */
 export function routeCandidateIssue(input: PlannerInput, result: PlannerResult, field: FieldReference = input.field ?? ACTIVE_FIELD_REFERENCE): RouteCandidateIssue | undefined {
   try {
     const unsupported = routeUnsupportedReason(input) ?? routeUnsupportedReason({ ...input, field });
@@ -65,19 +66,19 @@ export function routeCandidateIssue(input: PlannerInput, result: PlannerResult, 
         || result.diagnostics.find((d) => d.severity === "error")?.message
         || "The planner did not produce a validated route.");
     }
-    const shape = acceptedTrajectoryShapeError({ version: 2, inputKey: "validation", samplesPerSegment: input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT, result });
-    if (shape) return issue(shape);
+    const error = result.diagnostics.find((d) => d.severity === "error");
+    if (error) return issue(error.message);
+    if (result.samples.length < 2 || !(result.totalTimeS > 0)) return issue("Route trajectory is incomplete.");
     if (!result.routeGeometry) return issue("Route geometry is missing.");
-    const path = routePlanningPath(input.path, result.routeGeometry);
-    if (!samePlanningGeometry(result.optimizedPath, path)) return issue("Solved route semantics differ from required source intent.");
-    if (!markersMatch(input.path, result) || !stationaryActionsMatch(input.path, input.robot, result)) return issue("Route events or stationary actions differ from required intent.");
+    const path = routePlanningPath(routeTask(input.path).task, result.routeGeometry);
+    if (stable(result.optimizedPath) !== stable(path)) return issue("The route's path differs from the one Apply writes.");
     // Ordered sample arrivals are verified directly, never nearest-point fallback.
     const arrivals = result.waypointSampleIndices;
-    if (!arrivals || arrivals.length !== input.path.waypoints.length) return issue("Required arrival mapping is missing.");
-    const headingLaws = segmentHeadingLaws(input.path, input.robot.drive === "tank");
+    if (!arrivals || arrivals.length !== path.waypoints.length) return issue("Required arrival mapping is missing.");
+    const headingLaws = segmentHeadingLaws(path, input.robot.drive === "tank");
     for (let i = 0; i < arrivals.length; i++) {
       const at = arrivals[i];
-      const w = input.path.waypoints[i], sample = result.samples[at];
+      const w = path.waypoints[i], sample = result.samples[at];
       if (!Number.isInteger(at) || !sample || (i > 0 && at <= arrivals[i - 1])) return issue("Required arrival mapping is invalid.");
       if (Math.hypot(sample.x - w.x, sample.y - w.y) > 0.001
         || (w.stop && Math.abs(sample.velocityMps) > 0.001)) return issue("Required waypoint arrival or stop is invalid.", true);
@@ -91,14 +92,12 @@ export function routeCandidateIssue(input: PlannerInput, result: PlannerResult, 
     }
     const safety = routeSafetyIssue(input.robot, result, field);
     if (safety) return safety;
-    const planned = routeResultToPlanning(result);
     const planningInput = { ...input, path };
+    // Remembered by input: the candidate's own plan, so this costs no second solve.
     const reference = getPlanner("profiledSpline").generate(planningInput);
-    const stationary = stationaryFailure(planningInput, planned, reference);
+    const stationary = stationaryFailure(planningInput, result, reference);
     if (stationary) return stationary;
-    const invariant = invariantFailure(planningInput, reference, planned);
-    if (invariant) return issue(invariant);
-    const physics = validateFinal(planningInput, planned).failure;
+    const physics = validateFinal(planningInput, result).failure;
     if (physics) return issue(physics);
     return undefined;
   } catch (error) {

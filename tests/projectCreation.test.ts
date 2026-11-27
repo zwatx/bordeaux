@@ -48,7 +48,7 @@ describe("named project creation before activation", () => {
     expect(selection.project.paths).toHaveLength(1); expect(selection.project.routines).toHaveLength(1);
     expect(selection.project.paths[0].id).not.toBe(source.paths[0].id);
     expect(selection.project.paths[0]).toMatchObject({ markers: [], targets: [], ranges: [] });
-    expect(selection.project.paths[0].optimization).toBeUndefined();
+    expect(selection.project.paths[0]).not.toHaveProperty('optimization');
     expect(selection.project.pathLinks).toEqual([]); expect(selection.project.routines[0].nodes).toEqual([]);
     expect(selection.project.editor?.robotProjectBookmarkId).toBeUndefined();
     const robotOnly = await createNamedProjectSelection({ name: "Robot defaults", parentDirectory: directory, template: { robot: source.robot } });
