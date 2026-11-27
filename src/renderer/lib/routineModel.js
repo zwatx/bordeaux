@@ -583,7 +583,7 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
     // A truncated trace can stop inside a group.
     while (groups.length) closeGroup();
     result.duration.minS = exactS;
-    result.duration.maxS = result.duration.unknownCount ? null : t;
+    result.duration.maxS = result.duration.unknownCount || result.duration.estimateCount ? null : t;
     // Parallel children overlap; keep steps ordered by end time so time lookup stays a binary search.
     if (parallel) result.steps = result.steps.map((step, index) => [step, index]).sort((a, b) => a[0].t1 - b[0].t1 || a[1] - b[1]).map(([step]) => step);
     result.total = t; result.timedPlayable = !result.blocked && t > 0;
