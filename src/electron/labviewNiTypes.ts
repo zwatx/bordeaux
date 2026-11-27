@@ -112,8 +112,9 @@ export function labviewControllerForCommand(file: string): string | undefined {
 }
 
 export function isLabviewControllerFile(file: string): boolean {
-  const parent = /^(.+)\/Implementation\/[^/]+\.vi$/i.exec(file)?.[1];
-  return !!parent && file === `${parent}/Implementation/${path.posix.basename(parent)} Controller.vi`;
+  const match = /^(.+)\/Implementation\/([^/]+)\.vi$/i.exec(file);
+  return !!match && match[2].endsWith(" Controller")
+    && match[2].toLowerCase() === `${path.posix.basename(match[1])} Controller`.toLowerCase();
 }
 
 export function labviewControllerOutputName(file: string, terminal: string): string {
@@ -191,9 +192,9 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
       const label = path.posix.basename(file, path.posix.extname(file));
       const isController = isLabviewControllerFile(file);
       if (isController) {
-        if (verifiedControllers && !verifiedControllers.has(key)) continue;
-        // Robot lookup uses the VI basename, so ambiguous basenames cannot supply results.
-        if (sources.filter((item) => item.target === target && path.posix.basename(item.file).toLowerCase() === path.posix.basename(file).toLowerCase()).length !== 1) continue;
+        // Live and cached catalogs supply uniqueness from the current project inventory.
+        if (verifiedControllers ? !verifiedControllers.has(key)
+          : sources.filter((item) => item.target === target && path.posix.basename(item.file).toLowerCase() === path.posix.basename(file).toLowerCase()).length !== 1) continue;
       } else if (statuses.length !== 2) continue;
       const outputs: RobotCommandOutput[] = [];
       const outputTerminals = terminals.filter((terminal) => terminal.direction === 1 && !statuses.includes(terminal));
@@ -208,6 +209,8 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
             commands: [{ id, label, vi: "Handler.vi", parameters: [{ name: terminal.name, schema, ...bounds }] }] }).catalog.commands[0].parameters[0];
           if (isController) {
             const name = labviewControllerOutputName(file, terminal.name);
+            if (Buffer.byteLength(name) > 256) throw new Error("Qualified controller output names must fit in 256 UTF-8 bytes");
+            if (output.schema.kind === "enum" && output.schema.enumValues!.length > 255) throw new Error("Controller branch enums support at most 255 choices");
             const typeXml = dataTypes[numbers.indexOf(terminal.terminalNumber)] as string;
             outputs.push({ name, label: `${label} / ${terminal.caption.trim() || terminal.name}`, schema: output.schema, ...bounds,
               labviewController: { file, terminal: terminal.name, typeXml } });
@@ -218,7 +221,7 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
         }
       }
       if (isController) {
-        controllers.set(key, outputs);
+        controllers.set(`${target}\0${file.toLowerCase()}`, outputs);
         continue;
       }
       if (!statuses.some((terminal) => terminal.direction === 0) || !statuses.some((terminal) => terminal.direction === 1) || !statuses.every((terminal) => statusCluster(terminal.xml))) throw new Error("Legacy status terminals do not match the observed input/output completion lifecycle");
@@ -249,10 +252,19 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
     const connector = command.labviewConnector!;
     const file = labviewControllerForCommand(connector.file);
     if (!file) continue;
-    const outputs = command.outputs!;
-    for (const output of controllers.get(`${connector.target}\0${file}`) ?? []) {
-      if (!outputs.some((existing) => existing.name === output.name)) outputs.push(output);
-    }
+    const prefix = labviewControllerOutputName(file, "").toLowerCase();
+    const reserved = new Set<string>();
+    command.outputs = command.outputs!.filter((output) => {
+      const name = output.name.toLowerCase();
+      if (!name.startsWith(prefix)) return true;
+      // A missing controller indicator must never make a saved branch read a command output.
+      reserved.add(name);
+      unsupported.push({ file: connector.file, target: connector.target,
+        reason: `Output ${output.name}: this qualified name is reserved for controller outputs` });
+      return false;
+    });
+    command.outputs.push(...(controllers.get(`${connector.target}\0${file.toLowerCase()}`) ?? [])
+      .filter(output => !reserved.has(output.name.toLowerCase())));
   }
   commands.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
   return { commands, cacheable, dependencyPaths: [...dependencyPaths].sort(), inspection: { status: "available", applicationContext: "My Computer", inspectedAt, commandCount: commands.length, unsupported,

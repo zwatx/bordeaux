@@ -137,7 +137,7 @@ Choose a `.lvproj` or the folder that contains it. Bordeaux reads the project XM
 
 Commands under `<Subsystem>/Commands` can branch on scalar output terminals of `<Subsystem>/Implementation/<Subsystem> Controller.vi` on the same target. Bordeaux uses the saved Boolean, numeric, and enum connector types. Command descriptions do not declare outputs. Removed terminals disappear from the picker, and saved branches that used them need a new source.
 
-The LabVIEW routine runtime reads each referenced controller indicator after the command completes, then reuses the sample for its comparisons. Keep the running controller's front panel in the robot build. An unavailable or incompatible controller value stops the routine with an error.
+The `.bdr` file includes only controller outputs used in comparisons. Each has terminal `-1` and a field path containing its qualified name, such as `Shooter Controller/Setpoint`. This name is reserved for the controller so a command terminal cannot take its place. The LabVIEW runtime reads the indicator after the command completes and reuses the sample for its comparisons. Keep the running controller's front panel in the robot build. An unavailable or incompatible controller value stops the routine with an error.
 
 ### Export paths and routines
 

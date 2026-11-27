@@ -112,6 +112,53 @@ it("omits an output that shares the label of a controller input", () => {
   expect(result.commands[0].outputs).toEqual([completionOutput]);
   expect(result.inspection.unsupported[0].reason).toContain("unique terminal names");
 });
+
+it("does not substitute a same-named command output for a saved controller selection", () => {
+  const name = "Intake Controller/Ready";
+  const command = row();
+  const inspect = (controller: ReturnType<typeof row>) => {
+    const metadata = { ...report(), vis: [command, controller] };
+    return decodeLabviewNiInspection(metadata, metadata.projectFile, [source, controllerSource]);
+  };
+  expect(inspect(controllerRow()).commands[0].outputs?.map(output => output.name)).toContain(name);
+  addOutput(command, name, `<Boolean><Name>${name}</Name><Val>0</Val></Boolean>`, 12);
+  for (const controller of [controllerRow(), controllerRow(false)]) {
+    const result = inspect(controller);
+    expect(result.commands[0].outputs).toEqual([completionOutput]);
+    expect(result.inspection.unsupported).toMatchObject([{
+      file: source.file, reason: expect.stringContaining("reserved for controller outputs"),
+    }]);
+  }
+});
+
+it("reports controller output names and enums that exceed branch limits", () => {
+  const controller = controllerRow(false);
+  const maxLabel = "x".repeat(256 - "Intake Controller/".length);
+  for (const [name, terminal] of [[maxLabel, 0], [maxLabel + "y", 1]] as const) {
+    addOutput(controller, name, `<Boolean><Name>${name}</Name><Val>0</Val></Boolean>`, terminal);
+  }
+  const choices = Array.from({ length: 256 }, (_, index) => `<Choice>Choice ${index}</Choice>`).join("");
+  addOutput(controller, "Phase", `<EW><Name>Phase</Name>${choices}<Val>0</Val></EW>`, 2);
+  const metadata = { ...report(), vis: [row(), controller] };
+  const result = decodeLabviewNiInspection(metadata, metadata.projectFile, [source, controllerSource]);
+  expect(result.commands[0].outputs?.map(output => output.name)).toEqual([completionOutput.name, `Intake Controller/${maxLabel}`]);
+  expect(result.inspection.unsupported.map(item => item.reason)).toEqual([
+    expect.stringContaining("256 UTF-8 bytes"), expect.stringContaining("255 choices"),
+  ]);
+});
+
+it("discovers and binds the controller with different folder capitalization", () => {
+  const command = { ...row(), file: "Intake/commands/Start.vi" };
+  const controller = { ...controllerRow(), file: "Intake/implementation/Intake Controller.vi" };
+  const metadata = { ...report(), vis: [command, controller] };
+  const { commands } = decodeLabviewNiInspection(metadata, metadata.projectFile, [command, controller]);
+  const binary = binaryWriterFixture().bindings;
+  const bindings = routineBindingsFromBinary({ ...binary, catalog: { ...binary.catalog, commands } });
+  expect(bindings.commands[commands[0].id].outputs[1]).toMatchObject({
+    name: "Intake Controller/Ready", terminal: -1, fieldPath: ["Intake Controller/Ready"],
+  });
+});
+
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true }))); });
 async function cacheFixture() {
@@ -484,6 +531,11 @@ describe("NI legacy connector discovery", () => {
     const cached = await restore();
     expect(cached.labviewDiscovery?.inspection?.status).toBe("cached");
     expect(cached.commands[0].outputs?.map(output => output.name)).toEqual([completionOutput.name, "Intake Controller/Ready"]);
+
+    const incomplete = await discoverLabviewProject(fixture.project);
+    incomplete.labviewDiscovery!.truncated = true;
+    const partial = await fresh.withCachedLabviewCommands(fixture.project, incomplete, fixture.cache);
+    expect(partial.commands[0].outputs).toEqual([completionOutput]);
 
     const duplicate = path.join(fixture.root, "Intake", "Legacy", "Intake Controller.vi");
     await fs.mkdir(path.dirname(duplicate));

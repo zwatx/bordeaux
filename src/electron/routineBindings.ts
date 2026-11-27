@@ -63,7 +63,7 @@ export function routineBindingsFromBinary(binary: BinaryBindings, selectedComman
       if (output.labviewController) {
         const { file, terminal, typeXml } = output.labviewController;
         const xml = parseLabviewXml(typeXml);
-        if (file !== labviewControllerForCommand(raw.file) || terminal !== xml.elementValueOrEmpty('Name')
+        if (file.toLowerCase() !== labviewControllerForCommand(raw.file)?.toLowerCase() || terminal !== xml.elementValueOrEmpty('Name')
           || output.name !== labviewControllerOutputName(file, terminal)) {
           throw new Error(`${command.label}.${output.name}: invalid controller output binding`);
         }

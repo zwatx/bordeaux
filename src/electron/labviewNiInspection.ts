@@ -177,7 +177,8 @@ async function catalogFromEvidence(discovered: RobotCommandCatalog, evidence: Ev
   const knownTypes = new Map(evidence.dependencies.map(dependency => [identityPath(dependency.path), dependency]));
   const verifiedControllers = new Set<string>();
   const reader = new FileReader();
-  const present = (discovered.labviewDiscovery?.items ?? []).filter(item => item.file && item.status === "present");
+  const discovery = discovered.labviewDiscovery;
+  const present = (discovery && !discovery.truncated ? discovery.items : []).filter(item => item.file && item.status === "present");
   const basenames = new Map<string, Set<string>>();
   for (const item of present) {
     const key = sourceKey({ target: item.target, file: path.posix.basename(item.file!).toLowerCase() });
