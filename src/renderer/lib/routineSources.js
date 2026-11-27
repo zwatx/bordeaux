@@ -1,4 +1,6 @@
 import { commandSections, rankChoices, searchCommands } from './commandIndex';
+import { AUTO } from './routineModel';
+import { UnitPrefs } from './unitPreferences';
 
 // What the routine source library lists while a step is being added or a path step changed. Rows are plain data for
 // one flat, keyboard-navigable list: `group` rows (a path folder or a command subsystem) open and close, `item` rows add
@@ -18,8 +20,10 @@ export function pathTime(path, times) {
 /**
  * Paths in the project's own library order: each folder (in folder order), then paths without a folder. A search ranks
  * names first and folder names after, as one list whose rows name their folder. `closed` holds collapsed folder ids.
+ * `continues` holds the ids of paths that start where the robot is at the insertion point; while browsing they are
+ * also listed first, under "Continues from here", and keep their place in their folders.
  */
-export function pathSourceRows(paths, { folders = [], times = {}, uses = new Map(), query = '', closed = new Set(), current } = {}) {
+export function pathSourceRows(paths, { folders = [], times = {}, uses = new Map(), query = '', closed = new Set(), current, continues = new Set() } = {}) {
   const folderName = (id) => (id ? folders.find((folder) => folder.id === id)?.name || '' : '');
   const item = (path, inFolder) => ({ type: 'item', key: 'path:' + path.id, kind: 'path', ref: path.id, path, label: path.name || 'Untitled path',
     time: pathTime(path, times), uses: uses.get(path.id) || 0, folder: inFolder ? '' : folderName(path.folderId), current: path.id === current });
@@ -28,6 +32,8 @@ export function pathSourceRows(paths, { folders = [], times = {}, uses = new Map
     return rankChoices(choices, query).map(({ item: choice }) => item(choice.path, false));
   }
   const rows = [];
+  const here = paths.filter((path) => continues.has(path.id));
+  if (here.length) rows.push({ type: 'label', key: 'label:here', label: 'Continues from here' }, ...here.map((path) => ({ ...item(path, false), key: 'here:path:' + path.id })));
   for (const folder of folders) {
     const members = paths.filter((path) => path.folderId === folder.id);
     if (!members.length) continue;
@@ -36,7 +42,7 @@ export function pathSourceRows(paths, { folders = [], times = {}, uses = new Map
     if (open) rows.push(...members.map((path) => ({ ...item(path, true), depth: 1 })));
   }
   const loose = paths.filter((path) => !path.folderId || !folders.some((folder) => folder.id === path.folderId));
-  if (loose.length && rows.length) rows.push({ type: 'label', key: 'label:loose', label: 'Not in a folder' });
+  if (loose.length && rows.length > here.length + (here.length ? 1 : 0)) rows.push({ type: 'label', key: 'label:loose', label: 'Not in a folder' });
   rows.push(...loose.map((path) => item(path, true)));
   return rows;
 }
@@ -80,4 +86,15 @@ export function commandGroupKey(index, id) {
   const entry = index.byId.get(id);
   if (!entry) return null;
   return index.bySubsystem.get(entry.key)?.entries.length > 1 ? entry.key : OTHER;
+}
+
+/**
+ * How a path's start relates to the robot's pose at the insertion point: "Starts here" within a small jump
+ * (AUTO.jumpSize), otherwise the distance, like "0.5 m off". Null when there is no pose to compare (the first step).
+ */
+export function pathStartHint(path, pose, robot) {
+  const start = path?.waypoints?.[0];
+  if (!pose || !start) return null;
+  const distance = Math.hypot(start.x - pose.x, start.y - pose.y);
+  return AUTO.jumpSize(distance, robot) === 'small' ? { here: true, text: 'Starts here' } : { here: false, text: UnitPrefs.format(distance, 'm', 1) + ' off' };
 }

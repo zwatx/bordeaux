@@ -64,7 +64,9 @@ import path from "node:path";
 // 919 KiB keeps about 7 KiB of headroom for the routine stack's later layers.
 // Routine pose jump sizes, their dotted route joins and the link action measure 938,927 B against 933,491 B before them
 // (2026-11-26); 924 KiB keeps about 7 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 924 * 1024;
+// The routine path library ghost preview and start hints measure 941,970 B against 938,927 B before them (2026-11-26);
+// 927 KiB keeps about 7 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 927 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

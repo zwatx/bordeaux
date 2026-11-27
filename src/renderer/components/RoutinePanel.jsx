@@ -650,13 +650,27 @@ export function RoutinePanel(props) {
     if (node && node.ref !== item.ref) acq.set(nodeId, { ref: item.ref });
   };
   const changing = change ? A.locate(routine, change.nodeId)?.node : null;
+  // The robot's previewed pose where a chosen path would start: at the open slot, or before the step whose path is
+  // changing. A trial trace with a zero-second wait there reads the preview's pose at that point. Null when no path
+  // runs before it (the first step) or the point is off the previewed route.
+  const pickAt = changing ? { beforeId: change.nodeId } : adding?.source === 'path' ? adding.where : null;
+  const pickKey = pickAt && JSON.stringify(pickAt);
+  const startPose = useMemo(() => {
+    if (!pickAt || !props.traceRoutine) return null;
+    const marker = { ...A.newNode('builtin', 'wait'), arguments: { durationS: 0 } };
+    const operation = insertOperation(routine, pickAt, marker);
+    const trial = operation && A.editRoutine(routine, operation);
+    return trial?.changed ? props.traceRoutine(trial.routine).steps.find((step) => step.nodeId === marker.id)?.pose || null : null;
+  }, [routine, pickKey, props.traceRoutine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previewPath = (pathId) => props.onPathPreview?.(pathId ? { path: paths.find((path) => path.id === pathId), pose: startPose } : null);
+  const pathPick = { startPose, robot: props.robot, onPreview: previewPath };
   const library = changing
     ? h(SourceLibrary, { key: 'replace:' + change.nodeId, kind: 'path', mode: 'replace', title: 'Change path', autoFocus: true, current: changing.ref,
         dest: paths.some((path) => path.id === changing.ref) ? 'Replacing “' + stepTitle(changing, paths, catalog) + '”' : 'The saved path is unavailable',
-        paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, onPick: replacePath, onClose: closeChange })
+        paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, onPick: replacePath, onClose: closeChange, ...pathPick })
     : adding?.source
       ? h(SourceLibrary, { key: 'insert:' + adding.source, kind: adding.source, mode: 'insert', title: adding.source === 'path' ? 'Add path' : 'Add command', dest: destination(adding.where),
-          autoFocus: Boolean(adding.focusSource), paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, catalog, usage,
+          autoFocus: Boolean(adding.focusSource), paths, pathFolders: props.pathFolders, pathTimes: props.pathTimes, uses: pathUses, catalog, usage, ...(adding.source === 'path' ? pathPick : {}),
           onPick: pick, onCommandless: () => pick({ kind: 'command', label: 'Command' }),
           onBack: () => focusSlot(adding.source),
           onClose: (refocus) => (adding.persistent ? setSource(null, { refocus }) : closeAdd(refocus)) })
