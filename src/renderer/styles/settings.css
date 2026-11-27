@@ -117,7 +117,8 @@
 .rp-cam-head strong{min-width:0;overflow-wrap:anywhere;font-weight:600}
 .rp-cam-head .robot-card-name{padding:0}
 .rp-cam-actions{display:flex;flex-shrink:0;align-items:center;gap:4px}
-.rp-cam-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+/* Eight boxes fit one row at the page's full width. */
+.rp-cam-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:8px}
 .rp-cam-fields label{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--txt-3);font-size:11px}
 .rp-cam-fields .rp-big{gap:4px;padding:0 8px}
 /* An error under a box needs room below the band. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { REBUILT_2026_FIELD } from "../src/core/field/rebuilt2026";
 import { APRILTAG_SIZE_M, TAG_READ_LIMITS, fieldTags, pathTagCoverage, visibleTags, type FieldTag } from "../src/core/tagVisibility";
+import { CAMERA_RANGE_DEFAULT_M } from "../src/core/robotCameras";
 import type { RobotCamera } from "../src/core/types";
 
 /*
@@ -16,6 +17,7 @@ import type { RobotCamera } from "../src/core/types";
  *  9. Two cameras seeing one tag are merged into one sighting, or one camera's sighting is given to another.
  * 10. A robot without cameras, or a field without tags, throws.
  * 11. The field's tag facings point into the wall, so every result on the real field is backwards.
+ * 13. A camera's own range is ignored, is applied to another camera, or a camera saved without one reads nothing.
  * 12. Coverage along a path counts one tag twice when two cameras see it, or loses the order of the samples.
  */
 const camera = (patch: Partial<RobotCamera> = {}): RobotCamera => ({
@@ -94,6 +96,16 @@ describe("tag visibility", () => {
     expect(seen(origin, [camera()], [turned(TAG_READ_LIMITS.maxSkewDeg - 1)])).toEqual(["front:1"]);
     expect(seen(origin, [camera()], [turned(TAG_READ_LIMITS.maxSkewDeg + 1)])).toEqual([]);
     expect(seen(origin, [camera()], [turned(-(TAG_READ_LIMITS.maxSkewDeg + 1))])).toEqual([]);
+  });
+
+  it("stops each camera at its own range, and uses the default for a camera without one", () => {
+    const at = (distanceM: number): FieldTag => ({ ...ahead, point: { x: distanceM, y: 0 } });
+    const short = camera({ id: "short", maxRangeM: 2 }), long = camera({ id: "long", maxRangeM: 9 }), unset = camera({ id: "unset" });
+    expect(seen(origin, [short, long, unset], [at(1.9)])).toEqual(["short:1", "long:1", "unset:1"]);
+    expect(seen(origin, [short, long, unset], [at(2.1)])).toEqual(["long:1", "unset:1"]);
+    expect(seen(origin, [short, long, unset], [at(CAMERA_RANGE_DEFAULT_M + 0.1)])).toEqual(["long:1"]);
+    expect(seen(origin, [short, long, unset], [at(9.1)])).toEqual([]);
+    expect(TAG_READ_LIMITS.maxDistanceM).toBe(CAMERA_RANGE_DEFAULT_M);
   });
 
   it("reports each camera's own sightings", () => {

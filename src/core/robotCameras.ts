@@ -5,6 +5,11 @@ import type { RobotCamera, RobotConfig } from "./types";
 export const CAMERA_LIMIT = 8;
 /** Longest camera name the editor accepts. */
 export const CAMERA_NAME_MAX = 40;
+/**
+ * How far a camera reads a tag when it has no range of its own, meters. A round working number, not a measurement:
+ * real range depends on resolution, lens, exposure and lighting, which is why each camera can set its own.
+ */
+export const CAMERA_RANGE_DEFAULT_M = 6;
 
 /**
  * Accepted range of each camera number. A field of view lies strictly between its bounds; the rest include them.
@@ -18,6 +23,8 @@ export const CAMERA_RANGES = {
   heightM: { min: 0, max: 2.5 },
   yawDeg: { min: -180, max: 180 },
   pitchDeg: { min: -90, max: 90 },
+  /** How far the camera reads a tag, meters. */
+  rangeM: { min: 0.5, max: 15 },
 } as const;
 
 /*
@@ -41,6 +48,7 @@ export function addCamera(robot: RobotConfig): RobotConfig {
     positionM: { x: robot.l / 2, y: 0, z: 0.3 },
     yawDeg: 0,
     pitchDeg: 15,
+    maxRangeM: CAMERA_RANGE_DEFAULT_M,
   };
   return { ...robot, cameras: [...cameras, camera] };
 }

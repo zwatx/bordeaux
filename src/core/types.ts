@@ -24,6 +24,8 @@ export interface RobotCamera {
   yawDeg: number;
   /** Tilt of the lens: 0 is level, positive looks up. */
   pitchDeg: number;
+  /** Farthest this camera reads a tag, lens to tag center, meters. Unset uses CAMERA_RANGE_DEFAULT_M. */
+  maxRangeM?: number;
 }
 
 export interface RobotConfig {

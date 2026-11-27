@@ -150,6 +150,7 @@ function validateRobotCameras(issues: ValidationIssue[], robot: RecordValue, bas
     }
     within(camera.yawDeg, CAMERA_RANGES.yawDeg, `${at}.yawDeg`, "Camera yaw");
     within(camera.pitchDeg, CAMERA_RANGES.pitchDeg, `${at}.pitchDeg`, "Camera pitch");
+    if (camera.maxRangeM !== undefined) within(camera.maxRangeM, CAMERA_RANGES.rangeM, `${at}.maxRangeM`, "Camera max range");
   });
 }
 

@@ -41,7 +41,7 @@ async function typeInto(label, text) {
   await key('Enter');
 }
 const field = (label) => evaluate((label) => document.querySelector(`input[aria-label="${label}"]`)?.value ?? null, label);
-const numbers = async () => Promise.all(['horizontal field of view', 'vertical field of view', 'forward of center', 'left of center', 'height above floor', 'yaw', 'pitch'].map((name) => field('Camera ' + name)));
+const numbers = async () => Promise.all(['horizontal field of view', 'vertical field of view', 'forward of center', 'left of center', 'height above floor', 'yaw', 'pitch', 'max range'].map((name) => field('Camera ' + name)));
 // What the section shows: the picker, the picked camera's heading, and the 3D drawing's shapes.
 const section = () => evaluate(() => {
   const root = document.getElementById('settings-cameras');
@@ -134,7 +134,7 @@ app.whenReady().then(async () => {
     let shown = await section();
     assert.deepEqual([shown.picks, shown.canAdd, shown.view, shown.volumes, shown.names, shown.bad], [['Camera 1*'], true, '3D', 1, ['Camera 1*'], false]);
     // Forward starts at the front edge of the 0.84 m frame.
-    assert.deepEqual(await numbers(), ['70.0', '50.0', '0.42', '0.00', '0.30', '0.0', '15.0']);
+    assert.deepEqual(await numbers(), ['70.0', '50.0', '0.42', '0.00', '0.30', '0.0', '15.0', '6.0']);
     pass('Add camera draws one view volume and starts it facing forward at the front edge');
 
     const facingFront = shown.picked;
@@ -147,7 +147,9 @@ app.whenReady().then(async () => {
     await typeInto('Camera pitch', '200');
     await typeInto('Camera vertical field of view', '0');
     await wait(async () => (await field('Camera vertical field of view')) === '1.0', 'clamped field of view');
-    assert.deepEqual(await numbers(), ['100.0', '1.0', '0.42', '0.00', '0.60', '90.0', '90.0']);
+    await typeInto('Camera max range', '40');
+    assert.deepEqual(await numbers(), ['100.0', '1.0', '0.42', '0.00', '0.60', '90.0', '90.0', '15.0']);
+    await typeInto('Camera max range', '3.5');
     await typeInto('Camera vertical field of view', '45');
     await typeInto('Camera pitch', '10');
     assert.equal((await section()).bad, false);
@@ -217,7 +219,7 @@ app.whenReady().then(async () => {
     assert.deepEqual([shown.picks, shown.volumes, shown.names], [['Camera 1', 'Rear left*'], 2, ['Camera 1', 'Rear left*']]);
     await click('.rp-cam-pick', 'Camera 1');
     await wait(async () => (await section()).heading === 'Camera 1', 'picked first camera');
-    assert.deepEqual(await numbers(), ['100.0', '45.0', '0.42', '0.00', '0.60', '90.0', '10.0']);
+    assert.deepEqual(await numbers(), ['100.0', '45.0', '0.42', '0.00', '0.60', '90.0', '10.0', '3.5']);
     await click('.rp-cam-pick', 'Rear left');
     await snapshot('two-cameras');
     await click('.rp-cam-views .seg-i', 'Top');
@@ -227,8 +229,8 @@ app.whenReady().then(async () => {
 
     await save();
     const expected = [
-      { name: 'Camera 1', horizontalFovDeg: 100, verticalFovDeg: 45, positionM: { x: 0.42, y: 0, z: 0.6 }, yawDeg: 90, pitchDeg: 10 },
-      { name: 'Rear left', horizontalFovDeg: 70, verticalFovDeg: 50, positionM: { x: -0.4, y: 0.25, z: 0.3 }, yawDeg: 150, pitchDeg: 15 },
+      { name: 'Camera 1', horizontalFovDeg: 100, verticalFovDeg: 45, positionM: { x: 0.42, y: 0, z: 0.6 }, yawDeg: 90, pitchDeg: 10, maxRangeM: 3.5 },
+      { name: 'Rear left', horizontalFovDeg: 70, verticalFovDeg: 50, positionM: { x: -0.4, y: 0.25, z: 0.3 }, yawDeg: 150, pitchDeg: 15, maxRangeM: 6 },
     ];
     const stored = (project) => project.robot.cameras?.map(({ id: _id, ...camera }) => camera);
     assert.deepEqual(stored(saved), expected);

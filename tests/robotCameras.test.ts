@@ -3,7 +3,7 @@ import { pathPlanningKey } from "../src/core/planners/planningKey";
 import { blankPath, createDemoProject } from "../src/core/project/defaults";
 import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileFormat";
 import { duplicateRobot, projectRobots, selectRobot } from "../src/core/project/robots";
-import { CAMERA_LIMIT, CAMERA_NAME_MAX, addCamera, cameraAxes, removeCamera, updateCamera } from "../src/core/robotCameras";
+import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES, CAMERA_RANGE_DEFAULT_M, addCamera, cameraAxes, removeCamera, updateCamera } from "../src/core/robotCameras";
 import type { BordeauxProject, RobotCamera, RobotConfig } from "../src/core/types";
 import { validateProject } from "../src/core/validation";
 
@@ -22,6 +22,8 @@ import { validateProject } from "../src/core/validation";
  * 11. Editing a camera changes the planning key, which discards optimize results that cameras cannot affect.
  * 12. Saving and reopening drops or alters cameras, on the selected robot or another one.
  * 13. A duplicated robot shares camera objects with the original, or switching robots mixes their cameras.
+ * 15. A new camera has no range, validation accepts a range of 0 or one past the limit, or refuses a camera saved
+ *     before ranges existed.
  * 14. Positive yaw turns the lens right, positive pitch looks down, or the lens axes are not at right angles.
  */
 const robot = (): RobotConfig => createDemoProject().robot;
@@ -99,6 +101,17 @@ describe("robot cameras", () => {
     expect(problems([{ ...item, yawDeg: 181 }])).toContain("$.robot.cameras[0].yawDeg");
     expect(problems([{ ...item, pitchDeg: -91 }])).toContain("$.robot.cameras[0].pitchDeg");
     expect(problems([{ ...item, yawDeg: -180, pitchDeg: 90 }])).toEqual([]);
+  });
+
+  it("gives a new camera the default range, and accepts a camera saved without one", () => {
+    const item = camera();
+    expect(item.maxRangeM).toBe(CAMERA_RANGE_DEFAULT_M);
+    const { maxRangeM: _range, ...older } = item;
+    expect(problems([older])).toEqual([]);
+    expect(problems([{ ...item, maxRangeM: CAMERA_RANGES.rangeM.min }, { ...item, id: "b", name: "b", maxRangeM: CAMERA_RANGES.rangeM.max }])).toEqual([]);
+    for (const value of [0, -1, CAMERA_RANGES.rangeM.min - 0.01, CAMERA_RANGES.rangeM.max + 0.01, Number.NaN, "6"]) {
+      expect(problems([{ ...item, maxRangeM: value }]), String(value)).toEqual(["$.robot.cameras[0].maxRangeM"]);
+    }
   });
 
   it("rejects a malformed camera list", () => {

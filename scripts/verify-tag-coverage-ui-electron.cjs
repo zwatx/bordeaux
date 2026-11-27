@@ -12,6 +12,7 @@
 // - Pointing at the graph shows the ghost robot without the lines for that moment.
 // - The path is amber or green where the playhead robot reads nothing, because the color and the robot use
 //   different headings.
+// - A camera's own range is ignored, or one camera's range limits another.
 // - A robot without cameras gets no hint, or still draws wedges and lines.
 // - Going back to Velocity leaves tags, wedges or lines on the field.
 // Screenshots at both supported sizes go to BORDEAUX_TAG_COVERAGE_UI_OUTPUT.
@@ -222,6 +223,24 @@ app.whenReady().then(async () => {
     shown = await field();
     assert.ok(!shown.sight && !shown.strokes.some((stroke) => [NONE, ONE, MANY].includes(stroke)), 'the AprilTags layer alone leaves the path and robot as they were');
     pass('Velocity removes the tags and sight lines, and the AprilTags layer alone does not recolor the path');
+
+    // Each camera reads only out to its own range. At 0.5 m nothing on this path is close enough.
+    await open({ ...project, robot: { ...corpus.robot, cameras: cameras.map((camera) => ({ ...camera, maxRangeM: 0.5 })) } });
+    await pickColor('tags');
+    await wait(async () => (await field()).sight, 'sight overlay with short-range cameras');
+    shown = await field();
+    assert.deepEqual([[...new Set(shown.strokes)], shown.wedges, shown.lines, shown.range], [[NONE], 2, 0, '0\u20132+ tags']);
+    // With only the rear camera cut short, the front camera still reads the hub tags at the start.
+    await open({ ...project, robot: { ...corpus.robot, cameras: [cameras[0], { ...cameras[1], maxRangeM: 0.5 }] } });
+    await pickColor('tags');
+    await wait(async () => (await field()).sight, 'sight overlay with one short-range camera');
+    await seek('Home');
+    const frontOnly = (await field()).read;
+    assert.deepEqual(frontOnly, [21, 24, 25, 26], 'the front camera keeps its range');
+    await seek('End');
+    // At the end the front camera reads tag 1 and the rear camera read tag 32, so only tag 1 is left.
+    assert.deepEqual((await field()).read, [1], 'tag 32, read only by the rear camera, is out of its range');
+    pass('Each camera reads tags only out to its own range');
 
     await open({ ...project, robot: corpus.robot });
     await pickColor('tags');

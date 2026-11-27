@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { UI } from './ui';
 import { NameInput } from './RobotCards';
-import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES, addCamera, removeCamera, updateCamera } from '../../core/robotCameras';
+import { CAMERA_LIMIT, CAMERA_NAME_MAX, CAMERA_RANGES, CAMERA_RANGE_DEFAULT_M, addCamera, removeCamera, updateCamera } from '../../core/robotCameras';
 import { CAMERA_SCENE_VIEWS, cameraScene } from '../lib/cameraScene';
 
 const h = React.createElement;
@@ -22,6 +22,9 @@ const FIELDS = [
   { short: 'Height', label: 'Camera height above floor', ...position('z'), unit: 'm', ...CAMERA_RANGES.heightM },
   { short: 'Yaw', label: 'Camera yaw', hint: '0° faces the robot front. Positive turns left.', ...direct('yawDeg'), unit: '°', ...CAMERA_RANGES.yawDeg, precision: 1, step: 1 },
   { short: 'Pitch', label: 'Camera pitch', hint: '0° is level. Positive looks up.', ...direct('pitchDeg'), unit: '°', ...CAMERA_RANGES.pitchDeg, precision: 1, step: 1 },
+  // Meters in both unit systems, like the shooter's range: a tag range in inches is hard to read.
+  { short: 'Range', label: 'Camera max range', hint: 'How far this camera reads a tag. Lower it for a low-resolution camera or a wide lens.',
+    read: (camera) => camera.maxRangeM ?? CAMERA_RANGE_DEFAULT_M, patch: (_camera, value) => ({ maxRangeM: value }), unit: 'm', imperialUnit: 'm', ...CAMERA_RANGES.rangeM, precision: 1, step: 0.5 },
 ];
 
 const sceneItem = (item, index) => item.kind === 'face' ? h('polygon', { key: index, className: 'rp-cam-' + item.tone + (item.selected ? ' on' : ''), points: item.points })

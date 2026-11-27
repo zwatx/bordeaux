@@ -1,15 +1,15 @@
 import type { FieldPack, FieldPoint } from "./field/types";
-import { cameraAxes } from "./robotCameras";
+import { CAMERA_RANGE_DEFAULT_M, cameraAxes } from "./robotCameras";
 import type { RobotCamera } from "./types";
 
 /** Printed width of an FRC AprilTag (36h11, 6.5 in). */
 export const APRILTAG_SIZE_M = 6.5 * 0.0254;
 
 /**
- * How far and how far from straight on a camera is taken to read a tag. These are round working numbers, not
- * measurements of any camera: real range depends on resolution, exposure and lighting.
+ * How far and how far from straight on a camera is taken to read a tag. The distance applies to a camera without a
+ * range of its own. The angle is a round working number, not a measurement of any camera.
  */
-export const TAG_READ_LIMITS = { maxDistanceM: 6, maxSkewDeg: 60 } as const;
+export const TAG_READ_LIMITS = { maxDistanceM: CAMERA_RANGE_DEFAULT_M, maxSkewDeg: 60 } as const;
 
 /** An AprilTag in the editor's field frame: the center of its face, its height, and the direction its face points. */
 export interface FieldTag {
@@ -41,8 +41,8 @@ export function fieldTags(field: FieldPack): FieldTag[] {
 /**
  * The tags each camera reads with the robot at `pose` (field meters, heading counterclockwise from +X), in camera
  * order and then tag order. A camera reads a tag when all four corners of the tag are inside its picture, the lens is
- * in front of the tag's face within `limits.maxSkewDeg` of straight on, and the tag's center is within
- * `limits.maxDistanceM`. Nothing blocks the view: field structures and the robot's own parts are not considered.
+ * in front of the tag's face within `limits.maxSkewDeg` of straight on, and the tag's center is within the camera's
+ * own `maxRangeM`, or `limits.maxDistanceM` for a camera without one. Nothing blocks the view: field structures and the robot's own parts are not considered.
  */
 export function visibleTags(
   pose: { x: number; y: number; headingRad: number },
@@ -63,6 +63,7 @@ export function visibleTags(
     };
     const { forward, left, up } = cameraAxes({ yawDeg: camera.yawDeg + headingDeg, pitchDeg: camera.pitchDeg });
     const across = Math.tan(camera.horizontalFovDeg / 2 * Math.PI / 180), along = Math.tan(camera.verticalFovDeg / 2 * Math.PI / 180);
+    const maxDistanceM = camera.maxRangeM ?? limits.maxDistanceM;
     const inPicture = (x: number, y: number, z: number) => {
       const dx = x - lens.x, dy = y - lens.y, dz = z - lens.z;
       const depth = dx * forward.x + dy * forward.y + dz * forward.z;
@@ -74,7 +75,7 @@ export function visibleTags(
       const facing = tag.headingDeg * Math.PI / 180, nx = Math.cos(facing), ny = Math.sin(facing);
       const dx = lens.x - tag.point.x, dy = lens.y - tag.point.y, dz = lens.z - tag.elevationM;
       const distanceM = Math.hypot(dx, dy, dz);
-      if (distanceM > limits.maxDistanceM || distanceM < 1e-9) continue;
+      if (distanceM > maxDistanceM || distanceM < 1e-9) continue;
       const skewDeg = Math.acos(Math.max(-1, Math.min(1, (dx * nx + dy * ny) / distanceM))) * 180 / Math.PI;
       if (skewDeg > limits.maxSkewDeg) continue;
       // The face's sideways direction lies flat, at right angles to its normal.
