@@ -93,8 +93,7 @@ import { directPreviewWork, directWorkIsSafe } from "./direct-preview-work";
     const directIsSafe = config.directIsSafe || ((job) => directPreviewIsSafe(job.path, job.perSegment));
     const workerPayload = config.workerPayload || ((job) => ({
       id: job.revision,
-      path: job.quality === 'interactive' && job.path?.optimization
-        ? (({ optimization, ...authored }) => authored)(job.path) : job.path,
+      path: job.path,
       robot: job.robot,
       plannerId: job.plannerId,
       perSegment: job.perSegment,
@@ -360,8 +359,7 @@ import { directPreviewWork, directWorkIsSafe } from "./direct-preview-work";
   }
 
   /**
-   * Pointer-edit previews run the release editing solve: the whole path (including its selected
-   * optimization), robot, field and final density. Worker only, latest wins; the UI thread never times.
+   * Pointer-edit previews run the release editing solve: the whole path, robot, field and final density. Worker only, latest wins; the UI thread never times.
    */
   function createEditing(options) {
     return create({

@@ -1,7 +1,7 @@
+import { clone } from "../project/defaults";
 import type { PlannerInput, PlannerResult, RouteGeometry } from "../types";
-import { optimizeFixedGeometryFinal } from "./fixedGeometryFinal";
 import { fixedGeometryFirstPassTime, getPlanner } from "./index";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "./routeGeometry";
+import { applyRoute, routeTask } from "./routeGeometry";
 import { routeCandidateFailure, routeCandidateIssue } from "./routeValidation";
 
 /**
@@ -9,6 +9,7 @@ import { routeCandidateFailure, routeCandidateIssue } from "./routeValidation";
  * the time it must beat. The final time of a curve has measured at most 2.3%
  * below its first pass (1.0% among valid curves) over the 784 candidates of the
  * optimizer eval scenarios on two robots, so 5% leaves a factor of two.
+ * (Measured with the earlier final solver, whose times were at most Normal's.)
  */
 const FIRST_PASS_GUARD = 0.05;
 export const NOT_FASTER = "Not faster than the current result.";
@@ -44,6 +45,14 @@ function asRouteResult(result: PlannerResult): PlannerResult {
 }
 
 /**
+ * A route as the path Apply writes, timed by the Normal planner, the one every path plans with.
+ * The trajectory is therefore exactly what the path plans after Apply.
+ */
+function plannedRoute(source: PlannerInput, geometry: RouteGeometry, path = applyRoute(source.path, geometry)): PlannerResult {
+  return asRouteResult({ ...getPlanner("profiledSpline").generate({ ...source, path }), routeGeometry: clone(geometry), optimizedPath: path });
+}
+
+/**
  * Plans and qualifies one candidate curve. A candidate that cannot replace the
  * incumbent is rejected without a full plan when its first pass is clearly too
  * slow, and without qualification otherwise: it changes nothing, valid or not.
@@ -56,14 +65,14 @@ export function evaluateRouteCandidate(
   limits: RouteCandidateLimits,
 ): RouteCandidateOutcome {
   try {
-    const path = routePlanningPath(source.path, geometry);
+    const path = applyRoute(source.path, geometry);
     const planning = { ...source, path };
     // The full plan below reuses this first solve, so the probe costs a surviving candidate nothing.
     const firstPassTimeS = Number.isFinite(limits.timeToMatter) ? fixedGeometryFirstPassTime(planning) : null;
     if (firstPassTimeS !== null && firstPassTimeS > limits.timeToMatter * (1 + FIRST_PASS_GUARD)) {
       return { status: "rejected", reason: NOT_FASTER };
     }
-    const candidate = asRouteResult(routeResultToSource(optimizeFixedGeometryFinal(planning), geometry, path));
+    const candidate = plannedRoute(source, geometry, path);
     if (!(candidate.totalTimeS < limits.timeToBeat)) return { status: "rejected", reason: NOT_FASTER };
     const failure = routeCandidateFailure(source, candidate);
     return failure ? { status: "rejected", reason: failure } : { status: "valid", candidate };
@@ -78,18 +87,16 @@ export function evaluateRouteCandidate(
  */
 export function probeRouteCandidate(source: PlannerInput, geometry: RouteGeometry): number {
   try {
-    return fixedGeometryFirstPassTime({ ...source, path: routePlanningPath(source.path, geometry) }) ?? Number.POSITIVE_INFINITY;
+    return fixedGeometryFirstPassTime({ ...source, path: applyRoute(source.path, geometry) }) ?? Number.POSITIVE_INFINITY;
   } catch {
     return Number.POSITIVE_INFINITY;
   }
 }
 
-/** Plans the drawn curve with the Normal planner and qualifies it as a route. */
+/** Plans the path's current curve with the Normal planner and qualifies it as a route. */
 export function qualifyRouteSeed(source: PlannerInput): RouteSeedOutcome {
   try {
-    const seed = geometryFromPath(source.path);
-    const path = routePlanningPath(source.path, seed);
-    const normal = asRouteResult(routeResultToSource(getPlanner("profiledSpline").generate(source), seed, path));
+    const normal = plannedRoute(source, routeTask(source.path).seed);
     const failure = routeCandidateIssue(source, normal);
     return failure
       ? { status: "rejected", reason: failure.message, concrete: failure.concrete }
@@ -105,5 +112,5 @@ export function qualifyRouteSeed(source: PlannerInput): RouteSeedOutcome {
  */
 export function warmRouteEvaluation(source: PlannerInput): void {
   qualifyRouteSeed(source);
-  evaluateRouteCandidate(source, geometryFromPath(source.path), { timeToBeat: Number.POSITIVE_INFINITY, timeToMatter: Number.POSITIVE_INFINITY });
+  evaluateRouteCandidate(source, routeTask(source.path).seed, { timeToBeat: Number.POSITIVE_INFINITY, timeToMatter: Number.POSITIVE_INFINITY });
 }

@@ -4,14 +4,19 @@ import { optimizeRouteFinal } from "../src/core/planners/routeFinal";
 import { routeCandidateFailure, routeCandidateIssue } from "../src/core/planners/routeValidation";
 import { routeFieldModel, routeSafetyIssue, routeSweepStatus } from "../src/core/planners/routeSafety";
 import { routeCandidates } from "../src/core/planners/routeCandidates";
-import { geometryFromPath, routePlanningPath, routeResultToSource } from "../src/core/planners/routeGeometry";
+import { applyRoute, geometryFromPath } from "../src/core/planners/routeGeometry";
 import * as fixedFinal from "../src/core/planners/fixedGeometryFinal";
-import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
 import * as planners from "../src/core/planners";
-import { routeInputKey, routeIntentKey } from "../src/core/planners/routeIdentity";
-import { applyAcceptedRouteTrajectory, getAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
-import { stageAcceptedRouteTrajectory } from "../src/core/planners/acceptedRouteStaging";
-import type { ControlPoint, PlannerResult, RouteGeometry } from "../src/core/types";
+import * as evaluation from "../src/core/planners/routeCandidateEvaluation";
+import { pathPlanningKey } from "../src/core/planners/planningKey";
+import type { ControlPoint, PathDoc, PlannerResult, RobotConfig, RouteGeometry } from "../src/core/types";
+
+/** A curve as a route candidate: the Normal plan of the path Apply would write. */
+function planned(path: PathDoc, robot: RobotConfig, geometry: RouteGeometry): PlannerResult {
+  const planning = applyRoute(path, geometry);
+  const raw = planners.getPlanner("profiledSpline").generate({ path: planning, robot });
+  return { ...raw, routeGeometry: geometry, optimizedPath: planning };
+}
 
 function fixture(points: ControlPoint[], size = 0.84) {
   const project = createDemoProject();
@@ -97,25 +102,12 @@ describe("practical route qualification", () => {
     expect(result.statistics.rejectionReasons.some((r) => /Accepted trajectory was not validated/.test(r.reason))).toBe(false);
   });
 
-  it("retains aligned cubic graph handles alongside the overshooting smoothed variant", () => {
+  it("offers only smooth knots, because Apply writes every knot as a moving waypoint", () => {
     const { path, robot } = fixture([{ x: (2.2/17.548-0.5)*16.541, y: (0.5-4/8.052)*8.069 }, { x: (6.36/17.548-0.5)*16.541, y: (0.5-4.99/8.052)*8.069 }]);
     path.headingMode = "targets";
-    const candidates = routeCandidates({ path, robot }, () => false);
-    let smooth: RouteGeometry = candidates.next().value!;
-    while (smooth.knots.length === path.waypoints.length) smooth = candidates.next().value!;
-    const cubic: RouteGeometry = candidates.next().value!;
-    expect(cubic.requiredPointIndices).toEqual(smooth.requiredPointIndices);
-    expect(cubic.knots.map(({ smooth: _smooth, ...knot }) => knot))
-      .toEqual(smooth.knots.map(({ smooth: _smooth, ...knot }) => knot));
-    for (let i = 0; i < cubic.knots.length; i++) {
-      expect(cubic.knots[i].smooth).toBe(cubic.requiredPointIndices.includes(i));
-    }
-    const evaluate = (geometry: typeof smooth) => {
-      const planning = routePlanningPath(path, geometry);
-      return routeResultToSource(optimizeFixedGeometryFinal({ path: planning, robot }), geometry, planning);
-    };
-    expect(routeCandidateFailure({ path, robot }, evaluate(smooth))).toMatch(/clearance/);
-    expect(routeCandidateFailure({ path, robot }, evaluate(cubic))).toBeUndefined();
+    const candidates = [...routeCandidates({ path, robot }, () => false)];
+    expect(candidates.some((geometry) => geometry.knots.length > path.waypoints.length)).toBe(true);
+    for (const geometry of candidates) expect(geometry.knots.every((knot) => knot.smooth !== false)).toBe(true);
   });
 
   it("classifies observed requirements separately from malformed or inferred profiles", () => {
@@ -134,7 +126,7 @@ describe("practical route qualification", () => {
     expect(routeCandidateIssue({ path, robot }, mapping)).toEqual({ message: "Required arrival mapping is invalid.", concrete: false });
     const numerical = structuredClone(result);
     numerical.samples[0].accelerationMps2 = NaN;
-    expect(routeCandidateIssue({ path, robot }, numerical)).toEqual({ message: "Accepted trajectory samples must be finite and ordered", concrete: false });
+    expect(routeCandidateIssue({ path, robot }, numerical)).toEqual({ message: "The trajectory has missing or non-finite samples.", concrete: false });
     const fallback = structuredClone(result);
     fallback.optimization!.fallback = true;
     fallback.diagnostics.push({ severity: "error", path: "samples", message: "Profile inference failed" });
@@ -169,21 +161,13 @@ describe("practical route qualification", () => {
     expect(routeCandidateFailure({ path, robot }, result.candidate!)).toBeUndefined();
   });
 
-  it("keeps handle linkage and corner mode out of accepted task intent, but retires seed jobs", () => {
+  it("retires a search result when handle linkage or corner mode changes", () => {
     const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.2705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
-    const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 2 });
-    const selected = applyAcceptedRouteTrajectory(path, robot, result.candidate!);
     for (const flag of ["linked", "corner"] as const) {
-      const changed = structuredClone(selected);
+      const changed = structuredClone(path);
       changed.waypoints[1][flag] = !changed.waypoints[1][flag];
-      expect(routeInputKey(changed, robot)).not.toBe(routeInputKey(selected, robot));
-      expect(routeIntentKey(changed, robot)).toBe(routeIntentKey(selected, robot));
-      expect(getAcceptedTrajectory(changed, robot)).toEqual(result.candidate);
+      expect(pathPlanningKey(changed, robot)).not.toBe(pathPlanningKey(path, robot));
     }
-    expect(stageAcceptedRouteTrajectory(path, robot, result.candidate!)).toEqual(selected);
-    const malformed = structuredClone(result.candidate!);
-    malformed.optimization!.fallback = true;
-    expect(() => stageAcceptedRouteTrajectory(path, robot, malformed)).toThrow();
   });
 
   it("catches collisions between safe endpoint poses and rotating corners, including polygon footprints", () => {
@@ -203,9 +187,7 @@ describe("practical route qualification", () => {
     expect(result.seedStatus).toBe("unknown");
     expect(result.baseline).toBeUndefined();
     expect(result.statistics.rejectionReasons.some((r) => /subdivision budget/.test(r.reason))).toBe(true);
-    const geometry = geometryFromPath(path);
-    const planning = routePlanningPath(path, geometry);
-    const raw = optimizeFixedGeometryFinal({ path: planning, robot });
+    const raw = planned(path, robot, geometryFromPath(path));
     expect(routeSafetyIssue(robot, raw)).toMatchObject({ concrete: false, message: expect.stringMatching(/inconclusive/) });
     expect(progress.every((p) => p.optimization!.seedStatus === "unknown" && p.optimization!.gainS === undefined)).toBe(true);
     expect(optimizeRouteFinal({ path, robot }, { isCancelled: () => true }).seedStatus).toBe("unknown");
@@ -225,14 +207,18 @@ describe("practical route qualification", () => {
 
   it.each(["numerical", "diagnostic"] as const)("keeps a %s Normal failure unknown without concrete task evidence", (kind) => {
     const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
-    const getPlanner = planners.getPlanner;
-    let injected = 0;
+    const getPlanner = planners.getPlanner, qualify = evaluation.qualifyRouteSeed;
+    let injected = 0, seeding = false;
+    const seed = vi.spyOn(evaluation, "qualifyRouteSeed").mockImplementation((source) => {
+      seeding = true;
+      try { return qualify(source); } finally { seeding = false; }
+    });
     const spy = vi.spyOn(planners, "getPlanner").mockImplementation((id) => {
       const planner = getPlanner(id);
       return { ...planner, generate(input) {
         const result = planner.generate(input);
-        // Only actual authored Normal fails; canonical rescue remains qualified.
-        if (id === "profiledSpline" && !input.path.routeRequiredPointIndices) {
+        // Only the current curve's Normal qualification fails; canonical rescue remains qualified.
+        if (id === "profiledSpline" && seeding) {
           injected++;
           if (kind === "numerical") result.samples[0].accelerationMps2 = NaN;
           else result.diagnostics.push({ severity: "error", path: "samples", message: "Profile inference failed" });
@@ -243,17 +229,18 @@ describe("practical route qualification", () => {
     try {
       const progress: PlannerResult[] = [];
       const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 2, onProgress: (p) => progress.push(p) });
-      expect(injected).toBe(1);
+      expect(injected).toBeGreaterThanOrEqual(1);
       expect(result.candidate).toBeDefined();
       expect(result.seedStatus).toBe("unknown");
       expect(result.baseline).toBeUndefined();
       expect(progress.every((p) => p.optimization!.seedStatus === "unknown" && p.optimization!.gainS === undefined)).toBe(true);
     } finally {
       spy.mockRestore();
+      seed.mockRestore();
     }
   });
 
-  it("evaluates strict drawn-geometry timing separately from Normal and compares its meaningful gain", () => {
+  it("times every candidate with the Normal planner, so the drawn curve offers no gain of its own", () => {
     const { path, robot } = fixture([{ x: 1.7705, y: 2.0345 }, { x: 0.7705, y: 2.0345 }, { x: -0.2295, y: 2.0345 }, { x: -1.7295, y: 2.0345 }]);
     path.waypoints.forEach((w) => { w.stop = true; });
     path.constraints.maxVel = 0.5;
@@ -262,12 +249,8 @@ describe("practical route qualification", () => {
     try {
       const result = optimizeRouteFinal({ path, robot }, { maximumEvaluations: 3 });
       expect(result.seedStatus).toBe("valid");
-      const seedCall = timing.mock.calls.findIndex(([input]) => JSON.stringify(geometryFromPath(input.path)) === JSON.stringify(geometryFromPath(path)));
-      expect(seedCall).toBeGreaterThanOrEqual(0);
-      const timedSeed = timing.mock.results[seedCall].value as PlannerResult;
-      expect(timedSeed.totalTimeS).toBeLessThan(result.baseline!.totalTimeS - 0.02);
-      expect(result.candidate!.optimization!.gainS).toBeGreaterThan(0.02);
-      expect(result.candidate!.totalTimeS).toBeLessThanOrEqual(timedSeed.totalTimeS);
+      expect(timing).not.toHaveBeenCalled();
+      expect(result.baseline!.totalTimeS).toBe(planners.getPlanner("profiledSpline").generate({ path: applyRoute(path, geometryFromPath(path)), robot }).totalTimeS);
       expect(routeCandidateFailure({ path, robot }, result.candidate!)).toBeUndefined();
     } finally {
       timing.mockRestore();
@@ -295,9 +278,7 @@ describe("practical route qualification", () => {
     path.waypoints[1] = { ...path.waypoints[1], stop: true, thetaOn: true, theta: 30 };
     let qualifiedTurns = 0;
     for (const geometry of [...routeCandidates({ path, robot }, () => false)].slice(0, 9)) {
-      const planning = routePlanningPath(path, geometry);
-      const raw = optimizeFixedGeometryFinal({ path: planning, robot });
-      const result = routeResultToSource(raw, geometry, planning);
+      const result = planned(path, robot, geometry);
       expect(routeCandidateFailure({ path, robot }, result)).toBeUndefined();
       const turn = result.stationaryActions!.find((a) => a.kind === "turn")!;
       expect(turn).toBeDefined();

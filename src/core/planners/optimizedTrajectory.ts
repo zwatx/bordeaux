@@ -464,11 +464,10 @@ export const optimizedTrajectoryPlanner: TrajectoryPlanner = {
       let samplesPerSegment = input.samplesPerSegment ?? DEFAULT_SAMPLES_PER_SEGMENT;
       let totalIterations = 0;
       for (let refinementPasses = 0; refinementPasses <= MAX_REFINEMENT_PASSES; refinementPasses += 1) {
-        // A probe of this same input may already have solved the first pass. An
-        // input with an accepted trajectory is not remembered, so solve it here once.
+        // A probe of this same input may already have solved the first pass.
         const { optimizationSamples, reachabilityInput, reachability } = refinementPasses > 0
           ? solveTimingPass(input, candidateBase)
-          : input.path.optimization ? solveTimingPass(input, optimizationSeed) : firstPass(input);
+          : firstPass(input);
         const waypointSampleIndices = remapWaypointIndices(candidateBase, optimizationSamples);
         totalIterations += reachability.iterations;
         if (reachability.status !== "optimal") {

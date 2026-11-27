@@ -1,5 +1,5 @@
 import { REBUILT_2026_FIELD, officialToAppPoint } from "../field/rebuilt2026";
-import { selectPathTrajectory } from "../planners/acceptedTrajectory";
+import { pathTrajectory } from "../planners/pathTrajectory";
 import { clone } from "../project/defaults";
 import { effectivePathConstraints } from "../robotLimits";
 import type { BordeauxProject, PathDoc, TrajectorySample, ValidationIssue } from "../types";
@@ -417,7 +417,7 @@ export function analyzePath(project: BordeauxProject, pathId: string, options: A
   let generated;
   try {
     // Analyze what playback and export drive; the legacy project plannerId never selects a trajectory.
-    generated = selectPathTrajectory(path, project.robot, project.field);
+    generated = pathTrajectory(path, project.robot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const structureFindings: PathAnalysisFinding[] = structural.map((item, index) => ({

@@ -132,7 +132,7 @@ describe('explicit path optimization ownership', () => {
     jobs[0].resolve({ status: 'timeout', incumbent: preview, fallbackReason: 'Deadline reached' });
     await pending;
     expect(session.getSnapshot().paths[project.paths[0].id]).toMatchObject({ status: 'timeout', value: preview });
-    expect(project.paths[0].optimization?.accepted).toBeUndefined();
+    expect(project.paths[0]).not.toHaveProperty('optimization');
   });
 
   it.each(['canceled', 'timeout'] as const)('keeps worker progress out of the store but reports the last incumbent when %s', async (ending) => {
@@ -158,7 +158,7 @@ describe('explicit path optimization ownership', () => {
 
     expect(worker.terminated).toBe(true);
     expect(session.getSnapshot().paths[id]).toMatchObject({ status: ending, value: improved });
-    expect(project.paths[0].optimization?.accepted).toBeUndefined();
+    expect(project.paths[0]).not.toHaveProperty('optimization');
   });
 
   it.each([
@@ -218,7 +218,7 @@ describe('explicit path optimization ownership', () => {
       });
       expect(last.finalOptimization.termination).toBeUndefined();
     }
-    expect(project.paths[0].optimization?.accepted).toBeUndefined();
+    expect(project.paths[0]).not.toHaveProperty('optimization');
   }, 30_000);
 
   it('queues Optimize all one path at a time and never applies batch results', async () => {
@@ -232,7 +232,7 @@ describe('explicit path optimization ownership', () => {
     jobs[1].resolve({ status: 'success', value: preview });
     await pending;
     expect(session.getSnapshot().batch).toEqual({ completed: 2, total: 2 });
-    expect(project.paths.every((path) => !path.optimization?.accepted)).toBe(true);
+    expect(project.paths.every((path) => !('optimization' in path))).toBe(true);
   });
 });
 

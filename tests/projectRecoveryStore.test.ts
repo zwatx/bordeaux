@@ -6,8 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_RECOVERY_RECORD_BYTES, MAX_RECOVERY_RECORDS, MAX_RECOVERY_SCAN_ENTRIES, MAX_RECOVERY_TOTAL_BYTES, STALE_RECOVERY_TEMPORARY_MS, ProjectRecoveryStore, type RecoveryWriteRequest } from "../src/electron/projectRecoveryStore";
 import { blankPath, buildWaypoints, createDemoProject } from "../src/core/project/defaults";
 import { encodeProjectFile } from "../src/core/project/fileFormat";
-import { optimizeFixedGeometryFinal } from "../src/core/planners/fixedGeometryFinal";
-import { createAcceptedTrajectory } from "../src/core/planners/acceptedTrajectory";
 import { planPath } from "../src/core/planners/planPath";
 
 const directories: string[] = [];
@@ -32,12 +30,11 @@ describe("local project recovery snapshots", () => {
     await expect(fs.lstat(root)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("round-trips canonical source, commands, links, nested routines and exact accepted output", async () => {
+  it("round-trips canonical source, commands, links, nested routines and waypoints Optimize added", async () => {
     const { root, store } = await fixture(), input = request(), project = input.project, first = project.paths[0];
-    first.waypoints = buildWaypoints([{ x: 1, y: 1, segType: "line" }, { x: 2, y: 1 }]);
+    first.waypoints = buildWaypoints([{ x: 1, y: 1, segType: "line" }, { x: 1.5, y: 1, segType: "line" }, { x: 2, y: 1 }]);
+    first.waypoints[1].optimizerAdded = true;
     first.markers = [{ id: "event", name: "Command", f: 0.4, invocation: { commandId: "team.command", arguments: { enabled: true, power: 0.125, label: "Café 🤖" } } }];
-    const result = optimizeFixedGeometryFinal({ path: first, robot: project.robot, samplesPerSegment: 56 });
-    first.optimization = { corridorM: 0.15, accepted: createAcceptedTrajectory(first, project.robot, result, project.field, 56) };
     (first as any)._selAfter = { kind: "wp", idx: 1 };
     const second = blankPath("Second"); project.paths.push(second);
     project.pathLinks = [{ id: "link", fromPathId: first.id, toPathId: second.id }];
@@ -47,7 +44,7 @@ describe("local project recovery snapshots", () => {
     const receipt = await store.writeSnapshot(input), restored = await store.readSnapshot(input.recordId);
     expect(receipt).toMatchObject({ stored: true, written: true, revision: 1, capturedAt: input.capturedAt, digest: hash(expected.contents) });
     expect(restored.project).toEqual(expected.project);
-    expect(restored.project.paths[0].optimization?.accepted?.result).toEqual(result);
+    expect(restored.project.paths[0].waypoints[1].optimizerAdded).toBe(true);
     expect((restored.project.paths[0] as any)._selAfter).toBeUndefined();
     expect(restored.receipt.digest).toBe(hash(encodeProjectFile(restored.project).contents));
     expect(await fs.readdir(root)).toEqual([input.recordId + ".json"]);
