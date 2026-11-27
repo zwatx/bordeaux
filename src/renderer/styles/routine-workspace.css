@@ -351,6 +351,7 @@
 @container routine-workspace (max-width:700px){
   .rt-summary-full{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .rt-summary-short{display:inline}
+  .rt-timeline-summary{flex:1 0 auto;max-width:50%}
   .rt-timeline-step{max-width:34%}
 }
 
