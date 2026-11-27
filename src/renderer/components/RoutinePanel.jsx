@@ -462,7 +462,8 @@ export function RoutinePanel(props) {
   useEffect(() => revealStep(activeId), [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const passOf = (repeatId) => run.steps.find((step) => step.kind === 'repeat' && step.nodeId === repeatId)?.passes;
   const activePass = activeStep?.passStack?.at(-1);
-  const topIndex = new Map(routine.nodes.map((node, index) => [node.id, index + 1]));
+  // Every row carries its step number, nested steps included; the field's path badges show the same numbers.
+  const stepNumbers = useMemo(() => A.stepNumbers(routine), [routine]);
   const segByNode = new Map(); run.segs.forEach((seg) => { if (!segByNode.has(seg.nodeId)) segByNode.set(seg.nodeId, seg); });
   const previewed = new Set(run.steps.map((step) => step.nodeId));
   // Timed occurrences per step on the routine's time axis; a repeat's body shows one bar per previewed pass.
@@ -840,7 +841,7 @@ export function RoutinePanel(props) {
       h('span', { className: 'rt-step-ic' }, h(Glyph, { name: glyphFor(node) })), h('span', { className: 'library-drag-label' }, stepTitle(node, paths, catalog))), document.body);
   }
 
-  function stepRow(node, ctx, numbered) {
+  function stepRow(node, ctx) {
     const { depth, offPreview, readOnly } = ctx;
     const sel = selId === node.id || range.includes(node.id);
     const active = activeId === node.id;
@@ -864,7 +865,7 @@ export function RoutinePanel(props) {
       className: 'rt-step ' + kind + (sel ? ' sel' : '') + (active ? ' active' : '') + (offPreview ? ' off' : '') + (info.problem === 'muted' ? ' unreachable' : '') + (change?.nodeId === node.id ? ' replacing' : '')
         + (kids.length && !isCollapsed ? '' : dragClass(node.id)) },
       readOnly ? h('span', { className: 'rt-grip-space' }) : h(Grip, { onPointerDown: (e) => dnd.start(node.id, e) }),
-      h('span', { className: 'rt-step-num', 'aria-hidden': true }, numbered ? topIndex.get(node.id) : ''),
+      h('span', { className: 'rt-step-num', 'aria-hidden': true }, stepNumbers.get(node.id)),
       kids.length
         ? h('button', { className: 'rt-collapse' + (isCollapsed ? ' on' : ''), type: 'button', tabIndex: -1, 'aria-expanded': !isCollapsed,
             'aria-label': (isCollapsed ? 'Expand ' : 'Collapse ') + title, onClick: () => toggleCollapse(node.id) },
@@ -920,18 +921,18 @@ export function RoutinePanel(props) {
     const out = [];
     nodes.forEach((node, index) => {
       if (adding?.where.beforeId === node.id) out.push(at());
-      out.push(renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }, ref.kind === 'root'));
+      out.push(renderNode(node, { ...ctx, after: index + 1 < nodes.length ? { kind: 'step', node: nodes[index + 1] } : ctx.after }));
       if (adding?.where.afterId === node.id) out.push(at());
     });
     if (!ctx.readOnly) out.push(addRow(ref, ctx.depth, addLabel, !nodes.length));
     return out;
   }
 
-  function renderNode(node, ctx, numbered) {
+  function renderNode(node, ctx) {
     const { depth, offPreview, readOnly } = ctx;
     const kids = A.childLists(node);
     const open = kids.length > 0 && !collapsed.has(node.id);
-    const row = stepRow(node, ctx, numbered);
+    const row = stepRow(node, ctx);
     if (!open) return h('div', { key: node.id, className: 'rt-step-wrap' }, row);
     const body = [];
     if (node.type === 'repeat') {

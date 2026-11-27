@@ -343,7 +343,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const same = previous && previous.length === next.length && next.every((segment, index) => {
       const before = previous[index];
       return before.nodeId === segment.nodeId && before.occurrenceId === segment.occurrenceId && before.pts === segment.pts && before.state === segment.state
-        && before.kind === segment.kind && before.label === segment.label && before.idxLabel === segment.idxLabel;
+        && before.kind === segment.kind && before.label === segment.label && before.step === segment.step;
     });
     return same ? previous : next;
   }

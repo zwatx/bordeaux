@@ -228,7 +228,7 @@ export function StepInspector(props) {
       seg && h('div', { className: 'rt-stat' },
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, fmt(seg.t1 - seg.t0)), h('span', { className: 'rt-stat-k' }, 'Duration')),
         h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, UnitPrefs.format(seg.deriv.sample.length, 'm', 2)), h('span', { className: 'rt-stat-k' }, 'Distance')),
-        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, '#' + seg.idxLabel), h('span', { className: 'rt-stat-k' }, 'Run order'))),
+        h('div', { className: 'rt-stat-i' }, h('span', { className: 'rt-stat-v' }, seg.step), h('span', { className: 'rt-stat-k' }, 'Step'))),
       paths.some((path) => path.id === node.ref) && h('button', { className: 'rt-openbtn', type: 'button', onClick: () => acq.openInEditor(node.ref) }, h(Icon, { name: 'route', size: 14 }), 'Open in path editor'),
       remove('Remove from routine'));
 
