@@ -32,9 +32,9 @@ import { AppSettings } from "../components/AppSettings";
 import { DiagnosticBundleDialog } from "../components/DiagnosticBundleDialog";
 import { LibraryRail, referencingRoutines } from "../components/EditorLibrary";
 import { RobotPushDialog, useRobotPushController } from "../components/RobotPushDialog";
-import { RoutineTransport, StepInspector } from "../components/RoutineInspector";
+import { RoutineTransport, SlotInspector, StepInspector } from "../components/RoutineInspector";
 import { RoutinePanel } from "../components/RoutinePanel";
-import { RoutineWorkspace } from "../components/RoutineWorkspace";
+import { RoutineViewTools, RoutineWorkspace } from "../components/RoutineWorkspace";
 import { BandDivider } from "../components/BandDivider";
 import { UI } from "../components/ui";
 import { PM } from "../lib/pathMath";
@@ -356,9 +356,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const jumps = useMemo(() => (run.issues || []).filter((issue) => issue.code === 'reference-discontinuity'), [run]);
     return h(FieldView, { ...props, robot, playTime: 0, routine: overlay, routinePose: pose, routineJumps: jumps });
   }
-  function RoutineTransportPlayback({ store, run }) {
+  function RoutineTransportPlayback({ store, run, routine }) {
     const playback = usePlayback(store), running = playback.playing || playback.time > 0.001;
-    return h(RoutineTransport, { run, time: playback.time, playing: playback.playing, controls: store, running });
+    return h(RoutineTransport, { run, routine, time: playback.time, playing: playback.playing, controls: store, running });
   }
 
   function App({ initialProject = null, initialAgentProposal = null } = {}) {
@@ -792,6 +792,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const [routineOutcomes, setRoutineOutcomes] = useState({});
     const [routinePasses, setRoutinePasses] = useState({});
     const [routineSel, setRoutineSel] = useState(null);
+    // Where an open add-step slot lands (RoutinePanel reports it), so the open inspector shows the slot, not the old step.
+    const [routineSlot, setRoutineSlot] = useState(null);
     // The routine's source library renders into this left-rail host while a step is added or a path changed; the flow
     // owns it, and the inspector's Change path reaches it through `routineSource`.
     const [routineSourceHost, setRoutineSourceHost] = useState(null);
@@ -3109,11 +3111,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
             renderLibrary('routines', null),
             h('div', { ref: setRoutineSourceHost, className: 'rt-source-host' }),
             h(RoutineWorkspace, {
-              routine, run, robot,
-              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource, traceRoutine, robot, onPathPreview: setRoutinePathPreview }),
+              routine,
+              flow: h(RoutinePanelPlayback, { key: routine.id, embedded: true, issues: routineIssues, collapsedIds: routineCollapsed[projectKey + ':' + routine.id] || [], onCollapsedIdsChange: (ids) => setRoutineCollapsed((current) => ({ ...current, [projectKey + ':' + routine.id]: ids })), store: routinePlaybackStore, routine, routines: project.routines, run, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, selId: routineSel, onSelect: selectRoutineStep, acq, catalog: robotProjectState.catalog, sourceHost: routineSourceHost, sourceApi: routineSource, traceRoutine, robot, onPathPreview: setRoutinePathPreview, onSlotChange: setRoutineSlot }),
               field: h(React.Fragment, null,
                 h(RoutineFieldPlayback, { store: routinePlaybackStore, run, selectedId: routineSel, routineGhost: routinePathPreview, doc, derived, sel: { kind: null, idx: -1 }, tool: 'select', view, setView, alliance, showGrid, showTags, robot, drive: robot.drive, accent, metric, actions: autoFieldActions }),
-                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags })),
+                h(Panels.ViewControls, { zoomPct, zoomBy, onFit, showGrid, setShowGrid, showTags, setShowTags, lead: h(RoutineViewTools, { robot, run }) })),
               // Pending plans are loading; anything else blocking the preview is a fact with its reason, never "Planning…".
               status: h(React.Fragment, null,
                 (bdxNotice || exportError) && h('div', { className: 'routine-export-notices' }, h(FieldStatus, { notices: fieldNotices.filter(notice => ['bdx-export', 'export'].includes(notice.id)) })),
@@ -3122,9 +3124,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 h('div', { className: 'routine-status-copy' },
                   h('b', null, run.planningStatus === 'error' ? 'Routine planning failed' : run.planningStatus === 'pending' || run.planningStatus === 'idle' ? 'Planning routine trajectories…' : 'Preview unavailable'),
                   run.planningError && h('span', null, run.planningError)))),
-              transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
+              transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run, routine }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathLinks: project.pathLinks, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              // An open rail shows a slot while it is open; a closed rail stays closed, so the flow never changes width.
+              selNode && routineSlot ? h(SlotInspector, { dest: routineSlot, onClose: () => routineSource.current?.closeAdd() })
+              : selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathLinks: project.pathLinks, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,

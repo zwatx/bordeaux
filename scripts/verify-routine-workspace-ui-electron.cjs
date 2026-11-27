@@ -46,13 +46,14 @@ async function snapshot(name) {
   await evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await fs.writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
 }
-// Preview help is a small native popover under its trigger; it must overlay the field, never move the flow.
+// Preview help is a small native popover above its trigger in the field's view controls; it overlays the field and
+// never moves the flow.
 const previewHelp = () => evaluate(() => {
   const trigger = document.querySelector('.routine-workspace-about'), help = document.querySelector('#routine-preview-notes');
   const flow = document.querySelector('.rt-scroll').getBoundingClientRect(), anchor = trigger.getBoundingClientRect(), rect = help.getBoundingClientRect();
   return { open: help.matches(':popover-open'), expanded: trigger.getAttribute('aria-expanded'), focused: document.activeElement === trigger,
     sentences: help.textContent.trim().split(/(?<=[.!?])\s+/), flow: [flow.x, flow.y, flow.width, flow.height].join(),
-    fits: rect.left >= 8 && rect.right <= innerWidth - 8 && rect.top >= anchor.bottom && rect.bottom <= innerHeight - 8 && rect.width <= 300 };
+    fits: rect.left >= 8 && rect.right <= innerWidth - 8 && rect.top >= 8 && rect.bottom <= anchor.top && rect.width <= 300 };
 });
 // The field preview sits over the flow, split by a divider (aria-valuenow is the flow's height; the field's height is
 // what is remembered), then the transport.
@@ -160,7 +161,7 @@ app.whenReady().then(async () => {
       const helpOpen = await previewHelp();
       assert.ok(helpOpen.open && helpOpen.expanded === 'true' && helpOpen.focused, 'Pointer opens preview help and keeps trigger focus');
       assert.ok(helpOpen.sentences.length <= 2 && helpOpen.sentences.includes('Push routine uploads a file; robot code validates it before execution.'), 'Preview help states the runtime boundary in two sentences');
-      assert.ok(helpOpen.fits, 'Preview help fits under its trigger');
+      assert.ok(helpOpen.fits, 'Preview help fits above its trigger');
       assert.equal(helpOpen.flow, helpClosed.flow, 'Opening preview help does not move the flow');
       await snapshot('preview-notes-' + width);
       await key('Space');
@@ -175,7 +176,7 @@ app.whenReady().then(async () => {
       const helpTabbed = await previewHelp();
       assert.ok(!helpTabbed.open && !helpTabbed.focused, 'Tab moves on and closes preview help');
       await click('.routine-workspace-about');
-      await click('.routine-workspace-head');
+      await click('.rt-timeline-time');
       assert.ok(!(await previewHelp()).open, 'An outside press closes preview help');
       await click('[data-id="cycle"] .rt-step-body');
       await wait(() => evaluate(() => Boolean(document.querySelector('#routine-repeat-times-cycle'))), 'repeat inspector');
@@ -880,10 +881,108 @@ app.whenReady().then(async () => {
       await selectStep('later-a');
       await click('.routine-insp .routine-step-name'); await evaluate(() => document.activeElement.select()); await key('Backspace'); await key('Enter');
       await wait(async () => (await source())[0].nodes[0].title === 'Check whether collection is finished', 'an empty name returns to the default');
+      // Flow polish: no header row (Power and About lead the field's view controls), the transport counts the flow's
+      // numbered rows, its facts stay readable beside the step playing now with the inspector open, an empty group's
+      // closing, the path step inspector without repeats of its row, "Delete step" everywhere, Duplicate with fresh IDs
+      // (stop rules follow their copied step) as one Undo, and the rail showing an open slot instead of the old step.
+      activeCatalog = { ...catalog, commands: [{ id: 'completion', label: 'Check whether collection is finished', member: 'Completion.vi', parameters: [], labviewConnector: {},
+        outputs: [{ name: 'finished', label: 'Finished', schema: bool }] }] };
+      saved.routines = [{ ...routine, nodes: [
+        { id: 'polish-drive', type: 'path', ref: route.id },
+        { id: 'polish-later', type: 'function', cat: 'command', title: 'Robot command', invocation: null },
+        { id: 'polish-return', type: 'path', ref: spare.id },
+        { id: 'polish-loop', type: 'repeat', times: 2, until: { source: 'output', nodeId: 'polish-check', output: 'finished', schema: bool, operator: 'eq', value: true },
+          nodes: [{ id: 'polish-check', type: 'function', cat: 'command', title: 'Check whether collection is finished', invocation: { commandId: 'completion', arguments: {} }, ends: { timeoutS: 1, onTimeout: 'endRoutine' } }] },
+        { id: 'polish-group', type: 'group', mode: 'parallel', nodes: [] }] }];
+      await load('polish-drive'); await planned();
+      const polishBaseline = await source();
+      const chrome = await evaluate(() => {
+        const workspace = document.querySelector('.routine-workspace').getBoundingClientRect(), field = document.querySelector('.routine-workspace-field').getBoundingClientRect();
+        const tools = document.querySelector('.routine-workspace-field .viewctl .routine-workspace-actions');
+        return { header: Boolean(document.querySelector('.routine-workspace-head, .routine-workspace header')), fieldAtTop: Math.abs(field.top - workspace.top) < 1,
+          tools: tools ? [...tools.querySelectorAll('button')].map(button => button.getAttribute('aria-label') || button.textContent) : null };
+      });
+      assert.deepEqual(chrome, { header: false, fieldAtTop: true, tools: ['Power', 'About preview'] }, 'No header row: Power and About lead the field view controls');
+      assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step').textContent), '6 steps', 'Before playback the transport counts the flow rows');
+      // Item 2: an empty parallel group says plainly that it has nothing to wait for.
+      assert.equal(await evaluate(() => document.querySelector('[data-id="polish-group"]').parentElement.querySelector('.rt-close-t').textContent), 'No steps yet, so it finishes the routine', 'An empty group closing has no "it"');
+      // Item 4 and 3: the path inspector adds facts the row lacks; every step's footer says Delete step.
+      await click('[data-id="polish-return"] .rt-step-body');
+      const pathInspector = await evaluate(() => ({ stats: [...document.querySelectorAll('.routine-insp .rt-stat-k')].map(el => el.textContent), card: document.querySelector('.routine-insp .choice-current small')?.textContent ?? null,
+        foot: document.querySelector('.routine-insp .ctxinsp-foot .delbtn').textContent, label: document.querySelector('.routine-insp .ctxinsp-foot .delbtn').getAttribute('aria-label') }));
+      assert.deepEqual(pathInspector, { stats: ['Duration', 'Distance'], card: null, foot: 'Delete step', label: 'Delete path step. The path stays in Paths.' }, 'Path inspector drops the run order and the row\'s time');
+      for (const id of ['polish-later', 'polish-loop', 'polish-group']) {
+        await click('[data-id="' + id + '"] .rt-step-body');
+        assert.equal(await evaluate(() => document.querySelector('.routine-insp .ctxinsp-foot .delbtn').textContent), 'Delete step', id + ' footer says Delete step');
+      }
+      // Items 1 and 5: playing the second path, the transport names the flow's row number, and its facts fit beside it
+      // with the inspector open.
+      await click('[data-id="polish-return"] .rt-step-body');
+      // The row's time bar is placed in percent of the routine; the same fraction of the scrubber is inside that step.
+      const returnSpan = await evaluate(() => {
+        const bar = document.querySelector('[data-id="polish-return"] .rt-step-time i'), lane = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
+        const middle = (parseFloat(bar.style.left) + parseFloat(bar.style.width) / 2) / 100;
+        return { x: Math.round(lane.left + 10 + (lane.width - 20) * middle), y: Math.round(lane.top + 30) };
+      });
+      await focus();
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...returnSpan });
+      await wait(() => evaluate(() => document.querySelector('.rt-step.active')?.dataset.id === 'polish-return'), 'seek into the second path');
+      const counts = await evaluate(() => {
+        const summary = document.querySelector('.rt-timeline-summary'), step = document.querySelector('.rt-timeline-step'), shown = [...summary.children].find(el => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 1);
+        return { row: document.querySelector('.rt-step.active .rt-step-num').textContent, transport: step.querySelector('small').textContent, inspector: Boolean(document.querySelector('.routine-insp')),
+          fits: summary.scrollWidth <= summary.clientWidth + 1, apart: summary.getBoundingClientRect().right <= step.getBoundingClientRect().left + parseFloat(getComputedStyle(step).paddingLeft) + 1,
+          text: shown?.textContent, full: summary.title };
+      });
+      assert.equal(counts.transport, counts.row + ' of 6', 'The transport counts the flow\'s numbered rows: ' + JSON.stringify(counts));
+      assert.ok(counts.inspector && counts.fits && counts.apart && /untimed/.test(counts.text) && counts.full.includes('not counted'), 'Transport facts are readable beside the playing step: ' + JSON.stringify(counts));
+      assert.ok(counts.full.includes('1 pose jump') && counts.text.includes('1 pose jump'), 'The pose jump count is shown, not cut off: ' + JSON.stringify(counts));
+      await snapshot('polish-playing-' + width);
+      const nestedSpan = await evaluate(() => {
+        const bar = document.querySelector('[data-id="polish-check"] .rt-step-time i');
+        const lane = document.querySelector('.rt-timeline-editor').getBoundingClientRect();
+        const middle = (parseFloat(bar.style.left) + parseFloat(bar.style.width) / 2) / 100;
+        return { x: Math.round(lane.left + 10 + (lane.width - 20) * middle), y: Math.round(lane.top + 30) };
+      });
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, button: 'left', clickCount: 1, ...nestedSpan });
+      await wait(() => evaluate(() => document.querySelector('.rt-step.active')?.dataset.id === 'polish-check'), 'seek into the nested command');
+      assert.equal(await evaluate(() => document.querySelector('.rt-timeline-step small').textContent), '5 of 6');
+      await click('[aria-label="Restart routine"]');
+      // Item 7: with a step selected, an open slot replaces the inspector's step in the same rail; Escape or the rail's
+      // close returns it. The flow keeps its width.
+      const flowWidth = () => evaluate(() => Math.round(document.querySelector('.rt-scroll').getBoundingClientRect().width));
+      const widthBefore = await flowWidth();
+      await evaluate(() => document.querySelector('[data-id="polish-return"] .rt-step-body').focus()); await key('A');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.rt-slot')) && Boolean(document.querySelector('.rail-r .routine-slot-insp'))), 'the rail shows the open slot');
+      assert.deepEqual(await evaluate(() => ({ title: document.querySelector('.rail-r .ctxinsp-t').textContent, dest: document.querySelector('.rail-r .routine-slot-dest').textContent, step: Boolean(document.querySelector('.rail-r [data-step-id]')) })),
+        { title: 'Add step', dest: 'After “Return to the alliance zone”', step: false }, 'The rail says where the new step lands');
+      assert.equal(await flowWidth(), widthBefore, 'Opening a slot keeps the flow width');
+      await snapshot('polish-slot-' + width);
+      await key('Escape');
+      await wait(() => evaluate(() => !document.querySelector('.rt-slot') && document.querySelector('.rail-r [data-step-id]')?.dataset.stepId === 'polish-return'), 'Escape returns the inspector to the step');
+      await evaluate(() => document.querySelector('[data-id="polish-return"] .rt-step-body').focus()); await key('A');
+      await wait(() => evaluate(() => Boolean(document.querySelector('.rail-r .routine-slot-insp'))), 'slot again');
+      await click('.rail-r [aria-label="Cancel adding a step"]');
+      await wait(() => evaluate(() => !document.querySelector('.rt-slot') && document.querySelector('.rail-r [data-step-id]')?.dataset.stepId === 'polish-return'), 'the rail close cancels the slot');
+      assert.deepEqual(await source(), polishBaseline, 'A cancelled slot adds nothing');
+      // Item 6: Duplicate from the row menu copies a repeat with fresh IDs right after it, its stop rule following the
+      // copied command; the copy is selected and one Undo removes it.
+      await click('[data-id="polish-loop"] .rt-more');
+      const menuItems = await evaluate(() => [...document.querySelectorAll('.rt-row-menu [role="menuitem"] .rt-menu-label')].map(el => el.firstChild.textContent));
+      assert.ok(menuItems.includes('Duplicate') && menuItems.at(-1) === 'Delete step', 'The row menu offers Duplicate and says Delete step: ' + menuItems.join());
+      await evaluate(() => [...document.querySelectorAll('.rt-row-menu [role="menuitem"]')].find(el => el.textContent.startsWith('Duplicate')).setAttribute('data-harness-pick', ''));
+      await click('[data-harness-pick]');
+      await wait(async () => (await source())[0].nodes.length === 6, 'Duplicate inserts a copy');
+      const [, , , original, copy] = (await source())[0].nodes;
+      assert.ok(copy.id !== original.id && copy.nodes[0].id !== original.nodes[0].id, 'The copy has fresh IDs');
+      assert.equal(copy.until.nodeId, copy.nodes[0].id, 'The copy\'s stop rule reads its own command');
+      assert.deepEqual({ ...copy, id: original.id, until: { ...copy.until, nodeId: original.until.nodeId }, nodes: [{ ...copy.nodes[0], id: original.nodes[0].id }] }, original, 'The copy matches the original apart from IDs');
+      await wait(() => evaluate(id => document.querySelector('.rt-step.sel')?.dataset.id === id && document.querySelector('.rail-r [data-step-id]')?.dataset.stepId === id, copy.id), 'the copy is selected');
+      await key('z', ['meta']);
+      await wait(async () => JSON.stringify(await source()) === JSON.stringify(polishBaseline), 'one Undo removes the copy');
       activeCatalog = catalog;
       saved.routines = structuredClone(baseline);
       assert.equal(await evaluate(() => Boolean(document.querySelector('.push-button,.push-all'))), false, 'Routine has no robot Push');
-      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'placeholder names through binding, Undo and reload', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
+      scenarios.push({ width, height, units, passed: true, layout, checks: ['nested repeat and convergence', 'long labels', 'inspector open/closed', 'native arrow/Space', 'preview source isolation', 'slot and left-rail library', 'native insert/Escape/focus', 'Shift+A insert before', 'path folders and one-click insert', 'Change path from the library', 'command library search one-pick', 'strip letters', 'unavailable Path in a group, its reason and Commands lane', 'placeholder names through binding, Undo and reload', 'no header row, flow-row counts, readable transport facts, empty group closing, path inspector facts, Delete step, Duplicate, slot in the rail', 'lane header route focus', 'preview radio keyboard', 'footer rules', 'step drag card, gap, Escape and one Undo', 'exact Undo', 'field over flow: divider drag, keys, reload, field selects step, playback row', 'field route: flow numbers apart, no end squares, one name pill on select/hover/playback, focus dims, number selects', 'pose jumps: one size on field, flow and inspector, distance chip on the selected jump, self-follow without link, link as one Undo', 'path picker: start hints in units, ghost on hover and focus, no row movement, first step ghost only', 'local Save/reopen', 'no Push'] });
     }
     assert.deepEqual(errors, []); assert.deepEqual(confirms, []); assert.deepEqual(robotCalls, []);
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ passed: true, scenarios, errors, confirms, robotCalls }, null, 2));

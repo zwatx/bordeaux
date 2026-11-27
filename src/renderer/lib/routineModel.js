@@ -282,6 +282,22 @@ import { createRoutineNodeId } from "../../core/project/ids";
     return { id, type: 'function', cat: 'terminate', title: 'Terminate', trigger: 'When condition is true', note: '' };
   }
 
+  /**
+   * A copy of `node` and every step inside it with fresh step IDs, for Duplicate. Stop rules and endings inside the copy
+   * that read a step in it (`nodeId`) follow to that step's copy; references to steps outside stay as they are.
+   */
+  function duplicateNode(node) {
+    const copy = _clone(node), ids = new Map();
+    walk([copy], (n) => { const id = createRoutineNodeId(); ids.set(n.id, id); n.id = id; });
+    const remap = (value) => {
+      if (!value || typeof value !== 'object') return;
+      if (typeof value.nodeId === 'string' && ids.has(value.nodeId)) value.nodeId = ids.get(value.nodeId);
+      Object.values(value).forEach(remap);
+    };
+    remap(copy);
+    return copy;
+  }
+
   // ---- walk every node (incl. branch children) ----
   function walk(nodes, fn, depth = 0, branch = null) {
     const stack = [{ nodes: Array.isArray(nodes) ? nodes : [], index: 0, depth, branch }]; let count = 0;
@@ -619,7 +635,7 @@ import { createRoutineNodeId } from "../../core/project/ids";
     });
   }
 
-export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, walk, findNode, countSteps, stepNumbers, branchCount,
+export const AUTO = { childLists, locate, checkEdit, editRoutine, analyze, flowSummary, isResultConsumer, newCommandEnds, branches, groupLabel, groupTiming, loopSummary, carryLoop, groupChildError: routineGroupChildError, selectedBranch, branchOutputs, newOutputBranch, carryBranch, branchEdit, routeSteps, routeSummary, CATS, AUTHORABLE_STEPS, authoritativeConditions, conditionPickerItems, hasWaitBuiltIn, authorableSteps, nodeDeploymentState, nodeTitle, commandDefaultTitle, commandOwnName, newNode, duplicateNode, walk, findNode, countSteps, stepNumbers, branchCount,
     planningPaths, buildRun, poseAt, stepAt, fieldOverlay, jumpSize,
     update, remove, insertAfter, prepend, appendBranch, append, move, siblingNodes, canReorderRelative, reorderRelative };
 

@@ -66,7 +66,8 @@ import path from "node:path";
 // (2026-11-26); 924 KiB keeps about 7 KiB of headroom.
 // The routine path library ghost preview and start hints measure 941,970 B against 938,927 B before them (2026-11-26);
 // 927 KiB keeps about 7 KiB of headroom.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 927 * 1024;
+// Routine flow polish (Duplicate, the add-step rail, short transport facts) measure 950,167 B against 948,626 B before them (2026-11-26); 930 KiB keeps about 2.1 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 930 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.

@@ -175,7 +175,7 @@ app.whenReady().then(async () => {
       const scale = await evaluate(() => ({ ticks: [...document.querySelectorAll('.rt-timeline-tick')].map((t) => t.textContent),
         knob: getComputedStyle(document.querySelector('.rt-timeline-playhead'), '::before').width, step: document.querySelector('.rt-timeline-step').textContent }));
       assert.ok(scale.ticks.length >= 4 && scale.ticks[0] === '0', 'seconds scale: ' + scale.ticks.join(' '));
-      assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '7 steps', 'idle run size');
+      assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '8 steps', 'idle run size counts the flow rows');
 
       // Tab from Play reaches the scrubber with a visible ring (as the workflow harness expects).
       await evaluate(() => document.querySelector('button[aria-label="Play routine"]').focus());
@@ -231,11 +231,12 @@ app.whenReady().then(async () => {
       // The field above the flow shows the scrubbed pose over the same transport.
       await snapshot('field-scrubbed-' + width);
 
-      // Path chooser: the current path reads as a card with its context.
+      // Path chooser: the current path reads as a card with the context its flow row lacks (its folder; reuse only
+      // when the path repeats), not the row's time or a plain "In this routine".
       await click('[data-id="leave"] .rt-step-body');
       await wait(() => evaluate(() => Boolean(document.querySelector('.routine-insp .choice-current'))), 'path card');
       const card = await evaluate(() => document.querySelector('.routine-insp .choice-current').textContent);
-      assert.ok(card.includes('Collect along the alliance wall') && card.includes('Collection') && card.includes('In this routine'), 'card: ' + card);
+      assert.ok(card.includes('Collect along the alliance wall') && card.includes('Collection') && !card.includes('In this routine') && !/\d s\b/.test(card), 'card: ' + card);
       await snapshot('path-card-' + width);
       // Keyboard: Change path opens the path library in the left rail; search by folder, choose with arrows and Enter;
       // focus returns to Change.

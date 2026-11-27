@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { StepInspector, RoutineTransport } from '../src/renderer/components/RoutineInspector';
 import { RoutinePanel, addMenuSteps } from '../src/renderer/components/RoutinePanel';
-import { PREVIEW_HELP, RoutineWorkspace } from '../src/renderer/components/RoutineWorkspace';
+import { PREVIEW_HELP, RoutineViewTools, RoutineWorkspace } from '../src/renderer/components/RoutineWorkspace';
 import { AUTO } from '../src/renderer/lib/routineModel';
 import { createDemoProject } from '../src/core/project/defaults';
 
@@ -150,7 +150,7 @@ describe('unsupported saved steps are described, not promoted', () => {
     const inspector = text(markup);
     expect(inspector).toContain('Plays the saved preview path. Runtime generation is unavailable.');
     // The footer shows a short Delete; its accessible name says exactly what goes.
-    expect(markup).toMatch(/class="ctxinsp-foot"><button class="delbtn" type="button" aria-label="Remove unsupported step"[^>]*>.*Delete<\/button>/);
+    expect(markup).toMatch(/class="ctxinsp-foot"><button class="delbtn" type="button" aria-label="Remove unsupported step"[^>]*>.*Delete step<\/button>/);
     expect(inspector).not.toContain('The preview ignores it');
   });
 
@@ -177,11 +177,12 @@ describe('preview boundary is stated once', () => {
   it('keeps the preview boundary to a closed two-sentence help popover', () => {
     const routine = { id: 'r', name: 'R', nodes: [repeat('routine_node_7f0c', [wait('w')], { until: { source: 'condition', conditionId: 'full' } })] };
     const run = AUTO.buildRun(routine, [], {}, {}, 'profiledSpline', catalog, undefined, { repeatPasses: { routine_node_7f0c: 2 } });
-    const workspace = renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine, run, flow: null, field: null, transport: null, status: null }));
-    // The trigger keeps a stable controlled region; the native popover starts closed and sits outside the flow.
-    expect(workspace).toMatch(/<button type="button" class="routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes" aria-label="About preview" title="About preview">/);
+    // The trigger sits in the field's view controls (RoutineViewTools), not a header row; it keeps a stable controlled
+    // region, and the native popover starts closed.
+    expect(renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine, run, flow: null, field: null, transport: null, status: null }))).not.toMatch(/<header|routine-preview-notes/);
+    const workspace = renderToStaticMarkup(React.createElement(RoutineViewTools, { robot: null, run }));
+    expect(workspace).toMatch(/<button type="button" class="vc-btn routine-workspace-about" popovertarget="routine-preview-notes" aria-expanded="false" aria-controls="routine-preview-notes" aria-label="About preview" title="About preview">/);
     expect(workspace).toMatch(/<div id="routine-preview-notes" class="routine-preview-help" popover="auto" role="note" aria-label="About the local preview"><p>[^<]+<\/p><\/div>/);
-    expect(workspace.indexOf('routine-preview-notes"')).toBeLessThan(workspace.indexOf('routine-workspace-body'));
     const help = text(workspace.match(/<div id="routine-preview-notes"[^>]*>([\s\S]*?)<\/div>/)[1]);
     expect(help).toBe(PREVIEW_HELP);
     expect(help.split(/(?<=[.!?])\s+/)).toHaveLength(2);
@@ -197,8 +198,7 @@ describe('preview boundary is stated once', () => {
     const workspace = renderToStaticMarkup(React.createElement(RoutineWorkspace, { routine: { id: 'r', name, nodes: [] }, flow: null, field: null, transport: null, status: null }));
     expect(workspace).toContain('aria-label="Routine workspace: ' + name + '"');
     expect(workspace).not.toContain('routine-workspace-title');
-    expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toContain(name);
-    expect(text(workspace.match(/<header[\s\S]*?<\/header>/)[0])).not.toMatch(/^Routine\b/);
+    expect(workspace).not.toContain('<header');
   });
 
   it('shows the field over the flow for every routine, without a view switch, and playback once it has a step', () => {
@@ -208,7 +208,8 @@ describe('preview boundary is stated once', () => {
       expect(html).not.toContain('routine-workspace-views');
       expect(html).not.toContain('Field preview<');
       expect(html).toMatch(/aria-label="Routine field preview">FIELD<[\s\S]*aria-label="Routine flow">FLOW</);
-      expect(html).toContain('aria-label="About preview"');
+      // About preview lives in the field's view controls (RoutineViewTools), so the field starts at the top.
+      expect(html).not.toContain('aria-label="About preview"');
     }
     expect(empty).not.toContain('TRANSPORT');
     expect(empty).not.toContain('Local preview');
