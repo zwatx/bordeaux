@@ -1,3 +1,6 @@
+import { REBUILT_2026_FIELD } from "../../core/field/rebuilt2026";
+import { optimizeHeadingForTags } from "../../core/planners/headingForTags";
+import { fieldTags } from "../../core/tagVisibility";
 import { planPath } from "../../core/planners/planPath";
 import { editingGeometry, projectEditingTiming } from "./editing-planning";
 import { PM } from "../lib/pathMath";
@@ -562,6 +565,11 @@ if (typeof self !== 'undefined') {
     if (job?.mode === 'routeSeed') return post({ id: job.id, outcome: qualifyRouteSeed(job.source) });
     if (job?.mode === 'routeProbe') return post({ id: job.id, outcome: probeRouteCandidate(job.source, job.geometry) });
     if (job?.mode === 'routeWarm') return post({ id: job.id, outcome: warmRouteEvaluation(job.source) });
+    // The Optimize panel's Heading search: rotation targets that let the robot's cameras read more tags, or null.
+    if (job?.mode === 'headingForTags') {
+      try { return post({ id: job.id, value: optimizeHeadingForTags({ path: job.path, robot: job.robot, field: job.field }, fieldTags(REBUILT_2026_FIELD)) }); }
+      catch (error) { return post({ id: job.id, error: { message: error?.message || String(error) } }); }
+    }
     // This worker as the persistent optimizer: it keeps its pool between jobs.
     if (job?.type === 'warm') {
       return void pool()?.warm({ path: job.path, robot: job.robot, field: job.field, samplesPerSegment: job.perSegment });

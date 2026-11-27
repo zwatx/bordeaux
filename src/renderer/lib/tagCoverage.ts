@@ -3,7 +3,7 @@ import { fieldTags, visibleTags, type TagSighting } from "../../core/tagVisibili
 import type { RobotCamera } from "../../core/types";
 
 /** Every official tag on the active field, in the editor's field frame. */
-const FIELD_TAGS = fieldTags(REBUILT_2026_FIELD);
+export const FIELD_TAGS = fieldTags(REBUILT_2026_FIELD);
 
 /** The tag count the "Tags seen" color and graph treat as full: two tags fix a pose far better than one. */
 export const TAGS_SEEN_FULL = 2;

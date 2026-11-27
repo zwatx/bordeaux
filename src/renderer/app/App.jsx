@@ -9,7 +9,10 @@ import { isPlaybackSpace, trackFocusModality } from "../lib/shortcuts";
 import { keyCommand } from "../lib/keyBindings";
 import { PathEdit } from "../assets/path-edit";
 import { PathPreview } from "../assets/path-preview";
-import { liveEditingPreview } from "../assets/editing-planning";
+import { editingGeometry, liveEditingPreview, projectEditingTiming } from "../assets/editing-planning";
+import { headingForTagsBlocker } from "../../core/planners/headingForTagsBlocker";
+import { findHeadingsForTags } from "../lib/headingSearch";
+import { FIELD_TAGS } from "../lib/tagCoverage";
 import { PathOptimization } from "../assets/path-optimization";
 import { OptimizationPanel } from "../components/OptimizationPanel";
 import { pathPlanningKey } from "../../core/planners/planningKey";
@@ -483,6 +486,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       }
     }, [inspectorOpen, optimizationOpen]);
     const [applied, setApplied] = useState(null);
+    // The Optimize panel's Heading tab: its own search, apart from the path searches. `headingSearch` holds the last
+    // search with the path it was for; `headingApplied` the path its Apply wrote.
+    const [optimizationTab, setOptimizationTab] = useState('path');
+    const [headingSearch, setHeadingSearch] = useState(null);
+    const [headingApplied, setHeadingApplied] = useState(null);
     const [metric, setMetric] = useState('velocity');
     const [tool, setTool] = useState('select');
     const finishPlacement = useCallback((placedTool) => {
@@ -1083,7 +1091,16 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const normalError = editing.comparisonError || normal.error;
     const comparisonMode = comparison?.documentKey === projectKey && comparison.id === doc.id && comparison.key === planningKey ? comparison.mode : 'selected';
     // One search reply carries both results: its own trajectory is the new route, and `shape` keeps the drawn shape.
+    // A heading search belongs to the path it searched. Any change to the path's plan, a new curve included, retires it.
+    const currentHeading = headingSearch?.documentKey === projectKey && headingSearch.id === doc.id && headingSearch.key === planningKey ? headingSearch : null;
+    const headingResult = currentHeading?.result ?? null;
+    // The turned path as the field and timeline draw it: its own geometry, timed by the planner's plan of it.
+    const headingPreview = useMemo(() => headingResult
+      ? projectEditingTiming(editingGeometry(headingResult.path, PERSEG, robot), headingResult.trajectory) : null, [headingResult, robot]);
+    const headingBlocker = useMemo(() => optimizationOpen && optimizationTab === 'heading'
+      ? headingForTagsBlocker({ path: doc, robot, field: project.field }, FIELD_TAGS) : null, [optimizationOpen, optimizationTab, doc, robot, project.field]);
     const selectedPreview = comparisonMode === 'candidate' ? candidate : comparisonMode === 'shape' ? candidate?.shape
+      : comparisonMode === 'heading' ? headingPreview
       : comparisonMode === 'normal' && normalReady ? normal.value : null;
     // The path just written by Apply, until it changes again; the panel says so instead of offering a search.
     const justApplied = applied?.documentKey === projectKey && applied.path === doc;
@@ -2166,6 +2183,52 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       playbackStore.reset();
       setComparison({ documentKey: projectKey, id: doc.id, key: planningKey, mode });
     };
+    // The Heading tab is about tags, so the path wears the Tags seen colors while it is open. Leaving it puts back
+    // the color that was showing, unless another one was picked in the meantime.
+    const colorBeforeHeading = useRef(null);
+    useEffect(() => {
+      if (optimizationOpen && optimizationTab === 'heading') {
+        setMetric((current) => { if (current !== 'tags') colorBeforeHeading.current = current; return 'tags'; });
+      } else if (colorBeforeHeading.current) {
+        const earlier = colorBeforeHeading.current;
+        colorBeforeHeading.current = null;
+        setMetric((current) => current === 'tags' ? earlier : current);
+      }
+    }, [optimizationOpen, optimizationTab]);
+    const chooseOptimizationTab = (tab) => {
+      setOptimizationTab(tab);
+      compareTrajectory(tab === 'heading' && headingResult ? 'heading' : 'selected');
+    };
+    /** Runs the heading search on the path as it is, in the planning worker, and previews its result when it lands. */
+    const headingJob = useRef(null);
+    useEffect(() => () => headingJob.current?.cancel(), []);
+    const findHeadings = () => {
+      headingJob.current?.cancel();
+      const request = { documentKey: projectKey, id: doc.id, key: planningKey };
+      setHeadingSearch({ ...request, pending: true, result: null });
+      setHeadingApplied(null);
+      const job = headingJob.current = findHeadingsForTags({ path: doc, robot, field: project.field });
+      // A newer search owns the state; and a result for a path that has since changed is retired by its key.
+      job.then((result) => {
+        if (headingJob.current !== job) return;
+        setHeadingSearch({ ...request, result });
+        playbackStore.reset();
+        setComparison(result ? { ...request, mode: 'heading' } : null);
+      }, (error) => { if (headingJob.current === job) setHeadingSearch({ ...request, result: null, error: error.message || String(error) }); });
+    };
+    /** Adds the search's rotation targets to the path as one undoable edit. Nothing else on the path changes. */
+    const applyHeadings = () => {
+      if (!headingResult || editStore.getSnapshot()) return;
+      const current = projectRef.current;
+      const currentPath = current.paths.find((path) => path.id === doc.id);
+      if (!currentPath || pathPlanningKey(currentPath, current.robot, current.field) !== planningKey) return;
+      const nextPath = { ...currentPath, targets: [...currentPath.targets, ...headingResult.addedTargets.map((target) => ({ ...target }))] };
+      beginHistory();
+      playbackStore.reset();
+      setComparison(null);
+      writeDoc(nextPath);
+      setHeadingApplied({ documentKey: projectKey, path: nextPath });
+    };
     const closeOptimization = () => {
       compareTrajectory('selected');
       setOptimizationOpen(false);
@@ -3236,6 +3299,10 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 onStart: startOptimization,
                 onStartAll: () => { setComparison(null); void optimizer.startAll(); }, onCancel: optimizer.cancel,
                 onCompare: compareTrajectory, onApply: applyOptimization,
+                tab: optimizationTab, onTab: chooseOptimizationTab, onFindHeadings: findHeadings, onApplyHeadings: applyHeadings,
+                heading: { result: headingResult, searched: Boolean(currentHeading), blocker: headingBlocker,
+                  pending: Boolean(currentHeading?.pending), error: currentHeading?.error || '',
+                  applied: headingApplied?.documentKey === projectKey && headingApplied.path === doc },
                 onUseDrawnPath: () => commit((path) => {
                   delete path.optimizationNeedsReview;
                   return path;

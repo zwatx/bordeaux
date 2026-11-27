@@ -1,7 +1,10 @@
 import { deriveHeadingGeometry } from "../math/pm";
 import { visibleTags, type FieldTag } from "../tagVisibility";
 import type { PathDoc, PlannerInput, PlannerResult, RobotCamera, RotationTarget } from "../types";
+import { headingForTagsBlocker } from "./headingForTagsBlocker";
 import { planPath } from "./planPath";
+
+export { headingForTagsBlocker, type HeadingForTagsBlocker } from "./headingForTagsBlocker";
 
 /** How long a path lasts, and for how much of that the robot reads at least two tags, and at least one. Seconds. */
 export interface TagCoverage { totalS: number; twoTagS: number; anyTagS: number }
@@ -17,8 +20,6 @@ export interface HeadingForTagsResult {
   trajectory: PlannerResult;
 }
 
-/** Why a path has nothing for the heading search to work on. */
-export type HeadingForTagsBlocker = "no-cameras" | "no-tags" | "tank" | "no-free-heading";
 
 /** One meter of path gets about this many places to try a heading, within the two bounds. */
 const SLOT_SPACING_M = 0.6, MIN_SLOTS = 3, MAX_SLOTS = 12;
@@ -58,19 +59,6 @@ export function tagCoverageOf(
     if (seen >= 1) coverage.anyTagS += seconds;
   });
   return coverage;
-}
-
-/**
- * Why the heading search cannot work on a path at all, or nothing when it can: the robot has no cameras, the field
- * has no tags, the robot drives tank (its heading follows the path), or no stretch of the path uses the "targets"
- * heading rule, the only one that leaves the robot free to face any way.
- */
-export function headingForTagsBlocker({ path, robot }: PlannerInput, tags: readonly FieldTag[]): HeadingForTagsBlocker | null {
-  if (!robot.cameras?.length) return "no-cameras";
-  if (!tags.length) return "no-tags";
-  if (robot.drive === "tank") return "tank";
-  const free = path.waypoints.slice(0, -1).some((waypoint) => (waypoint.segmentHeadingMode || path.headingMode || "targets") === "targets");
-  return free ? null : "no-free-heading";
 }
 
 /**

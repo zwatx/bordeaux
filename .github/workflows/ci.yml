@@ -74,6 +74,7 @@ jobs:
               scripts/verify-range-limits-ui.mjs
               scripts/verify-timeline-commands-ui.mjs
               scripts/verify-optimizer-ui.mjs
+              scripts/verify-heading-search-ui.mjs
               scripts/verify-interface-ui.mjs
               scripts/verify-interface-workflows.mjs
               scripts/verify-robot-electrical-ui.mjs
@@ -105,6 +106,7 @@ jobs:
       BORDEAUX_ROBOT_LIST_UI_OUTPUT: .ui-artifacts/robot-list
       BORDEAUX_ROBOT_CAMERAS_UI_OUTPUT: .ui-artifacts/robot-cameras
       BORDEAUX_TAG_COVERAGE_UI_OUTPUT: .ui-artifacts/tag-coverage
+      BORDEAUX_HEADING_SEARCH_UI_OUTPUT: .ui-artifacts/heading-search
       BORDEAUX_BRANCH_UI_OUTPUT: .ui-artifacts/command-branches
       BORDEAUX_ROUTINE_UI_OUTPUT: .ui-artifacts/routine-workspace
       BORDEAUX_OPTIMIZER_UI_OUTPUT: .ui-artifacts/optimizer

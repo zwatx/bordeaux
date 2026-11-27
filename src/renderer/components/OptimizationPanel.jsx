@@ -10,6 +10,43 @@ const batchLabels = { success: 'Searched', searching: 'Searching', failure: 'Fai
 const unfinishedLabels = { timeout: 'Ran out of time', canceled: 'Search canceled', failure: 'Search failed' };
 const routeLabels = { 'no-candidate': 'No route found', unsupported: 'Unsupported', cancelled: 'Canceled' };
 // Validator wording is precise but internal; say what the drawn curve does wrong.
+/** A share of a path's time as a whole percentage. */
+const share = (part, whole) => `${whole > 0 ? Math.round(part / whole * 100) : 0}%`;
+const headingBlockers = { 'no-cameras': 'Add a camera on the Robot page', 'no-tags': 'This field has no tags',
+  tank: 'A tank robot faces along its path', 'no-free-heading': 'This path sets its heading everywhere' };
+
+/**
+ * The Heading tab: a search apart from the path searches. It keeps the curve and adds rotation targets so the robot's
+ * cameras read more tags. `heading.result` is the search of this path as it is now, `heading.searched` says a search
+ * ran (`heading.pending` while it runs, `heading.error` when it failed), `heading.blocker` names why none can, and `heading.applied` is true while the path is the one Apply just wrote.
+ * The rows preview on the field like the path rows do: 'selected' is the path as it is, 'heading' the turned one.
+ */
+function HeadingTab({ heading, mode, onCompare, onFind, onApply }) {
+  const { result = null, searched = false, blocker = null, applied = false, pending = false, error = '' } = heading || {};
+  const outcome = blocker ? headingBlockers[blocker]
+    : pending ? 'Finding headings' : error ? 'Couldn’t search headings'
+    : result ? `Two tags ${share(result.after.twoTagS, result.after.totalS)} of the time, up from ${share(result.before.twoTagS, result.before.totalS)}`
+    : applied ? 'Headings added to the path'
+    : searched ? 'No headings found that read more tags' : 'Read more tags';
+  const row = (label, coverage, detail, value) => h('button', { key: value, type: 'button', className: 'optimizer-choice', 'aria-pressed': mode === value || (value === 'selected' && mode !== 'heading'),
+    'aria-label': `Preview ${label.toLowerCase()}, two tags ${share(coverage.twoTagS, coverage.totalS)} of the time`, onClick: () => onCompare(value) },
+  h('span', { className: 'optimizer-choice-name optimizer-choice-stack' }, label, h('small', null, detail)),
+  h('b', null, share(coverage.twoTagS, coverage.totalS)));
+  const added = result?.addedTargets.length;
+  return h(React.Fragment, null,
+    h('div', { className: 'optimizer-status', 'aria-busy': pending }, h('p', { className: 'optimizer-outcome' + (result ? ' gain' : ''), role: 'status' }, outcome),
+      pending && h('progress', { className: 'optimizer-progress', 'aria-label': 'Finding headings' })),
+    error && h('div', { className: 'optimizer-failure', role: 'status' }, h('p', null, error)),
+    result && h('div', { className: 'optimizer-comparison', 'aria-label': 'Heading comparison' },
+      h('div', { className: 'optimizer-label' }, 'Preview'),
+      row('Current headings', result.before, seconds(result.before.totalS), 'selected'),
+      row('Turned for tags', result.after, `${seconds(result.after.totalS)}, ${added} rotation target${added === 1 ? '' : 's'} added`, 'heading')),
+    applied && !result && h('p', { className: 'optimizer-note', role: 'status' }, 'Undo removes the added rotation targets. Each one can be moved or deleted like any other.'),
+    result ? h('button', { type: 'button', className: 'optimizer-main primary', onClick: onApply }, 'Apply headings')
+      : h('button', { type: 'button', className: 'optimizer-main primary', disabled: Boolean(blocker) || pending, onClick: onFind }, 'Find headings'),
+    h('p', { className: 'optimizer-note optimizer-task' }, 'Turns the robot so its cameras read more tags. Keeps your curve, stops and the headings you set.'));
+}
+
 const seedProblem = (issue) => {
   if (issue && /footprint|clearance/i.test(issue)) return { text: 'Your path hits the field.', field: true };
   return { text: issue || 'The current curve doesn’t meet the path’s requirements.', field: false };
@@ -22,8 +59,10 @@ const seedProblem = (issue) => {
 // `entry` is the search of this path as it is now; a search of an earlier version of the path is not shown.
 // `error` and `pending` describe the current path's own timing, never a search.
 // `searchStatus`/`searchReason` carry the route search envelope when the worker supplies it.
+// `tab` picks the Path searches above or the separate Heading search; see HeadingTab for `heading`.
 export function OptimizationPanel({ path, paths, state, entry = null, candidate, applied, baselineTime, pending, error, recovery, mode,
-  searchStatus, searchReason, unitSystem, onStart, onStartAll, onCancel, onCompare, onApply, onUseDrawnPath, onSelectPath, onClose }) {
+  searchStatus, searchReason, unitSystem, onStart, onStartAll, onCancel, onCompare, onApply, onUseDrawnPath, onSelectPath, onClose,
+  tab = 'path', onTab, heading, onFindHeadings, onApplyHeadings }) {
   // The controller runs one job at a time; only its searching entry owns progress.
   const activePathId = state.running ? Object.keys(state.paths).find((id) => state.paths[id].status === 'searching') : null;
   const searchingCurrentPath = activePathId === path.id;
@@ -114,7 +153,12 @@ export function OptimizationPanel({ path, paths, state, entry = null, candidate,
   return h('section', { className: 'optimizer-panel', 'aria-label': 'Path optimization' },
     h('div', { className: 'optimizer-heading' }, h('strong', null, 'Optimize'),
       h(UI.IconBtn, { icon: 'x', title: 'Close optimization', onClick: onClose })),
-    h('div', { className: 'optimizer-body' },
+    onTab && h('div', { className: 'optimizer-tabs', role: 'tablist', 'aria-label': 'What to optimize' },
+      [['path', 'Path'], ['heading', 'Heading']].map(([value, label]) => h('button', { key: value, type: 'button', role: 'tab', 'aria-selected': tab === value,
+        className: 'optimizer-tab' + (tab === value ? ' on' : ''), onClick: () => onTab(value) }, label))),
+    tab === 'heading' ? h('div', { className: 'optimizer-body', role: 'tabpanel', 'aria-label': 'Heading' },
+      h(HeadingTab, { heading, mode, onCompare, onFind: onFindHeadings, onApply: onApplyHeadings }))
+    : h('div', { className: 'optimizer-body' },
       backgroundPath && h('div', { className: 'optimizer-background', role: 'status' },
         h('span', null, 'Search in progress', h('strong', null, backgroundPath.name)),
         h('button', { type: 'button', onClick: onCancel,
