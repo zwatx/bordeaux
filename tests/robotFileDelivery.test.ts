@@ -485,39 +485,31 @@ describe("project robot addresses", () => {
 
   // A project address this computer cannot use (a push folder outside the robot type's folders) must not leave the
   // robot selected before as the one Push reaches.
-  it("leaves no robot active when a project robot's address is refused", async () => {
+  it("suspends the active address when a project robot's address is refused, without losing its settings", async () => {
     const { delivery, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
     const review = delivery.prepare([file()], async () => undefined);
     await expect(delivery.use({ ...systemcore, host: "practice.local", directory: "/etc" })).rejects.toThrow();
     expect(delivery.current()).toBeNull();
     expect(delivery.settings()).toBeNull();
-    expect(persist).toHaveBeenLastCalledWith(null);
+    expect(persist).not.toHaveBeenCalled();
     await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
+    expect(await delivery.use(undefined)).toEqual({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
   });
 
-  it("leaves no robot active when saving the cleared connection fails, and saves it on the next try", async () => {
-    const { delivery, persist } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
-    persist.mockRejectedValueOnce(new Error("disk full"));
-    await expect(delivery.use(null)).rejects.toThrow("disk full");
-    expect(delivery.current()).toBeNull();
-    expect(delivery.settings()).toBeNull();
-    expect(await delivery.use(null)).toBeNull();
-    expect(persist).toHaveBeenCalledTimes(2);
-  });
-
-  it("clears the active robot for a project robot without an address, remembering the key it had", async () => {
+  it("suspends an address and password without writing, and keeps them when reselecting the same robot", async () => {
     const { delivery, persist, passwords, transport } = addressed({ endpoint: systemcore, hostKeyFingerprint: fingerprint });
     await passwords.replace("team-secret");
     const review = delivery.prepare([file()], async () => undefined);
     expect(await delivery.use(null)).toBeNull();
     expect(delivery.settings()).toBeNull();
     expect(delivery.current()).toBeNull();
-    expect(passwords.current()).toBeNull();
-    expect(persist).toHaveBeenLastCalledWith(null);
+    expect(passwords.current()).toBe("team-secret");
+    expect(delivery.passwordStatus().custom).toBe(false);
     await expect(delivery.confirm(review.operationId)).rejects.toThrow(/Review/);
     expect(await delivery.use(null)).toBeNull();
-    expect(persist).toHaveBeenCalledTimes(1);
     expect((await delivery.use(systemcore))?.hostKeyFingerprint).toBe(fingerprint);
+    expect(delivery.passwordStatus().custom).toBe(true);
+    expect(persist).not.toHaveBeenCalled();
     expect(transport.probe).not.toHaveBeenCalled();
   });
 

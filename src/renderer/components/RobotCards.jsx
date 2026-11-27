@@ -33,7 +33,7 @@ function NameInput({ robot, taken, onDone }) {
 
 /**
  * The project's robots as cards on the Robot page. Choosing a card selects that robot, and the sections below edit it.
- * New robot copies the selected robot and opens its name for editing. Hovering or tabbing onto a card shows its quick
+ * New robot starts with default details and opens its name for editing. Hovering or tabbing onto a card shows its quick
  * actions: rename, duplicate (a copy, selected), and delete, which asks first; the last robot cannot be deleted.
  */
 export function RobotCards({ robots, currentHost, onSelect, onAdd, onDuplicate, onRename, onRemove }) {

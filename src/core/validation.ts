@@ -7,6 +7,7 @@ import { routineGroupChildError } from "./routineChildren";
 import { isRobotTargetId } from "./robotTargets";
 import { MAX_GROUP_COMMANDS, MAX_LOOP_SECONDS, MIN_GROUP_COMMANDS, MIN_LOOP_SECONDS } from "./markerCommands";
 import { MAX_COMMAND_LOADS } from "./commandLoads";
+import { ROBOT_LIMIT, ROBOT_NAME_MAX } from "./project/robots";
 
 type RecordValue = Record<string, unknown>;
 
@@ -533,8 +534,8 @@ function validateRobots(issues: ValidationIssue[], project: RecordValue): void {
     if (project.activeRobotId !== undefined) issues.push(issue("$.activeRobotId", "A selected robot needs a robot list"));
     return;
   }
-  if (!Array.isArray(project.robots) || !project.robots.length || project.robots.length > 32) {
-    issues.push(issue("$.robots", "Robots must be a list of 1 to 32 robots"));
+  if (!Array.isArray(project.robots) || !project.robots.length || project.robots.length > ROBOT_LIMIT) {
+    issues.push(issue("$.robots", `Robots must be a list of 1 to ${ROBOT_LIMIT} robots`));
     return;
   }
   const ids = new Set<string>(), names = new Set<string>();
@@ -544,7 +545,7 @@ function validateRobots(issues: ValidationIssue[], project: RecordValue): void {
     if (typeof entry.id !== "string" || !entry.id.trim() || ids.has(entry.id)) issues.push(issue(`${base}.id`, "Robot id must be unique"));
     else ids.add(entry.id);
     const name = typeof entry.name === "string" ? entry.name.trim().toLowerCase() : "";
-    if (!name || name.length > 80 || names.has(name)) issues.push(issue(`${base}.name`, "Robot name must be unique and 1 to 80 characters"));
+    if (!name || name.length > ROBOT_NAME_MAX || names.has(name)) issues.push(issue(`${base}.name`, `Robot name must be unique and 1 to ${ROBOT_NAME_MAX} characters`));
     else names.add(name);
     // The shape only: the desktop checks the push folder against the robot type's allowed folders before each use.
     if (entry.connection !== undefined) {
