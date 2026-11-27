@@ -41,6 +41,8 @@ export function RobotCameras({ robot, setRobot, footprint, BigNum }) {
   const [pickedId, setPickedId] = React.useState(null);
   const [view, setView] = React.useState(CAMERA_SCENE_VIEWS.iso);
   const [renaming, setRenaming] = React.useState(false);
+  const [removing, setRemoving] = React.useState(null);
+  const section = React.useRef(null);
   const [zoom, setZoom] = React.useState(1);
   const drag = React.useRef(null), stage = React.useRef(null);
   const zoomBy = (factor) => setZoom((current) => clamp(current * factor, ZOOM.min, ZOOM.max));
@@ -52,13 +54,15 @@ export function RobotCameras({ robot, setRobot, footprint, BigNum }) {
     svg.addEventListener('wheel', wheel, { passive: false });
     return () => svg.removeEventListener('wheel', wheel);
   }, [cameras.length > 0]);
-  // Another robot's cameras have other ids, so the first camera is shown until one is picked.
   const selected = cameras.find((camera) => camera.id === pickedId) ?? cameras[0] ?? null;
   const scene = React.useMemo(() => cameraScene({ footprint, heightM: robot.heightM, cameras, selectedId: selected?.id ?? null, view, zoom, ...STAGE }),
     [footprint, robot.heightM, robot.cameras, selected?.id, view, zoom]);
   const namedView = Object.keys(CAMERA_SCENE_VIEWS).find((key) => CAMERA_SCENE_VIEWS[key].azDeg === view.azDeg && CAMERA_SCENE_VIEWS[key].elDeg === view.elDeg);
   const turn = (azDeg, elDeg) => setView((current) => ({ azDeg: current.azDeg + azDeg, elDeg: clamp(current.elDeg + elDeg, 2, 89.9) }));
-  const pick = (id) => { setPickedId(id); setRenaming(false); };
+  const asking = removing === selected;
+  const pick = (id) => { setPickedId(id); setRenaming(false); setRemoving(null); };
+  const focusAction = (selector) => requestAnimationFrame(() => section.current?.querySelector(selector)?.focus());
+  const cancelRemove = () => { setRemoving(null); focusAction('.rp-cam-delete'); };
   const add = () => {
     const next = addCamera(robot);
     if (next === robot) return;
@@ -69,16 +73,17 @@ export function RobotCameras({ robot, setRobot, footprint, BigNum }) {
     const index = cameras.indexOf(selected);
     setRobot({ cameras: removeCamera(robot, selected.id).cameras });
     pick((cameras[index + 1] ?? cameras[index - 1])?.id ?? null);
+    focusAction('.rp-cam-pick[aria-pressed=true], .rp-cam-add');
   };
 
-  if (!selected) return h('div', { className: 'settings-card' },
+  if (!selected) return h('div', { ref: section, className: 'settings-card' },
     h('div', { className: 'settings-row' },
       h('div', { className: 'settings-label' }, h('strong', null, 'No cameras')),
-      h('div', { className: 'settings-control' }, h('button', { className: 'qbtn', type: 'button', onClick: add }, 'Add camera'))));
+      h('div', { className: 'settings-control' }, h('button', { className: 'qbtn rp-cam-add', type: 'button', onClick: add }, 'Add camera'))));
 
-  return h('div', { className: 'settings-card rp-cameras' },
+  return h('div', { ref: section, className: 'settings-card rp-cameras' },
     h('div', { className: 'rp-cam-stage' },
-      h('svg', { ref: stage, viewBox: `0 0 ${STAGE.width} ${STAGE.height}`, tabIndex: 0, role: 'img',
+      h('svg', { ref: stage, viewBox: `0 0 ${STAGE.width} ${STAGE.height}`, tabIndex: 0, role: 'group',
         'aria-label': 'Robot and camera views in 3D. Drag or use the arrow keys to turn the view. Plus and minus zoom.',
         onPointerDown: (event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.clientX, y: event.clientY }; },
         onPointerMove: (event) => {
@@ -110,9 +115,13 @@ export function RobotCameras({ robot, setRobot, footprint, BigNum }) {
               taken: (name) => cameras.some((camera) => camera !== selected && camera.name.toLowerCase() === name.toLowerCase()),
               onDone: (name) => { setRenaming(false); if (name) setRobot({ cameras: updateCamera(robot, selected.id, { name }).cameras }); } })
           : h('strong', null, selected.name),
-        !renaming && h('span', { className: 'rp-cam-actions' },
+        asking ? h('span', { className: 'rp-cam-actions rp-cam-confirm', role: 'group', 'aria-label': 'Delete ' + selected.name,
+          onKeyDown: (event) => { if (event.key === 'Escape') { event.stopPropagation(); cancelRemove(); } } },
+          h('button', { type: 'button', className: 'qbtn quiet', ref: (button) => button?.focus(), onClick: cancelRemove }, 'Cancel'),
+          h('button', { type: 'button', className: 'qbtn', onClick: remove }, 'Delete'))
+        : !renaming && h('span', { className: 'rp-cam-actions' },
           h('button', { type: 'button', className: 'rp-cam-action', 'aria-label': 'Rename ' + selected.name, title: 'Rename ' + selected.name, onClick: () => setRenaming(true) }, h(UI.Icon, { name: 'edit', size: 14 })),
-          h('button', { type: 'button', className: 'rp-cam-action', 'aria-label': 'Delete ' + selected.name, title: 'Delete ' + selected.name, onClick: remove }, h(UI.Icon, { name: 'trash', size: 14 })))),
+          h('button', { type: 'button', className: 'rp-cam-action rp-cam-delete', 'aria-label': 'Delete ' + selected.name, title: 'Delete ' + selected.name, onClick: () => setRemoving(selected) }, h(UI.Icon, { name: 'trash', size: 14 })))),
       h('div', { className: 'rp-cam-fields' },
         FIELDS.map(({ short, label, hint, read, patch, ...box }) => h('label', { key: short + selected.id, title: hint },
           short,
