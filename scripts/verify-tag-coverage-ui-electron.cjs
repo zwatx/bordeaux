@@ -5,6 +5,7 @@
 // - The path uses a color other than the three for no tags, one tag and two or more, or misses a stretch this path
 //   has: it starts and ends with several tags in view and has a stretch with none.
 // - The tags are not drawn unless the AprilTags layer is also on, or turning that layer on recolors the path.
+// - A line to a single tag is missing, or is hidden under the path it runs along.
 // - The playhead robot shows no camera wedges, or its sight lines go to the wrong tags. The tags read at the start
 //   and the end of this path were computed apart from the app, from the planner and the visibility function.
 // - The graph keeps plotting speed, or its hover readout shows a fraction of a tag.
@@ -58,7 +59,9 @@ const field = () => evaluate(() => {
     strokes,
     tags: document.querySelectorAll('.fieldsvg .field-apriltag').length,
     sight: !!sight,
-    wedges: sight ? sight.querySelectorAll('.field-tag-wedge').length : 0,
+    wedges: document.querySelectorAll('.fieldsvg .field-tag-wedge').length,
+    // The lines must come after the path in drawing order, or a line along the path is hidden under it.
+    overPath: !!sight && !!(document.querySelector('.fieldsvg line[stroke-linecap="butt"]').compareDocumentPosition(sight) & Node.DOCUMENT_POSITION_FOLLOWING),
     lines: sight ? sight.querySelectorAll('.field-tag-sightline').length : 0,
     read: sight ? sight.dataset.tagsRead.split(' ').filter(Boolean).map(Number) : [],
     bright: sight ? [...sight.querySelectorAll('.field-apriltag-read')].map((tag) => Number(tag.dataset.tag)).sort((a, b) => a - b) : [],
@@ -133,6 +136,17 @@ app.whenReady().then(async () => {
 
     assert.deepEqual([shown.wedges, shown.read, shown.bright], [2, [21, 24, 25, 26], [21, 24, 25, 26]]);
     assert.ok(shown.lines >= 4, 'a line runs to each tag read');
+    assert.equal(shown.overPath, true, 'sight lines are drawn over the path');
+    // Every count of tags gets its lines: stepping along the path passes through one tag, none, and several.
+    const counts = new Set();
+    for (let step = 0; step < 20; step++) {
+      const now = await field();
+      assert.equal(now.lines >= now.read.length, true, `a line for each of ${now.read.length} tags`);
+      assert.deepEqual(now.bright, now.read);
+      counts.add(Math.min(2, now.read.length));
+      await key('Right');
+    }
+    assert.deepEqual([...counts].sort(), [0, 1, 2], 'the path passes through no tags, one tag and several');
     await seek('End');
     await wait(async () => (await field()).read.join() === '1,32', 'tags read at the end of the path');
     await snapshot('tags-seen-end');

@@ -1345,7 +1345,8 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
     }, [tagsShown, hoverTag, view.x, view.y, view.w, view.h, cw, toolRailObstacle, accent]);
 
     // With the path colored by tags seen, the robot at the playhead shows why: each camera's horizontal view as a
-    // dashed wedge, a line from its lens to every tag it reads, and those tags drawn bright.
+    // dashed wedge, a line from its lens to every tag it reads, and those tags drawn bright. The wedges lie under the
+    // path. The lines and bright tags lie over it, since a line to a tag straight ahead runs along the path itself.
     const tagSight = useMemo(() => {
       if (metric !== 'tags' || routine || !robot.cameras?.length) return null;
       const pose = displayedPoseAtTime(playTime, derived, doc);
@@ -1355,18 +1356,23 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         { x: pose.x + camera.positionM.x * cos - camera.positionM.y * sin, y: pose.y + camera.positionM.x * sin + camera.positionM.y * cos }]));
       const at = (point) => { const c = W2P(point); return c.x.toFixed(1) + ' ' + c.y.toFixed(1); };
       const sightings = tagSightingsAt(pose, robot.cameras), read = new Set(sightings.map((sighting) => sighting.tagId));
-      return h('g', { className: 'field-tag-sight', 'data-tags-read': [...read].sort((a, b) => a - b).join(' '), style: { pointerEvents: 'none' } },
+      return { under: h('g', { className: 'field-tag-wedges', style: { pointerEvents: 'none' } },
         robot.cameras.map((camera) => {
           const lens = lensOf.get(camera.id), facing = pose.heading + camera.yawDeg * Math.PI / 180, half = Math.min(camera.horizontalFovDeg, 170) / 2 * Math.PI / 180;
           const edge = (angle) => at({ x: lens.x + Math.cos(angle) * TAG_SIGHT_WEDGE_M, y: lens.y + Math.sin(angle) * TAG_SIGHT_WEDGE_M });
           return h('path', { key: camera.id, className: 'field-tag-wedge', d: `M ${at(lens)} L ${edge(facing + half)} L ${edge(facing - half)} Z`,
             fill: '#ffffff', fillOpacity: 0.06, stroke: C_NEUTRAL, strokeWidth: P(1), strokeDasharray: `${P(4)} ${P(4)}`, strokeLinejoin: 'round' });
-        }),
+        })),
+      over: h('g', { className: 'field-tag-sight', 'data-tags-read': [...read].sort((a, b) => a - b).join(' '), style: { pointerEvents: 'none' } },
         sightings.map((sighting) => {
           const from = W2P(lensOf.get(sighting.cameraId)), to = FIELD_TAG_MARKS.find((tag) => tag.id === sighting.tagId).point;
-          return h('line', { key: sighting.cameraId + ':' + sighting.tagId, className: 'field-tag-sightline', x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: '#e8ecf2', strokeOpacity: 0.7, strokeWidth: P(1.2) });
+          const ends = { x1: from.x, y1: from.y, x2: to.x, y2: to.y, strokeLinecap: 'round' };
+          // A dark casing keeps the line readable where it crosses the path or the field art.
+          return h('g', { key: sighting.cameraId + ':' + sighting.tagId },
+            h('line', { ...ends, stroke: '#05060a', strokeOpacity: 0.7, strokeWidth: P(4) }),
+            h('line', { ...ends, className: 'field-tag-sightline', stroke: '#ffffff', strokeWidth: P(1.6) }));
         }),
-        FIELD_TAG_MARKS.filter((tag) => read.has(tag.id)).map((tag) => tagMark(tag, 'field-apriltag-read', true)));
+        FIELD_TAG_MARKS.filter((tag) => read.has(tag.id)).map((tag) => tagMark(tag, 'field-apriltag-read', true))) };
     }, [metric, routine, robot.cameras, playTime, derived, doc, view.w, cw, accent]);
 
     const vb = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -1390,7 +1396,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       h('rect', { className: 'field-frame', x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, fill: 'none', stroke: '#ffffff', strokeOpacity: 0.12, strokeWidth: P(1), style: { pointerEvents: 'none' } }),
       tagLayer,
       tagHover,
-      tagSight,
+      tagSight?.under,
       !routine && props.optimizationCorridor?.points?.length > 1 && h('polyline', {
         className: 'optimization-corridor',
         points: props.optimizationCorridor.points.map((point) => `${point.x},${point.y}`).join(' '),
@@ -1405,6 +1411,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       routine ? null : previewEl,
       routine ? null : insertionGhost,
       routine ? null : proposalGhosts,
+      tagSight?.over,
       routine ? routineRobot : robotEl,
       !routine && hoverStore && h(HoverGhost, { store: hoverStore, context: hoverContext, derived, doc, robot, W2P, P }),
       routine ? null : snapEl,
