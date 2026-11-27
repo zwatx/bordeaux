@@ -60,7 +60,8 @@ import path from "node:path";
 // measure 928,759 B (2026-11-25); 910 KiB keeps about 3 KiB of headroom.
 // Command loads (Robot page rows, the per-path planning reserve and the report row) measure 933,702 B against
 // 930,996 B before them (2026-11-26); 914 KiB keeps about 2 KiB of headroom.
-// Routine field step badges and their collision placement measure 938,522 B against 935,112 B before them (2026-11-26); 919 KiB keeps about 2.5 KiB of headroom.
+// The routine field drawn as one route (step numbers, name pills, chevrons and focus) measures 933,491 B (2026-11-26);
+// 919 KiB keeps about 7 KiB of headroom for the routine stack's later layers.
 // Routine pose jump sizes, field connectors and the link action measure 943,295 B against 938,522 B before them (2026-11-26); 924 KiB keeps about 2.8 KiB of headroom.
 const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 924 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
