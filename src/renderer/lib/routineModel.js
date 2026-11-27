@@ -314,11 +314,8 @@ import { commandLoadFor, loopRunsSpanS } from "../../core/commandLoads";
   /** The title binding `command` (or none) gives a command step. */
   function commandDefaultTitle(command) { return (command && command.label) || PLACEHOLDER_COMMAND_TITLE; }
   /** A command step's own name, or '' when its title is only the default of its current binding. */
-  function commandOwnName(node, catalog) {
-    const title = typeof node?.title === 'string' ? node.title.trim() : '';
-    const commandId = node?.invocation?.commandId;
-    const command = commandId ? catalog?.commands?.find((item) => item.id === commandId) : null;
-    return !title || title === commandDefaultTitle(command) || title === commandId ? '' : title;
+  function commandOwnName(node) {
+    return node?.titleIsCustom === true && typeof node.title === 'string' ? node.title.trim() : '';
   }
 
   // ---- node factory ----

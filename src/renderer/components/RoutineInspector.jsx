@@ -410,12 +410,12 @@ export function StepInspector(props) {
       return [parameter.name, parameterValueError(value, parameter) ? commandArguments(selected)[parameter.name] : value];
     })) : saved;
     // The step's name in the flow. Empty means the binding's default; a name the team gives stays through Change command.
-    const ownName = A.commandOwnName(node, catalog), defaultName = A.commandDefaultTitle(selected);
+    const ownName = A.commandOwnName(node), defaultName = A.commandDefaultTitle(selected);
     body = h(React.Fragment, null,
       FieldLabel('Name'),
       h(DraftText, { id: 'routine-step-name-' + safeControlId(node.id), className: 'textinput routine-step-name', 'aria-label': 'Step name', value: ownName,
         placeholder: invocationId ? defaultName : 'Name it for what it should do', maxLength: 256, owner: node.id + ':title', spellCheck: false,
-        onCommit: (raw) => { const next = raw.trim(); if (next !== ownName) set({ title: next || defaultName }); } }),
+        onCommit: (raw) => { const next = raw.trim(); if (next !== ownName) set({ title: next || defaultName, titleIsCustom: next ? true : undefined }); } }),
       !invocationId && Hint('Keeps this step apart from other placeholders. Bound later, it keeps the name and shows the command it runs.'),
       catalog
         ? h(ChoiceBrowser, { id: 'routine-command', resetKey: node.id, label: 'Command', value: invocationId,
@@ -520,15 +520,9 @@ export function RoutineTransport(props) {
   const { run, routine, time, playing, controls, running } = props;
   const playKey = keyLabel('playback.toggle');
   const occurrences = run.steps.filter((step) => step.kind !== 'repeat');
-  // The flow numbers its top-level rows, so the transport counts those rows too: "3 of 6" is the flow's row 3, the row
-  // holding the step playing now. Without the routine (component fixtures) it counts previewed steps.
-  const rowOf = React.useMemo(() => {
-    if (!routine) return null;
-    const rows = new Map();
-    routine.nodes.forEach((node, index) => A.walk([node], (inner) => rows.set(inner.id, index + 1)));
-    return rows;
-  }, [routine]);
-  const stepCount = rowOf ? routine.nodes.length : occurrences.length;
+  // The flow numbers every authored step, including nested ones. Repeat passes share that step's number.
+  const rowOf = React.useMemo(() => routine ? A.stepNumbers(routine) : null, [routine]);
+  const stepCount = rowOf?.size ?? occurrences.length;
   const stepIndex = (t) => run.steps.length ? A.stepAt(run, t) : -1;
   const activeIdx = running || time > 0 ? stepIndex(time) : -1;
   const active = activeIdx >= 0 ? run.steps[activeIdx] : null;

@@ -621,6 +621,8 @@ export interface RoutineFunctionNode {
   type: "function";
   cat: "command" | "terminate" | "sequence" | "generate" | "velocity";
   title?: string;
+  /** Set when the author names a command step independently of its binding. */
+  titleIsCustom?: true;
   trigger?: string;
   note?: string;
   scale?: number;

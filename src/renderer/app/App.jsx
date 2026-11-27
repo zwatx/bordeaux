@@ -2023,7 +2023,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         result = { status: 'applied', removed: carried ? 0 : AUTO.routeSteps(branch?.routes || []) };
         const loop = next ? AUTO.carryLoop(node.invocation?.loop, next) : undefined;
         // A name the team gave the step stays; a default title follows the new binding.
-        patch = { title: AUTO.commandOwnName(node, owner.catalog) || AUTO.commandDefaultTitle(next), invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
+        patch = { title: AUTO.commandOwnName(node) || AUTO.commandDefaultTitle(next), invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
       } else {
         result = AUTO.branchEdit(branch, outputs, intent);
         patch = { outputBranch: result.branch && clone(result.branch) };
