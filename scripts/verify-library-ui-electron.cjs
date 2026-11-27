@@ -760,6 +760,8 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(saved.paths.find((item) => item.id === visiblePathId).waypoints[1].x - beforeVisibleEdit.x - .05) < 1e-6, 'Redo replays the path edit');
     check('create, duplicate, move, new path from its end (linked), and undoable folder and path deletion preserve data in chronological order');
     await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
+    // The flow shares its column with the field; End on the divider gives it room to show each drag's step and target.
+    await evaluate(() => document.querySelector('.routine-split').focus()); await key('End');
     const dragRoutine = async (from, to, valid) => {
       const points = await evaluate((from, to) => {
         const grip = document.querySelector(`[data-id="${from}"] .rt-grip`), target = document.querySelector(`[data-id="${to}"] .rt-step-body`);
@@ -789,6 +791,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(saved.routines.find((r) => r.id === 'routine-a'), routineBeforeDrag, 'One Undo restores the exact routine after a cross-list move');
     await dragRoutine('step-a', 'step-finish', true);
     assert.equal(saved.routines.find((r) => r.id === 'routine-a').nodes.at(-1).id, 'step-a');
+    await evaluate(() => document.querySelector('.routine-split').focus()); await key('Enter');
     const routineAfterDrag = structuredClone(saved.routines.find((r) => r.id === 'routine-a'));
     // Undo on a path never reaches back into the routine edited before switching.
     await click('.place', 'Paths');
@@ -827,15 +830,19 @@ app.whenReady().then(async () => {
       assert.equal(await evaluate(() => document.querySelector('.push-button').checkVisibility()), true);
       await fs.writeFile(path.join(output, `paths-${width}.png`), (await win.webContents.capturePage()).toPNG());
       await click('.place', 'Routines'); await click('[data-library-item="routine-a"]');
+      // A planning banner shortens the flow until trajectories arrive; measure the settled layout.
+      await wait(() => evaluate(() => !document.querySelector('.routine-status.planning')), 'routine planning settles before measuring the flow');
       const flowGeometry = await evaluate(() => {
         const flow = document.querySelector('.routine-workspace-flow'), stage = document.querySelector('.stage-auto');
-        return { sharedPositions: ['.places', '.project-chip'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), width: flow.getBoundingClientRect().width, height: flow.getBoundingClientRect().height, stageHeight: stage.getBoundingClientRect().height, railWidth: document.querySelector('.library-rail').getBoundingClientRect().width, inRail: Boolean(flow.closest('.library-rail')), flowInRail: Boolean(document.querySelector('.library-rail .rt-panel')), overflow: document.documentElement.scrollWidth > innerWidth, contentOverflow: flow.querySelector('.rt-scroll').scrollWidth > flow.querySelector('.rt-scroll').clientWidth };
+        return { sharedPositions: ['.places', '.project-chip'].map((selector) => document.querySelector(selector).getBoundingClientRect().x), width: flow.getBoundingClientRect().width, height: flow.getBoundingClientRect().height, fieldHeight: document.querySelector('.routine-workspace-field').getBoundingClientRect().height, stageHeight: stage.getBoundingClientRect().height, railWidth: document.querySelector('.library-rail').getBoundingClientRect().width, inRail: Boolean(flow.closest('.library-rail')), flowInRail: Boolean(document.querySelector('.library-rail .rt-panel')), overflow: document.documentElement.scrollWidth > innerWidth, contentOverflow: flow.querySelector('.rt-scroll').scrollWidth > flow.querySelector('.rt-scroll').clientWidth };
       });
       assert.equal(flowGeometry.railWidth, geometry.railWidth);
       assert.deepEqual(flowGeometry.sharedPositions, geometry.sharedPositions, 'Shared toolbar actions stay anchored when switching to routines at ' + width);
       assert.equal(flowGeometry.inRail, false); assert.equal(flowGeometry.flowInRail, false);
       assert.ok(flowGeometry.width > width * .6, 'Unselected routine flow gets most screen width at ' + width);
-      assert.ok(flowGeometry.height > flowGeometry.stageHeight * .7, 'Routine flow gets most workspace height');
+      // The field preview sits over the flow; together they get most of the workspace height, and the flow keeps room for five rows.
+      assert.ok(flowGeometry.height + flowGeometry.fieldHeight > flowGeometry.stageHeight * .7, 'Routine field and flow get most workspace height');
+      assert.ok(flowGeometry.height >= 5 * 34, 'Routine flow keeps room for five rows at ' + width);
       assert.equal(flowGeometry.overflow, false); assert.equal(flowGeometry.contentOverflow, false);
       await delay(500);
       await fs.writeFile(path.join(output, `routines-${width}.png`), (await win.webContents.capturePage()).toPNG());
@@ -854,10 +861,10 @@ app.whenReady().then(async () => {
         assert.ok(branch.nameRight <= branch.keyLeft && branch.keyRight <= branch.countLeft, 'Branch labels and counts must not overlap: ' + JSON.stringify(branch));
       }
       await fs.writeFile(path.join(output, `routine-inspector-${width}.png`), (await win.webContents.capturePage()).toPNG());
-      await click('[aria-label="Routine view"] button', 'Field preview');
+      // The field preview and the flow show together; there is no view switch.
       assert.equal(await evaluate(() => document.querySelector('.routine-workspace-field').checkVisibility()), true);
-      assert.equal(await evaluate(() => document.querySelector('.routine-workspace-flow').checkVisibility()), false);
-      await click('[aria-label="Routine view"] button', 'Flow');
+      assert.equal(await evaluate(() => document.querySelector('.routine-workspace-flow').checkVisibility()), true);
+      assert.equal(await evaluate(() => Boolean(document.querySelector('[aria-label="Routine view"]'))), false);
       assert.equal(await evaluate(() => document.querySelector('.rt-step[data-id="step-then"] .rt-step-body').getAttribute('aria-pressed')), 'true');
       assert.equal(await evaluate(() => document.querySelector('.library-pick[aria-current="true"] .library-name').textContent), 'Routine A');
       if (width === 1440) {

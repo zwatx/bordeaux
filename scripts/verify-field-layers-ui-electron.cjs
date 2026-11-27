@@ -216,11 +216,9 @@ app.whenReady().then(async () => {
 
       // The Routines page keeps the layer on its own field (the Paths field stays mounted but hidden).
       await click('.places .place', 'Routines');
-      await click('button', 'Field preview');
       await wait(() => evaluate(() => [...document.querySelectorAll('.fieldsvg')].some((svg) => svg.checkVisibility() && svg.getBoundingClientRect().width > 0
         && !!svg.querySelector('.field-apriltags') && !!svg.closest('.fieldcol')?.querySelector('[aria-label="Field layers"]'))), 'tags on the Routines field');
       await snapshot(`routines-${size}`);
-      await click('button', 'Flow');
       await click('.places .place', 'Paths');
     }
 
