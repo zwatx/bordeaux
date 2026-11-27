@@ -290,7 +290,7 @@
 .rt-timeline-time small,.rt-timeline-step small{color:var(--txt-3);font:inherit;white-space:nowrap}
 /* The step slot keeps one width for the run (--slot, from its longest step name), so the track never moves while
    names change; a long name past 34% of the row ends in an ellipsis. */
-.rt-tp-now{display:flex;flex:0 0 min(var(--slot,240px),34%);align-items:baseline;gap:10px;min-width:0;overflow:hidden}
+.rt-tp-now{display:flex;flex:0 0 min(var(--slot,240px),34%);align-items:baseline;justify-content:flex-end;gap:10px;min-width:0;overflow:hidden}
 .rt-timeline-step{display:flex;flex:0 1 auto;align-items:baseline;gap:8px;min-width:0}
 .rt-timeline-now{min-width:0;overflow:hidden;color:var(--txt);font:500 12px var(--ui);text-overflow:ellipsis;white-space:nowrap}
 .rt-timeline-pass-now{flex:none;color:var(--txt-2);font-size:11px;white-space:nowrap}
@@ -352,8 +352,8 @@
 .routine-insp :is(.cmd-project-error){color:var(--bad-txt)}
 .routine-insp :is(.cmd-project-warning,.cmd-schema-warning){color:var(--warn-txt)}
 .routine-insp .seg-i{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.rt-insp-sec{margin-top:22px}
-.rt-insp-sec>.cgroup-h{margin:0 0 8px;padding-top:14px;border-top:1px solid var(--line)}
+.rt-insp-sec{margin-top:18px}
+.rt-insp-sec>.cgroup-h{margin:0 0 8px;padding-top:12px;border-top:1px solid var(--line)}
 .rt-insp-sec>.seg-hint:first-of-type{margin-top:0}
 .rt-insp-toggle{margin-top:12px}
 .rt-insp-toggle .toggle{display:flex;width:100%;justify-content:flex-start;text-align:left}
