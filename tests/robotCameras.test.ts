@@ -5,6 +5,7 @@ import { decodeProjectValue, encodeProjectFile } from "../src/core/project/fileF
 import { duplicateRobot, projectRobots, selectRobot } from "../src/core/project/robots";
 import { CAMERA_LIMIT, CAMERA_NAME_MAX, addCamera, cameraAxes, removeCamera, updateCamera } from "../src/core/robotCameras";
 import type { BordeauxProject, RobotCamera, RobotConfig } from "../src/core/types";
+import { cameraScene } from "../src/renderer/lib/cameraScene";
 import { validateProject } from "../src/core/validation";
 
 /*
@@ -56,6 +57,31 @@ describe("robot cameras", () => {
     expect(full.cameras).toHaveLength(CAMERA_LIMIT);
     expect(addCamera(full)).toBe(full);
     expect(validateProject({ ...createDemoProject(), robot: full }).ok).toBe(true);
+  });
+
+  it("defaults to a valid mount on robots longer than the camera offset limit", () => {
+    const long = addCamera({ ...robot(), l: 6 });
+    expect(long.cameras![0].positionM.x).toBe(2);
+    expect(validateProject({ ...createDemoProject(), robot: long }).ok).toBe(true);
+  });
+
+  it("fits wide camera projections in the viewport from multiple angles", () => {
+    const wide = { ...camera(), horizontalFovDeg: 179, verticalFovDeg: 179, yawDeg: 90,
+      positionM: { x: 2, y: 2, z: 2.5 } };
+    for (const azDeg of [-180, -90, 0, 90, 180]) {
+      const scene = cameraScene({ footprint: [{ x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }],
+        cameras: [wide], selectedId: wide.id, view: { azDeg, elDeg: 30 }, width: 360, height: 240 });
+      for (const item of scene.items) {
+        if (item.kind !== "face") continue;
+        for (const point of item.points.split(" ")) {
+          const [x, y] = point.split(",").map(Number);
+          expect(x).toBeGreaterThanOrEqual(0);
+          expect(x).toBeLessThanOrEqual(360);
+          expect(y).toBeGreaterThanOrEqual(0);
+          expect(y).toBeLessThanOrEqual(240);
+        }
+      }
+    }
   });
 
   it("removes one camera, ignores an unknown id, and drops the list with the last camera", () => {

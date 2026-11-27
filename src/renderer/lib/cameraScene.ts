@@ -26,7 +26,7 @@ const BODY_HEIGHT_M = 0.22;
 /** How far each view volume is drawn from its lens, meters. It shows direction and angle, not how far the camera reads. */
 const VIEW_DEPTH_M = 0.8;
 /** Viewer distance for the perspective, meters. */
-const EYE_M = 7;
+const MIN_EYE_M = 7;
 const GRID_M = 0.5, GRID_LINES = 4;
 /** Widest angle drawn. A wider field of view is still stored; its drawn volume stops here so it stays finite. */
 const DRAWN_FOV_MAX_DEG = 170;
@@ -68,15 +68,17 @@ export function cameraScene({ footprint, heightM = BODY_HEIGHT_M, cameras, selec
   });
 
   // One scale for every viewing angle: at zoom 1 the farthest drawn point from the target just fits the shorter side.
-  const reach = Math.max(0.6, ...[...footprint.flatMap((point): Vec[] => [[point.x, point.y, 0], [point.x, point.y, heightM]]), ...volumes.flatMap((volume) => [volume.lens, ...volume.corners])]
+  const reach = Math.max(0.6, ...[...footprint.flatMap((point): Vec[] => [[point.x, point.y, 0], [point.x, point.y, heightM]]), ...volumes.flatMap((volume) => [volume.lens, ...volume.corners, volume.label])]
     .map((point) => Math.hypot(point[0] - target[0], point[1] - target[1], point[2] - target[2])));
-  const scale = Math.min(width, height) / 2 / reach * 1.25 * zoom;
+  // Keep the entire scene in front of the viewer, including wide view volumes.
+  const eye = Math.max(MIN_EYE_M, 3 * reach);
+  const scale = Math.min(width, height) * 0.45 / reach * zoom;
   /** Screen x and y, and distance toward the viewer. */
   const project = (point: Vec): Vec => {
     const x = point[0] - target[0], y = point[1] - target[1], z = point[2] - target[2];
     const depth = x * ce * ca + y * ce * sa + z * se;
-    const k = EYE_M / (EYE_M - depth) * scale;
-    return [width / 2 + (-x * sa + y * ca) * k, height * 0.6 - (-x * se * ca - y * se * sa + z * ce) * k, depth];
+    const k = eye / (eye - depth) * scale;
+    return [width / 2 + (-x * sa + y * ca) * k, height / 2 - (-x * se * ca - y * se * sa + z * ce) * k, depth];
   };
   const round = (value: number) => Math.round(value * 10) / 10;
   const segment = (a: Vec, b: Vec): Segment => { const p = project(a), q = project(b); return { x1: round(p[0]), y1: round(p[1]), x2: round(q[0]), y2: round(q[1]) }; };
