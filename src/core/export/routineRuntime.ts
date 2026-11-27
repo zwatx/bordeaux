@@ -12,6 +12,8 @@ export const ROUTINE_RUNTIME_SCHEMA_V2 = 'bordeaux-routine-runtime/2';
 /** `loop` codes in /2 nodes. */
 export const RUNTIME_LOOP = { none: 0, time: 1, output: 4 } as const;
 export const MAX_ROUTINE_BYTES = 16 * 1024 * 1024;
+/** A registered controller output has no command connector terminal. */
+export const CONTROLLER_OUTPUT_TERMINAL = -1;
 export interface RuntimeScalar { name: string; terminal: number; niType: string; tag: number; choices: string[] }
 export interface RuntimeInput extends RuntimeScalar { valueHex: string }
 export interface RuntimeOutput extends RuntimeScalar { fieldPath: string[] }
@@ -69,6 +71,12 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
     return result;
   };
   const selectedPaths = new Set<string>();
+  const usedOutputs = new Map<string, Set<string>>();
+  const useOutput = (nodeId: string, output: string) => {
+    const names = usedOutputs.get(nodeId);
+    if (names) names.add(output);
+    else usedOutputs.set(nodeId, new Set([output]));
+  };
   const pending = [{ nodes: routine.nodes, depth: 0 }]; let budget = 0, extended = false;
   while (pending.length) {
     const frame = pending.pop()!;
@@ -77,7 +85,13 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
       if (++budget > 4096) throw new Error('Routine exceeds 4096 nodes');
       if (node.type === 'path') selectedPaths.add(node.ref);
       if (node.type === 'group' || (node.type === 'function' && node.invocation?.loop !== undefined)) extended = true;
-      if (node.type === 'function' && node.cat === 'command') node.invocation = materialize(node.invocation!);
+      if (node.type === 'function' && node.cat === 'command') {
+        node.invocation = materialize(node.invocation!);
+        if (node.outputBranch) useOutput(node.id, node.outputBranch.output);
+        const until = node.invocation.loop?.until;
+        if (until?.kind === 'output') useOutput(node.id, until.output);
+      }
+      if (node.type === 'repeat' && node.until?.source === 'output') useOutput(node.until.nodeId, node.until.output);
       for (const child of routineChildLists(node)) pending.push({ nodes: child.nodes, depth: frame.depth + 1 });
     }
   }
@@ -131,14 +145,16 @@ export function buildRoutineRuntime(source: BordeauxProject, routineId: string, 
       if (node.type === 'path') target.path = pathIndices.get(node.ref)!;
       else if (node.type === 'builtin') target.wait = node.arguments.durationS;
       else if (node.type === 'function') {
-        const evidence = bindings.commands[node.invocation!.commandId], descriptor = descriptors.get(node.invocation!.commandId)!;
-        const command: RuntimeCommand = { ...structuredClone(evidence), inputs: evidence.inputs.map(input => {
-          const parameter = descriptor.parameters.find(item => item.name === input.name && item.role === 'argument')!;
-          const value = node.invocation!.arguments[input.name], error = robotParameterValueError(value, parameter);
-          if (error) throw new Error(error);
-          const encoded = encodeBdxArgument(input, value);
-          return { ...input, tag: encoded.tag, valueHex: hex(encoded.bytes) };
-        }) };
+        const evidence = structuredClone(bindings.commands[node.invocation!.commandId]), descriptor = descriptors.get(node.invocation!.commandId)!;
+        const command: RuntimeCommand = { ...evidence,
+          outputs: evidence.outputs.filter(output => output.terminal !== CONTROLLER_OUTPUT_TERMINAL || usedOutputs.get(node.id)?.has(output.name)),
+          inputs: evidence.inputs.map(input => {
+            const parameter = descriptor.parameters.find(item => item.name === input.name && item.role === 'argument')!;
+            const value = node.invocation!.arguments[input.name], error = robotParameterValueError(value, parameter);
+            if (error) throw new Error(error);
+            const encoded = encodeBdxArgument(input, value);
+            return { ...input, tag: encoded.tag, valueHex: hex(encoded.bytes) };
+          }) };
         target.command = document.commands.length; document.commands.push(command);
         const until = node.invocation!.loop?.until;
         if (until?.kind === 'time') { target.loop = RUNTIME_LOOP.time; target.limit = until.seconds; }

@@ -206,7 +206,21 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
       } else outputs.push({ name: completionName, label: "Completion status", terminalNumber: completion.terminalNumber,
         fieldPath: [completion.name, "Status"], schema: { kind: "enum", valueType: "Enum", enumValues: ["Successful", "Aborted", "Incomplete"] } });
       const description = text(row.description, "NI VI description", 16384);
-      commands.push({ ...checked, description, outputs, ownerType: `LabVIEW (${target})`, member: file,
+      const prefix = "Bordeaux controller Boolean: ";
+      const lines = description.split(/\r\n|\r|\n/);
+      const summary = lines.filter((line) => {
+        if (!line.startsWith(prefix)) return true;
+        const [name, display, ...extra] = line.slice(prefix.length).split("|").map((field) => field.trim());
+        if (!name || !display || extra.length || Buffer.byteLength(name) > 256 || Buffer.byteLength(display) > 256
+          || /[\x00-\x1f]/.test(name + display) || outputs.some((output) => output.name === name)) {
+          unsupported.push({ file, target, reason: "A Bordeaux controller Boolean needs a unique output name and a display label." });
+        } else {
+          outputs.push({ name, label: display, schema: { kind: "boolean", valueType: "Boolean" }, labviewControllerBoolean: true });
+        }
+        return false;
+      });
+      commands.push({ ...checked, description: summary.length === lines.length ? description : summary.join("\n").trimEnd(),
+        outputs, ownerType: `LabVIEW (${target})`, member: file,
         source: { file, line: 1 }, labviewLegacy: true, runtimeReady: false,
         labviewConnector: { labviewVersion, applicationContext: "My Computer", target, file,
           terminalNumbers: numbers as number[], directions: directions as number[], requirements: requirements as number[],

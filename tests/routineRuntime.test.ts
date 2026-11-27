@@ -107,6 +107,25 @@ describe('self-contained runtime routine compiler', () => {
     commandNode.outputBranch!.routes.pop();
     expect(() => buildRoutineRuntime(f.project, 'routine', routineBindingsFromBinary(f.binary))).toThrow(/2 to 256 routes/);
   });
+  it('retains saved branch routes and only exports controller sources used by a comparison', () => {
+    const f = routineRuntimeFixture();
+    const name = 'Very cool condition Out', schema = { kind: 'boolean' as const, valueType: 'Boolean' };
+    f.command.outputs!.push({ name, schema, labviewControllerBoolean: true });
+    f.project.routines[0].nodes = [
+      { id: 'a', type: 'function', cat: 'command', invocation: f.invocation(), outputBranch: { output: name, schema, routes: [
+        { id: 'true', label: 'True', operator: 'eq', value: true, nodes: [] },
+        { id: 'false', label: 'False', operator: 'eq', value: false, nodes: [] },
+      ] } },
+      { id: 'b', type: 'function', cat: 'command', invocation: f.invocation() },
+      { id: 'repeat', type: 'repeat', times: 2, until: { source: 'output', nodeId: 'c', output: name, schema, operator: 'eq', value: true }, nodes: [
+        { id: 'c', type: 'function', cat: 'command', invocation: f.invocation() },
+      ] },
+    ];
+    const { commands, nodes, comparisons } = buildRoutineRuntime(f.project, 'routine', routineBindingsFromBinary(f.binary)).document;
+    expect(nodes.map((node) => node.id)).toEqual(['a', 'true', 'false', 'b', 'repeat', 'c']);
+    expect(comparisons.map(({ producer, output, valueHex }) => [producer, output, valueHex])).toEqual([[0, 2, '01'], [0, 2, '00'], [5, 2, '01']]);
+    expect(commands.map((command) => command.outputs.find((output) => output.name === name)?.terminal)).toEqual([-1, undefined, -1]);
+  });
   it('bounds the complete node graph and rejects invalid scalar input/default evidence', () => {
     const f = routineRuntimeFixture();
     f.project.routines[0].nodes = Array.from({ length: 4097 }, (_, i) => ({ id: String(i), type: 'end', scope: 'routine' }));

@@ -385,6 +385,8 @@ export interface RobotCommandOutput {
   max?: number | string;
   /** Saved NI connector terminal identity, separate from its display caption. */
   terminalNumber?: number;
+  /** The robot's registered controller reader supplies this Boolean at runtime. */
+  labviewControllerBoolean?: true;
   /** Named path from returned connector terminals to a result inside a cluster. */
   fieldPath?: string[];
 }
