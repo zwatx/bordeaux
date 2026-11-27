@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { describeUpdateFailure } from "../src/electron/updateFailure";
+import os from "node:os";
+import path from "node:path";
+import { describeUpdateFailure, freeUpdateSpace, UPDATE_FREE_BYTES } from "../src/electron/updateFailure";
+// @ts-expect-error The update panel's sentence helper is JavaScript.
+import { firstFact } from "../src/renderer/lib/projectLifecycle";
 
 describe("update failure recovery", () => {
   it("explains signature verification failure with manual replacement guidance", () => {
@@ -31,6 +35,45 @@ describe("update failure recovery", () => {
     const explanation = describeUpdateFailure(message);
     expect(explanation).not.toMatch(/verified|HTTP 403|internet|<html|base64/);
     expect(explanation).toContain("releases page");
+  });
+});
+
+describe("update failure on a full disk", () => {
+  // What Squirrel.Mac reports when it could not finish unpacking the app before checking its signature.
+  const squirrel = "Code signature at URL file:///Users/me/Library/Caches/org.frc2468.bordeaux.ShipIt/update.abc/Bordeaux.app/ did not pass validation: a sealed resource is missing or invalid";
+  const low = UPDATE_FREE_BYTES - 1;
+
+  it("explains a signature failure as disk space when the disk is nearly full, in the sentence the panel shows", () => {
+    const explanation = describeUpdateFailure(squirrel, 287 * 1024 ** 2);
+    expect(firstFact(explanation)).toBe("Free up at least 1 GB of disk space, then try the update again");
+    expect(explanation).not.toMatch(/verified|ShipIt/);
+  });
+
+  it("keeps the verification explanation when there is room or the space is unknown", () => {
+    expect(describeUpdateFailure(squirrel, UPDATE_FREE_BYTES)).toContain("could not be verified");
+    expect(describeUpdateFailure(squirrel, null)).toContain("could not be verified");
+    expect(describeUpdateFailure(squirrel)).toContain("could not be verified");
+  });
+
+  it("recognizes a disk-full error whatever the space reading", () => {
+    for (const message of ["ENOSPC: no space left on device, write", "No space left on device", "There is not enough free space on the disk.", "The disk is full"]) {
+      expect(describeUpdateFailure(message, null)).toContain("1 GB of disk space");
+      expect(describeUpdateFailure(message, 50 * 1024 ** 3)).toContain("1 GB of disk space");
+    }
+  });
+
+  it("leaves network and access advice alone on a nearly full disk", () => {
+    expect(describeUpdateFailure("ECONNRESET", low)).toContain("Check your internet connection");
+    expect(describeUpdateFailure("403 Forbidden", low)).toContain("HTTP 403");
+    expect(describeUpdateFailure("Unexpected end of archive", low)).toContain("1 GB of disk space");
+  });
+
+  it("reads the least free space among the update's volumes and skips ones it cannot read", () => {
+    const free = freeUpdateSpace([os.tmpdir()]);
+    expect(free).toBeGreaterThan(0);
+    expect(freeUpdateSpace([path.join(os.tmpdir(), "bordeaux-missing-volume-" + process.pid), os.tmpdir()])).toBe(free);
+    expect(freeUpdateSpace([path.join(os.tmpdir(), "bordeaux-missing-volume-" + process.pid)])).toBeNull();
+    expect(freeUpdateSpace([])).toBeNull();
   });
 });
 

@@ -35,7 +35,7 @@ import { loadProjectFolderSelection, loadProjectSelection, type ProjectSelection
 import { createNamedProjectSelection, createProjectCopyFolder, parseNamedProjectRequest, suggestProjectCopy, StaleCopyDefaults, type ProjectCopyMark } from "./projectCreation";
 import { ensureProjectsHomeForRequest, projectsHomePath } from "./projectsHome";
 import { completeProjectActivation } from "./projectActivation";
-import { describeUpdateFailure, OFFICIAL_RELEASES_URL, releasePageUrl } from "./updateFailure";
+import { describeUpdateFailure, freeUpdateSpace, OFFICIAL_RELEASES_URL, releasePageUrl } from "./updateFailure";
 import { GitHubReleaseProvider } from "./githubReleaseProvider";
 import { listRecentProjects, recentProjectPathById, readRecentProjectFiles, rememberRecentProject, removeRecentProjectById, writeRecentProjectFiles } from "./recentProjectFiles";
 import { revealRecentProject } from "./projectRecentActions";
@@ -423,7 +423,9 @@ function createAppUpdateController(): AppUpdateController {
     supported,
     currentVersion: applicationVersion,
     isProjectDirty: () => dirty,
-    describeError: (error) => describeUpdateFailure(error instanceof Error ? error.message : String(error)),
+    // The updater downloads into the user's caches, on the same volume as userData; Squirrel.Mac unpacks into temporary folders.
+    describeError: (error) => describeUpdateFailure(error instanceof Error ? error.message : String(error),
+      freeUpdateSpace([os.tmpdir(), app.getPath("userData")])),
     warn: (message, error) => console.warn(message, error),
   }, (state) => {
     // A native installation failure leaves Bordeaux running: cancel the forced exit and,
