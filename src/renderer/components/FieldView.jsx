@@ -1303,6 +1303,45 @@ import { UnitPrefs } from '../lib/unitPreferences';
       });
       return els;
     }, [routineRoute, textUpp]);
+    // Pose jumps (AUTO.jumpSize, from buildRun's issues) join consecutive paths as a thin dotted line, so the route reads
+    // end to end. Small jumps draw nothing; a large one carries a faint amber tint. With a step selected, the jump into
+    // it is amber with its distance and the others fade with the route. `over` draws above the paths.
+    const routineJumpEls = useMemo(() => {
+      if (!routineRoute || !routineJumps?.length) return null;
+      const byEdge = new Map(routineJumps.map((jump) => [jump.fromNodeId + '>' + jump.nodeId, jump]));
+      const edges = new Map(), { mode, items } = routineRoute;
+      // The strongest use of each edge decides its look; a repeated pass draws on the same line.
+      const weight = { into: 3, near: 2, route: 1, faded: 0 };
+      items.forEach((b, k) => {
+        const a = items[k - 1], key = a && a.rp.nodeId + '>' + b.rp.nodeId, jump = key && byEdge.get(key);
+        if (!jump || jump.size === 'small') return;
+        const use = mode !== 'focus' ? 'route' : b.role === 'selected' ? 'into' : a.role === 'selected' || b.role === 'after' ? 'near' : 'faded';
+        const pending = mode === 'play' && b.role === 'pending', known = edges.get(key);
+        if (!known || weight[use] > weight[known.use]) edges.set(key, { jump, use, pending, paths: [a.geometry, b.geometry] });
+      });
+      const under = [], over = [];
+      let chip = null;
+      edges.forEach(({ jump, use, pending, paths }, key) => {
+        const a = W2P(jump.from), b = W2P(jump.to), into = use === 'into';
+        const stroke = into || (use === 'route' && jump.size === 'large') ? 'var(--warn)' : 'var(--txt-3)';
+        const opacity = into ? 1 : use === 'faded' ? 0.08 : use === 'near' ? 0.4 : (jump.size === 'large' ? 0.3 : 0.5) * (pending ? 0.6 : 1);
+        const el = h('g', { key: 'rj' + key, className: 'routine-jump' + (into ? ' on' : ''), 'data-size': jump.size, 'data-node': jump.nodeId, style: { pointerEvents: 'none' } },
+          h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, strokeOpacity: opacity, strokeWidth: T(1.5), strokeDasharray: `${T(2)} ${T(5)}`, strokeLinecap: 'round', style: { stroke } }),
+          into && jump.distanceM > 0.001 && (() => {
+            const text = UnitPrefs.format(jump.distanceM, 'm', 2), w = T(fieldTextWidth(text, '600 10px "JetBrains Mono", monospace') + 14), hgt = T(17);
+            // Beside the line's middle, on the side farthest from the two paths it joins.
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, clearance = (box) => Math.min(...paths.flatMap((g) => g.img).map((q) =>
+              Math.hypot(Math.max(box.x - q.x, 0, q.x - box.x - box.w), Math.max(box.y - q.y, 0, q.y - box.y - box.h))));
+            chip = [[1, -1], [-1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => ({ x: sx > 0 ? mx + T(8) : mx - T(8) - w, y: sy < 0 ? my - T(9) - hgt / 2 : my + T(9) - hgt / 2, w, h: hgt }))
+              .reduce((best, box) => (clearance(box) > clearance(best) + T(1) ? box : best));
+            return h('g', { className: 'routine-jump-distance', transform: `translate(${chip.x} ${chip.y})` },
+              h('rect', { width: w, height: hgt, rx: hgt / 2, strokeWidth: T(1), strokeOpacity: 0.5, style: { fill: 'var(--bg-1)', stroke: 'var(--warn)' } }),
+              h('text', { x: w / 2, y: T(12), fontSize: T(10), fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, textAnchor: 'middle', style: { fill: 'var(--warn-txt)' } }, text));
+          })());
+        (into ? over : under).push(el);
+      });
+      return { under, over, chip };
+    }, [routineRoute, routineJumps, textUpp]);
     // Step numbers: one dot per step at its first drawn start (slid past the robot resting there), in the flow's
     // numbering, skipped where it would sit within 30 px of one already placed. Idle shows every step that has room,
     // focus the selected step and its neighbors, playback only the running step. A dot selects its step like its path.
@@ -1339,7 +1378,7 @@ import { UnitPrefs } from '../lib/unitPreferences';
       els.push(h('g', { key: 'rend', className: 'routine-end', transform: `translate(${end.x} ${end.y})`, opacity: mode === 'focus' ? 0.4 : 0.85, style: { pointerEvents: 'none' } },
         h('line', { x1: 0, y1: 0, x2: 0, y2: -T(16), strokeWidth: T(1.5), style: { stroke: 'var(--txt-3)' } }),
         h('path', { d: `M 0 ${-T(16)} L ${T(10)} ${-T(12.5)} L 0 ${-T(9)} Z`, style: { fill: 'var(--txt-3)' } })));
-      return { els, anchors, rest };
+      return { els, anchors, rest, flag: { x: end.x - T(3), y: end.y - T(19), w: T(16), h: T(22) } };
     }, [routineRoute, robot, textUpp]);
     // The path under the pointer, brightened over the route (every pass of its step).
     const routineHoverEls = useMemo(() => {
@@ -1348,14 +1387,14 @@ import { UnitPrefs } from '../lib/unitPreferences';
         h('path', { key: 'rhv' + index, className: 'routine-hover', d: geometry.d, fill: 'none', strokeWidth: T(2.6), strokeLinecap: 'round', strokeLinejoin: 'round', style: { stroke: 'var(--txt-2)', pointerEvents: 'none' } }));
     }, [routineRoute, routineHover, textUpp]);
     // One name pill for the selected or running step (with its pass when the step repeats) and one, darker, for the
-    // path under the pointer. Each sits beside its number dot inside the visible field, clear of the resting robot and
-    // the view controls.
+    // path under the pointer. Each sits beside its number dot inside the visible field, clear of the resting robot, the
+    // end flag, the jump's distance and the view controls.
     const routineLabels = useMemo(() => {
       if (!routineMarks) return null;
       const halfW = (canvasLayout.width || cw) * textUpp / 2, halfH = (canvasLayout.height || 0) * textUpp / 2 || view.h / 2;
       const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
       const visible = { x0: cx - halfW + T(6), x1: cx + halfW - T(6), y0: cy - halfH + T(6), y1: cy + halfH - T(6) };
-      const obstacles = [routineMarks.rest, toolRailObstacle].filter(Boolean);
+      const obstacles = [routineMarks.rest, routineMarks.flag, routineJumpEls?.chip, toolRailObstacle].filter(Boolean);
       const name = (rp) => (rp.kind === 'gen' ? '\u26a1 ' : '') + (rp.label || '');
       const strong = routineRoute.items.find((item) => item.role === 'selected' || item.role === 'active');
       const pills = [];
@@ -1371,7 +1410,7 @@ import { UnitPrefs } from '../lib/unitPreferences';
           h('text', { x: box.x + box.w / 2, y: box.y + box.h / 2 + T(3.8), fontSize: T(11), fontFamily: 'Space Grotesk, system-ui, sans-serif', fontWeight: 600, textAnchor: 'middle',
             style: { fill: light ? 'var(--on-accent)' : 'var(--txt)' } }, box.text));
       });
-    }, [routineRoute, routineMarks, toolRailObstacle, routineHover, view.x, view.y, view.w, view.h, textUpp, canvasLayout.width, canvasLayout.height, cw]);
+    }, [routineRoute, routineMarks, routineJumpEls, toolRailObstacle, routineHover, view.x, view.y, view.w, view.h, textUpp, canvasLayout.width, canvasLayout.height, cw]);
 
     const routineRobot = useMemo(() => {
       if (!routine || !routinePose) return null;
@@ -1498,7 +1537,9 @@ import { UnitPrefs } from '../lib/unitPreferences';
         style: { pointerEvents: 'none' },
       }),
       routine ? null : problemUnderlays,
+      routine ? routineJumpEls?.under : null,
       routine ? routineLayers : staticLayers,
+      routine ? routineJumpEls?.over : null,
       routine ? null : visitFocusEl,
       routine ? null : previewEl,
       routine ? null : insertionGhost,
