@@ -3,6 +3,7 @@ import { analyzePath } from "../src/core/agent/pathAnalysis";
 import { generateRepairCandidates } from "../src/core/agent/pathRepair";
 import type { PathAnalysis, PathAnalysisFinding } from "../src/core/agent/types";
 import { buildWaypoints, createDemoProject } from "../src/core/project/defaults";
+import { planningPathConstraints } from "../src/core/robotLimits";
 
 vi.mock("../src/core/agent/pathAnalysis", () => ({ analyzePath: vi.fn() }));
 
@@ -36,5 +37,31 @@ describe("agent repair grading", () => {
 
     expect(candidates).toHaveLength(2);
     expect(candidates.every((candidate) => candidate.valid === valid)).toBe(true);
+  });
+
+  it("builds its speed zone from the speed the path plans at, not a followed limit's stored number", () => {
+    const project = createDemoProject();
+    const path = project.paths[0];
+    path.waypoints = buildWaypoints([{ x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }]);
+    path.ranges = [];
+    path.constraints = { ...path.constraints, maxVel: 1, followRobotMax: ["maxVel", "maxAccel"] };
+    const planned = planningPathConstraints(path, project.robot);
+    expect(planned.maxVel).toBeGreaterThan(2);
+    const finding: PathAnalysisFinding = {
+      id: "constraint:acceleration", kind: "constraint", severity: "error", metric: "acceleration", measured: 9, limit: 8,
+      message: "Acceleration", sourcePath: "path.constraints.maxAccel",
+      sample: { index: 1, timeS: 1, distanceM: 1, fraction: 0.5, x: 2, y: 2, physicalHeadingRad: 0, segmentIndex: 0, nearestWaypointIndex: 1 },
+    };
+    const analysis: PathAnalysis = {
+      pathId: path.id, pathName: path.name, authoredPath: path, planner: project.plannerId,
+      totalTimeS: 2, totalDistanceM: 2, sampleCount: 3, samplesTruncated: false,
+      rawSamples: [], extrema: [], findings: [finding], plannerDiagnostics: [],
+    };
+    vi.mocked(analyzePath).mockReturnValue(analysis);
+    const zones = generateRepairCandidates(project, path.id, [finding.id])
+      .filter((candidate) => candidate.changedFields[0] === "ranges").map((candidate) => candidate.path.ranges.at(-1)!);
+    expect(zones.map((zone) => zone.maxVel)).toEqual([planned.maxVel * 0.75, planned.maxVel * 0.6]);
+    // Its other limits inherit the path's, so they keep following the robot.
+    for (const zone of zones) expect(Object.keys(zone).filter((key) => key.startsWith("max"))).toEqual(["maxVel"]);
   });
 });

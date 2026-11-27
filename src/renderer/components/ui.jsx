@@ -411,14 +411,18 @@ import { filterPickerItems } from "../lib/pickerSearch";
   // `ceiling` is what the robot allows for this value, in stored units, and `ceilingName` names it ("speed"). A value
   // above it stays as typed, since planning caps it; the field is marked and states the robot's maximum on hover and to
   // screen readers.
-  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, format = (number) => number.toFixed(precision), projectDraft = true, ceiling, ceilingName = 'value' }) {
+  // `follow` ({ on, set(on), robotName }) adds a Max toggle: on, the limit follows the selected robot's `ceiling`, so it
+  // shows the ceiling and switching robots never loses a value; typing a number fixes it again (the caller's onChange).
+  function Num({ label, value, onChange, unit, imperialUnit, step = 0.01, min, max, precision = 2, format = (number) => number.toFixed(precision), projectDraft = true, ceiling, ceilingName = 'value', follow }) {
     const id = useId();
     const [edit, setEdit] = useState(null);
     const [scrub, setScrub] = useState(null);
     const [error, setError] = useState('');
     const cancelEdit = useRef(false);
+    const typed = useRef(false);
     const scrubbing = useRef(false);
-    const latest = useRef(value); latest.current = value;
+    // A scrub starts from what the box shows: the robot's ceiling while the limit follows it.
+    const latest = useRef(value); latest.current = follow?.on && Number.isFinite(ceiling) ? ceiling : value;
     // Without a draft the field shows rounded text; committing that text would change the stored value.
     const draft = useRef(edit); draft.current = edit;
     const ref = useRef(null);
@@ -430,10 +434,12 @@ import { filterPickerItems } from "../lib/pickerSearch";
     }, [unitSystem]);
     /** Commits a text draft; returns the stored value, or null when it is invalid. */
     const resolveEdit = (raw) => {
-      const next = committedDraftValue(raw, value, displayValue, (parsed) => UnitPrefs.toCanonical(parsed, unit, imperialUnit), { min, max });
+      // A followed limit shows the robot's ceiling, so the draft is read against that, never the old stored number.
+      const next = committedDraftValue(raw, following ? ceiling : value, displayValue, (parsed) => UnitPrefs.toCanonical(parsed, unit, imperialUnit), { min, max });
       if (next == null) { setError('Enter a finite number.'); return null; }
       setError('');
-      if (!Object.is(next, value)) onChange(next);
+      // While following, a typed value fixes the limit at what was typed; leaving the field untouched keeps it following.
+      if (following ? typed.current : !Object.is(next, value)) onChange(next);
       return next;
     };
     const commitEdit = (raw) => resolveEdit(raw) != null;
@@ -471,19 +477,23 @@ import { filterPickerItems } from "../lib/pickerSearch";
         },
         cancel: finish });
     };
-    const displayValue = typeof value === 'number' ? UnitPrefs.fromCanonical(value, unit, imperialUnit) : value;
+    const shown = Boolean(follow?.on) && Number.isFinite(ceiling) ? ceiling : value;
+    const displayValue = typeof shown === 'number' ? UnitPrefs.fromCanonical(shown, unit, imperialUnit) : shown;
     const disp = scrub != null ? format(UnitPrefs.fromCanonical(scrub, unit, imperialUnit))
       : edit != null ? edit : (typeof displayValue === 'number' ? format(displayValue) : displayValue);
-    const capped = typeof value === 'number' && typeof ceiling === 'number' && value > ceiling + 1e-9
-      ? 'Your robot\u2019s max ' + ceilingName + ' is ' + format(UnitPrefs.fromCanonical(ceiling, unit, imperialUnit)) + (unit ? ' ' + UnitPrefs.label(unit, imperialUnit) : '') : '';
+    const following = Boolean(follow?.on) && Number.isFinite(ceiling);
+    const ceilingText = Number.isFinite(ceiling) ? format(UnitPrefs.fromCanonical(ceiling, unit, imperialUnit)) + (unit ? ' ' + UnitPrefs.label(unit, imperialUnit) : '') : '';
+    const owner = follow?.robotName ? follow.robotName + '\u2019s' : 'Your robot\u2019s';
+    const capped = !following && typeof value === 'number' && Number.isFinite(ceiling) && value > ceiling + 1e-9
+      ? owner + ' max ' + ceilingName + ' is ' + ceilingText : '';
     return h('div', { className: 'numrow' },
       label != null && h('label', { className: 'numlbl', htmlFor: id, onPointerDown: start() }, label),
-      h('div', { className: 'numbox' + (capped ? ' capped' : ''), title: capped || undefined },
+      h('div', { className: 'numbox' + (capped ? ' capped' : '') + (following ? ' following' : '') + (follow && follow.toggle !== false ? ' has-follow' : ''), title: capped || (following ? 'Follows ' + owner.replace('Your', 'your') + ' max ' + ceilingName + '. Type a value to fix it.' : undefined) },
         h('input', {
           id, ref, className: 'numinput', value: disp, inputMode: 'decimal', 'aria-describedby': [unit && id + '-unit', capped && id + '-cap', error && id + '-error'].filter(Boolean).join(' ') || undefined,
           'data-project-draft': projectDraft ? true : undefined, 'aria-invalid': !!error,
-          onChange: (e) => { cancelEdit.current = false; setEdit(e.target.value); if (error) setError(''); },
-          onFocus: (e) => { cancelEdit.current = false; if (edit == null) setEdit(typeof displayValue === 'number' ? String(displayValue) : displayValue); requestAnimationFrame(() => { if (document.activeElement === e.target) e.target.select(); }); },
+          onChange: (e) => { cancelEdit.current = false; typed.current = true; setEdit(e.target.value); if (error) setError(''); },
+          onFocus: (e) => { cancelEdit.current = false; if (edit == null) typed.current = false; if (edit == null) setEdit(typeof displayValue === 'number' ? String(displayValue) : displayValue); requestAnimationFrame(() => { if (document.activeElement === e.target) e.target.select(); }); },
           // Tab during a scrub leaves the value to the scrub's release or cancellation.
           onBlur: (e) => { if (scrubbing.current) return; const committed = cancelEdit.current || edit == null || commitEdit(e.target.value); cancelEdit.current = false; if (committed) setEdit(null); },
           onKeyDown: (e) => {
@@ -499,7 +509,14 @@ import { filterPickerItems } from "../lib/pickerSearch";
           },
         }),
         unit && h('span', { id: id + '-unit', className: 'numunit' }, UnitPrefs.label(unit, imperialUnit)),
-        capped && h('span', { id: id + '-cap', className: 'sr-only' }, capped)),
+        capped && h('span', { id: id + '-cap', className: 'sr-only' }, capped),
+        // A compact field shows the followed value; its Max toggle lives where the limit has room (the inspector).
+        follow && follow.toggle !== false && Number.isFinite(ceiling) && h('button', { type: 'button', className: 'num-follow', 'aria-pressed': following,
+          'aria-label': (following ? 'Stop following ' : 'Follow ') + owner.replace('Your', 'your') + ' max ' + ceilingName + ', ' + ceilingText,
+          title: following ? 'Keep ' + ceilingText + ' as a fixed value' : 'Follow the selected robot\u2019s max ' + ceilingName + ' (' + ceilingText + ')',
+          onPointerDown: (event) => event.preventDefault(),
+          // Max is the choice: an unsent draft goes, so the field shows the new value and its blur keeps it.
+          onClick: () => { cancelEdit.current = false; typed.current = false; setError(''); setEdit(null); follow.set(!following); } }, 'Max')),
       error && h('span', { id: id + '-error', className: 'cmd-param-error numerror', role: 'alert' }, error),
     );
   }

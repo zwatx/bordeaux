@@ -157,7 +157,9 @@ app.whenReady().then(async () => {
     const review = await evaluate(() => ({ destination: document.querySelector('.robot-push-dialog .rfp-body')?.textContent, files: [...document.querySelectorAll('.rfp-files li')].map((li) => li.textContent),
       fileNames: [...document.querySelectorAll('.rfp-files .rfp-file-meta')].map((meta) => meta.textContent.split(' · ')[0]) }));
     await shot('05-push-review');
-    await click('.robot-push-dialog button', 'Upload 1 path');
+    // The robot's details ride along by default: the robot is not known to hold them yet.
+    if (!review.fileNames.includes('Robot.robot') || !await evaluate(() => document.querySelector('#rfp-robot-file')?.checked)) throw new Error('The review does not include the robot details: ' + JSON.stringify(review));
+    await click('.robot-push-dialog button', 'Upload 1 path and robot details');
     await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'push verified');
     const done = await evaluate(() => document.querySelector('.rfp-view-done').textContent);
     await shot('06-push-done');
@@ -180,6 +182,15 @@ app.whenReady().then(async () => {
     await fs.writeFile(path.join(output, 'read-back-' + pushedName), readBack);
     check('the page reads the pushed BDX back as the robot holds it, and reports a path never pushed as absent',
       { fileName: pushedName, bytes: readBack.length, sha256: sha256(readBack), directory: reading.directory, readAt: reading.readAt });
+
+    // The robot's .robot file was pushed beside it; Pull reads it back the same way, and a missing one lists what is there.
+    const robotFile = await evaluate(() => Promise.all([window.bordeauxAPI.readRobotFiles(['Robot.robot']), window.bordeauxAPI.readRobotFiles(['Other bot.robot'.replace(' ', '-')])])
+      .then(([held, missing]) => ({ text: new TextDecoder().decode(held.files[0].contents), missing: missing.files[0].contents, robotConfigs: missing.robotConfigs })));
+    const robotJson = JSON.parse(robotFile.text);
+    if (robotJson.format !== 'bordeaux-robot/1' || robotJson.name !== 'Robot' || 'id' in robotJson || 'connection' in robotJson) throw new Error('Unexpected robot file: ' + robotFile.text.slice(0, 200));
+    if (robotFile.missing !== null || JSON.stringify(robotFile.robotConfigs) !== JSON.stringify(['Robot.robot'])) throw new Error('A missing robot file did not list the folder: ' + JSON.stringify(robotFile));
+    if (home && robotFile.text !== await fs.readFile(path.join(home, 'paths', 'Robot.robot'), 'utf8')) throw new Error('Robot.robot read back other bytes than the robot holds');
+    check('Push sends the robot details beside the path, and they read back as the robot holds them', { bytes: robotFile.text.length });
 
     // A batch whose second destination can't be replaced stops before the first robot file changes.
     if (home) {
@@ -204,7 +215,8 @@ app.whenReady().then(async () => {
       await fs.rmdir(path.join(pushed, prepared.files[1].fileName));
       if (!/No robot files were replaced/.test(failure)) throw new Error('A failed batch did not say nothing was replaced: ' + failure);
       if (sha256(await fs.readFile(path.join(pushed, first))) !== firstBefore) throw new Error('A failed batch replaced ' + first);
-      const left = (await fs.readdir(pushed)).filter((file) => file !== first && !file.endsWith('.json'));
+      // Robot.robot is the robot details the earlier Push sent; anything else here would be left by this batch.
+      const left = (await fs.readdir(pushed)).filter((file) => file !== first && file !== 'Robot.robot' && !file.endsWith('.json'));
       if (left.length) throw new Error('A failed batch left files behind: ' + left.join(', '));
       const replay = await evaluate((operationId) => window.bordeauxAPI.confirmRobotFiles(operationId).then(() => 'pushed', (error) => String(error?.message || error)), prepared.operationId);
       if (!/Review the selected files again/.test(replay)) throw new Error('A failed review could be confirmed again: ' + replay);
@@ -264,7 +276,9 @@ app.whenReady().then(async () => {
     check('with the desktop\'s command list, the robot builds the same command BDX as the desktop', { project: commandProject, file: commandCase.fileName, sha256: built });
     await click('.push-button');
     await wait(() => Boolean(document.querySelector('.rfp-view-files')), 'command push review');
-    await click('.robot-push-dialog button', 'Upload 1 path');
+    // The robot's details ride along by default: the robot is not known to hold them yet.
+    if (!review.fileNames.includes('Robot.robot') || !await evaluate(() => document.querySelector('#rfp-robot-file')?.checked)) throw new Error('The review does not include the robot details: ' + JSON.stringify(review));
+    await click('.robot-push-dialog button', 'Upload 1 path and robot details');
     await wait(() => document.querySelector('.rfp-view-done')?.textContent.includes('uploaded'), 'command push verified');
     await shot('11-command-push');
     check('the command path pushes into the robot code folder', { done: await evaluate(() => document.querySelector('.rfp-view-done').textContent) });
@@ -319,7 +333,7 @@ app.whenReady().then(async () => {
       // The Robot page edits the same folder directly and lists no robots: this editor pushes only to its own robot.
       await click('.place', 'Robot');
       await wait(() => Boolean(document.querySelector('input[aria-label="Folder on robot"]')), 'Robot page push folder');
-      if (await evaluate(() => Boolean(document.querySelector('.robot-cards, .robot-connection')) || [...document.querySelectorAll('.settings-nav button')].some((button) => button.textContent === 'Robots'))) {
+      if (await evaluate(() => Boolean(document.querySelector('.robot-tabs, .robot-connection')) || [...document.querySelectorAll('.settings-nav button')].some((button) => button.textContent === 'Robots'))) {
         throw new Error('The robot-hosted editor shows a robot list or a robot connection');
       }
       const shownFolder = await evaluate(() => document.querySelector('input[aria-label="Folder on robot"]').value);

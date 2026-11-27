@@ -57,11 +57,11 @@ describe('settings workspace', () => {
     const page = renderToStaticMarkup(React.createElement(RobotPage, { robot, unitSystem: 'imperial', connection,
       robots: [{ id: 'comp', name: 'Comp bot', selected: true, robot, connection: { target: 'systemcore', host: '10.24.68.2', port: 22, directory: '/home/systemcore/bordeaux/paths' } },
         { id: 'practice', name: 'Practice bot', selected: false, robot }] }));
-    expect(page).toContain('<h1 class="rp-title">Robot</h1>');
-    expect(page).toContain('Connection');
-    expect(page).toContain(label);
-    expect(page).toMatch(/Comp bot<\/strong><small>10\.24\.68\.2<\/small>/);
-    expect(page).toMatch(/Practice bot<\/strong><small>No address<\/small>/);
+    // The rail names the selected robot and its connection; the robot tabs, not the page, list the others.
+    expect(page).toContain('<h1 class="rp-title" title="Comp bot">Comp bot</h1>');
+    expect(page).toContain(connection.pairing || connection.busy ? connection.connectionLabel : 'Not set up');
+    expect(page).toMatch(new RegExp(`class="qbtn quiet library-connection"[^>]*>${label}<`));
+    expect(page).not.toMatch(/Practice bot|robot-cards/);
     expect(page).toContain('Drivetrain');
     expect(page).not.toMatch(/Display units|Keyboard shortcuts|Software updates/);
   });
@@ -71,7 +71,7 @@ describe('settings workspace', () => {
     const connection = { servedByRobot: true, busy: false, pairing: { endpoint: { target: 'systemcore', host: '10.24.68.2', port: 22, directory: '/home/systemcore/bordeaux/paths' } } };
     const page = renderToStaticMarkup(React.createElement(RobotPage, { robot, unitSystem: 'metric', connection,
       robots: [{ id: 'comp', name: 'Comp bot', selected: true, robot }, { id: 'practice', name: 'Practice bot', selected: false, robot }] }));
-    expect(page).not.toMatch(/robot-cards|New robot|Comp bot|Practice bot|>Connection</);
+    expect(page).not.toMatch(/robot-tabs|rp-identity|New robot|Comp bot|Practice bot|>Connection</);
     expect(page).toContain('>Push folder</h2>');
     expect(page).toMatch(/<input[^>]*aria-label="Folder on robot"[^>]*value="\/home\/systemcore\/bordeaux\/paths"/);
     expect(page.indexOf('Push folder')).toBeLessThan(page.indexOf('Dimensions'));

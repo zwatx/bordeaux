@@ -109,7 +109,7 @@ interface RobotFileTransport {
   list?(connection: RobotFileConnection, signal: AbortSignal, password: string | null): Promise<RobotPathFiles>;
   discover?(endpoint: RobotFileEndpoint): Promise<RobotFileConnection>;
   upload(connection: RobotFileConnection, files: Array<{ fileName: string; contents: Buffer }>, signal?: AbortSignal, password?: string | null): Promise<{ directoryCreated: boolean }>;
-  read?(connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null): Promise<RobotFileReading["files"]>;
+  read?(connection: RobotFileConnection, fileNames: string[], signal?: AbortSignal, password?: string | null): Promise<Pick<RobotFileReading, "files" | "robotConfigs">>;
 }
 
 /**
@@ -191,9 +191,9 @@ export class RobotFileDelivery {
     const names: unknown[] | null = Array.isArray(rawFileNames) ? rawFileNames : null;
     if (!names?.every((name): name is string => typeof name === "string")) throw new Error("Name the robot files to read");
     return this.readPathOperation(randomUUID(), async (connection, signal, password) => {
-      const files = await read(connection, names, signal, password);
+      const { files, robotConfigs } = await read(connection, names, signal, password);
       signal.throwIfAborted();
-      return { connection: structuredClone(connection), readAt: new Date().toISOString(), files };
+      return { connection: structuredClone(connection), readAt: new Date().toISOString(), files, ...(robotConfigs ? { robotConfigs } : {}) };
     });
   }
   async saveSettings(endpoint: RobotFileEndpoint, rawPassword?: unknown): Promise<RobotFileSettings> {
@@ -325,9 +325,12 @@ export class RobotFileDelivery {
   }
   prepare(files: PreparedRobotFile[], validate: () => Promise<void>): RobotFilePreview {
     if (!this.trusted || this.busy) throw new Error("Connect a robot before preparing this transfer");
-    // A SystemCore push adds the LabVIEW command list; it does not count toward the 64 paths.
-    const paths = files.filter(file => file.fileName !== COMMANDS_FILE_NAME).length;
+    // A SystemCore push adds the LabVIEW command list, and any push may add the robot's .robot file; neither counts
+    // toward the 64 paths.
+    const robotFiles = files.filter(file => /\.robot$/i.test(file.fileName)).length;
+    const paths = files.filter(file => file.fileName !== COMMANDS_FILE_NAME).length - robotFiles;
     if (!paths || paths > 64) throw new Error("Select between 1 and 64 paths to push");
+    if (robotFiles > 1) throw new Error("Push sends one robot's details at a time");
     if (new Set(files.map(file => file.fileName.toLowerCase())).size !== files.length) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
     if (files.some(file => !file.contents.length) || files.reduce((sum, file) => sum + file.contents.length, 0) > 24 * 1024 * 1024) throw new Error("Selected BDX files exceed the 24 MB transfer limit");
     const frozen = files.map(file => ({ ...file, contents: Buffer.from(file.contents) }));
@@ -386,7 +389,7 @@ export class RobotFileDelivery {
       this.compared = null;
       assertProject();
       const robot = this.transport.read
-        ? (await this.transport.read(connection, [fileName], signal, password))[0]?.contents ?? null
+        ? (await this.transport.read(connection, [fileName], signal, password)).files[0]?.contents ?? null
         : await readRobotPathFile(connection, fileName, signal, undefined, password);
       const readAt = Date.now();
       signal.throwIfAborted();

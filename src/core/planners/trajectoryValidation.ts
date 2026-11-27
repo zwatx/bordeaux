@@ -117,9 +117,11 @@ export function validateOptimizedTrajectory(
   options: TrajectoryValidationOptions = {},
 ): TrajectoryValidationResult {
   // Check against the same per-path mechanism reserve, speed and limits the planner timed with. Planner inputs
-  // already carry them (folding is idempotent); an authored input with command loads gets them here.
-  // A load table that reserves nothing for this path changes nothing here.
-  const input = pathCommandReserveA(plannedInput.robot.driveModel, plannedInput.path.markers) > 0 ? physicalPlannerInput(plannedInput) : plannedInput;
+  // already carry them (folding is idempotent); an authored input with a command reserve or a limit that follows the
+  // robot's max gets them here. Otherwise the authored input is checked as it is.
+  const resolve = pathCommandReserveA(plannedInput.robot, plannedInput.path.markers) > 0
+    || (plannedInput.path.constraints.followRobotMax?.length ?? 0) > 0;
+  const input = resolve ? physicalPlannerInput(plannedInput) : plannedInput;
   const violations: TrajectoryConstraintViolation[] = [];
   const refinableIntervals = new Set<number>();
   const activeConstraints = new Set<string>();

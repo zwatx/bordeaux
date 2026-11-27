@@ -279,6 +279,8 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const graphBottom = wpTop - 2;
   const graphH = Math.max(24, graphBottom - graphTop);
   const c = doc.constraints || {};
+  // A speed limit that follows the robot's max shows (and drags from) that max, not its stored fixed number.
+  const shownLimit = (path) => (path.constraints?.followRobotMax || []).includes('maxVel') ? (PM.limitCeilings(robot, path).maxVel ?? robot.maxSpeed) : (path.constraints?.maxVel ?? robot.maxSpeed);
   const series = SERIES[metric] || null;
   const shown = (value) => series ? UnitPrefs.fromCanonical(value, series.unit) : speed(value);
   const valueOf = (point) => series ? point[series.key] || 0 : point.v;
@@ -414,9 +416,15 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   };
   const vFromPointer = (next) => clamp(vAtY(local(next).y), 0.1, robot.maxSpeed);
   const round = (v) => Math.round(v * 100) / 100;
-  const pathLimit = (path) => path.constraints.maxVel ?? robot.maxSpeed;
+  const pathLimit = shownLimit;
   const limitDrag = (event) => gesture(event, { cursor: 'ns-resize', pick: pathLimit,
-    move: (next) => edit.mutate((path) => { path.constraints.maxVel = round(vFromPointer(next)); return path; }) });
+    move: (next) => edit.mutate((path) => {
+      path.constraints.maxVel = round(vFromPointer(next));
+      // Dragging fixes the limit, like typing it: it no longer follows the robot's max.
+      const kept = (path.constraints.followRobotMax || []).filter((key) => key !== 'maxVel');
+      if (kept.length) path.constraints.followRobotMax = kept; else delete path.constraints.followRobotMax;
+      return path;
+    }) });
   const zoneCapDrag = (index) => (event) => gesture(event, { cursor: 'ns-resize', before: () => select('cr', index), pick: (path) => path.ranges[index]?.maxVel,
     move: (next) => edit.mutate((path) => { if (path.ranges[index]) path.ranges[index].maxVel = round(vFromPointer(next)); return path; }) });
   // An edge stays on its side of the other one, as in the panel's From and To.
@@ -505,7 +513,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
   const selZone = sel.kind === 'cr' ? sel.idx : null;
   const speedUnit = UnitPrefs.label('m/s');
   // The line sits at the typed limit, which is what dragging edits; its label is the speed limit in effect.
-  const limitLabel = fmt(speed(Math.min(c.maxVel ?? robot.maxSpeed, PM.limitCeilings(robot, doc).maxVel ?? robot.maxSpeed)));
+  const limitLabel = fmt(speed(Math.min(shownLimit(doc), PM.limitCeilings(robot, doc).maxVel ?? robot.maxSpeed)));
 
   return h('section', { ref: root, className: 'pt', 'aria-label': 'Timeline', 'data-stale': stale ? '' : undefined, 'data-compact': compact ? '' : undefined, 'data-narrow': narrow ? '' : undefined,
     ...shiftDeletionInput((event) => {
@@ -543,7 +551,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
       }),
       !tl.empty && h('path', { d: curve.area, className: 'pt-area' }),
       !tl.empty && h('g', { className: 'pt-curve' }, curve.segments.map((s, i) => h('line', { key: i, x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, stroke: s.color }))),
-      !series && h('line', { x1: GUTTER, x2: W - RIGHT, y1: y(c.maxVel ?? robot.maxSpeed), y2: y(c.maxVel ?? robot.maxSpeed), className: 'pt-limit' }),
+      !series && h('line', { x1: GUTTER, x2: W - RIGHT, y1: y(shownLimit(doc)), y2: y(shownLimit(doc)), className: 'pt-limit' }),
       issues.map((issue, i) => {
         const whole = isWholeIssue(issue);
         const x0 = whole ? GUTTER : x(tAtF(tl, issue.f0)), x1 = whole ? W - RIGHT : x(tAtF(tl, issue.f1));
@@ -557,7 +565,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
     h('div', { className: 'pt-gutter', style: { top: graphTop, height: 30 } }, series ? series.label : 'Speed', h('span', null, series ? UnitPrefs.label(series.unit) : speedUnit)),
     h(Ruler, { store: playbackStore, total: tl.empty ? 0 : tl.total, left: GUTTER, width: plotW, top: HEAD, onScrub: scrub }),
     h('div', { className: 'pt-graph-hit', style: { left: GUTTER, width: plotW, top: graphTop, height: graphH }, onPointerDown: scrub, 'aria-hidden': true }),
-    !series && h('div', { className: 'pt-limit-hit', style: { left: GUTTER, width: plotW, top: y(c.maxVel ?? robot.maxSpeed) - 5 }, onPointerDown: limitDrag, 'aria-hidden': true }),
+    !series && h('div', { className: 'pt-limit-hit', style: { left: GUTTER, width: plotW, top: y(shownLimit(doc)) - 5 }, onPointerDown: limitDrag, 'aria-hidden': true }),
 
     zones.map((zone) => {
       const x0 = x(tAtF(tl, zone.f0)), x1 = x(tAtF(tl, zone.f1));
@@ -582,7 +590,7 @@ export function PathTimeline({ doc, derived, tl, robot, sel, select, edit, actio
           onPointerDown: zoneEdgeDrag(zone, side) })));
     }),
 
-    !series && h('div', { className: 'pt-limit-handle', style: { top: y(c.maxVel ?? robot.maxSpeed), left: W - RIGHT - 50 }, role: 'slider', tabIndex: 0,
+    !series && h('div', { className: 'pt-limit-handle', style: { top: y(shownLimit(doc)), left: W - RIGHT - 50 }, role: 'slider', tabIndex: 0,
       'aria-label': 'Path speed limit', 'aria-valuemin': 0.1, 'aria-valuemax': Number(speed(robot.maxSpeed).toFixed(2)), 'aria-valuenow': Number(limitLabel),
       'aria-valuetext': limitLabel + ' ' + speedUnit,
       onKeyDown: (event) => stepKeys(event, pathLimit(doc), speedStep, (v) => {

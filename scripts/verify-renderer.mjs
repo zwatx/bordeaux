@@ -68,7 +68,21 @@ import path from "node:path";
 // measure 952,097 B (2026-11-26); 932 KiB keeps about 2 KiB of headroom.
 // The Optimize panel's Path and Heading tabs and the heading search's preview and apply measure 959,363 B against
 // 952,097 B before them (2026-11-26); 939 KiB keeps about 2 KiB of headroom. The search itself runs in the worker.
-const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 939 * 1024;
+// Robot tabs, power estimates on each command use (resolution, the inspectors' estimate and the Robot page's list of
+// uses) and limits that follow the robot's max measure 978,849 B against 959,363 B before them (2026-11-27), with
+// estimates kept across robot changes and Undo; 958 KiB keeps about 2 KiB of headroom.
+// Robot files: the robot's details as a row in the Push review, and Pull from robot with its field-by-field review and
+// one-step Undo measure 996,521 B (2026-11-27); the new modules alone minify to about 15.7 KB. Pulled details are
+// validated by the host, so the project validator stays out of the page. 975 KiB keeps about 1.9 KiB of headroom.
+// Review fixes for robot files (Pull bound to the project it reviewed, per-field rows for loads, breakers and bumper
+// vertices, blocked Apply for errors elsewhere, dependent-field Undo, the transferable-field allowlist and the shared
+// file name check) measure 1,004,691 B against 996,521 B (2026-11-27); 983 KiB keeps about 1.9 KiB of headroom.
+// The routine Power report timing routine command steps by their estimated Runs for (the shared routine clock, the
+// power timeline and the message naming steps without one) measures 1,007,773 B (2026-11-27), with concurrent robot
+// file work in the same build; 986 KiB keeps about 1.9 KiB of headroom.
+// Review fixes on that work (Pull refusing mistyped fields, the camera order row, End routine limits in routine power)
+// measure 1,010,121 B (2026-11-27); 988 KiB keeps about 1.6 KiB of headroom.
+const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 988 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
 // The measured worker is 195,729 bytes; 200 KiB keeps bounded headroom without removing the gate.
@@ -107,7 +121,10 @@ const WORKER_JAVASCRIPT_BUDGET_BYTES = 254 * 1024;
 // (2026-11-26), after removing the unused constraint bar styles; 186 KiB keeps about 0.8 KiB of headroom.
 // The Cameras section and its 3D drawing measure 192,719 B against 189,631 B before them (2026-11-26); 189 KiB keeps
 // about 0.8 KiB of headroom.
-const CSS_BUDGET_BYTES = 189 * 1024;
+// Robot tabs replacing the robot cards, the rail's robot name and connection, the power estimate on command uses with
+// the Robot page's list of uses, and the Max toggle on limits measure 198,328 B against 192,719 B before them
+// (2026-11-26); 196 KiB keeps about 2.3 KiB of headroom.
+const CSS_BUDGET_BYTES = 196 * 1024;
 const rendererDirectory = path.resolve("dist-renderer");
 const renderer = path.join(rendererDirectory, "index.html");
 

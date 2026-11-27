@@ -8,6 +8,7 @@ import type {
   ValidationIssue,
 } from "../types";
 import { DEFAULT_SAMPLES_PER_SEGMENT, MAX_TRAJECTORY_SAMPLES } from "./limits";
+import { exportedInvocation } from "../markerCommands";
 
 const R = (value: number, places = 4) => Number(value.toFixed(places));
 
@@ -54,7 +55,7 @@ function markersFor(
       id: marker.id ?? `${input.path.id}:event:${index}`,
       name: marker.name,
       command: marker.cmd ?? null,
-      ...(marker.invocation ? { invocation: marker.invocation } : {}),
+      ...(marker.invocation ? { invocation: exportedInvocation(marker.invocation) } : {}),
       group: marker.group ?? null,
       timeS: fullPrecision ? timeAtFraction(fraction, pts, times) : R(timeAtFraction(fraction, pts, times), 4),
       fraction: fullPrecision ? fraction : R(fraction, 5),

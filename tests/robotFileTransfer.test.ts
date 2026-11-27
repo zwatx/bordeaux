@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { probeRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "../src/electron/robotFileTransfer";
+import { probeRobotFiles, readRobotFiles, uploadRobotFiles, validateRobotFileEndpoint } from "../src/electron/robotFileTransfer";
 import { COMMANDS_FILE_NAME } from "../src/core/export/commandsFile";
 import { RobotTransportError, type RobotConnectRequest, type RobotRemoteFile, type RobotSftpSession } from "../src/electron/robotSftpTransport";
 
@@ -94,6 +94,44 @@ describe("direct robot SFTP path delivery", () => {
     await uploadRobotFiles(connection, [...files, list], undefined, f.factory);
     expect(f.stored.get(COMMANDS_FILE_NAME)).toEqual(list.contents);
     expect(f.stored.get("opening.bdx")).toEqual(files[0].contents);
+  });
+
+  it("sends a robot's .robot file beside a path with the same staged read-back, never alone", async () => {
+    const f = fixture(), robot = { fileName: "Comp-bot.robot", contents: Buffer.from('{"format":"bordeaux-robot/1"}\n') };
+    await expect(uploadRobotFiles(connection, [robot], undefined, f.factory)).rejects.toThrow("Select between 1 and 64 robot path files");
+    expect(f.requests).toHaveLength(0);
+    const writes: string[] = [], renames: string[] = [];
+    const write = f.session.write.bind(f.session), rename = f.session.renameSameDirectory.bind(f.session);
+    f.session.write = async (file, data, signal) => { writes.push(file.kind + ":" + ("fileName" in file ? file.fileName : "")); return write(file, data, signal); };
+    f.session.renameSameDirectory = async (from, to, signal) => { renames.push((to as { fileName: string }).fileName); return rename(from, to, signal); };
+    await uploadRobotFiles(connection, [...files, robot], undefined, f.factory);
+    expect(f.stored.get("Comp-bot.robot")).toEqual(robot.contents);
+    expect(writes).toEqual(["pathTemporary:opening.bdx", "pathTemporary:Comp-bot.robot"]);
+    expect(renames).toEqual(["opening.bdx", "Comp-bot.robot"]);
+    expect(f.stored.get("unrelated.bdx")?.toString()).toBe("preserve");
+  });
+
+  it("names the robot files already replaced when a robot file's read-back fails", async () => {
+    const f = fixture(), robot = { fileName: "Comp-bot.robot", contents: Buffer.from("{}\n") };
+    const read = f.session.read.bind(f.session);
+    f.session.read = async (file, ...args) => file.kind === "pathFile" && file.fileName === "Comp-bot.robot" ? Buffer.from("other") : read(file, ...args);
+    await expect(uploadRobotFiles(connection, [...files, robot], undefined, f.factory)).rejects.toThrow(/1 of 2 files verified on the robot \(opening\.bdx\)\. Comp-bot\.robot may have been replaced/);
+  });
+
+  it("reads a .robot file read-only, and lists the folder's .robot files when the one asked for is missing", async () => {
+    const f = fixture();
+    f.stored.set("Practice.robot", Buffer.from("practice"));
+    const listed: boolean[] = [];
+    f.session.listPathFiles = async (_directory, _signal, robotFiles) => { listed.push(Boolean(robotFiles));
+      return { files: [{ fileName: "Practice.robot", size: 8, mtime: 0 }, { fileName: "Alpha.robot", size: 1, mtime: 0 }], missing: false, truncated: false }; };
+    const writes = f.stored.size;
+    expect(await readRobotFiles(connection, ["Practice.robot"], undefined, f.factory)).toEqual({ files: [{ fileName: "Practice.robot", contents: Buffer.from("practice") }] });
+    expect(listed).toEqual([]);
+    expect(await readRobotFiles(connection, ["Comp-bot.robot"], undefined, f.factory)).toEqual({ files: [{ fileName: "Comp-bot.robot", contents: null }], robotConfigs: ["Alpha.robot", "Practice.robot"] });
+    expect(listed).toEqual([true]);
+    expect(f.stored.size).toBe(writes);
+    expect(f.removed).toEqual([]);
+    await expect(readRobotFiles(connection, ["../x.robot"], undefined, f.factory)).rejects.toThrow(/\.robot/);
   });
 
   it("reports a confirmed folder creation even when later read-back fails", async () => {

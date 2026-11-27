@@ -52,7 +52,8 @@ import { AgentSessionService } from "./agentSession";
 import { runAgentPlanningInWorker } from "./agentPlanningWorkerClient";
 import { quitAfterMcpInputEnds } from "./mcpStdioLifecycle";
 import { serveBordeauxMcp } from "../mcp/server";
-import { pushConnectionProblem } from "../core/project/robots";
+import { projectRobots, pushConnectionProblem } from "../core/project/robots";
+import { robotFileContents, robotPushFileConflict, robotPushFileName } from "../core/project/robotFile";
 import { RobotFileDelivery, openKnownHosts, readRobotFileConnection, writeRobotFileConnection, type PreparedRobotFile } from "./robotFileDelivery";
 import { COMMANDS_FILE_NAME, encodeCommandsFile } from "../core/export/commandsFile";
 import { openRobotPasswordStore, sessionRobotPasswordStore } from "./robotPasswordStore";
@@ -1023,7 +1024,7 @@ async function openProjectFile(filePath: string, assertCurrent = captureProjectA
 
 async function assertProjectSourceReadable(selected: string, assertCurrent?: () => void) {
   const stat = await fs.promises.lstat(selected).catch(error => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; });
-  const parent = path.dirname(selected), managed = /\.(path|routine)$/i.test(selected) && ["Paths", "Routines"].includes(path.basename(parent));
+  const parent = path.dirname(selected), managed = /\.(path|routine|robot)$/i.test(selected) && ["Paths", "Routines", "Robots"].includes(path.basename(parent));
   const identity = await projectFolderIdentity(stat?.isDirectory() ? selected : managed ? path.dirname(parent) : parent, { assertCurrent });
   await projectSources.assertReadable(identity.folderPath, assertCurrent); assertCurrent?.();
   return stat?.isDirectory() ? identity.folderPath : managed ? path.join(identity.folderPath, path.basename(parent), path.basename(selected)) : path.join(identity.folderPath, path.basename(selected));
@@ -1036,7 +1037,7 @@ handle("project:open", async () => {
 
 handle("project:openFile", async () => {
   const assertCurrent = captureProjectActivation();
-  const result = await dialog.showOpenDialog(mainWindow!, { title: "Open Bordeaux Project or Path", properties: ["openFile"], filters: [{ name: "Bordeaux Project", extensions: ["bordeaux", "path", "json"] }] });
+  const result = await dialog.showOpenDialog(mainWindow!, { title: "Open Bordeaux Project or Path", properties: ["openFile"], filters: [{ name: "Bordeaux Project", extensions: ["bordeaux", "path", "robot", "json"] }] });
   if (result.canceled || !result.filePaths[0]) return null;
   return openProjectFile(result.filePaths[0], assertCurrent);
 });
@@ -1720,7 +1721,19 @@ async function withRobotCommands(files: PreparedRobotFile[], pairing: RobotFileC
       }
     } };
 }
-handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
+/**
+ * The selected robot's `.robot` file, when the review asks for it (`options.robotFile`). It sits beside the paths in the
+ * push folder under the same plain name its BDX would have, and is reviewed, staged and read back like them.
+ */
+function withRobotFile(files: PreparedRobotFile[], project: BordeauxProject, options: unknown): PreparedRobotFile[] {
+  if (!options || typeof options !== "object" || (options as { robotFile?: unknown }).robotFile !== true) return files;
+  const robot = projectRobots(project).find((entry) => entry.selected);
+  if (!robot) throw new Error("Choose a robot before pushing its details");
+  const conflict = robotPushFileConflict(project, robot.id);
+  if (conflict) throw new Error(conflict);
+  return [...files, { pathId: `robot:${robot.id}`, name: robot.name, fileName: robotPushFileName(robot.name), contents: Buffer.from(robotFileContents(robot.name, robot.robot)) }];
+}
+handle("robotFiles:prepare", async (_event, rawProject, pathIds, options) => {
   if (!Array.isArray(pathIds)) throw new Error("Select distinct paths to push");
   if (!pathIds.length || pathIds.length > MAX_BDX_BATCH) throw new Error(`Select between 1 and ${MAX_BDX_BATCH} paths to push`);
   if (pathIds.some(id => typeof id !== "string") || new Set(pathIds).size !== pathIds.length) throw new Error("Select distinct paths to push");
@@ -1744,7 +1757,7 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
   assertCurrent();
   const built = await buildBdxBatchOffThread({ project, selections: selected.map(candidate => ({ kind: "path", id: candidate.id })), bindings });
   assertCurrent();
-  const { files, check } = await withRobotCommands(built.map((file, index) => ({ pathId: selected[index].id, name: selected[index].name, fileName: file.fileName, contents: Buffer.from(file.bytes) })), pairing, link);
+  const { files, check } = await withRobotCommands(withRobotFile(built.map((file, index) => ({ pathId: selected[index].id, name: selected[index].name, fileName: file.fileName, contents: Buffer.from(file.bytes) })), project, options), pairing, link);
   assertCurrent();
   return robotFileDelivery.prepare(files, async () => {
     assertCurrent();
@@ -1754,7 +1767,7 @@ handle("robotFiles:prepare", async (_event, rawProject, pathIds) => {
     await check(); assertCurrent();
   });
 });
-handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
+handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId, options) => {
   if (typeof routineId !== "string" || !routineId.trim()) throw new Error("Select one routine to push");
   const project = rawProject as BordeauxProject;
   if (!project || !Array.isArray(project.paths) || !Array.isArray(project.routines)) throw new Error("A valid Bordeaux project is required");
@@ -1770,7 +1783,7 @@ handle("robotFiles:prepareRoutine", async (_event, rawProject, routineId) => {
   assertCurrent();
   const built = await buildRoutineOffThread({ project, routineId, bindings });
   assertCurrent();
-  const { files, check } = await withRobotCommands([{ pathId: routineId, name: built.name, fileName: built.fileName, contents: Buffer.from(built.bytes) }], pairing, link);
+  const { files, check } = await withRobotCommands(withRobotFile([{ pathId: routineId, name: built.name, fileName: built.fileName, contents: Buffer.from(built.bytes) }], project, options), pairing, link);
   assertCurrent();
   return robotFileDelivery.prepare(files, async () => {
     assertCurrent();

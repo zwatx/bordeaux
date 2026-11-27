@@ -3,7 +3,10 @@ import { buildCanonicalPathState } from './pathState';
 import { evaluateDrivetrainPower } from './drivetrainProjection';
 import { mechanismCurrent, predictBus, summarizePower, type PowerInterval, type PowerReport } from '../electricalPower';
 import { driveContacts } from '../loadTransfer';
-import { commandLoadWindows, commandsWithoutLoad, planningRobotForPath, type CommandLoadWindow } from '../commandLoads';
+import {
+  commandLoadWindows, commandsWithoutLoad, commandUseEstimate, pathCommandCoverage, planningRobotForPath, routineCommandCoverage, routineCommandWindows,
+  type CommandEstimateCoverage, type CommandLoadWindow, type RoutineCommandStepTiming,
+} from '../commandLoads';
 
 /** Where mechanism current can change: legacy timed loads and command windows. */
 function loadBoundaries(robot: RobotConfig, commands: readonly CommandLoadWindow[]): number[] {
@@ -65,8 +68,15 @@ function lastCommandEnd(commands: readonly CommandLoadWindow[], endS: number): n
 }
 
 export interface PlannedTrajectory { samples: TrajectorySample[]; markers?: BdxMarker[]; optimizedPath?: PathDoc }
-/** The estimate plus the commands it started that have no configured load, so it added no current for them. */
-export type PowerAnalysis = PowerReport & { commandsWithoutLoad: string[] };
+/**
+ * The estimate, the commands it started with a use that has no estimate (those uses added no current), and how many
+ * uses it covered with an estimate or with a stale one (entered before the use's command or arguments changed).
+ */
+export type PowerAnalysis = PowerReport & { commandsWithoutLoad: string[]; commandUses: CommandEstimateCoverage };
+
+const addCoverage = (into: CommandEstimateCoverage, from: CommandEstimateCoverage) => {
+  into.uses += from.uses; into.estimated += from.estimated; into.stale += from.stale;
+};
 
 /** `path` is the authored path: its events say which commands start; the trajectory says when. */
 export function analyzeTrajectoryPower(robot: RobotConfig, path: PathDoc, trajectory: PlannedTrajectory): PowerAnalysis | null {
@@ -75,23 +85,28 @@ export function analyzeTrajectoryPower(robot: RobotConfig, path: PathDoc, trajec
   // A command still running when the path ends keeps drawing while the robot waits.
   const endS = trajectory.samples.length ? trajectory.samples[trajectory.samples.length - 1].t : 0;
   for (const interval of idlePowerIntervals(robot, endS, lastCommandEnd(commands, endS), commands)) intervals.push(interval);
-  return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: commandsWithoutLoad(robot.driveModel, path.markers) } : null;
+  return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: commandsWithoutLoad(robot, path.markers),
+    commandUses: pathCommandCoverage(robot, path.markers) } : null;
 }
 
 /**
  * A chosen, completely timed preview, not a guarantee about runtime command durations or unselected branches.
  * A command an earlier path started keeps drawing through later waits and paths until its window ends.
+ * `commandSteps` are the routine's own command steps as the preview timed them (see routineCommandWindows).
  */
 export function analyzeRoutinePower(robot: RobotConfig, segments: readonly {
   t0: number; t1: number; doc: PathDoc; trajectory: PlannedTrajectory | null;
-}[], totalTimeS: number): PowerAnalysis | null {
-  const commands: CommandLoadWindow[] = [];
+}[], totalTimeS: number, commandSteps: readonly RoutineCommandStepTiming[] = []): PowerAnalysis | null {
+  const commands: CommandLoadWindow[] = routineCommandWindows(robot, commandSteps, totalTimeS);
   const unloaded = new Set<string>();
+  const coverage = routineCommandCoverage(robot, commandSteps);
+  for (const step of commandSteps) if (!commandUseEstimate(step.invocation, robot)) unloaded.add(step.invocation.commandId);
   let time = 0;
   for (const segment of segments) {
     if (!segment.trajectory || segment.t0 < time - 1e-9) return null;
     for (const window of commandLoadWindows(robot, segment.doc, segment.trajectory, segment.t0)) commands.push(window);
-    commandsWithoutLoad(robot.driveModel, segment.doc.markers).forEach(id => unloaded.add(id));
+    commandsWithoutLoad(robot, segment.doc.markers).forEach(id => unloaded.add(id));
+    addCoverage(coverage, pathCommandCoverage(robot, segment.doc.markers));
     time = segment.t1;
   }
   const intervals: PowerInterval[] = [];
@@ -104,5 +119,5 @@ export function analyzeRoutinePower(robot: RobotConfig, segments: readonly {
     time = segment.t1;
   }
   for (const interval of idlePowerIntervals(robot, time, lastCommandEnd(commands, totalTimeS), commands)) intervals.push(interval);
-  return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: [...unloaded].sort() } : null;
+  return intervals.length ? { ...summarizePower(robot, intervals), commandsWithoutLoad: [...unloaded].sort(), commandUses: coverage } : null;
 }

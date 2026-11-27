@@ -64,7 +64,7 @@ describe("project robots", () => {
     const project = addRobot(before, "Practice bot");
     expect(before).toEqual(snapshot);
     expect(names(project)).toEqual(["Robot", "Practice bot*"]);
-    expect(project.robot).toEqual(newRobot());
+    expect(project.robot).toEqual({ ...newRobot(), id: project.activeRobotId });
     expect(project.robot.driveModel?.gearRatio).toBe(6.75);
     const kept = project.robots!.find((robot) => robot.name === "Robot")!.robot!;
     expect(kept).toEqual(before.robot);
@@ -221,7 +221,8 @@ describe("project robots", () => {
     const single = base();
     const copied = duplicateRobot(single, projectRobots(single)[0].id);
     expect(names(copied)).toEqual(["Robot", "Robot 2*"]);
-    expect(copied.robot).toEqual(single.robot);
+    // The copy shares the original's command power estimates until it enters its own.
+    expect(copied.robot).toEqual({ ...single.robot, id: copied.activeRobotId, estimatesFrom: ["robot"] });
     expect(validateProject(copied).ok).toBe(true);
   });
 

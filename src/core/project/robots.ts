@@ -1,6 +1,8 @@
 import { randomUuid } from "../randomUuid";
 import type { RobotFileEndpoint } from "../robotFileDelivery";
 import { newRobot } from "./defaults";
+import { storedCommandEstimate } from "../commandLoads";
+import { forEachCommandUse } from "./invocations";
 import type { BordeauxProject, ProjectRobot, RobotConfig } from "../types";
 
 /** Longest robot name the editor accepts. */
@@ -26,11 +28,50 @@ function entries(project: BordeauxProject): { robots: ProjectRobot[]; activeRobo
   return { robots: [{ id: UNLISTED_ROBOT_ID, name: DEFAULT_NAME }], activeRobotId: UNLISTED_ROBOT_ID };
 }
 
+/** The selected robot's id: `activeRobotId`, or UNLISTED_ROBOT_ID for a project without a robot list. */
+export function selectedRobotId(project: BordeauxProject): string {
+  return project.robots?.length && project.activeRobotId ? project.activeRobotId : UNLISTED_ROBOT_ID;
+}
+
+/** `robot` as `project.robot` holds it: carrying its project id, which keys per-use command power estimates. */
+export function asSelectedRobot(robot: RobotConfig, id: string): RobotConfig {
+  return robot.id === id ? robot : { ...robot, id };
+}
+
+/**
+ * A robot's details without `id`: as its list entry keeps them, and as files store them. The id belongs to the
+ * selected robot in memory only; loading derives it from `activeRobotId` again, so saving never rewrites a file for it.
+ */
+export function storedRobotDetails(robot: RobotConfig): RobotConfig {
+  if (robot.id === undefined) return robot;
+  const { id: _id, ...details } = robot;
+  return details;
+}
+const asListedRobot = storedRobotDetails;
+
 /** Every robot in card order with its details, for display. */
 export function projectRobots(project: BordeauxProject): RobotSummary[] {
   if (!project.robots?.length || !project.activeRobotId) return [{ id: UNLISTED_ROBOT_ID, name: DEFAULT_NAME, selected: true, robot: project.robot }];
   return project.robots.map(({ id, name, robot, connection }) => ({ id, name, selected: id === project.activeRobotId,
     robot: id === project.activeRobotId ? project.robot : robot!, ...(connection ? { connection } : {}) }));
+}
+
+/** A robot's details by id, wherever they are held: `project.robot` while it is selected. Null for no such robot. */
+export function robotDetailsOf(project: BordeauxProject, id: string): RobotConfig | null {
+  return projectRobots(project).find((robot) => robot.id === id)?.robot ?? null;
+}
+
+/**
+ * Replaces a robot's details, selected or not, keeping its name, address, `id` and `estimatesFrom` (which only mean
+ * something in this project). A robot the project no longer has leaves the project as it is.
+ */
+export function replaceRobotDetails(project: BordeauxProject, id: string, details: RobotConfig): BordeauxProject {
+  const current = robotDetailsOf(project, id);
+  if (!current) return project;
+  const { id: _id, estimatesFrom: _from, ...rest } = details;
+  const next: RobotConfig = { ...rest, ...(current.estimatesFrom ? { estimatesFrom: current.estimatesFrom } : {}) };
+  if (id === selectedRobotId(project)) return { ...project, robot: project.robot.id === undefined ? next : asSelectedRobot(next, project.robot.id) };
+  return { ...project, robots: project.robots!.map((robot) => robot.id === id ? { ...robot, robot: next } : robot) };
 }
 
 function uniqueName(robots: readonly ProjectRobot[], wanted: string): string {
@@ -55,17 +96,54 @@ export function addRobot(project: BordeauxProject, name: string, copyOf?: { robo
   const connection = copyOf?.connection;
   return {
     ...project,
-    robot: copyOf ? structuredClone(copyOf.robot) : newRobot(),
-    robots: [...robots.map((robot) => robot.id === activeRobotId ? { ...robot, robot: project.robot } : robot),
+    robot: asSelectedRobot(copyOf ? structuredClone(copyOf.robot) : newRobot(), id),
+    robots: [...robots.map((robot) => robot.id === activeRobotId ? { ...robot, robot: asListedRobot(project.robot) } : robot),
       { id, name: uniqueName(robots, name), ...(connection ? { connection: { ...connection } } : {}) }],
     activeRobotId: id,
   };
 }
 
-/** Adds a copy of any robot, details and address included, named like it with a number, and selects the copy. */
+/**
+ * The robots a copy of `sourceId` shares estimates from: the source and its own list, nearest first. A list can name at
+ * most ROBOT_LIMIT ids, and a long line of copies (each made from the last, the older ones deleted) outgrows it. Cutting
+ * the oldest ids would drop estimates the copy still plans with, so the list keeps instead the source, first, so the
+ * copy keeps sharing what is entered on it later, and the ids that decide some use's estimate (the first id in the
+ * list holding one on that use), in order. Every use then resolves to the same estimate as through the whole list.
+ * Null when those are too many.
+ */
+function copyEstimatesFrom(project: BordeauxProject, sourceId: string, from: unknown): string[] | null {
+  const chain = [...new Set([sourceId, ...(Array.isArray(from) ? from.filter((id): id is string => typeof id === "string") : [])])];
+  if (chain.length <= ROBOT_LIMIT) return chain;
+  const deciding = new Set<string>([sourceId]);
+  forEachCommandUse(project, (invocation) => {
+    const id = chain.find((robotId) => storedCommandEstimate(invocation, robotId));
+    if (id) deciding.add(id);
+  });
+  const kept = chain.filter((id) => deciding.has(id));
+  return kept.length <= ROBOT_LIMIT ? kept : null;
+}
+
+/** Why Duplicate leaves the project as it is for robot `id`, or null when it can copy it. */
+export function duplicateRobotProblem(project: BordeauxProject, id: string): string | null {
+  const source = projectRobots(project).find((robot) => robot.id === id);
+  if (!source) return "This robot is no longer in the project.";
+  if (project.robots && project.robots.length >= ROBOT_LIMIT) return `A project holds at most ${ROBOT_LIMIT} robots.`;
+  return copyEstimatesFrom(project, id, source.robot.estimatesFrom) ? null
+    : `${source.name} shares power estimates from more than ${ROBOT_LIMIT} robots, so a copy could not plan with all of them. Enter its own estimates on some uses, then duplicate it.`;
+}
+
+/**
+ * Adds a copy of any robot, details and address included, named like it with a number, and selects the copy. The copy
+ * shares the original's command power estimates (and those the original shares) until it enters its own: its
+ * `estimatesFrom` starts with the original (see copyEstimatesFrom). No path or routine changes, so path and routine
+ * Undo stay whole. A copy that could not plan with the same estimates (duplicateRobotProblem) is not made.
+ */
 export function duplicateRobot(project: BordeauxProject, id: string): BordeauxProject {
   const source = projectRobots(project).find((robot) => robot.id === id);
-  return source ? addRobot(project, source.name, source) : project;
+  if (!source) return project;
+  const estimatesFrom = copyEstimatesFrom(project, id, source.robot.estimatesFrom);
+  if (!estimatesFrom) return project;
+  return addRobot(project, source.name, { ...source, robot: { ...source.robot, estimatesFrom } });
 }
 
 // This computer stores a push folder without its trailing slash, so the two spellings are one folder.
@@ -101,9 +179,9 @@ export function selectRobot(project: BordeauxProject, id: string): BordeauxProje
   if (!chosen?.robot || id === activeRobotId) return project;
   return {
     ...project,
-    robot: chosen.robot,
+    robot: asSelectedRobot(chosen.robot, id),
     robots: robots.map(({ robot: details, ...robot }) => robot.id === id ? robot
-      : robot.id === activeRobotId ? { ...robot, robot: project.robot } : { ...robot, robot: details }),
+      : robot.id === activeRobotId ? { ...robot, robot: asListedRobot(project.robot) } : { ...robot, robot: details }),
     activeRobotId: id,
   };
 }
@@ -119,7 +197,11 @@ export function renameRobot(project: BordeauxProject, id: string, name: string):
   return { ...project, robots: robots.map((robot) => robot === target ? { ...robot, name: next } : robot), activeRobotId };
 }
 
-/** Removes a robot. The last robot stays. Removing the selected robot selects the first one left. */
+/**
+ * Removes a robot. The last robot stays. Removing the selected robot selects the first one left. Its command power
+ * estimates stay on the uses, unchanged with every path and routine: robots that share them through `estimatesFrom`
+ * keep planning with them.
+ */
 export function removeRobot(project: BordeauxProject, id: string): BordeauxProject {
   if (!project.robots || project.robots.length < 2 || !project.robots.some((robot) => robot.id === id)) return project;
   const base = id === project.activeRobotId ? selectRobot(project, project.robots.find((robot) => robot.id !== id)!.id) : project;

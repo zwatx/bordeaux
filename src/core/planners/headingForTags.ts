@@ -5,6 +5,8 @@ import { visibleTags, type FieldTag } from "../tagVisibility";
 import type { PathDoc, PlannerInput, PlannerResult, RobotCamera, RotationTarget } from "../types";
 import { headingForTagsBlocker } from "./headingForTagsBlocker";
 import { planPath } from "./planPath";
+import { followRobotLimits, robotLimitCeilings } from "../robotLimits";
+import { planningRobotForPath } from "../commandLoads";
 
 export { headingForTagsBlocker, type HeadingForTagsBlocker } from "./headingForTagsBlocker";
 
@@ -144,7 +146,9 @@ export function optimizeHeadingForTags(input: PlannerInput, tags: readonly Field
     return drawn.head[after] * 180 / Math.PI;
   });
   const wrap = (deg: number) => { const turned = Math.round(deg) % 360; return turned > 180 ? turned - 360 : turned <= -180 ? turned + 360 : turned; };
-  const limits = path.constraints, speed = limits.maxAngVel, pickup = Math.min(limits.maxAngAccel, limits.maxAngDecel ?? limits.maxAngAccel);
+  // Limits that follow the robot screen turns at its ceilings, as planning will time them.
+  const limits = path.constraints.followRobotMax?.length ? followRobotLimits(path.constraints, robotLimitCeilings(planningRobotForPath(robot, path))) : path.constraints;
+  const speed = limits.maxAngVel, pickup = Math.min(limits.maxAngAccel, limits.maxAngDecel ?? limits.maxAngAccel);
   /** Shortest time to turn `deg` from rest to rest at the path's angular limits. */
   const turnSeconds = (deg: number) => !(speed > 0) || !(pickup > 0) ? 0 : deg <= speed * speed / pickup ? 2 * Math.sqrt(deg / pickup) : deg / speed + speed / pickup;
   const turnsFit = (added: readonly RotationTarget[]) => {

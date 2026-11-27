@@ -348,4 +348,26 @@ describe("agent route candidates", () => {
       steps: [{ kind: "travel", to: { x: 8, y: 7.2 } }],
     })).toThrow(/must name its exact TRENCH\/BUMP/);
   });
+
+  it("sets collection and BUMP zones from the speed the base path plans at when its limit follows the robot", () => {
+    const project = createDemoProject();
+    project.paths[0].constraints = { ...project.paths[0].constraints, maxVel: 1, followRobotMax: ["maxVel"] };
+    project.robot.planning = {
+      intake: { name: "Front intake", centerM: { x: project.robot.l / 2, y: 0 }, directionDeg: 0, captureWidthM: 0.7, maxCollectSpeedMps: 2.3 },
+    };
+    const collecting = generateRouteCandidates(project, {
+      intent: "Collect the center FUEL in a straight lane", alliance: "red", start: { x: 6, y: 2.5 }, goals: [{ x: 11, y: 2.5 }],
+      collectFuel: { maxHeadingErrorDeg: 5 }, maximumCandidates: 1,
+    })[0];
+    expect(collecting.path.ranges).toEqual([expect.objectContaining({ name: "FUEL collection", maxVel: 2.3 })]);
+    expect(Object.keys(collecting.path.ranges[0]).filter((key) => key.startsWith("max"))).toEqual(["maxVel"]);
+    delete project.robot.planning;
+    const direct = generateRouteCandidates(project, { intent: "Cross the bump directly", alliance: "blue", start: { x: 1.5, y: 2.59 }, goals: [{ x: 7, y: 2.59 }], traversal: "compare", maximumCandidates: 5 });
+    const bumps = direct.flatMap((candidate) => candidate.path.ranges.filter((range) => range.name?.startsWith("BUMP traversal")));
+    expect(bumps.length).toBeGreaterThan(0);
+    for (const bump of bumps) {
+      expect(bump.maxVel).toBe(2);
+      expect(Object.keys(bump).filter((key) => key.startsWith("max"))).toEqual(["maxVel"]);
+    }
+  });
 });

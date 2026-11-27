@@ -9,6 +9,9 @@ import { rotateBlueOriginPoint } from '../src/core/math/fieldBounds';
 import { ACTIVE_FIELD_REFERENCE } from '../src/core/field/rebuilt2026';
 import { PushControl } from '../src/renderer/components/PushControl';
 import { UnitPrefs } from '../src/renderer/lib/unitPreferences';
+import { createDemoProject } from '../src/core/project/defaults';
+import { selectedRobotFile } from '../src/renderer/lib/robotFileMemory';
+import { addRobot, renameRobot, selectRobot, setRobotConnection } from '../src/core/project/robots';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const results = [], root = createRoot(document.getElementById('root'));
@@ -26,9 +29,11 @@ async function native(request) { await new Promise((resolve) => { window.__pushU
 const button = (label) => [...document.querySelectorAll('button')].find((button) => button.textContent === label || button.getAttribute('aria-label') === label);
 async function pointer(label) { const rect = button(label).getBoundingClientRect(); await act(async () => native({ pointer: { x: Math.round(rect.x + rect.width/2), y: Math.round(rect.y + rect.height/2) } })); }
 function Harness() { controller = useRobotPushController(props); return <><button id="origin" onClick={() => controller.requestPush({ kind: 'paths', pathIds: ['A','B'] })}>Push selection</button><button id="connection-origin" onClick={() => controller.openConnection()}>Manage connection</button><PushControl place={props.place || 'paths'} activeRoutine={{ id: 'R', name: 'Long routine with typed branch and repeated pickup attempts' }} paths={files.map(f => ({ ...f, id: f.pathId, waypoints: [{}, {}] }))} selection={{ selected: props.noSelection ? [] : ['A', 'B'] }} controller={controller} /><RobotPushDialog controller={controller} /><DiagnosticBundleDialog getProject={props.getProject} targetSelector=".robot-connection-diagnostics" onOpen={controller.close} onClose={() => controller.returnFocus()} renderKey={controller.open + ":" + controller.phase} /></>; }
-async function mount(saved = connection) {
+// A project with robot details, for the robot's .robot row in the review; the other checks push paths only.
+const robotProject = { ...createDemoProject(), paths: files.map((f) => ({ id: f.pathId, name: f.name, waypoints: [{}, {}] })), routines: [] };
+async function mount(saved = connection, options = {}) {
   await act(async () => root.render(null));
-  props = { getProject: () => ({ paths: files.map((f) => ({ id: f.pathId, name: f.name })), routines: [] }), projectKey: 'project-1', catalogKey: 'catalog-1' };
+  props = { getProject: () => options.project ?? (options.robot ? robotProject : ({ paths: files.map((f) => ({ id: f.pathId, name: f.name })), routines: [] })), projectKey: 'project-1', catalogKey: 'catalog-1' };
   mock = { probes: [], trusts: [], prepares: [], preparesRoutine: [], confirms: [], canceled: [], saves: [], checks: [], lists: [], comparisons: [], copies: [], canceledComparisons: [] };
   const enqueue = (name,args) => { const request = { args: structuredClone(args), ...deferred() }; mock[name].push(request); return request.promise; };
   window.bordeauxAPI = { robotDeliveryCapabilities: { fileTransfer: true, pathPush: true, routinePush: true },
@@ -48,7 +53,7 @@ async function mount(saved = connection) {
   await act(async () => root.render(<Harness />));
 }
 async function prepare() { await pointer('Push selection'); await resolve(mock.prepares.at(-1), preview); assert(controller.phase === 'review', 'Must review immutable files'); }
-async function test(name, run, saved) { if (new URLSearchParams(location.search).get('filter') && !name.includes(new URLSearchParams(location.search).get('filter'))) return; try { await mount(saved); await run(); results.push({ name, ok: true }); } catch (error) { results.push({ name, ok: false, error: error.stack }); } }
+async function test(name, run, saved, options) { if (new URLSearchParams(location.search).get('filter') && !name.includes(new URLSearchParams(location.search).get('filter'))) return; try { await mount(saved, options); await run(); results.push({ name, ok: true }); } catch (error) { results.push({ name, ok: false, error: error.stack }); } }
 await test('Saved robot settings can be edited offline, saved by keyboard and restored without transport', async () => {
   await action(() => controller.openConnection()); await pointer('Edit');
   await action(() => { controller.setHost('practice-robot.local'); controller.setPort('2222'); controller.setDirectory('/home/lvuser/practice'); });
@@ -641,5 +646,56 @@ await test('A missing robot folder leaves local paths available and reports no r
   assert(document.querySelector('dialog').textContent.includes('folder is missing') && button('Push…') && !button('Inspect'), 'Missing folder is read-only and preserves local-only actions');
   await native({ capture: 'robot-files-missing-folder' });
 });
+await test('The robot\'s details are one more reviewed row: checked while unknown, left out and back by pointer and keyboard, uploaded with the paths, then unchanged', async () => {
+  const robot = selectedRobotFile(robotProject);
+  const robotRow = { pathId: 'robot:robot', name: 'Robot', fileName: robot.fileName, size: robot.size, sha256: robot.sha256 };
+  const reviewWith = (operationId, included) => ({ operationId, connection, files: included ? [...files, robotRow] : files });
+  const checkbox = () => document.querySelector('#rfp-robot-file');
+  const row = () => document.querySelector('.rfp-robot-file').textContent;
+  await pointer('Push selection');
+  assert(JSON.stringify(mock.prepares[0].args[2]) === JSON.stringify({ robotFile: true }), 'A robot file the robot may not hold is included by default');
+  await resolve(mock.prepares[0], reviewWith('robot-1', true));
+  assert(checkbox().checked && row().includes('Robot details · Robot') && row().includes('Not pushed or pulled from here yet') && row().includes('Robot.robot'), 'The robot row is checked and says why');
+  assert(button('Upload 2 paths and robot details'), 'Upload names the robot details');
+  await native({ capture: 'robot-row-checked' });
+  const box = checkbox().getBoundingClientRect();
+  await act(async () => native({ pointer: { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) } }));
+  assert(mock.canceled.includes('robot-1') && JSON.stringify(mock.prepares[1].args[2]) === JSON.stringify({ robotFile: false }), 'Leaving it out discards the review and prepares again without it');
+  assert(mock.prepares[1].args[1].join(',') === 'A,B', 'The same paths are reviewed again');
+  await resolve(mock.prepares[1], reviewWith('robot-2', false));
+  assert(!checkbox().checked && row().includes('not sent') && button('Upload 2 paths'), 'Unchecked: the robot file is not sent');
+  assert(document.activeElement === checkbox(), 'Focus returns to the checkbox');
+  await native({ capture: 'robot-row-unchecked' });
+  await act(async () => native({ key: 'Space' }));
+  assert(JSON.stringify(mock.prepares[2].args[2]) === JSON.stringify({ robotFile: true }), 'Space includes it again');
+  await resolve(mock.prepares[2], reviewWith('robot-3', true));
+  assert(checkbox().checked && document.activeElement === checkbox(), 'Checked again with focus kept');
+  await pointer('Upload 2 paths and robot details');
+  assert(mock.confirms.length === 1 && mock.confirms[0].args[0] === 'robot-3', 'Upload confirms the reviewed batch');
+  await resolve(mock.confirms[0], { state: 'transferred', files: [...files, robotRow], directory: endpoint.directory });
+  assert(document.querySelector('dialog').textContent.includes('2 paths and robot details uploaded'), 'The result names the robot details');
+  await native({ capture: 'robot-row-uploaded' });
+  await act(async () => native({ key: 'Escape' }));
+  await pointer('Push selection');
+  assert(JSON.stringify(mock.prepares[3].args[2]) === JSON.stringify({ robotFile: false }), 'The robot now holds these details, so the next push leaves them out');
+  await resolve(mock.prepares[3], reviewWith('robot-4', false));
+  assert(!checkbox().checked && row().includes('Same as on the robot'), 'The row says the robot has them');
+  await native({ capture: 'robot-row-same' });
+}, connection, { robot: true });
+// "Comp bot" and "Comp-bot" both push as Comp-bot.robot: the row stays unchecked, can't be checked, and names both.
+const collisionProject = selectRobot(addRobot(renameRobot(setRobotConnection({ ...robotProject }, connection.endpoint), 'robot', 'Comp bot'), 'Comp-bot'), 'robot');
+await test('A robot whose name pushes to the same file as another robot\'s is never sent, and the row names both', async () => {
+  const checkbox = () => document.querySelector('#rfp-robot-file');
+  const row = () => document.querySelector('.rfp-robot-file').textContent;
+  await pointer('Push selection');
+  assert(JSON.stringify(mock.prepares[0].args[2]) === JSON.stringify({ robotFile: false }), 'The colliding file is not prepared');
+  await resolve(mock.prepares[0], { operationId: 'collide-1', connection, files });
+  assert(!checkbox().checked && checkbox().disabled, 'Unchecked and unavailable');
+  assert(row().includes('“Comp bot” and “Comp-bot” would both use Comp-bot.robot on the robot. Rename one of them to push or pull its details.'), 'The row says why');
+  assert(row().includes('not sent') && button('Upload 2 paths'), 'Upload sends only the paths');
+  await act(async () => { checkbox().click(); });
+  assert(mock.prepares.length === 1, 'Clicking the disabled checkbox prepares nothing');
+  await native({ capture: 'robot-row-collision' });
+}, connection, { robot: true, project: collisionProject });
 await act(async () => root.render(null));
 const report = document.createElement('pre'); report.id = 'verification-report'; report.textContent = JSON.stringify(results, null, 2); document.body.append(report);

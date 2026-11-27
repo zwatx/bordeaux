@@ -18,6 +18,16 @@ export function markerInvocations(marker: Pick<Marker, "invocation" | "commandGr
   return marker.invocation ? [marker.invocation] : [];
 }
 
+/**
+ * An invocation as exports carry it to the robot: per-use power estimates are planning-only and stay in the project.
+ * They may still change planned samples through the path's command reserve.
+ */
+export function exportedInvocation(invocation: CommandInvocation): CommandInvocation {
+  if (!invocation || typeof invocation !== "object" || !("power" in invocation)) return invocation;
+  const { power: _power, ...rest } = invocation;
+  return rest;
+}
+
 /** True when an event needs the BDX 1.2 event extension (a loop or a group). */
 export function markerUsesEventExtension(marker: Pick<Marker, "invocation" | "commandGroup">): boolean {
   return !!marker.commandGroup || markerInvocations(marker).some((invocation) => !!invocation.loop);

@@ -239,6 +239,27 @@ describe("direct file compatibility", () => {
     expect(writes.filter(([name]) => name === `${directory}/one.bdx`)).toHaveLength(exists ? 1 : 0);
     expect(vi.mocked(mock.sftp.unlink as ReturnType<typeof vi.fn>).mock.calls.every(([name]) => name.includes(".bordeaux-"))).toBe(true);
   });
+  it("never overwrites an existing .robot without an atomic rename, and leaves it as it was", async () => {
+    const f = setup({ ...entries(), [`${directory}/Comp-bot.robot`]: "file" });
+    f.stored.set(`${directory}/Comp-bot.robot`, Buffer.from("old details"));
+    mock.sftp.ext_openssh_rename = vi.fn((_from, _to, callback) => callback(Object.assign(new Error("Unsupported"), { code: 8 })));
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
+    const error = await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("new") }, { fileName: "Comp-bot.robot", contents: Buffer.from("new details") }]).catch((caught) => caught);
+    expect(error.message).toMatch(/Comp-bot\.robot on the robot was left as it was/);
+    expect(error.message).not.toMatch(/may have been replaced/);
+    expect(error.message).toMatch(/1 of 2 files verified on the robot \(one\.bdx\)/);
+    expect(f.stored.get(`${directory}/Comp-bot.robot`)).toEqual(Buffer.from("old details"));
+    const writes = vi.mocked(mock.sftp.writeFile as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes.filter(([name]) => name === `${directory}/Comp-bot.robot`)).toHaveLength(0);
+    expect([...f.stored.keys()].some((name) => name.includes(".bordeaux-Comp-bot"))).toBe(false);
+  });
+  it("publishes a new .robot with a plain rename when the robot has none yet", async () => {
+    const f = setup(entries());
+    mock.sftp.ext_openssh_rename = vi.fn((_from, _to, callback) => callback(Object.assign(new Error("Unsupported"), { code: 8 })));
+    const connection = await probeRobotFiles({ target: "roborio", host: "robot.local", port: 22, directory });
+    await uploadRobotFiles(connection, [{ fileName: "one.bdx", contents: Buffer.from("new") }, { fileName: "Comp-bot.robot", contents: Buffer.from("details") }]);
+    expect(f.stored.get(`${directory}/Comp-bot.robot`)).toEqual(Buffer.from("details"));
+  });
   it.each([3, 4, 7, "ECONNRESET", "AUTH_FAILED"])("does not fall back on SFTP error %s", async (code) => {
     setup(entries());
     mock.sftp.ext_openssh_rename = vi.fn((_from, _to, callback) => callback(Object.assign(new Error(code === 3 ? "Server does not support this extended request" : "Denied operation"), { code })));

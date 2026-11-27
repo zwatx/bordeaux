@@ -69,7 +69,7 @@ export const recoveryAfterListing = (recovery, capacity) => recovery?.code === '
   ? { status: 'failed', fact: '', code: 'capacity-freed' } : recovery;
 
 // Main names only these managed documents; anything else keeps the scope and drops the file.
-const MANAGED_DOCUMENT = /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine)$/;
+const MANAGED_DOCUMENT = /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine|Robots\/[^/\\]+\.robot)$/;
 /** Main's structured cause of THIS failed terminal (never parsed from text), or undefined. Display and fixes only. */
 export function sourceChangeOf(update) {
   const change = update?.source === 'failed' ? update.sourceChange : null;

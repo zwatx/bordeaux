@@ -1,6 +1,8 @@
 import { pathTrajectory } from "../planners/pathTrajectory";
 import { clone } from "../project/defaults";
 import { activeRoutine } from "../project/routines";
+import { mapCommandUses } from "../project/invocations";
+import { exportedInvocation } from "../markerCommands";
 import type {
   BdxExport,
   BdxPath,
@@ -53,7 +55,9 @@ export function buildBdxExportWithPlannerResults(project: BordeauxProject): Buil
       optimization: result.optimization,
     };
   });
-  const routine = activeRoutine(project);
+  // The routine as exported: its command steps' planning-only power estimates stay in the project.
+  const source = activeRoutine(project);
+  const routine = source && mapCommandUses({ ...project, paths: [], routines: [source] }, exportedInvocation).routines[0];
   assertFiniteValue(routine, "routine");
 
   const hardLimits = robotHardLimits(project.robot);

@@ -23,6 +23,8 @@ import { bdxBindingsFromDefinitions } from "../../core/export/bdxBindings";
 import { sanitizeUserKeyRules } from "../../core/keyBindings";
 import { sha256Hex, utf8Bytes } from "../../core/bytes";
 import { validateProject } from "../../core/validation";
+import { projectRobots } from "../../core/project/robots";
+import { robotFileContents, robotPushFileConflict, robotPushFileName } from "../../core/project/robotFile";
 
 interface ServerInfo { projectsRoot: string; pushDirectory: string; defaultPushDirectory: string; lastProject: string | null }
 interface Opened { name: string; state: FolderState; workspaceSha256: string }
@@ -289,10 +291,16 @@ export function createSystemcoreHost() {
     probeRobotFiles: (endpoint) => useDirectory(endpoint.directory),
     trustRobotFiles: () => connection(),
     cancelRobotFileProbe: async () => undefined,
-    prepareRobotFiles: async (project, pathIds) => {
+    prepareRobotFiles: async (project, pathIds, options) => {
       const prepared = prepareProjectFile(project), used = await bindings();
-      const built = pathIds.map((id) => buildRobotBinary(prepared, { kind: "path", id }, used));
-      if (sharedFileName(built)) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
+      const paths = pathIds.map((id) => ({ ...buildRobotBinary(prepared, { kind: "path", id }, used), id }));
+      if (sharedFileName(paths)) throw new Error("Selected paths have matching BDX filenames. Rename them before pushing together");
+      // The selected robot's details go beside the paths when the review includes them, as on the desktop.
+      const robot = options?.robotFile === true ? projectRobots(prepared).find((entry) => entry.selected) : undefined;
+      const conflict = robot && robotPushFileConflict(prepared, robot.id);
+      if (conflict) throw new Error(conflict);
+      const robotBytes = robot && utf8Bytes(robotFileContents(robot.name, robot.robot));
+      const built = robot && robotBytes ? [...paths, { id: `robot:${robot.id}`, name: robot.name, fileName: robotPushFileName(robot.name), bytes: robotBytes, sha256: sha256Hex(robotBytes) }] : paths;
       const target = await connection();
       const held = await request<{ operationId: string; files: Array<{ fileName: string; size: number; sha256: string }> }>("/api/push/prepare", {
         directory: target.endpoint.directory, files: built.map((item) => ({ fileName: item.fileName, sha256: item.sha256, base64: base64(item.bytes) })) });
@@ -301,7 +309,7 @@ export function createSystemcoreHost() {
         throw new Error("The robot did not hold the files as built. Try again");
       }
       const preview: RobotFilePreview = { operationId: held.operationId, connection: target,
-        files: built.map((item, index) => ({ pathId: pathIds[index], name: item.name, fileName: item.fileName, size: held.files[index].size, sha256: held.files[index].sha256 })) };
+        files: built.map((item, index) => ({ pathId: item.id, name: item.name, fileName: item.fileName, size: held.files[index].size, sha256: held.files[index].sha256 })) };
       pending.set(preview.operationId, { preview, uploading: false });
       return preview;
     },
@@ -319,9 +327,10 @@ export function createSystemcoreHost() {
     readRobotFiles: async (fileNames): Promise<RobotFileReading> => {
       const target = await connection();
       const query = new URLSearchParams([["directory", target.endpoint.directory], ...fileNames.map((name) => ["name", name])]);
-      const read = await request<{ files: Array<{ fileName: string; base64: string | null }> }>(`/api/push/files?${query}`);
+      const read = await request<{ files: Array<{ fileName: string; base64: string | null }>; robotConfigs?: string[] }>(`/api/push/files?${query}`);
       return { connection: target, readAt: new Date().toISOString(),
-        files: read.files.map((file) => ({ fileName: file.fileName, contents: file.base64 === null ? null : bytesFromBase64(file.base64) })) };
+        files: read.files.map((file) => ({ fileName: file.fileName, contents: file.base64 === null ? null : bytesFromBase64(file.base64) })),
+        ...(Array.isArray(read.robotConfigs) ? { robotConfigs: read.robotConfigs } : {}) };
     },
     cancelRobotFiles: async (operationId) => {
       const operation = pending.get(operationId);

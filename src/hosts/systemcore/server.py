@@ -7,7 +7,8 @@ lays out project files (src/core); this server only stores bytes, confined to fi
   BORDEAUX_HOME/paths/             what robot code reads, written only by an explicit Push
 
 Saving never writes where robot code reads. Push copies reviewed bytes, then reads them back and checks SHA-256.
-The page can read pushed files back by name, to compare them with the paths being edited; that changes nothing.
+The page can read pushed files back by name, to compare them with the paths being edited or to pull a robot's
+details; that changes nothing.
 
 Only pages this server served may call it: every API request must name this robot as its Host (an IP address, this
 machine's name, or BORDEAUX_ALLOWED_HOSTS), and every write must come from that same origin. Another website open in
@@ -37,13 +38,14 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 WORKSPACE = ".bordeaux-workspace.json"
 # Folder-relative files a commit may write or remove. Mirrors MANAGED_*_FILE in src/core/project/folderLayout.ts.
-MANAGED_FILE = re.compile(r"^(Paths/[^/\\\x00]+\.(path|bdx)|Routines/[^/\\\x00]+\.routine)$", re.IGNORECASE)
+MANAGED_FILE = re.compile(r"^(Paths/[^/\\\x00]+\.(path|bdx)|Routines/[^/\\\x00]+\.routine|Robots/[^/\\\x00]+\.robot)$", re.IGNORECASE)
 PROJECT_NAME = re.compile(r"^[^/\\\x00-\x1f\x7f<>:\"|?*.][^/\\\x00-\x1f\x7f<>:\"|?*]{0,119}$")
 # The desktop's rules too (src/core/project/projectName.ts): at most 255 UTF-8 bytes, no trailing dot or space, and
 # no Windows device name, so a robot project can be copied to any team laptop.
 MAX_NAME_BYTES = 255
 WINDOWS_DEVICE_NAME = re.compile(r"^(?:con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]) *(?:\.|$)", re.IGNORECASE | re.ASCII)
-PUSH_FILE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(bdx|bdr)$")
+# Pushed paths and routines, and a robot's details (src/core/project/robotFile.ts).
+PUSH_FILE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}\.(bdx|bdr|robot)$")
 MAX_BODY_BYTES = 160 * 1024 * 1024
 # Push limits match the desktop's SFTP transfer (src/electron/robotFileTransfer.ts).
 MAX_PUSH_FILES = 64
@@ -326,13 +328,17 @@ def prepare_push(store, reviews, body):
     """Checks a whole batch and holds it for review. Nothing on the robot changes yet."""
     directory = store.push_directory(body.get("directory"))
     files = body.get("files")
-    if not isinstance(files, list) or not 1 <= len(files) <= MAX_PUSH_FILES:
-        raise ValueError(f"Select between 1 and {MAX_PUSH_FILES} robot files")
+    # 1 to 64 paths and routines, plus at most one robot details file beside them (it is not a path).
+    configs = sum(1 for file in files if isinstance(file, dict) and str(file.get("fileName", "")).lower().endswith(".robot")) if isinstance(files, list) else 0
+    if not isinstance(files, list) or not 1 <= len(files) - configs <= MAX_PUSH_FILES:
+        raise ValueError(f"Select between 1 and {MAX_PUSH_FILES} paths to push")
+    if configs > 1:
+        raise ValueError("Push sends one robot's details at a time")
     names, held, total = set(), [], 0
     for file in files:
         name = file.get("fileName") if isinstance(file, dict) else None
         if not isinstance(name, str) or not PUSH_FILE.match(name):
-            raise ValueError("Robot filename must be a safe .bdx or .bdr basename")
+            raise ValueError("Robot filename must be a safe .bdx, .bdr or .robot basename")
         if name.lower() in names:
             raise ValueError(f"Two files are named {name}; rename one before pushing")
         names.add(name.lower())
@@ -394,7 +400,8 @@ def confirm_push(store, reviews, body):
 
 
 def read_pushed(store, query):
-    """What a push folder holds under each named file, for the page to compare with its paths. Changes nothing.
+    """What a push folder holds under each named file, for the page to compare with its paths or pull a robot's details.
+    Changes nothing.
 
     A file the folder lacks is reported as None. A link or a folder at a name is refused, as Push refuses to replace it.
     """
@@ -406,7 +413,7 @@ def read_pushed(store, query):
     files, total = [], 0
     for name in names:
         if not PUSH_FILE.match(name):
-            raise ValueError("Robot filename must be a safe .bdx or .bdr basename")
+            raise ValueError("Robot filename must be a safe .bdx, .bdr or .robot basename")
         target = store.contained(os.path.join(directory, name))
         if os.path.lexists(target) and not os.path.isfile(target):
             raise ValueError(f"{name} on the robot is not a regular file")
@@ -415,7 +422,14 @@ def read_pushed(store, query):
         if total > MAX_PUSH_BYTES:
             raise ValueError("The robot's files total more than 24 MiB; read fewer at once")
         files.append({"fileName": name, "base64": None if data is None else base64.b64encode(data).decode("ascii")})
-    return {"directory": directory, "files": files}
+    reply = {"directory": directory, "files": files}
+    # A missing robot file: name the ones the folder does hold, so the page can offer them instead.
+    if any(item["base64"] is None and item["fileName"].endswith(".robot") for item in files):
+        held = sorted(entry for entry in (os.listdir(directory) if os.path.isdir(directory) else [])
+                      if entry.endswith(".robot") and PUSH_FILE.match(entry) and os.path.isfile(os.path.join(directory, entry))
+                      and not os.path.islink(os.path.join(directory, entry)))
+        reply["robotConfigs"] = held[:MAX_PUSH_FILES]
+    return reply
 
 
 def host_names():

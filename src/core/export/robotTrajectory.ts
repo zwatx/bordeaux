@@ -4,7 +4,7 @@ import { DEFAULT_SAMPLES_PER_SEGMENT } from "../planners/limits";
 import { robotInvocationErrors, validateProjectRobotInvocations } from "../robotCommands";
 import { activeRoutine } from "../project/routines";
 import { orderedWaypointSampleIndices } from "../planners/waypointSamples";
-import { markerInvocations, type PathLoopUntil } from "../markerCommands";
+import { exportedInvocation, markerInvocations, type PathLoopUntil } from "../markerCommands";
 import type { BordeauxProject, CommandGroup, CommandInvocation, FollowMode, Marker, RobotCommandCatalog, PathDoc, RoutineFallbackNode, RoutineNode, TrajectorySample } from "../types";
 
 const MAX_SAMPLE_COUNT = 100_000;
@@ -218,7 +218,7 @@ function deployableRoutine(project: BordeauxProject, pathIds: Set<string>): Robo
       if (node.cat !== "command" || !node.invocation) {
         throw new Error(`Routine function ${node.id} is simulation-only; use a bound Command step for Robot export`);
       }
-      return { id: node.id, type: "function", cat: "command", title: node.title, invocation: node.invocation };
+      return { id: node.id, type: "function", cat: "command", title: node.title, invocation: exportedInvocation(node.invocation) };
     });
   }
   return { name: routine.name, nodes: nodes(routine.nodes) };
@@ -312,7 +312,7 @@ export function buildRobotTrajectory(
       events: path.markers.flatMap((marker) => markerInvocations(marker).map((invocation) => ({
         eventId: marker.id,
         name: marker.name,
-        invocation,
+        invocation: exportedInvocation(invocation),
         schedule: marker.schedule,
       }))),
     })),

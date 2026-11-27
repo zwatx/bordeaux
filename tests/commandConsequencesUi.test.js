@@ -450,7 +450,7 @@ describe('routine command chooser', () => {
   function inspector(node) {
     const env = environment(), marker = (name) => name;
     const StepInspector = loadRendererExport(new URL('../src/renderer/components/RoutineInspector.jsx', import.meta.url), 'StepInspector', {
-      context: { ...env.context, ...commandSearch, AUTO, deletionInput, robotValueSchemasEqual, UnitPrefs: { format: String }, CommandBranches: 'CommandBranches', CommandParameterEditor: 'CommandParameterEditor', InspectorShell: 'InspectorShell', DeleteAction: 'DeleteAction',
+      context: { ...env.context, ...commandSearch, AUTO, deletionInput, robotValueSchemasEqual, UnitPrefs: { format: String }, CommandBranches: 'CommandBranches', CommandPowerEditor: 'CommandPowerEditor', CommandParameterEditor: 'CommandParameterEditor', InspectorShell: 'InspectorShell', DeleteAction: 'DeleteAction',
         commandArguments: () => ({}), parameterValueError: () => '', safeControlId: String, LabviewProjectPanel: 'LabviewProjectPanel', Glyph: 'Glyph', continuityText: String, describeStop: String, stepTitle: String,
         UI: { Icon: marker('Icon'), Dropdown: 'Dropdown', ChoiceBrowser: 'ChoiceBrowser', DraftText: 'DraftText', Seg: 'Seg', Toggle: 'Toggle' } },
       replacements: [['export function StepInspector', 'window.StepInspector = function StepInspector'], ['export function RoutineTransport', 'function RoutineTransport']],

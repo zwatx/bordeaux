@@ -1,6 +1,6 @@
 import { jigglePositions } from "../../core/planners/jiggle";
 import { indexIntervalPolicies } from "../../core/planners/intervalPolicies";
-import { robotHardLimits as sharedRobotHardLimits, robotLimitCeilings } from "../../core/robotLimits";
+import { followRobotLimits, robotHardLimits as sharedRobotHardLimits, robotLimitCeilings } from "../../core/robotLimits";
 import { planningRobotForPath } from "../../core/commandLoads";
 import { lerp, angWrap, angLerp, D2R, R2D, sample as sampleGeometry, pointAtFraction, nearestFraction, autoHandles, SEGTYPES } from "../../core/math/geometry";
 import { headingAt, buildAnchors } from "../../core/math/headingAnchors";
@@ -91,9 +91,12 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
   const limitCeilings = (robot, path) => robot ? robotLimitCeilings(path ? planningRobotForPath(robot, path) : robot) : {};
   // Typing bounds for path limits: far above any robot, to catch a slipped digit.
   const MAX_SPEED_LIMIT = 30, MAX_ACCEL_LIMIT = 200;
-  // With `path`, its command loads' mechanism reserve lowers the limits as it does in planning.
+  // With `path`, its command loads' mechanism reserve lowers the limits as it does in planning. Limits that follow the
+  // robot's max take its ceilings first (followRobotLimits), as effectivePathConstraints does for final planning.
   function effectiveConstraints(constraints, robot, path) {
-    const limits = robotHardLimits(robot && path ? planningRobotForPath(robot, path) : robot);
+    const planning = robot && path ? planningRobotForPath(robot, path) : robot;
+    if (planning && constraints.followRobotMax?.length) constraints = followRobotLimits(constraints, robotLimitCeilings(planning));
+    const limits = robotHardLimits(planning);
     return limits ? {
       ...constraints,
       maxVel: Math.min(constraints.maxVel, limits.maxSpeed),
@@ -606,6 +609,8 @@ import { deriveHeadingGeometry } from "../../core/math/pm";
     const hardLimits = robotHardLimits(robot);
     if (hardLimits) {
       robot = { ...robot, maxSpeed: hardLimits.maxSpeed };
+      doc = { ...doc, constraints: effectiveConstraints(doc.constraints, robot) };
+    } else if (robot && doc.constraints.followRobotMax?.length) {
       doc = { ...doc, constraints: effectiveConstraints(doc.constraints, robot) };
     }
     const { sample: smp, wpIdx, wpFrac, head, mode, headingMode, headingTransitions } = deriveHeadingGeometry(doc, robot, perSeg);

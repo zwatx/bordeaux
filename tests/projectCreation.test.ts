@@ -21,7 +21,7 @@ describe("named project creation before activation", () => {
     expect(first.folderPath).toBe(path.join(directory, "Week 3"));
     expect(first.projectPath).toBe(projectWorkspacePath(first.folderPath));
     expect(first.recentPath).toBe(first.folderPath); expect(first.legacyFile).toBeNull();
-    expect(await fs.readdir(first.folderPath)).toEqual([".bordeaux-workspace.json", "Paths", "Routines"]);
+    expect(await fs.readdir(first.folderPath)).toEqual([".bordeaux-workspace.json", "Paths", "Robots", "Routines"]);
     expect((await readProject(first.projectPath!)).project).toEqual(first.project);
     expect(first.project.name).toBe("Week 3");
     expect(first.project.paths[0].waypoints).toEqual(createDemoProject().paths[0].waypoints);

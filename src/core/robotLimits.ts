@@ -1,6 +1,6 @@
 import { directionalAccelerationLimit, GRAVITY_MPS2, resolveCgHeightM, robotLoadModel } from "./loadTransfer";
 import { driveMotorPreset } from "./motorPresets";
-import type { PathConstraints, PlannerInput, RobotConfig } from "./types";
+import type { FollowableLimit, PathConstraints, PathDoc, PlannerInput, RobotConfig } from "./types";
 import { planningRobotForPath } from "./commandLoads";
 const RADIANS_TO_DEGREES = 180 / Math.PI;
 
@@ -347,25 +347,71 @@ export function robotDefaultConstraints(constraints: PathConstraints, robot: Rob
  * What the robot allows for each limit a path or zone sets. Planning uses the lower of the authored limit and this, so
  * an authored limit above it is capped. A robot without a drivetrain model enforces only its top speed.
  */
-export function robotLimitCeilings(robot: RobotConfig): Partial<Record<"maxVel" | "maxAccel" | "maxDecel" | "maxCentripetalAccel" | "maxAngVel" | "maxAngAccel", number>> {
+export function robotLimitCeilings(robot: RobotConfig): LimitCeilings {
   const limits = robotHardLimits(robot);
   if (!limits) return { maxVel: robot.maxSpeed };
   return { maxVel: limits.maxSpeedMps, maxAccel: limits.maxAccelMps2, maxDecel: limits.maxDecelMps2, maxCentripetalAccel: limits.maxCornerAccelMps2,
     maxAngVel: limits.maxAngularSpeedDegps, maxAngAccel: limits.maxAngularAccelDegps2 };
 }
 
+export type LimitCeilings = Partial<Record<"maxVel" | "maxAccel" | "maxDecel" | "maxCentripetalAccel" | "maxAngVel" | "maxAngAccel", number>>;
+
+/** Path limits that can follow the robot's max, in the order `followRobotMax` keeps them. */
+export const FOLLOWABLE_LIMITS: readonly FollowableLimit[] = ["maxVel", "maxAccel", "maxCentripetalAccel", "maxAngVel", "maxAngAccel"];
+
+/**
+ * The path limits with each limit in `followRobotMax` at the robot's ceiling: `ceilings` are robotLimitCeilings of the
+ * path's planning robot (its command reserve included). Following maxAccel also sets maxDecel to its own ceiling, and
+ * following maxAngAccel sets maxAngDecel too, as the editor sets each pair together. A followed limit the robot has no
+ * ceiling for keeps its number.
+ */
+export function followRobotLimits(constraints: PathConstraints, ceilings: LimitCeilings): PathConstraints {
+  const followed = constraints.followRobotMax;
+  if (!Array.isArray(followed) || !followed.length) return constraints;
+  const next = { ...constraints };
+  for (const key of followed) {
+    const ceiling = ceilings[key];
+    if (ceiling === undefined || !Number.isFinite(ceiling)) continue;
+    next[key] = ceiling;
+    if (key === "maxAccel") next.maxDecel = ceilings.maxDecel ?? ceiling;
+    if (key === "maxAngAccel") next.maxAngDecel = ceiling;
+  }
+  return next;
+}
+
+/**
+ * Turns following the robot's max on or off for one limit. Turning it off keeps the robot's current ceiling as the
+ * fixed number (and its pair's, as followRobotLimits sets them); without a ceiling the stored number stays.
+ */
+export function setFollowRobotMax(constraints: PathConstraints, key: FollowableLimit, on: boolean, ceilings: LimitCeilings): PathConstraints {
+  const current = Array.isArray(constraints.followRobotMax) ? constraints.followRobotMax : [];
+  if (current.includes(key) === on) return constraints;
+  const followRobotMax = FOLLOWABLE_LIMITS.filter((item) => item === key ? on : current.includes(item));
+  const { followRobotMax: _old, ...rest } = constraints;
+  // Off: the limit (and its pair) becomes fixed at what it planned at while following.
+  const { followRobotMax: _key, ...fixed } = on ? { ...rest, followRobotMax: [] } : followRobotLimits({ ...rest, followRobotMax: [key] }, ceilings);
+  return followRobotMax.length ? { ...fixed, followRobotMax } : fixed;
+}
+
+/** followRobotLimits with the ceilings of `robot`, computed only when a limit follows it. */
+function followedLimits(constraints: PathConstraints, robot: RobotConfig): PathConstraints {
+  return constraints.followRobotMax?.length ? followRobotLimits(constraints, robotLimitCeilings(robot)) : constraints;
+}
+
+/** The limits planning uses for a path on `robot` (its planning robot): followed limits at the robot's max, the rest capped by it. */
 export function effectivePathConstraints(constraints: PathConstraints, robot: RobotConfig): PathConstraints {
-  const limits = robotDefaultConstraints(constraints, robot);
-  if (limits === constraints) return constraints;
+  const authored = followedLimits(constraints, robot);
+  const limits = robotDefaultConstraints(authored, robot);
+  if (limits === authored) return authored;
   return {
-    ...constraints,
-    maxVel: Math.min(constraints.maxVel, limits.maxVel),
-    maxAccel: Math.min(constraints.maxAccel, limits.maxAccel),
-    maxDecel: Math.min(constraints.maxDecel ?? constraints.maxAccel, limits.maxDecel),
-    maxCentripetalAccel: Math.min(constraints.maxCentripetalAccel ?? constraints.maxAccel, limits.maxCentripetalAccel!),
-    maxAngVel: Math.min(constraints.maxAngVel, limits.maxAngVel),
-    maxAngAccel: Math.min(constraints.maxAngAccel, limits.maxAngAccel),
-    maxAngDecel: Math.min(constraints.maxAngDecel || constraints.maxAngAccel, limits.maxAngDecel!),
+    ...authored,
+    maxVel: Math.min(authored.maxVel, limits.maxVel),
+    maxAccel: Math.min(authored.maxAccel, limits.maxAccel),
+    maxDecel: Math.min(authored.maxDecel ?? authored.maxAccel, limits.maxDecel),
+    maxCentripetalAccel: Math.min(authored.maxCentripetalAccel ?? authored.maxAccel, limits.maxCentripetalAccel!),
+    maxAngVel: Math.min(authored.maxAngVel, limits.maxAngVel),
+    maxAngAccel: Math.min(authored.maxAngAccel, limits.maxAngAccel),
+    maxAngDecel: Math.min(authored.maxAngDecel || authored.maxAngAccel, limits.maxAngDecel!),
   };
 }
 
@@ -373,7 +419,21 @@ export function effectivePathConstraints(constraints: PathConstraints, robot: Ro
 export function physicalPlannerInput(input: PlannerInput): PlannerInput {
   const planningRobot = planningRobotForPath(input.robot, input.path);
   const limits = robotHardLimits(planningRobot);
-  if (!limits) return planningRobot === input.robot ? input : { ...input, robot: planningRobot };
+  if (!limits) {
+    // Without a drivetrain model only top speed has a ceiling; a followed speed limit plans at it.
+    const constraints = followedLimits(input.path.constraints, planningRobot);
+    if (planningRobot === input.robot && constraints === input.path.constraints) return input;
+    return { ...input, robot: planningRobot, ...(constraints === input.path.constraints ? {} : { path: { ...input.path, constraints } }) };
+  }
   const robot = { ...planningRobot, maxSpeed: limits.maxSpeedMps };
   return { ...input, robot, path: { ...input.path, constraints: effectivePathConstraints(input.path.constraints, robot) } };
+}
+
+/**
+ * The path limits planning uses for `path` on `robot` (the project's robot, with its id and legacy loads): followed
+ * limits at the ceiling of the path's planning robot, its command reserve included, and the rest capped by it. Tools
+ * that measure a plan against its limits, or write a zone from them, read these instead of the stored numbers.
+ */
+export function planningPathConstraints(path: PathDoc, robot: RobotConfig): PathConstraints {
+  return physicalPlannerInput({ path, robot }).path.constraints;
 }

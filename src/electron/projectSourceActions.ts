@@ -72,7 +72,7 @@ interface RevealDependencies {
   reveal(file: string): void;
 }
 class RevealFolderChanged extends Error {}
-const managedDocument = /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine)$/;
+const managedDocument = /^(Paths\/[^/\\]+\.path|Routines\/[^/\\]+\.routine|Robots\/[^/\\]+\.robot)$/;
 
 /** The renderer supplies a managed relative name, never an arbitrary reveal path. */
 export async function revealProjectSource(context: ProjectDurabilityContext, file: string, deps: RevealDependencies): Promise<ProjectRevealResult> {

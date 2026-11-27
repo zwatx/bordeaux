@@ -1,8 +1,16 @@
 import { ACTIVE_FIELD_REFERENCE } from "../field/rebuilt2026";
 import { TRANSIENT_EDITOR_KEYS } from "../project/normalize";
-import type { FieldReference, PathDoc, RobotConfig } from "../types";
+import type { FieldReference, Marker, PathDoc, RobotConfig } from "../types";
 import { planningRobotForPath } from "../commandLoads";
+import { exportedInvocation } from "../markerCommands";
 import { stable } from "./routeGeometry";
+
+function markerWithoutPower(marker: Marker): Marker {
+  if (marker.commandGroup && Array.isArray(marker.commandGroup.commands)) {
+    return { ...marker, commandGroup: { ...marker.commandGroup, commands: marker.commandGroup.commands.map(exportedInvocation) } };
+  }
+  return marker.invocation ? { ...marker, invocation: exportedInvocation(marker.invocation) } : marker;
+}
 
 /**
  * What a path's plan depends on: its physical content (not its name, folder or export choice),
@@ -14,5 +22,7 @@ export function pathPlanningKey(path: PathDoc, robot: RobotConfig, field: FieldR
   const { planning: _planning, footprintPreset: _preset, cameras: _cameras, ...physicalRobot } = planningRobotForPath(robot, path);
   const { id: _id, name: _name, folderId: _folder, exportable: _exportable, ...physical } = path;
   for (const key of TRANSIENT_EDITOR_KEYS) delete (physical as Record<string, unknown>)[key];
+  // Per-use power estimates plan only through the reserve folded into the robot above.
+  if (Array.isArray(physical.markers)) physical.markers = physical.markers.map(markerWithoutPower);
   return stable({ version: "path-planning/1", path: physical, robot: physicalRobot, field });
 }

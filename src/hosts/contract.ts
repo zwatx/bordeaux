@@ -16,7 +16,7 @@ import type {
   ProjectRecoveryListing, ProjectRecoveryListOptions, ProjectReloadRequest, ProjectReloadResult, ProjectRevealResult, ProjectSaveCheckpointRequest,
   ProjectSession, ProjectStartupDetachResult, ProjectStartupRequest, ProjectStartupResult, ProjectTransitionToken, RestoredProjectRecovery,
 } from "../core/project/projectPersistence";
-import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathInventory } from "../core/robotFileDelivery";
+import type { RobotFileConnection, RobotFileEndpoint, RobotFilePreview, RobotFileReading, RobotFileResult, RobotFileSettings, RobotPasswordChange, RobotPasswordStatus, RobotPathComparison, RobotPathCopyResult, RobotPathInventory, RobotPushOptions } from "../core/robotFileDelivery";
 import type { KeyRule } from "../core/keyBindings";
 import type { BordeauxProject, RobotCommandCatalog, RobotDeliveryCapabilities, RobotIntegrationStatus, RobotProjectBookmarkSummary, ValidationResult } from "../core/types";
 import type { WindowAction, WindowMenu, WindowMenuAnchor, WindowMenuEntry, WindowState } from "../core/windowChrome";
@@ -75,12 +75,16 @@ export interface HostInvokes {
   "robotFiles:use": { method: "useRobotFileEndpoint"; call: (endpoint?: RobotFileEndpoint | null) => Promise<RobotFileSettings | null> };
   "robotFiles:probe": { method: "probeRobotFiles"; call: (endpoint: RobotFileEndpoint, password?: RobotPasswordChange) => Promise<RobotFileConnection> };
   "robotFiles:trust": { method: "trustRobotFiles"; call: (fingerprint: string) => Promise<RobotFileConnection> };
-  "robotFiles:prepare": { method: "prepareRobotFiles"; call: (project: BordeauxProject, pathIds: string[]) => Promise<RobotFilePreview> };
-  "robotFiles:prepareRoutine": { method: "prepareRobotRoutine"; call: (project: BordeauxProject, routineId: string) => Promise<RobotFilePreview> };
+  /** `options.robotFile` adds the selected robot's `.robot` file (core/project/robotFile.ts) to the reviewed files. */
+  "robotFiles:prepare": { method: "prepareRobotFiles"; call: (project: BordeauxProject, pathIds: string[], options?: RobotPushOptions) => Promise<RobotFilePreview> };
+  "robotFiles:prepareRoutine": { method: "prepareRobotRoutine"; call: (project: BordeauxProject, routineId: string, options?: RobotPushOptions) => Promise<RobotFilePreview> };
   "robotFiles:confirm": { method: "confirmRobotFiles"; call: (operationId: string) => Promise<RobotFileResult> };
   "robotFiles:cancelProbe": { method: "cancelRobotFileProbe"; call: () => Promise<void> };
   "robotFiles:cancel": { method: "cancelRobotFiles"; call: (operationId: string) => Promise<{ canceled: boolean }> };
-  /** Reads pushed .bdx or .bdr files by name from the trusted robot's push folder. It changes nothing on the robot. */
+  /**
+   * Reads pushed .bdx, .bdr or .robot files by name from the trusted robot's push folder. It changes nothing on the
+   * robot. A missing .robot file also lists the .robot files the folder holds.
+   */
   "robotFiles:read": { method: "readRobotFiles"; call: (fileNames: string[]) => Promise<RobotFileReading> };
 
   "robotFiles:listPaths": { method: "listRobotPaths"; call: (id: string, project: BordeauxProject) => Promise<RobotPathInventory> };

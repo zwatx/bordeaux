@@ -4,6 +4,7 @@ import { pointInsideField } from "../math/fieldBounds";
 import { PM } from "../math/pm";
 import { orderedWaypointSampleIndices } from "../planners/waypointSamples";
 import { buildWaypoints, clone, createPathId } from "../project/defaults";
+import { planningPathConstraints } from "../robotLimits";
 import type { BordeauxProject, PathDoc, TrajectorySample } from "../types";
 import { analyzePath, minimumPathClearance } from "./pathAnalysis";
 import { boundsPolygon, convexPolygonClearance, polygonBounds, robotFootprintAt, robotFootprintRadius } from "./robotFootprint";
@@ -249,6 +250,9 @@ function routePath(project: BordeauxProject, base: PathDoc, name: string, points
     goalVel: 0,
   };
   const collectionSpans = activeCollectionSpans(path, requestedCollectionSpans);
+  // The speed this path plans at on the robot; the zone's other limits are omitted, so they inherit the path's
+  // (including any that follow the robot's max).
+  const plannedMaxVel = planningPathConstraints(path, project.robot).maxVel;
   path.ranges = collectionSpans.map((span) => ({
     anchor: "wp" as const,
     f0: 0,
@@ -257,11 +261,7 @@ function routePath(project: BordeauxProject, base: PathDoc, name: string, points
     t0: span.startT,
     w1: span.endSegmentIndex,
     t1: span.endT,
-    maxVel: Math.min(base.constraints.maxVel, intake?.maxCollectSpeedMps ?? base.constraints.maxVel),
-    maxAccel: base.constraints.maxAccel,
-    maxDecel: base.constraints.maxDecel,
-    maxAngVel: base.constraints.maxAngVel,
-    maxAngAccel: base.constraints.maxAngAccel,
+    maxVel: Math.min(plannedMaxVel, intake?.maxCollectSpeedMps ?? plannedMaxVel),
     name: collectionSpans.length > 1 ? `FUEL collection ${collectionSpans.indexOf(span) + 1}` : "FUEL collection",
   }));
   if (intake) {
@@ -397,13 +397,10 @@ function appendSwoosh(
   return required;
 }
 
-function addBumpRange(path: PathDoc, anchor: { w0: number; t0: number; w1: number; t1: number }, suffix: number): void {
+/** A BUMP zone at 2 m/s, or the slower speed the path plans at (`plannedMaxVel`); its other limits inherit the path's. */
+function addBumpRange(path: PathDoc, plannedMaxVel: number, anchor: { w0: number; t0: number; w1: number; t1: number }, suffix: number): void {
   const limits = {
-    maxVel: Math.min(path.constraints.maxVel, 2),
-    maxAccel: path.constraints.maxAccel,
-    maxDecel: path.constraints.maxDecel,
-    maxAngVel: path.constraints.maxAngVel,
-    maxAngAccel: path.constraints.maxAngAccel,
+    maxVel: Math.min(plannedMaxVel, 2),
     name: `BUMP traversal${suffix ? ` ${suffix + 1}` : ""}`,
   };
   path.ranges.push({ anchor: "wp", f0: 0, f1: 0, ...anchor, ...limits });
@@ -454,7 +451,8 @@ function bumpCrossingRanges(project: BordeauxProject, path: PathDoc, samples: re
     });
     if (first >= 0) intervals.push({ first, last: samples.length - 1 });
   });
-  const brakingMarginM = Math.max(0, (path.constraints.maxVel ** 2 - 2 ** 2) / (2 * path.constraints.maxDecel)) + 0.1;
+  const limits = planningPathConstraints(path, project.robot);
+  const brakingMarginM = Math.max(0, (limits.maxVel ** 2 - 2 ** 2) / (2 * limits.maxDecel)) + 0.1;
   return intervals.sort((left, right) => left.first - right.first).map((interval) => {
     const firstSurfaceDistance = samples[interval.first].s;
     const lastSurfaceDistance = samples[interval.last].s;
@@ -651,10 +649,11 @@ export function generateRouteCandidates(project: BordeauxProject, request: PlanP
     const analyze = () => analyzePath(analysisProject, path.id, analysisOptions);
     let analysis = analyze();
     const bumpRanges = bumpCrossingRanges(analysisProject, path, analysis.rawSamples);
+    const plannedMaxVel = planningPathConstraints(path, project.robot).maxVel;
     bumpRanges.forEach((range, bumpIndex) => {
       const containingIndex = path.ranges.findIndex((existing) => rangeContains(existing, range));
       if (containingIndex >= 0) splitContainingRangeForBump(path, containingIndex, range, bumpIndex);
-      else addBumpRange(path, range, bumpIndex);
+      else addBumpRange(path, plannedMaxVel, range, bumpIndex);
     });
     if (bumpRanges.length > 0) analysis = analyze();
     const errors = analysis.findings.filter((finding) => finding.severity === "error");

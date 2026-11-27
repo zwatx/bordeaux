@@ -9,7 +9,12 @@
 .settings-nav button[aria-current]{background:var(--bg-3);color:var(--txt)}
 .settings-nav button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(hover:hover){.settings-nav button:not([aria-current]):hover{background:var(--bg-2);color:var(--txt)}}
-.settings-content{width:100%;max-width:704px;justify-self:center;padding:28px 32px 64px}
+.settings-main{display:flex;flex-direction:column;min-width:0}
+.settings-content{width:100%;max-width:704px;align-self:center;padding:28px 32px 64px}
+/* Robot tabs sit at the bottom of the page's content column, like sheets of this one page, and stay there as it scrolls. */
+.settings-main>.robot-tabs{position:sticky;bottom:0;margin-top:auto}
+/* Focus and scrolling into view stop above the tabs, so nothing they cover is ever the target. */
+.robotpage:has(.settings-main>.robot-tabs){scroll-padding-bottom:44px}
 .settings-section{scroll-margin-top:28px}
 .settings-section+.settings-section{margin-top:28px}
 .settings-head{display:flex;align-items:center;gap:6px;margin:0 0 8px 2px}
@@ -57,28 +62,17 @@
 .rp-notes{display:block;width:100%;min-height:96px;padding:10px 12px;resize:vertical;line-height:1.5}
 .rp-text:focus,.rp-notes:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-line)}
 
-/* Robot cards: one per robot, the selected one raised; the dashed card adds a robot. */
-.robot-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
-.robot-card{position:relative;display:flex;flex-direction:column;min-height:66px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--bg-1)}
-.robot-card.on{border-color:var(--accent-line);background:var(--bg-2)}
-.robot-card-pick{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:4px;padding:11px 12px;border-radius:inherit;text-align:left}
-.robot-card-pick strong{max-width:100%;overflow-wrap:anywhere;font-size:13px;font-weight:600}
-.robot-card small{color:var(--txt-3);font:11px var(--mono)}
-/* Quick actions overlay the card's end while it is hovered or holds focus. */
-.robot-card-actions{position:absolute;top:5px;right:5px;display:flex;gap:2px;padding-left:6px;border-radius:var(--r);background:inherit;opacity:0}
-.robot-card:is(:hover,:focus-within) .robot-card-actions{opacity:1}
-.robot-card-action{display:grid;place-items:center;width:28px;height:28px;border-radius:var(--r);color:var(--txt-3)}
-.robot-card-action:disabled{opacity:.4}
-.robot-card-new{align-items:center;justify-content:center;border-style:dashed;color:var(--txt-3);font-size:13px}
-.robot-card-name,.robot-card-confirm{display:flex;flex-direction:column;gap:8px;padding:8px;font-size:12px}
-.robot-card-confirm{position:absolute;inset:0;justify-content:center;gap:6px;padding:6px 8px 6px 12px}
-.robot-card-confirm>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.robot-card-confirm>span:last-child{display:flex;justify-content:flex-end;gap:6px}
-.robot-card-confirm .qbtn{min-height:28px}
-/* Spaced on their own, so nothing placed after the cards can take their margin. */
-:is(.robot-connection,.robot-cards~.rp-note){margin-top:10px}
-:is(.robot-card-pick,.robot-card-action,.robot-card-new):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-@media(hover:hover){.robot-card:hover{background:var(--bg-2);color:var(--txt)}.robot-card-action:not(:disabled):hover{background:var(--bg-3);color:var(--txt)}}
+/* The rail's head names the selected robot and where Push sends its files. */
+.settings-side-pin{position:sticky;top:0}
+.settings-side-pin>:is(.rp-title,.settings-nav){position:static}
+.rp-identity{display:flex;flex-direction:column;gap:4px;padding:13px 10px 12px 16px}
+.rp-identity .rp-title{display:block;height:auto;padding:0;overflow-wrap:anywhere;line-height:19px}
+.robot-connection{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.robot-connection-status{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;color:var(--txt-3);font:11px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.robot-connection .qbtn{flex:none;min-height:24px;height:24px;padding:0 8px;font-size:12px}
+/* Pull sits under the connection it reads through, its label aligned with the status text. */
+.rp-identity .rp-pull{align-self:flex-start;min-height:24px;height:24px;margin-left:-8px;padding:0 8px;font-size:12px}
+.robot-card-name{display:flex;flex-direction:column;gap:8px;padding:8px;font-size:12px}
 
 /* Cameras: a 3D view with the camera picker and view angles in its corners, over one band of boxes for the picked camera. */
 .rp-cam-stage{position:relative;overflow:hidden;border-bottom:1px solid var(--line);border-radius:var(--r-l) var(--r-l) 0 0;background:radial-gradient(120% 90% at 50% 40%,var(--bg-1),var(--bg) 70%)}

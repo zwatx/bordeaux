@@ -239,11 +239,11 @@ app.whenReady().then(async () => {
     pass('Save writes both cameras, and the open path keeps its planned time');
 
     await robotPage();
-    await click('.robot-card-new');
-    await wait(() => evaluate(() => document.activeElement?.matches('.robot-card input[aria-label="Robot name"]')), 'new robot name field');
+    await click('.robot-tab-add');
+    await wait(() => evaluate(() => document.activeElement?.matches('.robot-tab input[aria-label="Robot name"]')), 'new robot name field');
     await win.webContents.insertText('Practice bot'); await key('Enter');
     await wait(async () => (await section()).empty === 'No cameras', 'a new robot has no cameras');
-    await click('.robot-card-pick', 'RobotNo address');
+    await click('.robot-tab', 'Robot');
     await wait(async () => (await section()).picks.length === 2, 'the first robot keeps its cameras');
     await save();
     await win.reload();

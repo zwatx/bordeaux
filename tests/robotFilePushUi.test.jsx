@@ -257,6 +257,12 @@ describe('Push review: linked paths outside the push', () => {
     expect(limit(64)).toBe('Linked paths not included: Amp score. Push sends at most 64 paths at once.');
     expect(limit(63)).toBe('Linked paths not included: Amp score. |Include 1 path|');
   });
+  it('counts only paths toward the limit, not the robot details or the command list riding along', () => {
+    const extras = [{ pathId: 'robot:r', name: 'Comp bot', fileName: 'Comp-bot.robot', size: 1 }, { pathId: 'bordeaux-commands.json', name: 'LabVIEW commands', fileName: 'bordeaux-commands.json', size: 1 }];
+    const robotFile = { robotId: 'r', name: 'Comp bot', fileName: 'Comp-bot.robot', size: 1, sha256: 'x', status: 'unknown', included: true };
+    const html = dialog(reviewed(linked('Amp score'), { preview: { operationId: 'one', connection: saved, files: [...files(63), ...extras], linked: linked('Amp score'), robotFile } }));
+    expect(note(html)).toBe('Linked paths not included: Amp score. |Include 1 path|');
+  });
   it('shows the note only while reviewing, and nothing without linked paths', () => {
     expect(note(dialog(reviewed([])))).toBeNull();
     expect(note(dialog(reviewed(undefined)))).toBeNull();
@@ -278,5 +284,19 @@ describe('Push review: linked paths outside the push', () => {
     include.props.onClick();
     expect(c.includeLinked).toHaveBeenCalledExactlyOnceWith('one');
     expect(c.confirmPush).not.toHaveBeenCalled();
+  });
+});
+
+describe('Push review: robot details row', () => {
+  const files = [{ pathId: 'A', name: 'A', fileName: 'A.bdx', size: 1 }];
+  const reviewed = (robotFile) => ({ phase: 'review', settings: saved, busy: false, confirmPush: vi.fn(), includeRobotFile: vi.fn(),
+    preview: { operationId: 'one', connection: saved, files, robotFile } });
+  it('leaves a robot whose name shares its file with another robot unchecked and unavailable, naming both', () => {
+    const conflict = '“Comp bot” and “Comp-bot” would both use Comp-bot.robot on the robot. Rename one of them to push or pull its details.';
+    const html = dialog(reviewed({ robotId: 'r', name: 'Comp bot', fileName: 'Comp-bot.robot', size: 1, sha256: 'x', status: 'unknown', included: false, conflict }));
+    const row = html.match(/<li class="rfp-robot-file"[^>]*>.*?<\/li>/)[0];
+    expect(row).toMatch(/<input[^>]*disabled/);
+    expect(row).not.toMatch(/checked/);
+    expect(row.replace(/<!-- -->/g, '')).toContain(conflict);
   });
 });

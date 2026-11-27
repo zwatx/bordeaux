@@ -5,6 +5,7 @@ import { promoteRoutineProjectSchema } from "./routineSchema";
 import { normalizeProject } from "./normalize";
 import { migrateLegacyOptimizations } from "./legacyOptimization";
 import { LEGACY_FIELD_SCHEMA, migrateFieldProject } from "./fieldMigration";
+import { storedRobotDetails } from "./robots";
 
 const CURRENT_PROJECT_SCHEMA_VERSION = "1.0" as const;
 
@@ -153,7 +154,20 @@ export function prepareProjectFile(value: unknown): BordeauxProject {
   return decoded.project;
 }
 
+/**
+ * A prepared project as every file stores it: without the selected robot's in-memory `id` (see storedRobotDetails).
+ * Loading (`normalizeProject`) derives the id again, so a stored project loads back to the same in-memory project.
+ * Use it wherever a project is written: the project file, a folder workspace, a recovery record.
+ */
+export function storedProject(project: BordeauxProject): BordeauxProject {
+  const robot = storedRobotDetails(project.robot);
+  const listed = project.robots?.some((entry) => entry.robot?.id !== undefined);
+  if (robot === project.robot && !listed) return project;
+  return { ...project, robot, ...(listed ? { robots: project.robots!.map((entry) => entry.robot ? { ...entry, robot: storedRobotDetails(entry.robot) } : entry) } : {}) };
+}
+
+/** The prepared project (in memory, with the selected robot's id) and the file contents (`storedProject`). */
 export function encodeProjectFile(value: unknown): { project: BordeauxProject; contents: string } {
   const project = prepareProjectFile(value);
-  return { project, contents: `${JSON.stringify(project, null, 2)}\n` };
+  return { project, contents: `${JSON.stringify(storedProject(project), null, 2)}\n` };
 }

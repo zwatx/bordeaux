@@ -8,6 +8,7 @@ import { tangentDirectionDeg, tangentHandleUse } from "../lib/pathEditing";
 import { UnitPrefs, formatAngularLimit } from "../lib/unitPreferences";
 import { FIELD_X_MIN, FIELD_X_MAX, FIELD_Y_MIN, FIELD_Y_MAX } from "../../core/math/fieldBounds";
 import { UI } from "./ui";
+import { CommandPowerEditor } from "./CommandPower";
 import { compareExactDecimals, robotParameterValueError, robotSchemaValueError } from "../../core/robotCommands";
 import { MAX_GROUP_COMMANDS, markerUsesEventExtension } from "../../core/markerCommands";
 import { onTurnOf, wrapDegrees } from "../../core/math/angles";
@@ -31,11 +32,11 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
   const wpName = (i, n) => i === 0 ? 'Start' : i === n - 1 ? 'End' : 'Waypoint ' + i;
 
   // `c` is what the user typed; `ceilings` is what the robot allows, marked on any limit typed above it.
-  function ConstraintsBody({ c, ceilings = {}, setC, moreLimits, setMoreLimits }) {
+  function ConstraintsBody({ c, ceilings = {}, setC, moreLimits, setMoreLimits, follow = () => undefined }) {
     const advanced = moreLimits && h(React.Fragment, null,
       h('div', { className: 'grid2 compact-fields' },
-        h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngVel, ceilingName: 'turn speed', onChange: (v) => setC({ maxAngVel: v }) }),
-        h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngAccel, ceilingName: 'turn acceleration', onChange: (v) => setC({ maxAngAccel: v }) })),
+        h(Num, { label: 'Max \u03c9', value: c.maxAngVel, unit: '\u00b0/s', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngVel, ceilingName: 'turn speed', follow: follow('maxAngVel'), onChange: (v) => setC({ maxAngVel: v }) }),
+        h(Num, { label: 'Max \u03b1', value: c.maxAngAccel, unit: '\u00b0/s\u00b2', step: 1, format: formatAngularLimit, ceiling: ceilings.maxAngAccel, ceilingName: 'turn acceleration', follow: follow('maxAngAccel'), onChange: (v) => setC({ maxAngAccel: v }) })),
       h('div', { className: 'grid2 compact-fields' },
         h(Num, { label: 'Linear jerk check', value: c.maxJerk ?? 0, unit: 'm/s³', min: 0, step: 0.1, format: formatAngularLimit, onChange: (v) => setC({ maxJerk: v }) }),
         h(Num, { label: 'Angular jerk', value: c.maxAngJerk ?? 0, unit: '°/s³', min: 0, step: 1, format: formatAngularLimit, onChange: (v) => setC({ maxAngJerk: v }) })),
@@ -43,10 +44,10 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
     return h(React.Fragment, null,
       h('div', { className: 'cgroup-h' }, 'Translation'),
       h('div', { className: 'grid2' },
-        h(Num, { label: 'Max velocity', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', onChange: (v) => setC({ maxVel: v }) }),
-        h(Num, { label: 'Max acceleration', value: c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration', onChange: (v) => setC({ maxAccel: v, maxDecel: v }) })),
+        h(Num, { label: 'Max velocity', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', follow: follow('maxVel'), onChange: (v) => setC({ maxVel: v }) }),
+        h(Num, { label: 'Max acceleration', value: c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration', follow: follow('maxAccel'), onChange: (v) => setC({ maxAccel: v, maxDecel: v }) })),
       c.maxDecel != null && c.maxDecel !== c.maxAccel && h('div', { className: 'seg-hint' }, 'Saved slowing limit: ' + UnitPrefs.format(c.maxDecel, 'm/s²', 2) + '. Editing acceleration sets both limits.'),
-      h(Num, { label: 'Corner acceleration', value: c.maxCentripetalAccel != null ? c.maxCentripetalAccel : c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: ceilings.maxCentripetalAccel, ceilingName: 'corner acceleration', onChange: (v) => setC({ maxCentripetalAccel: v }) }),
+      h(Num, { label: 'Corner acceleration', value: c.maxCentripetalAccel != null ? c.maxCentripetalAccel : c.maxAccel, unit: 'm/s\u00b2', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: ceilings.maxCentripetalAccel, ceilingName: 'corner acceleration', follow: follow('maxCentripetalAccel'), onChange: (v) => setC({ maxCentripetalAccel: v }) }),
       h('button', { className: 'morebtn' + (moreLimits ? ' on' : ''), type: 'button', 'aria-expanded': moreLimits, onClick: () => setMoreLimits(!moreLimits) }, h('span', null, 'Advanced limits'), h(Icon, { name: 'chevron', size: 13 })),
       advanced);
   }
@@ -467,7 +468,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
   }
 
   /** One command's choice, arguments and loop; used for a single event command and for each grouped command. */
-  function MarkerCommandEditor({ ids, label = 'Command', invocation, legacyId = '', commands, catalog, robotProject, actionTag, resetKey, allowNone = true, onCommand, onInvocation, maxDistance }) {
+  function MarkerCommandEditor({ ids, label = 'Command', invocation, legacyId = '', commands, catalog, robotProject, actionTag, resetKey, allowNone = true, onCommand, onInvocation, maxDistance, power }) {
     const invocationId = invocation && invocation.commandId ? invocation.commandId : legacyId;
     const selectedCommand = commands.find((command) => command.id === invocationId);
     const unresolved = invocationId && !selectedCommand;
@@ -536,6 +537,9 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
             onChange: (event) => update({ cancelOnPathEnd: event.target.checked }),
           }),
           h('span', { className: 'cmd-toggle-track', 'aria-hidden': true }, h('span', null)))),
+      // Estimates need no catalog: a saved command keeps its power even while the robot code is missing or unlinked.
+      // Only the estimate changes here: the authored arguments are written back exactly as saved.
+      invocation && invocation.commandId && h(CommandPowerEditor, { key: resetKey, invocation, onInvocation, power }),
       selectedCommand && invocation && h(CommandLoopEditor, {
         loop: invocation.loop, maxDistance,
         onChange: (loop) => onInvocation(withLoop({ ...invocation, commandId: selectedCommand.id, arguments: reconciledArguments }, loop)),
@@ -546,9 +550,9 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
    * An event's commands: one command, or a group that runs them together or in order. Adding a second command
    * makes a group; removing down to one makes it a plain command again.
    */
-  function MarkerCommands({ marker: m, setMarker, commands, catalog, robotProject, resetKey, maxDistance }) {
+  function MarkerCommands({ marker: m, setMarker, commands, catalog, robotProject, resetKey, maxDistance, power, openMember = -1 }) {
     const [adding, setAdding] = React.useState(false);
-    const [open, setOpen] = React.useState(-1);
+    const [open, setOpen] = React.useState(openMember);
     const addButton = React.useRef(null);
     const group = m.commandGroup;
     const actionTag = m.actionIntent && m.actionIntent.semanticTag;
@@ -583,12 +587,13 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
 
     if (!group) {
       return h('section', { className: 'cmd-command-editor', 'aria-label': 'Marker command' },
-        h(MarkerCommandEditor, {
+        h(MarkerCommandEditor, { power,
           ids: { command: 'event-marker-command', param: 'event-command-param-', cancel: 'event-command-cancel' },
           invocation: m.invocation, legacyId: m.cmd && m.cmd !== 'none' ? m.cmd : '', commands, catalog, robotProject, actionTag, resetKey, maxDistance,
           onCommand: (command) => setMarker({
             cmd: command ? command.id : 'none',
-            invocation: command ? withLoop({ commandId: command.id, arguments: commandArguments(command) }, m.invocation && m.invocation.loop) : undefined,
+            // Power estimates stay with the event across a command change; their settings no longer match, so they ask for review.
+            invocation: command ? withLoop({ commandId: command.id, arguments: commandArguments(command), ...(m.invocation?.power ? { power: m.invocation.power } : {}) }, m.invocation && m.invocation.loop) : undefined,
             actionIntent: resolves(command) ? undefined : m.actionIntent,
           }),
           onInvocation: (invocation) => setMarker({ invocation }),
@@ -635,10 +640,10 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
               h('button', { type: 'button', className: 'cmd-group-act', disabled: index === members.length - 1, title: 'Move down', 'aria-label': 'Move ' + name + ' down', onClick: () => move(index, 1) }, h(Icon, { name: 'chevron', size: 14 })),
               h('button', { type: 'button', className: 'cmd-group-act', title: 'Remove', 'aria-label': 'Remove ' + name, onClick: () => remove(index) }, h(Icon, { name: 'x', size: 14 })))),
           expanded && h('div', { id: editorId, className: 'cmd-group-editor' },
-            h(MarkerCommandEditor, {
+            h(MarkerCommandEditor, { power,
               ids: { command: 'event-group-' + index + '-command', param: 'event-group-' + index + '-param-', cancel: 'event-group-' + index + '-cancel' },
               invocation, commands, catalog, robotProject, actionTag, resetKey: resetKey + ':' + index, allowNone: false, maxDistance,
-              onCommand: (next) => next && setMembers(members.map((item, i) => i === index ? withLoop({ commandId: next.id, arguments: commandArguments(next) }, item.loop) : item)),
+              onCommand: (next) => next && setMembers(members.map((item, i) => i === index ? withLoop({ commandId: next.id, arguments: commandArguments(next), ...(item.power ? { power: item.power } : {}) }, item.loop) : item)),
               onInvocation: (next) => setMembers(members.map((item, i) => i === index ? next : item)),
             })));
       })),
@@ -742,7 +747,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
         target && h(Num, { label: 'Heading', value: target.deg, unit: '°', onChange: (deg) => actions.setTarget(sel.idx, { deg }) }),
         range && h(RangeLimits, { range, limits: pathLimits, onChange: (patch) => actions.setRange(sel.idx, patch) }),
         !waypoint && !range && !target && !marker && h(ConstraintsBody, {
-          c: doc.constraints, ceilings: PM.limitCeilings(robot, doc), setC: actions.setConstraint, moreLimits, setMoreLimits,
+          c: doc.constraints, ceilings: PM.limitCeilings(robot, doc), setC: actions.setConstraint, moreLimits, setMoreLimits, follow: actions.followFor,
         }));
     }
     else if (!sel.kind) {
@@ -777,6 +782,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
           setC: actions.setConstraint,
           moreLimits,
           setMoreLimits,
+          follow: actions.followFor,
         }));
     }
 
@@ -972,7 +978,7 @@ import { onTurnOf, wrapDegrees } from "../../core/math/angles";
       const byPosition = schedule.trigger === 'position', repeating = schedule.repeatEveryS != null, ending = schedule.endTimeS != null;
       const executionSummary = kindLine(byPosition ? 'Position' : 'Time', repeating ? 'every ' + Number(schedule.repeatEveryS.toFixed(3)) + ' s' : 'once', ending && 'ends ' + schedule.endTimeS.toFixed(2) + ' s');
       body = h(React.Fragment, null,
-        h(MarkerCommands, { marker: m, setMarker: (patch) => actions.setMarker(sel.idx, patch), commands, catalog, robotProject, resetKey: doc.id + ':' + sel.idx,
+        h(MarkerCommands, { marker: m, setMarker: (patch) => actions.setMarker(sel.idx, patch), commands, catalog, robotProject, resetKey: doc.id + ':' + sel.idx, power: props.power, openMember: sel.member ?? -1,
           maxDistance: Math.max(0, (derived.sample.length || 0) - markerDistance) }),
         m.actionIntent && h('div', { className: 'cmd-project-notice', role: 'status' }, 'Choose a command for ' + m.actionIntent.description + '.'),
         m.group && m.group !== 'sequential' && h('div', { className: 'cmd-schema-warning', role: 'status' }, h('span', null, 'This saved group cannot be exported as BDX.'), h('button', { type: 'button', className: 'qbtn', onClick: () => actions.setMarker(sel.idx, { group: 'sequential' }) }, 'Use single command')),

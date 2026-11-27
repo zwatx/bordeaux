@@ -31,10 +31,12 @@ import { useProjectDeparture } from "../hooks/useProjectDeparture";
 import { AppUpdateDialog } from "../components/AppUpdateDialog";
 import { useAppUpdates } from "../components/useAppUpdates";
 import { RobotPage } from "../components/RobotPage";
+import { setFollowRobotMax } from "../../core/robotLimits";
 import { AppSettings } from "../components/AppSettings";
 import { DiagnosticBundleDialog } from "../components/DiagnosticBundleDialog";
 import { LibraryRail, referencingRoutines } from "../components/EditorLibrary";
 import { RobotPushDialog, useRobotPushController } from "../components/RobotPushDialog";
+import { RobotPullDialog, useRobotPull } from "../components/RobotPullDialog";
 import { RoutineTransport, StepInspector } from "../components/RoutineInspector";
 import { RoutinePanel } from "../components/RoutinePanel";
 import { RoutineWorkspace } from "../components/RoutineWorkspace";
@@ -44,7 +46,7 @@ import { agentProposalMatchesPublishedContext } from "../lib/agentProposalContex
 import { PathLinks } from "../lib/pathLinks";
 import { PointLinksDialog } from '../components/PointLinksDialog';
 import {
-  PROJECT_SCOPE, ROUTINE_SCOPE, applyProjectEntry, captureProjectChange, createUndoHistory, deleteFolder, linkedPathIds,
+  PROJECT_SCOPE, ROUTINE_SCOPE, applyProjectEntry, captureProjectChange, captureRobotChange, createUndoHistory, deleteFolder, DROP_UNDO, linkedPathIds, robotChangeRefusal,
   pathScope, undoScopes, withLibraryFields,
 } from "../lib/undoHistory";
 import { AUTO } from "../lib/routineModel";
@@ -62,7 +64,7 @@ import {
 } from "../../core/project/ids";
 import { normalizeProject as normalizeProjectData } from "../../core/project/normalize";
 import { promoteRoutineProjectSchema } from "../../core/project/routineSchema";
-import { addRobot, duplicateRobot, projectRobots, removeRobot, renameRobot, selectRobot, setRobotConnection } from "../../core/project/robots";
+import { addRobot, asSelectedRobot, duplicateRobot, duplicateRobotProblem, projectRobots, removeRobot, renameRobot, replaceRobotDetails, robotDetailsOf, selectRobot, selectedRobotId, setRobotConnection } from "../../core/project/robots";
 import { robotValueSchemasEqual } from "../../core/robotValueSchema";
 import { markerInvocations } from "../../core/markerCommands";
 import { blankPath, buildWaypoints as buildWps, clampWorldPoint as clampWorld, clone, createStarterProject } from "../../core/project/defaults";
@@ -324,8 +326,8 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     const c = doc.constraints, ceilings = PM.limitCeilings(robot, doc);
     // The boxes hold what the user typed. Planning uses the lower of that and the robot's limit, which the mark states.
     const limits = h('div', { className: 'pt-limits', key: doc.id },
-      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', onChange: (v) => actions.setConstraint({ maxVel: v }) }),
-      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration',
+      h(UI.Num, { label: 'Speed', value: c.maxVel, unit: 'm/s', min: 0.1, max: PM.MAX_SPEED_LIMIT, ceiling: ceilings.maxVel, ceilingName: 'speed', follow: actions.followFor?.('maxVel'), onChange: (v) => actions.setConstraint({ maxVel: v }) }),
+      h(UI.Num, { label: 'Acceleration', value: c.maxAccel, unit: 'm/s²', min: 0.1, max: PM.MAX_ACCEL_LIMIT, ceiling: Math.min(ceilings.maxAccel ?? Infinity, ceilings.maxDecel ?? Infinity), ceilingName: 'acceleration', follow: actions.followFor?.('maxAccel'),
         onChange: (v) => actions.setConstraint({ maxAccel: v, maxDecel: v }) }));
     return h('section', { className: 'path-band', 'aria-label': 'Path details' },
       h(PathPanel, { ...props, stale: props.stale || timingHeld, doc, derived, tl, robot, actions, problems, issue: problems.issue, issueStale: problems.stale,
@@ -895,6 +897,25 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       // The ref changes at once: a Push that waited for this address checks it against the project straight after.
       onEndpointChosen: (endpoint) => { if (SERVED_BY_ROBOT || !projectRef.current.robots) return; const next = setRobotConnection(projectRef.current, endpoint); projectRef.current = next; setProject(next); },
       ...(hostCommandList ? { onDirectoryChanged: reloadHostCommands } : {}) });
+    // Pull from robot's Apply: the file's details replace that robot's as one Undo step (kind 'robot' in undoHistory.ts),
+    // which puts back the robot's whole earlier details, only while they are still exactly as Apply left them.
+    const getDocumentEpoch = useCallback(() => documentEpoch.current, []);
+    const applyRobotFile = useCallback((robotId, details) => {
+      const current = projectRef.current, before = robotDetailsOf(current, robotId);
+      if (!before) return false;
+      const next = replaceRobotDetails(current, robotId, details);
+      recordUndo({ scope: PROJECT_SCOPE, touches: [], kind: 'robot', change: captureRobotChange(robotId, before, robotDetailsOf(next, robotId)) });
+      projectRef.current = next; setProject(next);
+      return true;
+    }, [recordUndo]);
+    // A count that advances on any project change, committed or still a path draft, so Pull applies only what it checked.
+    const pullRevision = useRef({ project: null, editRevision: null, count: 0 });
+    const getProjectRevision = useCallback(() => {
+      const seen = pullRevision.current, editRevision = editStore.getRevision();
+      if (seen.project !== projectRef.current || seen.editRevision !== editRevision) pullRevision.current = { project: projectRef.current, editRevision, count: seen.count + 1 };
+      return pullRevision.current.count;
+    }, [editStore]);
+    const robotPull = useRobotPull({ getProject: materializeProject, projectRevision: getProjectRevision, connection: pushController, onApply: applyRobotFile, projectKey, projectEpoch: getDocumentEpoch });
     // The library edits which paths Push sends and the toolbar sends them, so App holds the one choice.
     const pushSelection = usePushSelection({ preferenceKey: libraryPreferenceKey, paths: project.paths, activePathId: doc.id });
     const enqueuePersistence = useCallback((operation) => persistenceQueue.enqueue(operation), [persistenceQueue]);
@@ -1247,8 +1268,15 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         setRoutineSel((selected) => selected && restored.activeRoutineId === activeId && restoredActive && AUTO.findNode(restoredActive, selected) ? selected : null);
         return inverse;
       }
+      // Robot actions never change paths or routines (a duplicate shares its original's power estimates), so restoring a
+      // snapshot can't lose another robot's estimates.
       const applied = applyProjectEntry(current, entry, docRef.current?.id ?? null);
-      if (!applied) return null;
+      if (!applied) {
+        // A refused robot change says why; one that can never apply again leaves the journal (robotChangeRefusal).
+        const refusal = entry.kind === 'robot' && robotChangeRefusal(current, entry.change);
+        if (refusal) alert(refusal.refused);
+        return refusal && !refusal.keep ? DROP_UNDO : null;
+      }
       const removed = current.paths.filter((path) => !applied.project.paths.some((candidate) => candidate.id === path.id));
       const referenced = removed.find((path) => referencingRoutines(routineState(current).routines, path.id).length);
       if (referenced) {
@@ -1677,7 +1705,17 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
     }), [commit]);
     useEffect(() => { if (doc._selR != null) { select('cr', doc._selR); mutate((d) => { delete d._selR; return d; }); } }, [doc._selR]);
 
-    const setConstraint = useCallback((patch) => commit((d) => { Object.assign(d.constraints, patch); return d; }), [commit]);
+    // Typing a limit fixes it: a limit that followed the robot's max stops following. A paired value (braking with
+    // acceleration) belongs to its follow key.
+    const setConstraint = useCallback((patch) => commit((d) => {
+      Object.assign(d.constraints, patch);
+      const typed = new Set(Object.keys(patch).map((key) => key === 'maxDecel' ? 'maxAccel' : key === 'maxAngDecel' ? 'maxAngAccel' : key));
+      const kept = (d.constraints.followRobotMax || []).filter((key) => !typed.has(key));
+      if (kept.length) d.constraints.followRobotMax = kept; else delete d.constraints.followRobotMax;
+      return d;
+    }), [commit]);
+    // Following stores nothing new; stopping keeps the robot's current max as the fixed value (one Undo step either way).
+    const setFollowMax = useCallback((key, on) => commit((d) => { d.constraints = setFollowRobotMax(d.constraints, key, on, PM.limitCeilings(projectRef.current.robot, d)); return d; }), [commit]);
     const setDoc = useCallback((patch) => commit((d) => Object.assign(d, patch)), [commit]);
     const setRobot = useCallback((patch) => {
       setProject((pr) => ({ ...pr, robot: { ...pr.robot, ...patch } }));
@@ -1699,7 +1737,11 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       onSelectRobot: (id) => setProject((pr) => selectRobot(pr, id)),
       // Returns the new robot's id so its card can open the name for editing.
       onAddRobot: () => { const next = addRobot(withList(projectRef.current).project, 'New robot'); projectRef.current = next; setProject(next); return next.activeRobotId; },
-      onDuplicateRobot: (id) => { const { project: base, idOf } = withList(projectRef.current); const next = duplicateRobot(base, idOf(id)); projectRef.current = next; setProject(next); return next.activeRobotId; },
+      onDuplicateRobot: (id) => {
+        const { project: base, idOf } = withList(projectRef.current), problem = duplicateRobotProblem(base, idOf(id));
+        if (problem) { alert(problem); return null; }
+        const next = duplicateRobot(base, idOf(id)); projectRef.current = next; setProject(next); return next.activeRobotId;
+      },
       onRenameRobot: (id, name) => setProject((pr) => { const { project: base, idOf } = withList(pr); return renameRobot(base, idOf(id), name); }),
       onRemoveRobot: (id) => setProject((pr) => removeRobot(pr, id)),
     }), []);
@@ -1819,7 +1861,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       const hi = derived.wpFrac && Number.isFinite(derived.wpFrac[i + 1]) ? derived.wpFrac[i + 1] : (i + 1) / Math.max(1, doc.waypoints.length - 1);
       addWaypoint(PM.pointAtFraction((lo + hi) / 2, pts), i, true);
     }, [addWaypoint, derived, doc.waypoints.length]);
-    const inspActions = { setWp, toggleTheta, setHandleLen, setHandleDir, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
+    const inspActions = { setFollowMax, followFor: (key) => ({ on: (doc.constraints.followRobotMax || []).includes(key), set: (on) => setFollowMax(key, on), robotName: robots.find((item) => item.selected)?.name }), setWp, toggleTheta, setHandleLen, setHandleDir, delWp, setTarget, delTarget, setMarker, delMarker, setRange, setRangeAnchor, delRange, setConstraint, setDoc, select, setTool,
       addTargetMid, addMarkerMid, addRangeMid,
       setSegMeta, setSegmentHeadingMode, setSegmentLookAt, removeJiggle, faceWaypoint, duplicateWp, reversePath, canReversePath: reverseDistance != null && doc.waypoints.length >= 2, reorderWp, insertWp,
       setStop, setWait, setTurnInPlace, setTurnInPlaceMeta, setHeadingMode, toggleDriveBackward, moveWpOrder,
@@ -2106,7 +2148,9 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         const carried = branch && AUTO.carryBranch(branch, AUTO.branchOutputs(next).find((output) => output.name === branch.output));
         result = { status: 'applied', removed: carried ? 0 : AUTO.routeSteps(branch?.routes || []) };
         const loop = next ? AUTO.carryLoop(node.invocation?.loop, next) : undefined;
-        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
+        // Power estimates stay with the step; their settings no longer match, so they ask for review.
+        const power = next && node.invocation?.power;
+        patch = { title: next ? next.label : 'Robot command', invocation: next ? { commandId: next.id, arguments: commandArguments(next), ...(loop ? { loop } : {}), ...(power ? { power } : {}) } : null, outputBranch: carried ? clone(carried) : undefined };
       } else {
         result = AUTO.branchEdit(branch, outputs, intent);
         patch = { outputBranch: result.branch && clone(result.branch) };
@@ -3183,6 +3227,27 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
       else if (page === 'robot' && editorPage === 'auto') leaveForPage('auto');
       else setActiveRoutine(routine.id);
     };
+    // Command power estimates belong to the selected robot. Each use edits its own; the Robot page lists them and opens
+    // a use in its path or routine.
+    const commandPower = {
+      project, robotId: selectedRobotId(project), robotName: robots.find((item) => item.selected)?.name || 'Robot', robots, commands: robotCommands,
+      changeProject: (change) => { commitFocusedDraft(); setProject(change); },
+      // Planning reads estimates through the selected robot's in-memory id; a project that never needed one (a single
+      // robot without estimates) gets it before its first estimate, so the estimate plans at once, not after a reload.
+      ensureRobotId: () => {
+        const current = projectRef.current, id = selectedRobotId(current);
+        if (current.robot.id === id) return;
+        const next = { ...current, robot: asSelectedRobot(current.robot, id) };
+        projectRef.current = next; setProject(next);
+      },
+      openUse: (location) => {
+        if (location.kind === 'routineStep') { setActiveRoutine(location.routineId); setRoutineSel(location.nodeId); return; }
+        const index = pathIndex(location.pathId);
+        if (index < 0) return;
+        setComparison(null); resetForPath(index); setOptimizationOpen(false); setInspectorOpen(true);
+        setSel({ kind: 'em', idx: location.markerIndex, ...(location.memberIndex !== undefined ? { member: location.memberIndex } : {}) });
+      },
+    };
     const renderLibrary = (mode, structure) => h(LibraryRail, {
       key: projectKey + ':' + mode, preferenceKey: libraryPreferenceKey, mode, hidden: mode === 'paths' && fieldFocus, onRestore: toggleFieldFocus, onHide: mode === 'paths' ? toggleFieldFocus : undefined, project, routines,
       activePathId: doc.id, activeRoutineId: routine.id, times, selection: pushSelection,
@@ -3224,19 +3289,22 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
         onCancel: closeFlip, onConfirm: applyFlip,
       }),
       h(Panels.Toolbar, { page, onPlace, project: projectChip, onUndo: undo, onRedo: redo,
-        push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions }),
+        push: page !== 'robot' && h(PushControl, { place: page === 'auto' ? 'routines' : 'paths', paths: project.paths, selection: pushSelection, activeRoutine: routine, controller: pushActions, robotName: SERVED_BY_ROBOT || !listed ? undefined : robots.find((item) => item.selected)?.name }),
         canUndo: history.canUndo(scopes), canRedo: history.canRedo(scopes),
         optimizationOpen, toggleOptimization,
         updateState: appUpdates.state, onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onInstallUpdate: appUpdates.actions.onInstall, onCheckUpdates: appUpdates.actions.onCheck,
         appSettings: h(AppSettings, { unitSystem, setUnitSystem, updateState: appUpdates.state,
           onOpenUpdates: () => window.bordeauxAPI?.setAppUpdatesVisible(true), onCheckUpdates: appUpdates.actions.onCheck, onCloseUpdates: appUpdates.actions.onClose }) }),
       h(RobotPushDialog, { controller: pushController, onExportBdx }),
+      h(RobotPullDialog, { pull: robotPull }),
       projectsSheet, departureSheet, departureHint,
       h(DiagnosticBundleDialog, { getProject: materializeProject, targetSelector: '.robot-connection-diagnostics', onOpen: pushController.close, renderKey: pushController.open + ':' + pushController.phase,
         // Its trigger lives in the closed connection dialog; return to what opened that dialog instead.
         onClose: () => pushController.returnFocus() || focusIfAvailable(document.querySelector('.push-menu-trigger')) || focusIfAvailable(document.querySelector('.push-button')) }),
       page === 'robot'
-        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, commands: robotCommands, unitSystem, mcpEnabled, robots, ...robotActions, connection: pushController,
+        ? h('main', { className: 'page-main' }, h(RobotPage, { robot, setRobot, power: commandPower, unitSystem, mcpEnabled, robots, ...robotActions, connection: pushController,
+          // A focused draft commits first, so the review compares what the page shows.
+          onPull: robotPull.available ? () => { if (flushProjectDraft()) robotPull.start(); } : undefined,
           fallbackHost: listed ? undefined : pushController.pairing?.endpoint?.host, agentProposal: agentProposal && agentProposal.operation === 'configureRobot' ? agentProposal : null, onApplyProposal: applyAgentProposal, onRejectProposal: rejectAgentProposal }))
         : page === 'auto'
         ? h('main', { className: 'stage stage-auto' },
@@ -3258,7 +3326,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                   run.planningError && h('span', null, run.planningError)))),
               transport: h(RoutineTransportPlayback, { store: routinePlaybackStore, run }) }),
             h('aside', { className: 'rail rail-r' + (selNode ? '' : ' collapsed'), 'aria-label': 'Routine step inspector' },
-              selNode && h(StepInspector, { node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
+              selNode && h(StepInspector, { power: commandPower, node: selNode, routine, routines: project.routines, issues: routineIssues, paths: project.paths, pathFolders: project.pathFolders, pathTimes: times, acq, run, onChangePath: (origin) => routineSource.current?.changePath(selNode.id, origin), robotProject: { ...robotProjectState, link: linkRobotProject } })))
         : h('main', { className: 'stage stage-plan workspace', style: { '--band-height': bandHeight + 'px' } },
             renderLibrary('paths', null),
             h(PathWorkspace, { key: projectKey + ':' + doc.id, rootRef: workColumn, editStore, previewer: editPreviewer, doc, derived, derivedPath: derivation.path,
@@ -3332,7 +3400,7 @@ import { buildTimeline, tAtF } from "../components/pathTimelineModel";
                 onSelectPath: (id) => { const index = project.paths.findIndex((path) => path.id === id); if (index >= 0) setActive(index); },
                 onClose: closeOptimization,
               }) : inspectorOpen
-                ? h(ContextInspector, { project, setWaypointPositionLink, openPointLinks, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
+                ? h(ContextInspector, { power: commandPower, project, setWaypointPositionLink, openPointLinks, doc, sel, derived, repairMode: false, pending: false, actions: inspActions, drive: robot.drive, robot, robotProject: robotProjectState, onClose: closeInspector })
                 : null),
             headMenu && h(UI.ContextMenu, { x: headMenu.x, y: headMenu.y, items: headMenu.items, returnFocus: headMenu.returnFocus, onClose: () => setHeadMenu(null) })));
   }

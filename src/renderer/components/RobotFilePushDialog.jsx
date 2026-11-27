@@ -5,15 +5,18 @@ import { shortFact } from '../lib/projectLifecycle';
 import { UnitPrefs } from '../lib/unitPreferences';
 import { ROBOT_TARGETS, allowsCustomPassword } from '../../core/robotTargets';
 import { isCommandsFile } from '../../core/export/commandsFile';
+import { isRobotFileName } from '../../core/project/robotFile';
 import { RobotPathField } from './RobotPathField';
 
 const h = React.createElement;
 const button = (label, onClick, props = {}) => h('button', { type: 'button', className: 'qbtn', onClick, ...props }, label);
 const plural = (count) => count + (count === 1 ? ' path' : ' paths');
-// A SystemCore push may also carry the LabVIEW command list; it is listed but is not a path.
+// A SystemCore push may also carry the LabVIEW command list, and any push the robot's details; they are listed but
+// are not paths. The robot's details are named in the label, since they are a choice in the review.
 const scopeLabel = (all) => {
-  const files = all.filter((file) => !isCommandsFile(file.fileName));
-  return files.length === 1 && files[0].fileName.endsWith('.bdr') ? '1 routine' : plural(files.length);
+  const files = all.filter((file) => !isCommandsFile(file.fileName) && !isRobotFileName(file.fileName));
+  const paths = files.length === 1 && files[0].fileName.endsWith('.bdr') ? '1 routine' : plural(files.length);
+  return all.some((file) => isRobotFileName(file.fileName)) ? paths + ' and robot details' : paths;
 };
 const kilobytes = (bytes) => (bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(bytes < 10240 ? 1 : 0) + ' KB');
 // Port 22 is the robot default, so the address only carries a port when it differs.
@@ -59,10 +62,27 @@ function Password({ c }) {
     !persistent && (c.password || (saved && !pendingDefault)) && h('p', { key: 'session', className: 'rfp-note rfp-wide' }, 'This computer has no secure password storage, so Bordeaux forgets the password when it closes.')];
 }
 
-function Files({ files }) {
-  return h('ul', { className: 'rfp-files', 'aria-label': 'Files to upload' }, files.map((file) => h('li', { key: file.pathId },
+const robotFileNote = { same: 'Same as on the robot', changed: 'Changed since the last push or pull', unknown: 'Not pushed or pulled from here yet' };
+
+// The selected robot's details are one more row: checked when the robot may not hold them yet, and the user decides.
+// Its size is the reviewed file's while it is included; leaving it out changes nothing on the robot.
+// A robot whose file name another robot of the project also maps to can't be sent: the row says why and stays unchecked.
+function RobotFileRow({ file, reviewed, onToggle, disabled }) {
+  const id = 'rfp-robot-file';
+  return h('li', { className: 'rfp-robot-file', 'data-included': file.included || undefined, 'data-conflict': file.conflict ? true : undefined },
+    h('label', { className: 'rfp-file-name', htmlFor: id },
+      h('input', { id, type: 'checkbox', checked: file.included, disabled: disabled || !onToggle || Boolean(file.conflict), onChange: (event) => onToggle?.(event.target.checked) }),
+      h('span', null, 'Robot details · ' + file.name, h('small', null, file.conflict || robotFileNote[file.status]))),
+    h('span', { className: 'rfp-file-meta', title: reviewed ? reviewed.size.toLocaleString() + ' bytes' : undefined },
+      file.fileName + ' · ' + (reviewed ? kilobytes(reviewed.size) : 'not sent')));
+}
+
+function Files({ files, robotFile, onToggleRobotFile, disabled }) {
+  const reviewed = files.find((file) => isRobotFileName(file.fileName));
+  return h('ul', { className: 'rfp-files', 'aria-label': 'Files to upload' }, files.filter((file) => file !== reviewed).map((file) => h('li', { key: file.pathId },
     h('span', { className: 'rfp-file-name' }, file.name),
-    h('span', { className: 'rfp-file-meta', title: file.size.toLocaleString() + ' bytes' }, file.fileName + ' · ' + kilobytes(file.size)))));
+    h('span', { className: 'rfp-file-meta', title: file.size.toLocaleString() + ' bytes' }, file.fileName + ' · ' + kilobytes(file.size)))),
+    robotFile && h(RobotFileRow, { key: 'robot', file: robotFile, reviewed, onToggle: onToggleRobotFile, disabled }));
 }
 
 const inventoryFilters = [['all', 'All'], ['paired', 'On both'], ['robotOnly', 'Robot only'], ['localOnly', 'Local only']];
@@ -217,6 +237,13 @@ export function RobotFilePushDialog({ controller: c }) {
   const verdictRef = React.useRef(null), compareCancel = React.useRef(null);
   const inventoryPane = React.useRef(null), inventoryScroll = React.useRef(0);
   const [filter, setFilter] = React.useState('all');
+  // Including or leaving out the robot's details prepares a new review; focus returns to its checkbox.
+  const robotFocus = React.useRef(false);
+  React.useEffect(() => {
+    if (c.phase !== 'review' || !robotFocus.current) return;
+    robotFocus.current = false;
+    dialog.current?.querySelector('#rfp-robot-file')?.focus();
+  }, [c.phase]);
   React.useEffect(() => {
     if (c.open && !dialog.current.open) dialog.current.showModal();
     else if (!c.open && dialog.current.open) { dialog.current.close(); c.returnFocus(); }
@@ -346,8 +373,9 @@ export function RobotFilePushDialog({ controller: c }) {
     view = failed ? 'files-failed' : 'files'; diagnostics = failed;
     body = [failed && alert,
       h(Destination, { key: 'dest', endpoint, onChange: c.chooseAnotherRobot, disabled: c.busy }),
-      h(Files, { key: 'files', files }),
-      c.phase === 'review' && c.preview.linked?.length > 0 && h(Linked, { key: 'linked', linked: c.preview.linked, count: files.length, onInclude: () => c.includeLinked(c.preview.operationId), disabled: c.busy }),
+      h(Files, { key: 'files', files, robotFile: c.preview.robotFile, disabled: c.busy,
+        onToggleRobotFile: c.phase === 'review' ? (included) => { robotFocus.current = true; c.includeRobotFile(c.preview.operationId, included); } : undefined }),
+      c.phase === 'review' && c.preview.linked?.length > 0 && h(Linked, { key: 'linked', linked: c.preview.linked, count: files.filter((file) => !isRobotFileName(file.fileName) && !isCommandsFile(file.fileName)).length, onInclude: () => c.includeLinked(c.preview.operationId), disabled: c.busy }),
       !failed && alert,
       !failed && h('p', { key: 'note', className: 'rfp-note' }, 'Replaces only these files. Uploading does not run anything.')];
     // Upload is never focused automatically: a held Enter from Push or Trust must not confirm a review.
