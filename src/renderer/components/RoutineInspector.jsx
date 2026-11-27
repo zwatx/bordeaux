@@ -582,7 +582,8 @@ export function RoutineTransport(props) {
   // labelWidth measures the 11.5px UI font; names show at 12px medium, and the place in the 11px mono.
   const slot = React.useMemo(() => {
     const name = Math.max(0, ...occurrences.map((step) => labelWidth(stepName(step)))) * 1.1;
-    const place = Math.ceil((String(stepCount).length * 2 + 4) * 6.7), pass = run.steps.some((step) => step.passStack?.length) ? labelWidth('Pass 88 of 88') + 10 : 0;
+    // The place ("17 of 17") or, before playback, the run's size ("5 steps"), whichever is longer.
+    const place = Math.ceil(Math.max(String(stepCount).length * 2 + 4, plural(stepCount, 'step').length) * 6.7 + 2), pass = run.steps.some((step) => step.passStack?.length) ? labelWidth('Pass 88 of 88') + 10 : 0;
     return { '--slot': Math.ceil(name + place + pass + 10) + 'px', '--slot-narrow': place + 'px' };
   }, [run, stepCount]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeAt = (step) => (running || time > 0) && step.t0 <= time && time < step.t1;
