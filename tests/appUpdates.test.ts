@@ -171,6 +171,25 @@ describe("application update state", () => {
     vi.setSystemTime(10 * 60 * 60_000 + 60_000); await f.controller.checkInBackground();
     expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(5);
   });
+  it("backs off repeated failures on focus and lets a manual check start immediately", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = fixture();
+    f.updater.checkForUpdates.mockRejectedValue(new Error("offline"));
+    await f.controller.checkInBackground();
+    let elapsed = 0, calls = 1;
+    for (const minutes of [1, 5, 15, 60, 60]) {
+      elapsed += minutes * 60_000;
+      vi.setSystemTime(elapsed - 1);
+      await f.controller.checkInBackground();
+      expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(calls);
+      vi.setSystemTime(elapsed);
+      await f.controller.checkInBackground();
+      expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(++calls);
+    }
+    f.updater.checkForUpdates.mockResolvedValue({});
+    await f.controller.check(true);
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(calls + 1);
+  });
   it("publishes bounded progress and closing leaves transfer running", async () => {
     const f = fixture(); f.offer(); const pending = deferred();
     f.updater.downloadUpdate.mockReturnValue(pending.promise);

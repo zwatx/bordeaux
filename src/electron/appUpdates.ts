@@ -97,9 +97,9 @@ export class UpdateQuitCoordinator {
   resumed(): void { this.aborted = false; this.quitStarted = false; }
 }
 
-/** Background checks wait this long after a successful check, and BACKGROUND_RETRY_MS after any attempt. */
+/** Background checks wait this long after a successful check. */
 export const BACKGROUND_CHECK_SPACING_MS = 60 * 60 * 1000;
-const BACKGROUND_RETRY_MS = 60 * 1000;
+const BACKGROUND_RETRY_MINUTES = [1, 1, 5, 15, 60] as const;
 
 /** The check in flight. It stays silent until an interactive caller joins it. */
 interface UpdateCheck { promise: Promise<void>; shown: boolean; logged: boolean }
@@ -109,6 +109,7 @@ export class AppUpdateController {
   private activeCheck: UpdateCheck | null = null;
   private lastCheckSucceededAt = -Infinity;
   private lastCheckStartedAt = -Infinity;
+  private failedChecks = 0;
   private downloadPromise: Promise<void> | null = null;
   private downloadToken: CancellationToken | null = null;
   private downloaded = false;
@@ -208,12 +209,13 @@ export class AppUpdateController {
   }
 
   /**
-   * Runs a silent check unless one succeeded within the last hour or any started within the last minute.
+   * Runs a silent check with an hour between successes and a longer delay after repeated failures.
    * Main calls it after startup, after waking from sleep, on window focus and on a timer.
    */
   async checkInBackground(): Promise<void> {
     const now = Date.now();
-    if (now - this.lastCheckSucceededAt < BACKGROUND_CHECK_SPACING_MS || now - this.lastCheckStartedAt < BACKGROUND_RETRY_MS) return;
+    const retryMs = BACKGROUND_RETRY_MINUTES[this.failedChecks] * 60_000;
+    if (now - this.lastCheckSucceededAt < BACKGROUND_CHECK_SPACING_MS || now - this.lastCheckStartedAt < retryMs) return;
     return this.check(false);
   }
 
@@ -241,8 +243,14 @@ export class AppUpdateController {
       try {
         const result = await this.updater!.checkForUpdates();
         if (result === null) { if (check.shown) this.publish({ phase: "unsupported" }); }
-        else this.lastCheckSucceededAt = Date.now();
-      } catch (error) { this.checkFailed(check, error); }
+        else {
+          this.lastCheckSucceededAt = Date.now();
+          this.failedChecks = 0;
+        }
+      } catch (error) {
+        this.failedChecks = Math.min(BACKGROUND_RETRY_MINUTES.length - 1, this.failedChecks + 1);
+        this.checkFailed(check, error);
+      }
       finally { this.activeCheck = null; }
     });
     return check.promise;
