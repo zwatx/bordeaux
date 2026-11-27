@@ -88,12 +88,107 @@ describe("application update state", () => {
     expect(f.updater.downloadUpdate).not.toHaveBeenCalled();
     expect(updateReleaseNotes({version:"1",releaseNotes:[{version:"1",note:"A &amp; B"}]})).toBe("A & B");
   });
-  it("deduplicates emitted and rejected check errors and keeps background failures hidden", async () => {
+  it("deduplicates emitted and rejected errors of a manual check", async () => {
     const f = fixture(); const error = new Error("private diagnostic");
     f.updater.checkForUpdates.mockImplementation(async () => { f.updater.emit("error", error); throw error; });
-    await f.controller.check();
+    await f.controller.check(true);
     expect(f.states.filter(s => s.phase === "error")).toHaveLength(1);
-    expect(f.controller.snapshot()).toMatchObject({ visible: false, error: "Try again or open Releases.", errorDetails: "private diagnostic", errorStage: "check" });
+    expect(f.controller.snapshot()).toMatchObject({ visible: true, error: "Try again or open Releases.", errorDetails: "private diagnostic", errorStage: "check" });
+  });
+  it("keeps background checks out of sight and logs their failures once", async () => {
+    const f = fixture(); const error = new Error("offline");
+    f.updater.checkForUpdates.mockImplementation(async () => { f.updater.emit("error", error); throw error; });
+    await f.controller.check();
+    expect(f.states).toEqual([]);
+    expect(f.runtime.warn).toHaveBeenCalledOnce();
+    expect(f.controller.snapshot()).toMatchObject({ phase: "idle", error: null });
+  });
+  it("keeps a shown offer when a later background check fails", async () => {
+    const f = fixture(); f.offer();
+    f.updater.checkForUpdates.mockRejectedValue(new Error("event Wi-Fi"));
+    await f.controller.check();
+    expect(f.states.map(s => s.phase)).toEqual(["available"]);
+    expect(f.controller.snapshot()).toMatchObject({ phase: "available", version: "0.3.0", releaseNotes: "Better paths" });
+  });
+  it.each(["failure", "same offer", "new offer", "withdrawn offer"] as const)(
+    "handles a download click during a silent check ending with %s", async (outcome) => {
+      const f = fixture();
+      f.offer();
+      const pending = deferred();
+      f.updater.checkForUpdates.mockReturnValue(pending.promise);
+      const check = f.controller.checkInBackground();
+      await Promise.resolve();
+
+      const click = f.controller.download();
+      expect(f.updater.downloadUpdate).not.toHaveBeenCalled();
+      if (outcome === "failure") {
+        pending.reject(new Error("offline"));
+      } else {
+        if (outcome === "same offer") f.offer();
+        if (outcome === "new offer") f.updater.emit("update-available", { version: "0.4.0" });
+        if (outcome === "withdrawn offer") f.updater.emit("update-not-available", { version: "0.2.0-beta.1" });
+        pending.resolve({});
+      }
+      await Promise.all([check, click]);
+      expect(f.updater.downloadUpdate).toHaveBeenCalledTimes(outcome === "failure" || outcome === "same offer" ? 1 : 0);
+    },
+  );
+  it("lets background checks surface new offers and withdraw old ones", async () => {
+    const f = fixture();
+    f.updater.checkForUpdates.mockImplementationOnce(async () => { f.offer(); return {}; });
+    await f.controller.check();
+    expect(f.controller.snapshot()).toMatchObject({ phase: "available", version: "0.3.0" });
+    f.updater.checkForUpdates.mockImplementationOnce(async () => { f.updater.emit("update-not-available", { version: "0.2.0-beta.1" }); return {}; });
+    await f.controller.check();
+    expect(f.controller.snapshot()).toMatchObject({ phase: "upToDate", version: null });
+    expect(f.states.some(s => s.phase === "checking")).toBe(false);
+  });
+  it("shows the failure of a background check that a manual check joined", async () => {
+    const f = fixture(); const pending = deferred(); const error = new Error("rate limited");
+    f.updater.checkForUpdates.mockReturnValue(pending.promise);
+    const background = f.controller.check();
+    await Promise.resolve();
+    f.updater.emit("error", error); // logged silently: nobody is watching yet
+    const manual = f.controller.check(true);
+    expect(f.controller.snapshot()).toMatchObject({ phase: "checking", visible: true });
+    pending.reject(error); await Promise.all([background, manual]);
+    expect(f.controller.snapshot()).toMatchObject({ phase: "error", errorStage: "check", errorDetails: "rate limited" });
+  });
+  it("spaces background checks an hour after success and a minute after failure, but never blocks a manual check", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = fixture();
+    await f.controller.checkInBackground();
+    vi.setSystemTime(59 * 60_000); await f.controller.checkInBackground();
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    await f.controller.check(true);
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(59 * 60_000 + 60 * 60_000); await f.controller.checkInBackground();
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(3);
+    f.updater.checkForUpdates.mockRejectedValue(new Error("offline"));
+    vi.setSystemTime(10 * 60 * 60_000); await f.controller.checkInBackground();
+    vi.setSystemTime(10 * 60 * 60_000 + 59_000); await f.controller.checkInBackground();
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(4);
+    vi.setSystemTime(10 * 60 * 60_000 + 60_000); await f.controller.checkInBackground();
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(5);
+  });
+  it("backs off repeated failures on focus and lets a manual check start immediately", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = fixture();
+    f.updater.checkForUpdates.mockRejectedValue(new Error("offline"));
+    await f.controller.checkInBackground();
+    let elapsed = 0, calls = 1;
+    for (const minutes of [1, 5, 15, 60, 60]) {
+      elapsed += minutes * 60_000;
+      vi.setSystemTime(elapsed - 1);
+      await f.controller.checkInBackground();
+      expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(calls);
+      vi.setSystemTime(elapsed);
+      await f.controller.checkInBackground();
+      expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(++calls);
+    }
+    f.updater.checkForUpdates.mockResolvedValue({});
+    await f.controller.check(true);
+    expect(f.updater.checkForUpdates).toHaveBeenCalledTimes(calls + 1);
   });
   it("publishes bounded progress and closing leaves transfer running", async () => {
     const f = fixture(); f.offer(); const pending = deferred();

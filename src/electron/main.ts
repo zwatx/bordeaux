@@ -1,6 +1,6 @@
 import type { ProjectCopyDefaultsRequest } from "../core/project/desktopProjects";
 import { attachWindowChrome, registerWindowChrome, type Handle } from "./windowChrome";
-import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, powerMonitor, safeStorage, shell } from "electron";
 import { autoUpdater as updateClient } from "electron-updater";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -106,6 +106,10 @@ function projectContext() { return { windowEpoch: projectWindowEpoch, documentSe
 let dirty = false;
 let appUpdates: AppUpdateController | null = null;
 let updateCheckTimer: NodeJS.Timeout | null = null;
+// Runs while startup or a wake waits for the network to come up. Focus checks wait for it.
+let updateCheckSettle: NodeJS.Timeout | null = null;
+const UPDATE_SETTLE_MS = 10_000;
+const UPDATE_FALLBACK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let backgroundShutdownPromise: Promise<void> | null = null;
 let backgroundServicesReadyForExit = false;
 let finalQuitInProgress = false;
@@ -379,6 +383,28 @@ function stopBackgroundServices(): Promise<void> {
   return backgroundShutdownPromise;
 }
 
+/**
+ * Background update checks run 10 s after the first window shows or the machine wakes, because the
+ * network may still be coming up. They also run on window focus and every 6 hours. The controller
+ * skips any that come within an hour of a successful check.
+ */
+function settleThenCheckForUpdates(): void {
+  if (!appUpdates?.available) return;
+  if (updateCheckSettle) clearTimeout(updateCheckSettle);
+  updateCheckSettle = setTimeout(() => {
+    updateCheckSettle = null;
+    void appUpdates?.checkInBackground();
+    if (!updateCheckTimer) {
+      updateCheckTimer = setInterval(() => { void appUpdates?.checkInBackground(); }, UPDATE_FALLBACK_INTERVAL_MS);
+      updateCheckTimer.unref();
+    }
+  }, UPDATE_SETTLE_MS);
+  updateCheckSettle.unref();
+}
+function checkForUpdatesOnFocus(): void {
+  if (updateCheckTimer && !updateCheckSettle) void appUpdates?.checkInBackground();
+}
+
 function createAppUpdateController(): AppUpdateController {
   const supported = usesGitHubAppUpdates(
     process.platform,
@@ -630,19 +656,12 @@ function createWindow() {
 
   const window = mainWindow;
   attachWindowChrome(window, process.platform);
-  window.on("focus", () => scheduleCommandSync());
+  window.on("focus", () => { scheduleCommandSync(); checkForUpdatesOnFocus(); });
   let windowEpoch = projectWindowEpoch, initialNavigation = true;
   nativeDeparture.documentEntered(projectContext());
   window.once("ready-to-show", () => {
     window.show();
-    if (appUpdates?.available && !updateCheckTimer) {
-      updateCheckTimer = setTimeout(() => {
-        void appUpdates?.check(false);
-        updateCheckTimer = setInterval(() => { void appUpdates?.check(false); }, 6 * 60 * 60 * 1000);
-        updateCheckTimer.unref();
-      }, 10_000);
-      updateCheckTimer.unref();
-    }
+    if (!updateCheckTimer && !updateCheckSettle) settleThenCheckForUpdates();
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   // A rejected direct reload must not rotate the still-live document epoch. Rotate only after navigation commits.
@@ -1919,6 +1938,7 @@ if (ownsDesktopInstance) app.whenReady().then(async () => {
   agentSessions.resetAccess(agentBridge.enabled);
   appUpdates = createAppUpdateController();
   appUpdates.start();
+  powerMonitor.on("resume", settleThenCheckForUpdates);
   buildMenu();
   createWindow();
   app.on("activate", () => { if (!replacingProjectWindow && fallbackDialogOwners.size === 0 && BrowserWindow.getAllWindows().length === 0) createWindow(); });

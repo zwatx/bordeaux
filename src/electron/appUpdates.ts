@@ -97,9 +97,19 @@ export class UpdateQuitCoordinator {
   resumed(): void { this.aborted = false; this.quitStarted = false; }
 }
 
+/** Background checks wait this long after a successful check. */
+export const BACKGROUND_CHECK_SPACING_MS = 60 * 60 * 1000;
+const BACKGROUND_RETRY_MINUTES = [1, 1, 5, 15, 60] as const;
+
+/** The check in flight. It stays silent until an interactive caller joins it. */
+interface UpdateCheck { promise: Promise<void>; shown: boolean; logged: boolean }
+
 export class AppUpdateController {
   private started = false;
-  private checkPromise: Promise<void> | null = null;
+  private activeCheck: UpdateCheck | null = null;
+  private lastCheckSucceededAt = -Infinity;
+  private lastCheckStartedAt = -Infinity;
+  private failedChecks = 0;
   private downloadPromise: Promise<void> | null = null;
   private downloadToken: CancellationToken | null = null;
   private downloaded = false;
@@ -164,7 +174,7 @@ export class AppUpdateController {
         releaseNotes: updateReleaseNotes(info), progress: null });
     });
     updater.on("update-not-available", (info) => {
-      if (this.state.phase === "checking") this.publish({
+      if (this.activeCheck || this.state.phase === "checking") this.publish({
         phase: "upToDate", ...this.clearError(), version: null,
         releaseNotes: info.version === this.runtime.currentVersion ? updateReleaseNotes(info) : "",
       });
@@ -188,31 +198,74 @@ export class AppUpdateController {
         this.fail(error, "install");
       }
       else if (this.downloadToken) this.fail(error, "download");
-      else if (this.checkPromise || this.state.phase === "checking") this.fail(error, "check");
+      else if (this.activeCheck) this.checkFailed(this.activeCheck, error);
     });
   }
 
+  /** A shown check reports its failure; a silent one keeps the last known state and only logs. */
+  private checkFailed(check: UpdateCheck, error: unknown): void {
+    if (check.shown) this.fail(error, "check");
+    else if (!check.logged) { check.logged = true; this.runtime.warn("Bordeaux background update check failed", error); }
+  }
+
+  /**
+   * Runs a silent check with an hour between successes and a longer delay after repeated failures.
+   * Main calls it after startup, after waking from sleep, on window focus and on a timer.
+   */
+  async checkInBackground(): Promise<void> {
+    const now = Date.now();
+    const retryMs = BACKGROUND_RETRY_MINUTES[this.failedChecks] * 60_000;
+    if (now - this.lastCheckSucceededAt < BACKGROUND_CHECK_SPACING_MS || now - this.lastCheckStartedAt < retryMs) return;
+    return this.check(false);
+  }
+
+  /**
+   * Checks GitHub for a newer release. An interactive check opens the panel and shows progress and
+   * failures. A background check publishes only what it finds, so a failure never hides an offer.
+   */
   async check(interactive = false): Promise<void> {
     if (interactive) this.setVisible(true);
     if (!this.available) { this.publish({ phase: "unsupported" }); return; }
     this.start();
     if (this.downloadPromise || this.installing) return;
     if (this.downloaded) { this.publish({ phase: "downloaded", ...this.clearError() }); return; }
-    if (this.checkPromise) return this.checkPromise;
-    this.publish({ phase: "checking", version: null, releaseNotes: "", progress: null, ...this.clearError() });
-    // Defer invoking the updater until the ownership promise has been recorded.
-    this.checkPromise = Promise.resolve().then(async () => {
+    const showChecking = () => this.publish({ phase: "checking", version: null, releaseNotes: "", progress: null, ...this.clearError() });
+    if (this.activeCheck) {
+      if (interactive && !this.activeCheck.shown) { this.activeCheck.shown = true; showChecking(); }
+      return this.activeCheck.promise;
+    }
+    const check: UpdateCheck = { promise: Promise.resolve(), shown: interactive, logged: false };
+    this.activeCheck = check;
+    this.lastCheckStartedAt = Date.now();
+    if (interactive) showChecking();
+    // Defer invoking the updater until the ownership record exists.
+    check.promise = Promise.resolve().then(async () => {
       try {
         const result = await this.updater!.checkForUpdates();
-        if (result === null && this.state.phase === "checking") this.publish({ phase: "unsupported" });
-      } catch (error) { this.fail(error, "check"); }
-      finally { this.checkPromise = null; }
+        if (result === null) { if (check.shown) this.publish({ phase: "unsupported" }); }
+        else {
+          this.lastCheckSucceededAt = Date.now();
+          this.failedChecks = 0;
+        }
+      } catch (error) {
+        this.failedChecks = Math.min(BACKGROUND_RETRY_MINUTES.length - 1, this.failedChecks + 1);
+        this.checkFailed(check, error);
+      }
+      finally { this.activeCheck = null; }
     });
-    return this.checkPromise;
+    return check.promise;
   }
 
   async download(): Promise<void> {
-    if (!this.available || !this.state.version || this.downloaded || this.installing || this.checkPromise) return;
+    if (!this.available || !this.state.version || this.downloaded || this.installing) return;
+    if (this.activeCheck) {
+      // A silent check leaves the current offer actionable. Wait for its outcome
+      // before using the updater, and download only the version the user chose.
+      const version = this.state.version;
+      await this.activeCheck.promise;
+      if (this.state.version === version) return this.download();
+      return;
+    }
     if (this.downloadPromise) return this.downloadPromise;
     if (this.state.phase !== "available" && !(this.state.phase === "error" && this.state.errorStage === "download")) return;
     const token = new CancellationToken();
