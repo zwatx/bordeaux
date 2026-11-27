@@ -288,12 +288,10 @@
 .rt-timeline-time,.rt-timeline-step{color:var(--txt);font:11px var(--mono);font-variant-numeric:tabular-nums}
 .rt-timeline-time{flex:none;margin-left:2px;white-space:nowrap}
 .rt-timeline-time small,.rt-timeline-step small{color:var(--txt-3);font:inherit;white-space:nowrap}
-/* The step slot keeps one width for the run (--slot, from its longest step name), so the track never moves while
-   names change; a long name past 34% of the row ends in an ellipsis. */
-.rt-tp-now{display:flex;flex:0 0 min(var(--slot,240px),34%);align-items:baseline;justify-content:flex-end;gap:10px;min-width:0;overflow:hidden}
+/* The step slot keeps one width for the run (--slot, from its place "17 of 17"), so the track fills the row and never
+   moves during playback. */
+.rt-tp-now{display:flex;flex:0 0 var(--slot,64px);align-items:baseline;justify-content:flex-end;gap:10px;min-width:0;overflow:hidden}
 .rt-timeline-step{display:flex;flex:0 1 auto;align-items:baseline;gap:8px;min-width:0}
-.rt-timeline-now{min-width:0;overflow:hidden;color:var(--txt);font:500 12px var(--ui);text-overflow:ellipsis;white-space:nowrap}
-.rt-timeline-pass-now{flex:none;color:var(--txt-2);font-size:11px;white-space:nowrap}
 .rt-tp-tools{display:flex;flex:none;align-items:center;gap:1px;padding-left:6px;border-left:1px solid var(--line)}
 .rt-tp-tools .qbtn.power-trigger{height:28px;min-height:28px;padding:0 9px;border:0;border-radius:var(--r-s);font-size:12px}
 .rt-timeline-editor{position:relative;flex:1 1 0;align-self:stretch;min-width:96px}
@@ -340,8 +338,7 @@
    first fact; the step's name and pass are on the flow's lit row ("Pass 2 of 2" in place of its time), the hover
    readout and the slider's value. They stay for assistive technology; the slot keeps the run order. */
 @container routine-workspace (max-width:640px){
-  .rt-tp-now{flex-basis:var(--slot-narrow,auto)}
-  :is(.rt-timeline-now,.rt-timeline-pass-now,.rt-timeline-time small){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .rt-timeline-time small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 }
 
 /* ============ routine inspector ============ */

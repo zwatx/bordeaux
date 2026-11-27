@@ -23,7 +23,7 @@ describe('routine transport scrubber', () => {
     expect(element).toContain('aria-valuemax="6"'); expect(element).toContain('aria-valuenow="2"');
     expect(element).toContain('aria-valuetext="2.00 s of 6.00 s, Leave the zone"');
     expect(element).toContain('tabindex="0"'); expect(element).not.toContain('aria-disabled');
-    expect(html).toContain('class="rt-timeline-now">Leave the zone<'); expect(html).toContain('>1 of 2<');
+    expect(html).toContain('title="Leave the zone"><small>1 of 2</small>');
     expect(html).toContain('class="rt-timeline-playhead"');
     expect(html).toMatch(/class="rt-timeline-span path on"[^>]*title="Leave the zone"/);
   });

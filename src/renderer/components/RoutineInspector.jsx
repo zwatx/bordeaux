@@ -577,15 +577,13 @@ export function RoutineTransport(props) {
     return () => observer.disconnect();
   }, []);
   const track = React.useMemo(() => routineTrack(run, editorWidth || 600), [run, editorWidth]);
-  // The step slot fits this run's longest name with its place ("17 of 17") and a pass, so the track keeps one width
-  // through playback without leaving an empty gap before the tools; a narrow row keeps only the place (--slot-narrow).
-  // labelWidth measures the 11.5px UI font; names show at 12px medium, and the place in the 11px mono.
+  // The step slot holds only the place ("17 of 17") or, before playback, the run's size ("5 steps"), whichever is
+  // longer, so the track keeps one width through playback and fills the row. The step playing now is named on the
+  // field and lit in the flow; here it is in the slot's title and the slider's value text.
   const slot = React.useMemo(() => {
-    const name = Math.max(0, ...occurrences.map((step) => labelWidth(stepName(step)))) * 1.1;
-    // The place ("17 of 17") or, before playback, the run's size ("5 steps"), whichever is longer.
-    const place = Math.ceil(Math.max(String(stepCount).length * 2 + 4, plural(stepCount, 'step').length) * 6.7 + 2), pass = run.steps.some((step) => step.passStack?.length) ? labelWidth('Pass 88 of 88') + 10 : 0;
-    return { '--slot': Math.ceil(name + place + pass + 10) + 'px', '--slot-narrow': place + 'px' };
-  }, [run, stepCount]); // eslint-disable-line react-hooks/exhaustive-deps
+    const place = Math.ceil(Math.max(String(stepCount).length * 2 + 4, plural(stepCount, 'step').length) * 6.7 + 2);
+    return { '--slot': place + 'px' };
+  }, [stepCount]);
   const activeAt = (step) => (running || time > 0) && step.t0 <= time && time < step.t1;
   // Page Up/Down targets: every step start, and the end.
   const starts = [...new Set([...run.steps.map((step) => step.t0), run.total])].filter(Number.isFinite).sort((a, b) => a - b);
@@ -651,12 +649,10 @@ export function RoutineTransport(props) {
         onPointerDown, onKeyDown,
         onPointerMove: (event) => { if (timedPlayable && !dragging && event.pointerType !== 'touch') setHover(timeAt(event)); },
         onPointerLeave: () => setHover(null) })),
-    // A fixed slot, so the track keeps its width through playback: the pass in a repeat, then the step playing now by
-    // name and its place in the run order. Before playback, the run's size.
+    // A fixed slot, so the track keeps its width through playback: the place in the run order, or before playback the
+    // run's size. The title names the step playing now and its pass.
     h('div', { className: 'rt-tp-now', style: slot },
-      pass && passes && h('span', { className: 'rt-timeline-pass-now' }, 'Pass ' + pass.pass + ' of ' + passes),
-      h('div', { className: 'rt-timeline-step', title: now ? stepName(now.step) : undefined },
-        now ? h(React.Fragment, null, h('span', { className: 'rt-timeline-now' }, stepName(now.step)), h('small', null, now.ordinal + ' of ' + stepCount))
-          : stepCount > 0 && h('small', null, plural(stepCount, 'step')))),
+      h('div', { className: 'rt-timeline-step', title: now ? stepName(now.step) + (pass && passes ? ', pass ' + pass.pass + ' of ' + passes : '') : undefined },
+        now ? h('small', null, now.ordinal + ' of ' + stepCount) : stepCount > 0 && h('small', null, plural(stepCount, 'step')))),
     props.tools && h('div', { className: 'rt-tp-tools' }, props.tools));
 }

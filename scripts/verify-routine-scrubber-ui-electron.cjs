@@ -189,6 +189,9 @@ app.whenReady().then(async () => {
         knob: getComputedStyle(document.querySelector('.rt-timeline-playhead'), '::before').width, step: document.querySelector('.rt-timeline-step').textContent }));
       assert.equal(scale.text, '', 'the track carries no text'); assert.ok(scale.row <= 41, 'one slim transport row: ' + scale.row);
       assert.equal(scale.knob, '12px', 'visible playhead handle'); assert.equal(scale.step, '8 steps', 'idle run size counts the flow rows');
+      // The slot holds only the place, so the track fills the row instead of leaving a gap before the tools.
+      const fill = await evaluate(() => ({ track: document.querySelector('.rt-timeline-editor').getBoundingClientRect().width, row: document.querySelector('.rt-transport').getBoundingClientRect().width }));
+      assert.ok(fill.track >= fill.row * 0.55, 'the track fills most of the transport row: ' + JSON.stringify(fill));
 
       // Tab from Play reaches the scrubber with a visible ring (as the workflow harness expects).
       await evaluate(() => document.querySelector('button[aria-label="Play routine"]').focus());
@@ -203,8 +206,8 @@ app.whenReady().then(async () => {
       const pressed = await sliderState();
       near(pressed.now, idle.max * 0.4, idle.max * 0.02, 'press seeks to 40%'); assert.equal(pressed.focused, true, 'press focuses the slider');
       assert.ok(await isPaused(), 'seeking leaves playback paused');
-      const nowName = await evaluate(() => document.querySelector('.rt-timeline-now')?.textContent || '');
-      assert.ok(nowName.length > 0 && pressed.text.includes(nowName), 'current step named in toolbar and value text: ' + pressed.text);
+      const nowName = await evaluate(() => document.querySelector('.rt-timeline-step')?.title || '');
+      assert.ok(nowName.length > 0 && pressed.text.includes(nowName.split(', pass ')[0]), 'current step named in the slot title and value text: ' + pressed.text);
       assert.equal(await evaluate(() => document.querySelectorAll('.rt-timeline-span.on').length <= 1), true);
 
       // Hover reads a time without seeking.
