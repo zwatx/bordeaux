@@ -33,6 +33,7 @@ async function fixture() {
   const handlers = new Map<string, (...args: any[]) => any>();
   const sandbox: Record<string, any> = {
     ...links, ...bookmarks, fs, path, createHash, randomUUID, console, Error, Object,
+    process: { platform: "win32" },
     resolveLabviewProject, statLabviewLocalPath, robotCatalogSemanticSignature, LABVIEW_CATALOG_SOURCE, sameProjectContext,
     projectContext: () => ({ ...context, targetGeneration: sandbox.projectTargetGeneration }), currentProjectFolder: folder, projectTargetGeneration: 1,
     currentProjectPath: projectWorkspacePath(folder), currentLegacyFile: null, recentFiles: [], rememberFile: vi.fn(async () => {}),
@@ -98,6 +99,18 @@ it("does not publish an inspected catalog when its project context is superseded
   f.activate();
   await expect(pending).rejects.toThrow(/project changed|superseded/);
   expect(f.sandbox.linkedRobotCatalog).toBeNull();
+});
+
+it("returns the inspection result of an explicit macOS link", async () => {
+  const f = await fixture();
+  f.sandbox.process.platform = "darwin";
+  f.sandbox.syncLabviewCommands.mockImplementation(async (_file: string, _cache: string, catalog: object) => ({
+    ...catalog, warnings: ["Open the selected project in LabVIEW 2026, then refresh commands."],
+  }));
+  const linked = await f.sandbox.replaceRobotProject(f.file, "labview");
+  expect(linked.catalog.warnings).toContain("Open the selected project in LabVIEW 2026, then refresh commands.");
+  expect(f.sandbox.syncLabviewCommands).toHaveBeenCalledTimes(1);
+  expect(f.sandbox.scheduleCommandSync).not.toHaveBeenCalled();
 });
 
 it("adopts a modeled Link selection before the queued departure saves and grants an exact receipt", async () => {

@@ -19,7 +19,7 @@ import { labviewScriptingUnavailable, withCachedLabviewCommands, withSessionLabv
 import { projectCommandIds } from "./usedCommands";
 import { statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { labviewLinkMatches, relativeLabviewLink, rebaseProjectLabviewLink, resolveProjectLabviewLink, suggestProjectLabviewLink } from "./projectLabviewLink";
-import { inspectLabviewCommandsQueued, refreshLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation } from "./labviewProjectSync";
+import { inspectLabviewCommandsQueued, refreshLabviewCommandsQueued, syncLabviewCommands, queueLabviewOperation, supportsLiveLabview } from "./labviewProjectSync";
 import { ensureLabviewCommandWrapper } from "./labviewWrappers";
 import { syncLabviewWrapperReferences } from "./labviewWrapperReferences";
 import { discoverRobotProject, type RobotProjectRuntime } from "./robotProjectRuntime";
@@ -160,7 +160,7 @@ function publishLinkedCatalog(discovered: RobotCommandCatalog): RobotCommandCata
 /** Read commands whose VIs are new or changed since they were last read. Null when LabVIEW is unavailable or nothing changed. */
 async function refreshLinkedCommands(): Promise<RobotCommandCatalog | null> {
   const selection = linkedLabviewProjectFile, generation = robotConnectionGeneration;
-  if (!selection || process.platform !== "win32" || linkedRobotCatalog?.runtime !== "labview" || labviewInspectionInProgress) return null;
+  if (!selection || !supportsLiveLabview() || linkedRobotCatalog?.runtime !== "labview" || labviewInspectionInProgress) return null;
   const fresh = await refreshLabviewCommandsQueued(selection, labviewDiscoveryCacheDirectory());
   if (!fresh || generation !== robotConnectionGeneration || selection !== linkedLabviewProjectFile) return null;
   return publishLinkedCatalog(fresh);
@@ -171,7 +171,7 @@ async function refreshLinkedCommands(): Promise<RobotCommandCatalog | null> {
 let commandSyncTimer: NodeJS.Timeout | null = null, commandSyncRunning = false, commandSyncFailedAt = 0;
 const COMMAND_SYNC_BACKOFF_MS = 60_000;
 function scheduleCommandSync(delayMs = 1200): void {
-  if (process.platform !== "win32" || !linkedLabviewProjectFile) return;
+  if (!supportsLiveLabview() || !linkedLabviewProjectFile) return;
   if (Date.now() - commandSyncFailedAt < COMMAND_SYNC_BACKOFF_MS) return;
   if (commandSyncTimer) clearTimeout(commandSyncTimer);
   commandSyncTimer = setTimeout(() => {
@@ -549,10 +549,11 @@ async function connectRobotProject(projectPath: string, runtime: RobotProjectRun
   };
 }
 
-async function replaceRobotProject(projectPath: string, runtime: RobotProjectRuntime, cachedOnly = false) {
+async function replaceRobotProject(projectPath: string, runtime: RobotProjectRuntime) {
   const context = projectContext();
   // Explicit Link/Use/recent authors a new link; existing documents keep their spelling on restore/refresh.
-  const pending = connectRobotProject(projectPath, runtime, undefined, cachedOnly, true);
+  // On Mac report the VI Server or open-project prerequisite during the link, even if no cache exists yet.
+  const pending = connectRobotProject(projectPath, runtime, undefined, process.platform !== "darwin", true);
   const generation = robotConnectionGeneration;
   try {
     return await pending;
@@ -1549,7 +1550,7 @@ handle("robotProject:useSuggested", async (_event, context, id) => {
   assertRobotProjectContext(context);
   const suggestion = suggestedRobotProject;
   if (!suggestion || suggestion.id !== id || !sameProjectContext(suggestion.context, context)) throw new Error("The suggested robot code changed. Link robot code again.");
-  return rememberExplicitRobotLink(await replaceRobotProject(suggestion.file, "labview", true), context);
+  return rememberExplicitRobotLink(await replaceRobotProject(suggestion.file, "labview"), context);
 });
 handle("robotProject:listRecent", () => summarizeRobotProjectBookmarks(robotProjectBookmarks));
 handle("robotProject:link", async (_event, context) => {
@@ -1587,7 +1588,7 @@ handle("robotProject:link", async (_event, context) => {
       }
     }
     assertRobotProjectContext(context);
-    return rememberExplicitRobotLink(await replaceRobotProject(selectedPath, runtime, true), context);
+    return rememberExplicitRobotLink(await replaceRobotProject(selectedPath, runtime), context);
   } catch (error) {
     throw readableRobotProjectError(error, "Selected robot project");
   }
@@ -1598,7 +1599,7 @@ handle("robotProject:openRecent", async (_event, rawId, context) => {
   const bookmark = robotProjectBookmarks.find((item) => item.id === rawId);
   if (!bookmark) throw new Error("Recent robot project is no longer available");
   try {
-    return rememberExplicitRobotLink(await replaceRobotProject(bookmark.projectPath, bookmark.runtime, true), context);
+    return rememberExplicitRobotLink(await replaceRobotProject(bookmark.projectPath, bookmark.runtime), context);
   } catch (error) {
     throw readableRobotProjectError(error, bookmark.projectName);
   }
@@ -1667,7 +1668,7 @@ handle("robotProject:ensureWrappers", async (_event, context, rawIds) => {
     guard();
     const created = results.filter(result => result.created).length;
     // Bordeaux Command Wrappers.vi references every wrapper that now exists, not only the ones these commands use. It is
-    // best effort: without LabVIEW 2025 open it waits for a later refresh, and its own problems never fail the wrappers.
+    // best effort: without the project open in LabVIEW it waits for a later refresh.
     try {
       const references = await syncLabviewWrapperReferences(selection, validated.catalog ?? catalog, labviewDiscoveryCacheDirectory(), guard);
       guard();

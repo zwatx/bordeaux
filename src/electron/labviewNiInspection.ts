@@ -6,7 +6,8 @@ import type { RobotCommandCatalog, RobotCommandDescriptor, RobotCommandParameter
 import { discoverLabviewProject, resolveLabviewProject } from "./labviewProject";
 import { writeJsonAtomically } from "./projectFiles";
 import { decodeLabviewNiInspection, isLabviewControllerFile, typedefs } from "./labviewNiTypes";
-import { statLabviewLocalPath } from "./labviewProjectDiscovery";
+import { MAC_WRAPPER_STAGING_NAME, statLabviewLocalPath } from "./labviewProjectDiscovery";
+import { runMacLabviewAdapter } from "./labviewMacAdapter";
 
 /*
  * Command definitions come from NI connector inspection, kept per VI.
@@ -85,6 +86,7 @@ export function eligibleLabviewLegacySource(item: LabviewProjectDiscovery["items
     && !item.projectPath.split("/").some((part) => /^(?:Support Code|Framework)$/i.test(part))
     && !/Command Helper\.vi/i.test(item.name)
     && !/_wrapper\.vi$/i.test(item.name)
+    && !MAC_WRAPPER_STAGING_NAME.test(item.name)
     && item.name.toLowerCase() !== "bordeaux command wrappers.vi"
     && !["prep command info for wait.vi", "wait for command.vi", "should abort operation.vi", "subsystems.vi"].includes(item.name.toLowerCase());
 }
@@ -323,7 +325,8 @@ export async function labviewInspectionResource(name: string): Promise<string> {
 }
 
 export async function runLabviewNiAdapter(requestFile: string, responseFile: string): Promise<void> {
-  if (process.platform !== "win32") throw new Error("NI inspection is available on Windows with LabVIEW installed. Existing cached and declared catalogs remain available.");
+  if (process.platform === "darwin") return runMacLabviewAdapter(requestFile, responseFile, labviewInspectionResource);
+  if (process.platform !== "win32") throw new Error("NI inspection requires LabVIEW on Windows or macOS. Saved and declared commands remain available.");
   const script = await labviewInspectionResource("InspectCommands.ps1");
   // A PowerShell reaches only the LabVIEW COM server of its own bitness: 64-bit for LabVIEW 2026, usually 32-bit for
   // LabVIEW 2025 FRC installs. Try 64-bit first; move on only when that LabVIEW is absent or lacks the open project.
@@ -369,7 +372,8 @@ type Adapter = (requestFile: string, responseFile: string) => Promise<void>;
 async function inspect(selection: string, cacheDirectory: string, adapter: Adapter, scope: "all" | "changed"): Promise<RobotCommandCatalog | null> {
   const discovered = await discoverLabviewProject(selection);
   const before = await candidateSources(selection, discovered);
-  const previous = scope === "changed" ? await loadEvidence(before.projectFile, cacheDirectory).catch(() => null) : null;
+  const previous = scope === "changed" || !before.sources.length ? await loadEvidence(before.projectFile, cacheDirectory).catch(() => null) : null;
+  if (!before.sources.length && !previous) return scope === "changed" ? null : discovered;
   const known = new Map((previous?.sources ?? []).map((source) => [sourceKey(source), source]));
   const previousRows = new Map((previous?.report.vis ?? []).map((row) => [sourceKey({ target: String(row.target), file: String(row.file) }), row]));
   const reader = new FileReader();
@@ -393,7 +397,7 @@ async function inspect(selection: string, cacheDirectory: string, adapter: Adapt
   });
   const current = new Set(before.sources.map(sourceKey));
   const removed = [...previousRows.keys()].some((key) => !current.has(key));
-  if (previous && !pending.length && !removed) return null;
+  if (scope === "changed" && previous && !pending.length && !removed) return null;
 
   const startedAt = Date.now();
   let header: Omit<NiReport, "vis"> = previous?.report ?? { schemaVersion: REPORT_VERSION, projectFile: before.projectFile, labviewVersion: "", inspectedAt: "", dirtyContext: null };

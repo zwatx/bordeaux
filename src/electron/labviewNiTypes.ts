@@ -141,7 +141,8 @@ export function decodeLabviewNiInspection(raw: unknown, projectFile: string, sou
   const dependencyPaths = new Set<string>();
   const cacheBlockers = new Set<string>();
   let cacheable = report.dirtyContext === false;
-  if (report.dirtyContext !== false) cacheBlockers.add(report.dirtyContext === true ? "NI reports unsaved items in the inspection instance" : "NI did not provide the inspection instance's saved-state metadata");
+  if (report.dirtyContext !== false) cacheBlockers.add(report.dirtyContext === true ? "NI reports unsaved items in the inspection instance"
+    : report.platform === "darwin" ? "Bordeaux verifies saved state per VI on macOS" : "NI did not provide the inspection instance's saved-state metadata");
   for (const rawRow of rows) {
     const row = record(rawRow, "NI inspected VI");
     const file = text(row.file, "NI source file");

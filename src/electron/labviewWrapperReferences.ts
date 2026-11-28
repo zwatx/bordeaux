@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { RobotCommandCatalog } from "../core/types";
-import { statLabviewLocalPath } from "./labviewProjectDiscovery";
+import { assertMacLabviewReferenceSaveVersion, statLabviewLocalPath } from "./labviewProjectDiscovery";
 import { labviewInspectionResource, runLabviewNiAdapter } from "./labviewNiInspection";
 import { writeJsonAtomically } from "./projectFiles";
 import { commandWrapperPath } from "./labviewWrappers";
@@ -98,8 +98,8 @@ export interface WrapperReferencesResult { file: string; created: boolean; updat
 
 /**
  * Brings `Bordeaux Command Wrappers.vi` up to date with the wrappers that exist. Nothing is written when the saved
- * digest already matches, or when no wrapper exists and the VI was never created. Rewriting needs LabVIEW 2025 on
- * Windows with the project open; elsewhere an out-of-date VI is left for a Windows machine (returns null).
+ * digest already matches, or when no wrapper exists and the VI was never created. Rewriting needs the project open
+ * in LabVIEW 2025 on Windows or a 2026-format project open in LabVIEW 2026 on macOS.
  * `created` means the VI had never listed wrappers, so the team still has to place it on Autonomous.vi.
  */
 export async function syncLabviewWrapperReferences(projectFile: string, catalog: Catalog, cacheDirectory: string,
@@ -110,11 +110,15 @@ export async function syncLabviewWrapperReferences(projectFile: string, catalog:
   const saved = await readWrapperReferencesDigest(file);
   assertCurrent();
   if (saved === digest || (saved === null && !wrappers.length)) return { file, created: false, updated: false };
-  if (process.platform !== "win32" && adapter === runLabviewNiAdapter) return null;
+  if (process.platform !== "win32" && process.platform !== "darwin" && adapter === runLabviewNiAdapter) return null;
   // With no wrapper left, the commands' own target still says where the (now empty) VI is loaded.
   const targets = [...new Set(wrappers.length ? wrappers.map(wrapper => wrapper.target) : catalog.commands.flatMap(command => command.labviewConnector?.target ?? []))];
   if (targets.length > 1) throw new Error(`Command wrappers belong to more than one project target (${targets.join(", ")}); ${WRAPPER_REFERENCES_FILE} can serve only one.`);
   if (!targets.length) throw new Error("Rescan command inputs before updating command wrapper references.");
+  if (process.platform === "darwin" && adapter === runLabviewNiAdapter) {
+    await assertMacLabviewReferenceSaveVersion(projectFile);
+    assertCurrent();
+  }
   const published = saved === null ? await publishTemplate(file) : null;
   try {
     assertCurrent();

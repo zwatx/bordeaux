@@ -185,6 +185,15 @@ async function cacheFixture() {
 }
 
 describe("NI legacy connector discovery", () => {
+  it("skips the NI adapter for a project without candidate VIs, including an explicit rescan", async () => {
+    const fixture = await cacheFixture();
+    await fs.rm(path.join(fixture.root, source.file));
+    const adapter = vi.fn(async () => { throw new Error("No VI should be inspected"); });
+    await expect(refreshLabviewCommands(fixture.project, fixture.cache, adapter)).resolves.toBeNull();
+    await expect(inspectLabviewCommands(fixture.project, fixture.cache, adapter)).resolves.toMatchObject({ commands: [] });
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
   it("stops scheduling on a fingerprint failure and drains in-flight reads before returning", async () => {
     const f = await cacheFixture();
     for (let index = 1; index < 40; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);

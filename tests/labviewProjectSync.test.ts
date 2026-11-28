@@ -52,9 +52,9 @@ describe("automatic LabVIEW command sync", () => {
     const saved = catalog(), refresh = vi.fn(async () => null), cached = vi.fn(async () => saved);
     expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), refresh, cached })).toBe(saved);
   });
-  it("returns re-read definitions when VIs changed", async () => {
+  it.each(["win32", "darwin"])("returns re-read definitions when VIs changed on %s", async (platform) => {
     const live = catalog("available"), refresh = vi.fn(async () => live), cached = vi.fn(async () => catalog());
-    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform: "win32", session: vi.fn(async () => null), refresh, cached })).toBe(live);
+    expect(await syncLabviewCommands(selection, cacheDirectory, catalog(), { platform, session: vi.fn(async () => null), refresh, cached })).toBe(live);
   });
 
   it("keeps known commands usable and quiet when LabVIEW can't be read", async () => {
@@ -79,10 +79,10 @@ describe("automatic LabVIEW command sync", () => {
     expect(result.warnings).toContain(result.labviewDiscovery?.inspection?.reason);
   });
 
-  it.each(["darwin", "linux"] as const)("uses saved definitions on %s without launching the NI adapter", async (platform) => {
+  it("uses saved definitions on Linux without launching the NI adapter", async () => {
     const source = catalog(); const saved = catalog();
     const refresh = vi.fn(async () => catalog("available")); const cached = vi.fn(async () => saved);
-    expect(await syncLabviewCommands(selection, cacheDirectory, source, { platform, refresh, cached })).toBe(saved);
+    expect(await syncLabviewCommands(selection, cacheDirectory, source, { platform: "linux", refresh, cached })).toBe(saved);
     expect(cached).toHaveBeenCalledExactlyOnceWith(selection, source, cacheDirectory);
     expect(refresh).not.toHaveBeenCalled();
   });

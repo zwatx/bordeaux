@@ -1,8 +1,8 @@
 ﻿"""Author Bordeaux's self-contained VI Scripting helper using a local native authoring toolkit.
 
 Developer-only: --native-tools points to the directory containing lvscript.py/lvbuild.py.
-The shipped desktop invokes the saved VI through NI COM; it needs no Python or MCP server.
-Never runs the command VI. Build and verify with LabVIEW 2025 25.3.3f3.
+The desktop invokes the saved VI through NI COM or VI Server TCP.
+Use LabVIEW 2025 25.3.3f3 for Windows or LabVIEW 2026 for --mac. Never runs the command VI.
 """
 import argparse
 import json
@@ -12,15 +12,18 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--native-tools', type=Path, required=True)
-parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1] / 'resources/labview-inspection/CreateCommandWrapper.vi')
+parser.add_argument('--mac', action='store_true', help='Build the LabVIEW 2026 helper for VI Server TCP')
+parser.add_argument('--output', type=Path)
 args = parser.parse_args()
 os.environ.setdefault('LABVIEW_WORKER_NAMESPACE', 'bordeaux-wrapper-authoring')
 sys.path.insert(0, str(args.native_tools.resolve()))
 from lvscript import Session
 from lvbuild import VIBuilder, Node
+from labview_mac_project_context import find_open_project
 
 s = Session()
-output = args.output.resolve()
+name = 'CreateCommandWrapperMac.vi' if args.mac else 'CreateCommandWrapper.vi'
+output = (args.output or Path(__file__).resolve().parents[1] / 'resources/labview-inspection' / name).resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 if output.exists():
     raise RuntimeError('Choose a fresh output path; existing helper artifacts are preserved.')
@@ -61,9 +64,15 @@ def string_control(label, y):
 source = string_control('command path', 20)
 destination = string_control('wrapper path', 100)
 terminal_numbers = b.control('terminal numbers', 'dbl[]')
+project_path = string_control('project path', 180) if args.mac else None
 source_path = b.node('String To Path', string=source)
 destination_path = b.node('String To Path', string=destination)
 fresh = b.node('New VI')
+if project_path is not None:
+    project, error = find_open_project(b, project_path, member)
+    context = member(b, 'property', 'Project', 'Application', project, error)
+    b.wire(context['App Ref'], fresh['application refnum'])
+    b.wire(context['error out'], fresh['error in (no error)'])
 b.wire(b.const(1), fresh['vi type (standard vi)'])
 reentrant = member(b, 'property', 'VI', 'Exec.IsReentrant', fresh['vi refnum'], fresh['error out'], True)
 b.wire(b.const(True), reentrant['Exec.IsReentrant'])

@@ -1,8 +1,8 @@
 """Author Bordeaux's command wrapper references helper and its empty managed-VI template.
 
 Developer-only, like build-labview-wrapper-helper.py: --native-tools points to the directory containing
-lvscript.py/lvbuild.py. The shipped desktop runs the saved helper through NI COM; it needs no Python.
-Build and verify with LabVIEW 2025 25.3.3f3.
+lvscript.py/lvbuild.py. The desktop runs the helper through NI COM or VI Server TCP.
+Use LabVIEW 2025 25.3.3f3 for Windows or LabVIEW 2026 for --mac.
 
 UpdateCommandWrapperReferences.vi edits the managed VI in the robot target's application context, where
 Autonomous.vi loads it, so an open project sees the new references without reopening. It:
@@ -23,11 +23,13 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--native-tools', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1] / 'resources/labview-inspection')
 parser.add_argument('--labview', type=Path, default=Path(r'C:\Program Files (x86)\National Instruments\LabVIEW 2025'))
+parser.add_argument('--mac', action='store_true', help='Build only the LabVIEW 2026 helper for VI Server TCP')
 args = parser.parse_args()
 os.environ.setdefault('LABVIEW_WORKER_NAMESPACE', 'bordeaux-wrapper-authoring')
 sys.path.insert(0, str(args.native_tools.resolve()))
 from lvscript import Session
 from lvbuild import VIBuilder, Node
+from labview_mac_project_context import find_open_project
 
 MARKER = 'bordeaux-command-wrappers/1'
 TEMPLATE_DESCRIPTION = ('Managed by Bordeaux. Holds a static VI reference to every command wrapper so that running '
@@ -36,8 +38,9 @@ TEMPLATE_DESCRIPTION = ('Managed by Bordeaux. Holds a static VI reference to eve
                         f'{MARKER} sha256:none')
 s = Session()
 output = args.output.resolve()
-helper_path, template_path = output / 'UpdateCommandWrapperReferences.vi', output / 'CommandWrapperReferences.vi'
-for existing in (helper_path, template_path):
+helper_name = 'UpdateCommandWrapperReferencesMac.vi' if args.mac else 'UpdateCommandWrapperReferences.vi'
+helper_path, template_path = output / helper_name, output / 'CommandWrapperReferences.vi'
+for existing in (helper_path,) if args.mac else (helper_path, template_path):
     if existing.exists():
         raise RuntimeError(f'{existing} exists; choose a fresh output directory. Existing helper artifacts are preserved.')
 VILIB = args.labview / 'vi.lib' / 'Utility'
@@ -137,8 +140,12 @@ description = string_control(b, 'description', 230)
 marker = string_control(b, 'marker', 300)
 wrapper_paths = string_array_control(b, 'wrapper paths', 370)
 
-project = member(b, 'method', 'Application', 'Project.Open', **{'Path': b.node('String To Path', string=project_path)['path']})
-targets = member(b, 'property', 'Project', 'Targets', terminal(project, 'Project:Open', True), project['error out'])
+if args.mac:
+    project_ref, project_error = find_open_project(b, project_path, member)
+else:
+    project = member(b, 'method', 'Application', 'Project.Open', **{'Path': b.node('String To Path', string=project_path)['path']})
+    project_ref, project_error = terminal(project, 'Project:Open', True), project['error out']
+targets = member(b, 'property', 'Project', 'Targets', project_ref, project_error)
 target_count = b.node('Array Size', array=targets['Targets'])
 names_loop = b.for_loop(target_count['size(s)'], location=(900, 40), size=(500, 300))
 target_item = names_loop.body.node('Index Array', array=names_loop.outer(targets['Targets']), index=names_loop.i)
@@ -151,8 +158,9 @@ target_error = error_unless(b, has_target['x >= 0?'], 5003, targets['error out']
 context = member(b, 'property', 'TargetItem', 'Application', target['element'], target_error)
 context_name = member(b, 'property', 'Application', 'App.ContextName', context['Context'], context['error out'])
 indicator_from(b, context_name['App.ContextName'], 'context name')
+refs_path = b.node('String To Path', string=references_path)['path']
 opened = b.node('Open VI Reference', **{'application reference (local)': context['Context'],
-                                       'vi path': b.node('String To Path', string=references_path)['path'],
+                                       'vi path': refs_path,
                                        'error in (no error)': context_name['error out']})
 vi = opened['vi reference']
 previous = member(b, 'property', 'VI', 'Description', vi, opened['error out'])
@@ -194,7 +202,7 @@ saved = member(b, 'method', 'VI', 'Save Instrument', vi, described['error out'])
 counted = traverse(b, vi, saved['error out'])
 indicator_from(b, counted['# of Refs'], 'reference count')
 
-# An edit that failed after the ownership checks leaves the loaded VI changed in memory; revert it to the saved file.
+# Revert edits after a failure.
 status = b.node('Unbundle By Name')
 b.wire(counted['error out'], status.terminals[[source for _, _, source in status.terminals].index(False)][1])
 case = b.case(status.out, ['False', 'True'], location=(1900, 400), size=(500, 300))
@@ -206,6 +214,12 @@ b.describe('Bordeaux: rewrites the managed command wrapper references VI in the 
            'Deletes its Static VI References, adds one per wrapper path, records the description and saves. '
            'Refuses an unmarked VI (5001), unsaved edits (5002) and an unknown target (5003). Never runs a wrapper.')
 ok, errors = b.finish()
+
+if args.mac:
+    print(json.dumps({'helper': str(helper_path), 'executable': ok, 'errors': errors}, default=str))
+    if not ok:
+        raise RuntimeError('The generated helper is broken; inspect its reported errors.')
+    sys.exit(0)
 
 # ---- empty managed-VI template ------------------------------------------------------------------------------------
 t = VIBuilder(s, template_path)

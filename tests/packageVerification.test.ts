@@ -35,7 +35,8 @@ it("verifies canonical packaged update metadata and rejects the former owner", a
     }
     await fs.mkdir(resources, { recursive: true });
     for (const resource of ["LICENSE", "NOTICE", "RIGHTS.md", "licenses/OFL-1.1.txt", "licenses/ssh2-MIT.txt", "licenses/WPILib-BSD-3-Clause.txt", "labview-inspection/InspectCommands.ps1",
-      "labview-inspection/CreateCommandWrapper.vi", "labview-inspection/UpdateCommandWrapperReferences.vi", "labview-inspection/CommandWrapperReferences.vi"]) {
+      "labview-inspection/CreateCommandWrapper.vi", "labview-inspection/UpdateCommandWrapperReferences.vi", "labview-inspection/CommandWrapperReferences.vi",
+      "labview-inspection/InspectCommandsMac.vi", "labview-inspection/CreateCommandWrapperMac.vi", "labview-inspection/UpdateCommandWrapperReferencesMac.vi"]) {
       const target = path.join(resources, resource);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, "fixture");

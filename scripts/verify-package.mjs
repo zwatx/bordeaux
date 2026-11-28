@@ -33,8 +33,11 @@ const requiredResources = [
   "licenses/ssh2-MIT.txt",
   "licenses/WPILib-BSD-3-Clause.txt",
   "labview-inspection/InspectCommands.ps1",
+  "labview-inspection/InspectCommandsMac.vi",
   "labview-inspection/CreateCommandWrapper.vi",
+  "labview-inspection/CreateCommandWrapperMac.vi",
   "labview-inspection/UpdateCommandWrapperReferences.vi",
+  "labview-inspection/UpdateCommandWrapperReferencesMac.vi",
   "labview-inspection/CommandWrapperReferences.vi",
 ];
 
