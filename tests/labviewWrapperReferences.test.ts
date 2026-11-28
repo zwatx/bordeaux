@@ -180,6 +180,42 @@ it("keeps a project-listed wrapper whose command is not inspected, and skips can
   expect(await readWrapperReferencesDigest(f.references)).toBe(wrapperReferencesDigest([...f.wanted, "Support Code/testCommand_wrapper.vi"]));
 });
 
+it.skipIf(process.platform !== "darwin")("references the on-disk wrapper once when its project URL uses a different case", async () => {
+  const f = await fixture();
+  const file = "Drive/CALIBRATE_wrapper.vi";
+  const absolute = path.join(f.root, file);
+  const alias = await fs.lstat(absolute).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  });
+  // A case-sensitive volume can have two distinct wrappers at these paths.
+  if (!alias) await fs.writeFile(absolute, "second wrapper");
+  const item = { name: path.basename(file), type: "VI", target: "Target", projectPath: file, file, status: "present", origin: "project" } as const;
+  await syncLabviewWrapperReferences(f.project, { commands: f.commands, labviewDiscovery: { items: [item] } } as never, f.cache, f.guard, f.adapter);
+  expect(await readWrapperReferencesDigest(f.references)).toBe(wrapperReferencesDigest(alias ? f.wanted : [...f.wanted, file]));
+});
+
+it.skipIf(process.platform !== "darwin")("refuses a wrapper replaced by a symlink during Mac path resolution", async () => {
+  const f = await fixture();
+  const file = path.join(f.root, "Drive", "Calibrate_wrapper.vi");
+  const replacement = path.join(f.root, "Drive", "Other_wrapper.vi");
+  await fs.writeFile(replacement, "different wrapper");
+  const realpath = fs.realpath;
+  const resolve = vi.spyOn(fs, "realpath").mockImplementation(async (selected, options) => {
+    if (selected === file) {
+      await fs.rename(file, `${file}.saved`);
+      await fs.symlink(replacement, file);
+    }
+    return realpath(selected, options);
+  });
+  try {
+    const commands = [command("Drive/Calibrate.vi")];
+    await expect(syncLabviewWrapperReferences(f.project, { commands }, f.cache, f.guard, f.adapter)).rejects.toThrow("Symbolic links");
+    expect(f.adapter).not.toHaveBeenCalled();
+    await expect(fs.stat(f.references)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { resolve.mockRestore(); }
+});
+
 it.skipIf(process.platform === "win32" || process.platform === "darwin")("leaves an out-of-date VI on platforms without live LabVIEW scripting", async () => {
   const f = await fixture();
   expect(await syncLabviewWrapperReferences(f.project, { commands: f.commands }, f.cache, f.guard)).toBeNull();

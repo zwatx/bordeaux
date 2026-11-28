@@ -658,6 +658,16 @@ describe("NI legacy connector discovery", () => {
     expect((await prepareBdxBindings({ ...options, projectFile: null })).catalog.commands).toEqual([]);
   });
 
+  it.skipIf(process.platform !== "darwin")("reports the VI Server failure when an export cannot refresh a changed Mac command", async () => {
+    const fixture = await cacheFixture();
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog, commandIds: [activeCatalog.commands[0].id] };
+    const setup = "Enable TCP/IP in VI Server and allow 127.0.0.1.";
+    await expect(prepareBdxBindings({ ...options, refresh: async () => { throw new Error(setup); } }))
+      .rejects.toThrow(/Start changed in LabVIEW.*127\.0\.0\.1.*Open the robot project in LabVIEW 2026/);
+  });
+
   it("lists for a SystemCore only commands whose saved VI still matches what Bordeaux read", async () => {
     const fixture = await cacheFixture();
     const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);

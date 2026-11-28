@@ -56,12 +56,29 @@ interface Wrapper { file: string; relative: string; target: string }
  */
 async function existingWrappers(projectFile: string, catalog: Catalog): Promise<Wrapper[]> {
   const root = path.dirname(projectFile), byPath = new Map<string, Wrapper>();
+  let canonicalRoot: string | undefined;
   const add = async (file: string, target: string) => {
-    const key = process.platform === "win32" ? file.toLowerCase() : file;
+    let key = process.platform === "win32" ? file.toLowerCase() : file;
     if (byPath.has(key)) return;
-    try { if (!(await statLabviewLocalPath(file)).isFile()) return; }
-    catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return; throw error; }
-    byPath.set(key, { file, relative: path.relative(root, file).split(path.sep).join("/"), target });
+    try {
+      const admitted = await statLabviewLocalPath(file);
+      if (!admitted.isFile()) return;
+      if (process.platform === "darwin") {
+        // Use the on-disk spelling so aliases collapse without folding distinct files on case-sensitive volumes.
+        const canonical = await fs.realpath(file);
+        const current = await statLabviewLocalPath(file);
+        const resolved = await fs.lstat(canonical);
+        if (!resolved.isFile() || current.dev !== admitted.dev || current.ino !== admitted.ino
+          || resolved.dev !== admitted.dev || resolved.ino !== admitted.ino) {
+          throw new Error("A LabVIEW wrapper changed while resolving its location. Refresh commands and try again.");
+        }
+        file = canonical;
+        key = canonical;
+        canonicalRoot ??= await fs.realpath(root);
+        if (byPath.has(key)) return;
+      }
+    } catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return; throw error; }
+    byPath.set(key, { file, relative: path.relative(canonicalRoot ?? root, file).split(path.sep).join("/"), target });
   };
   const targets = new Set<string>();
   for (const command of catalog.commands) {

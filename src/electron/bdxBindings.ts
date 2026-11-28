@@ -46,10 +46,14 @@ function missingCommands(commands: RobotCommandCatalog["commands"]): string {
   return `${names.join(", ")} ${names.length === 1 ? "is" : "are"} no longer in the LabVIEW project. Choose another command or restore the VI.`;
 }
 
-function changedCommands(commands: RobotCommandCatalog["commands"]): string {
+function changedCommands(commands: RobotCommandCatalog["commands"], refreshFailure: string): string {
   const names = commands.map((command) => command.label);
-  return `${names.join(", ")} changed in LabVIEW since Bordeaux last read ${names.length === 1 ? "it" : "them"}. `
-    + "Open the robot project in LabVIEW on Windows so Bordeaux can read the new inputs, then try again.";
+  const changed = `${names.join(", ")} changed in LabVIEW since Bordeaux last read ${names.length === 1 ? "it" : "them"}. `;
+  if (process.platform === "darwin") {
+    const recovery = "Open the robot project in LabVIEW 2026 and refresh commands in Bordeaux, then try again.";
+    return changed + (refreshFailure ? `${refreshFailure} ` : "") + recovery;
+  }
+  return changed + "Open the robot project in LabVIEW on Windows so Bordeaux can read the new inputs, then try again.";
 }
 
 /**
@@ -64,14 +68,18 @@ export async function prepareBdxBindings(options: { projectFile: string | null; 
   const ids = [...(options.commandIds ?? [])];
   let catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, options.activeCatalog);
   let changes = await labviewCommandSourceChanges(options.projectFile, catalog, ids);
+  let refreshFailure = "";
   if (changes.changed.length && options.refresh) {
     // Null means LabVIEW couldn't be read or another read already finished; the newest evidence decides either way.
-    const fresh = await options.refresh().catch(() => null);
+    const fresh = await options.refresh().catch((error: unknown) => {
+      refreshFailure = error instanceof Error ? error.message : String(error);
+      return null;
+    });
     catalog = await withLastKnownLabviewCommands(options.projectFile, discovered, options.inspectionCacheDirectory, fresh ?? options.activeCatalog);
     changes = await labviewCommandSourceChanges(options.projectFile, catalog, ids);
   }
   if (changes.missing.length) throw new Error(missingCommands(changes.missing));
-  if (changes.changed.length) throw new Error(changedCommands(changes.changed));
+  if (changes.changed.length) throw new Error(changedCommands(changes.changed, refreshFailure));
   return bdxBindingsFromCatalog(catalog);
 }
 
