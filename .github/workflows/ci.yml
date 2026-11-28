@@ -68,6 +68,7 @@ jobs:
               scripts/verify-routine-scrubber-ui.mjs
               scripts/verify-notification-ui.mjs
               scripts/verify-systemcore-web.mjs
+              scripts/verify-field-touch-ui.mjs
           - group: planning
             checks: |
               scripts/verify-planning-recovery-ui.mjs
@@ -123,6 +124,7 @@ jobs:
       BORDEAUX_TIMELINE_COMMANDS_UI_OUTPUT: .ui-artifacts/timeline-commands
       BORDEAUX_SYSTEMCORE_OUTPUT: .ui-artifacts/systemcore
       BORDEAUX_FIELD_LAYERS_UI_OUTPUT: .ui-artifacts/field-layers
+      BORDEAUX_FIELD_TOUCH_UI_OUTPUT: .ui-artifacts/field-touch
     steps:
       - uses: actions/checkout@v7
         with:
