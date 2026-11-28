@@ -1222,8 +1222,6 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
             if (!tangentHandleUse(doc.waypoints, i, key).direction) return;
             const cc = W2P(w[key]);
             group.push(h('line', { key: 'hl' + b, x1: c.x, y1: c.y, x2: cc.x, y2: cc.y, stroke: accent, strokeWidth: P(1.2), strokeOpacity: 0.65 }));
-            // A wider transparent target than the drawn handle, for fingertips and touchscreen long presses.
-            group.push(h('circle', { key: 'hh' + b, cx: cc.x, cy: cc.y, r: P(10), fill: 'transparent', 'data-role': 'ct', 'data-idx': i * 2 + b, style: { cursor: 'grab' } }));
             group.push(h('circle', { key: 'hc' + b, cx: cc.x, cy: cc.y, r: P(5), fill: '#0c0d10', stroke: accent, strokeWidth: P(1.8), 'data-role': 'ct', 'data-idx': i * 2 + b, style: { cursor: 'grab' } }));
           });
           group.push(h('rect', { key: 'selring', x: c.x - P(11), y: c.y - P(11), width: P(22), height: P(22), rx: P(2), fill: 'none', stroke: accent, strokeWidth: P(1.4), strokeOpacity: 0.55 }));
@@ -1235,8 +1233,6 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         if (w.turnInPlace) group.push(h('g', { key: 'turn', transform: `translate(${c.x + P(13)} ${c.y - P(13)})`, style: { pointerEvents: 'none' } },
           h('path', { d: `M ${-P(4)} ${P(2)} A ${P(6)} ${P(6)} 0 1 1 ${P(4)} ${P(2)}`, fill: 'none', stroke: '#aeb6c2', strokeWidth: P(1.5), strokeLinecap: 'round' }),
           h('path', { d: `M ${P(3)} ${-P(1)} L ${P(6)} ${P(2)} L ${P(2)} ${P(3)} Z`, fill: '#aeb6c2' })));
-        // The 13 px square is hard to hit with a finger; a transparent 22 px target under it takes every pointer.
-        group.push(h('circle', { key: 'hit', cx: c.x, cy: c.y, r: P(11), fill: 'transparent', 'data-role': 'wp', 'data-idx': i, style: { cursor: 'grab' } }));
         group.push(h('rect', { key: 'node', x: c.x - s, y: c.y - s, width: s * 2, height: s * 2, rx: P(1.5), fill: '#14161a', stroke: col, strokeWidth: P(2), 'data-role': 'wp', 'data-idx': i, style: { cursor: 'grab' } }));
         els.push(h('g', { key: 'w' + i }, group));
       });
