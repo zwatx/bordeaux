@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { UI } from './ui';
 import { openKeyboardShortcuts } from './KeyboardHelp';
-import { canEditKeys, currentUserKeyRules, useKeyRules } from '../lib/keyBindings';
+import { canEditKeys, currentUserKeyRules, isMacPlatform, useKeyRules } from '../lib/keyBindings';
+import { FieldScrollPrefs, useFieldScrollMode } from '../lib/fieldScroll';
 import '../styles/settings.css';
 
 const h = React.createElement;
@@ -20,6 +21,7 @@ const Row = ({ label, status, children }) => h('div', { className: 'settings-row
  */
 export function AppSettings({ unitSystem, setUnitSystem, updateState, onOpenUpdates, onCheckUpdates, onCloseUpdates }) {
   useKeyRules();
+  const fieldScroll = useFieldScrollMode();
   const dialog = React.useRef(null), trigger = React.useRef(null);
   // An update panel opened from here treats the gear as its opener and ignores presses on it, so opening hides the panel.
   const open = () => { if (!dialog.current.open) dialog.current.showModal(); if (updateState?.visible) onCloseUpdates?.(); };
@@ -41,6 +43,9 @@ export function AppSettings({ unitSystem, setUnitSystem, updateState, onOpenUpda
       h('div', { className: 'settings-card' },
         h(Row, { label: 'Display units' },
           h(UI.Seg, { ariaLabel: 'Display units', value: unitSystem, options: [{ v: 'metric', label: 'Metric' }, { v: 'imperial', label: 'Imperial' }], onChange: setUnitSystem })),
+        // Pinch and Ctrl/⌘+scroll zoom either way; this chooses what plain scrolling (or a finger on a touchscreen Mac) does.
+        h(Row, { label: 'Scrolling on the field', status: (isMacPlatform() ? 'Pinch or ⌘-scroll' : 'Pinch or Ctrl+scroll') + ' zooms' },
+          h(UI.Seg, { ariaLabel: 'Scrolling on the field', value: fieldScroll, options: [{ v: 'pan', label: 'Pans' }, { v: 'zoom', label: 'Zooms' }], onChange: FieldScrollPrefs.set })),
         // Hidden where the host can't store keys.
         canEditKeys() && h(Row, { label: 'Keyboard shortcuts', status: changedKeys ? changedKeys + ' changed' : 'Defaults' },
           h('button', { className: 'qbtn', type: 'button', onClick: handOff(() => openKeyboardShortcuts(true)) }, 'Customize')),

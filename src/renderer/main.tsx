@@ -4,6 +4,7 @@ import { App, AppErrorBoundary } from "./app/App";
 import { WindowsTitleBar } from "./components/WindowsTitleBar";
 import { installTooltips } from "./components/tooltips";
 import { loadKeyRules } from "./lib/keyBindings";
+import { installInputModality } from "./lib/inputModality";
 import "./styles/app.css";
 import "./styles/library.css";
 import "./styles/routine-workspace.css";
@@ -18,6 +19,7 @@ if (!root) {
 
 document.documentElement.dataset.platform = window.bordeauxAPI?.platform || "web";
 installTooltips();
+installInputModality();
 
 // Labels and handlers read the user's keys, so they load before the first render.
 void loadKeyRules().then(() => createRoot(root).render(

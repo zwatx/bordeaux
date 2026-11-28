@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
       // Global settings (the toolbar gear) shows the version and checks for updates; it closes first so the panel can open.
       await click('.app-settings-trigger');
       const updatesRow = () => evaluate(() => [...document.querySelectorAll('.app-settings .settings-row')].find(row => row.querySelector('strong')?.textContent === 'Software updates')?.querySelector('.settings-control').textContent ?? null);
-      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.app-settings .settings-row strong')].map(label => label.textContent)), ['Display units', 'Keyboard shortcuts', 'Software updates']);
+      assert.deepEqual(await evaluate(() => [...document.querySelectorAll('.app-settings .settings-row strong')].map(label => label.textContent)), ['Display units', 'Scrolling on the field', 'Keyboard shortcuts', 'Software updates']);
       assert.equal(await updatesRow(), 'Bordeaux 0.2.0-beta.10Check for updates');
       await capture(`${platform}-${width}-global-settings`);
       await click('.app-settings .settings-row button', 'Check for updates');
