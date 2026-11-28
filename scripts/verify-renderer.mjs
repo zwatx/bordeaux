@@ -83,8 +83,8 @@ import path from "node:path";
 // Review fixes on that work (Pull refusing mistyped fields, the camera order row, End routine limits in routine power)
 // measure 1,010,121 B (2026-11-27); 988 KiB keeps about 1.6 KiB of headroom.
 // Touch and gesture input on the field (finger reach and slop, two-finger pinch, pinch-rate Ctrl+wheel, the field
-// scrolling preference, long-press drags, wider handle targets and the touch input marker) measures 1,016,086 B
-// (2026-11-27); 994 KiB keeps about 1.7 KiB of headroom.
+// scrolling preference, long-press drags and the touch input marker) measures 1,015,843 B (2026-11-27); 994 KiB keeps
+// about 2 KiB of headroom.
 const APPLICATION_JAVASCRIPT_BUDGET_BYTES = 994 * 1024;
 // Accepted-artifact validation, resumable search, and best-effort editing planning stay off the UI thread.
 // Adding planPath and current geometry overlays costs about 20 KB versus the legacy worker.
