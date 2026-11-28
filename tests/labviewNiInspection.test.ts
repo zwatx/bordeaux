@@ -185,6 +185,15 @@ async function cacheFixture() {
 }
 
 describe("NI legacy connector discovery", () => {
+  it("skips the NI adapter for a project without candidate VIs, including an explicit rescan", async () => {
+    const fixture = await cacheFixture();
+    await fs.rm(path.join(fixture.root, source.file));
+    const adapter = vi.fn(async () => { throw new Error("No VI should be inspected"); });
+    await expect(refreshLabviewCommands(fixture.project, fixture.cache, adapter)).resolves.toBeNull();
+    await expect(inspectLabviewCommands(fixture.project, fixture.cache, adapter)).resolves.toMatchObject({ commands: [] });
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
   it("stops scheduling on a fingerprint failure and drains in-flight reads before returning", async () => {
     const f = await cacheFixture();
     for (let index = 1; index < 40; index++) await fs.writeFile(path.join(f.root, "Intake", "Commands", `Extra${index}.vi`), `VI ${index}`);
@@ -647,6 +656,16 @@ describe("NI legacy connector discovery", () => {
     await expect(prepareBdxBindings({ ...options, commandIds: [id] })).rejects.toThrow(/Start \(Intake\/Commands\/Start\.vi\) is no longer in the LabVIEW project/);
     await expect(prepareBdxBindings({ ...options, commandIds: [] })).resolves.toBeTruthy();
     expect((await prepareBdxBindings({ ...options, projectFile: null })).catalog.commands).toEqual([]);
+  });
+
+  it.skipIf(process.platform !== "darwin")("reports the VI Server failure when an export cannot refresh a changed Mac command", async () => {
+    const fixture = await cacheFixture();
+    const activeCatalog = await inspectLabviewCommands(fixture.project, fixture.cache, fixture.adapter);
+    await fs.appendFile(path.join(fixture.root, source.file), "saved command edit");
+    const options = { projectFile: fixture.project, inspectionCacheDirectory: fixture.cache, activeCatalog, commandIds: [activeCatalog.commands[0].id] };
+    const setup = "Enable TCP/IP in VI Server and allow 127.0.0.1.";
+    await expect(prepareBdxBindings({ ...options, refresh: async () => { throw new Error(setup); } }))
+      .rejects.toThrow(/Start changed in LabVIEW.*127\.0\.0\.1.*Open the robot project in LabVIEW 2026/);
   });
 
   it("lists for a SystemCore only commands whose saved VI still matches what Bordeaux read", async () => {

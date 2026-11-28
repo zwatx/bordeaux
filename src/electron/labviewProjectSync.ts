@@ -10,6 +10,9 @@ export function queueLabviewOperation<T>(operation: () => Promise<T>): Promise<T
   return pending;
 }
 const pendingInspections = new Map<string, Promise<RobotCommandCatalog | null>>();
+export function supportsLiveLabview(platform: string = process.platform): boolean {
+  return platform === "win32" || platform === "darwin";
+}
 function coalesced<T extends RobotCommandCatalog | null>(kind: string, selection: string, cacheDirectory: string, run: () => Promise<T>): Promise<T> {
   const key = JSON.stringify([kind, process.platform === "win32" ? selection.toLowerCase() : selection, cacheDirectory]);
   const running = pendingInspections.get(key);
@@ -37,7 +40,7 @@ export async function syncLabviewCommands(selection: string, cacheDirectory: str
     platform: process.platform, refresh: refreshLabviewCommandsQueued, cached: withCachedLabviewCommands, session: withSessionLabviewCommands },
 ): Promise<RobotCommandCatalog> {
   const known = await dependencies.session?.(selection, catalog) ?? await dependencies.cached(selection, catalog, cacheDirectory);
-  if (dependencies.platform !== "win32") return known;
+  if (!supportsLiveLabview(dependencies.platform)) return known;
   try {
     return await dependencies.refresh(selection, cacheDirectory) ?? known;
   } catch (error) {
@@ -46,7 +49,7 @@ export async function syncLabviewCommands(selection: string, cacheDirectory: str
     if (inspection && inspection.status !== "unavailable") {
       return { ...known, warnings: [...known.warnings, `Using the last known command definitions; LabVIEW could not be read. ${fact}`] };
     }
-    const reason = `Bordeaux couldn’t read commands from LabVIEW. ${fact} Open this project in LabVIEW, then refresh commands.`;
+    const reason = dependencies.platform === "darwin" ? fact : `Bordeaux couldn’t read commands from LabVIEW. ${fact} Open this project in LabVIEW, then refresh commands.`;
     return {
       ...known,
       warnings: [...known.warnings, reason],

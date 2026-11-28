@@ -3,12 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type { RobotCommandDescriptor } from "../src/core/types";
+import { runMacLabviewAdapter } from "../src/electron/labviewMacAdapter";
+import { connectMacLabview } from "../src/electron/labviewMacSession";
 import {
   readWrapperReferencesDigest, syncLabviewWrapperReferences, wrapperReferencesDescription, wrapperReferencesDigest, WRAPPER_REFERENCES_FILE,
 } from "../src/electron/labviewWrapperReferences";
 
+vi.mock("../src/electron/labviewMacSession", () => ({ connectMacLabview: vi.fn() }));
+
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.mocked(connectMacLabview).mockReset();
+  await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true })));
+});
 
 // The saved VI is binary; the description sits in it as plain bytes, which is all Bordeaux reads.
 const savedVi = (description: string) => Buffer.concat([Buffer.from("RSRC\r\n\0\x03LVINLBVW"), Buffer.from(description, "latin1"), Buffer.from([0, 1, 2])]);
@@ -115,6 +122,54 @@ it("never removes a VI it did not place when LabVIEW fails", async () => {
   expect(await readWrapperReferencesDigest(f.references)).toBe("0".repeat(64));
 });
 
+const projectXml = (format: string, saveVersion: string) => `<Project Type="Project" LVVersion="${format}">
+  <Property Name="NI.LV.All.SaveVersion" Type="Str">${saveVersion}</Property></Project>`;
+
+it.each([
+  [projectXml("25008000", "25.0"), "on Windows with LabVIEW 2025"],
+  [projectXml("26008000", "25.0"), "on Windows with LabVIEW 2025"],
+  [projectXml("unknown", "26.0"), "requires a project saved in LabVIEW 2026 format"],
+  ['<Project LVVersion="26008000">', "requires a project saved in LabVIEW 2026 format"],
+])("refuses an older or unknown Mac reference-save format before connecting", async (xml, message) => {
+  const f = await fixture();
+  const original = savedVi(wrapperReferencesDescription("0".repeat(64)));
+  await fs.writeFile(f.project, xml);
+  await fs.writeFile(f.references, original);
+  const request = path.join(f.root, "request.json"), response = path.join(f.root, "response.json");
+  await fs.writeFile(request, JSON.stringify({ schemaVersion: "bordeaux-ni-wrapper-references/1", projectFile: f.project, referencesFile: f.references }));
+  const resource = vi.fn();
+  await expect(runMacLabviewAdapter(request, response, resource)).rejects.toThrow(message);
+  expect(connectMacLabview).not.toHaveBeenCalled();
+  expect(resource).not.toHaveBeenCalled();
+  expect(await fs.readFile(f.references)).toEqual(original);
+  await expect(fs.stat(response)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("admits a 2026-format Mac project to the references adapter", async () => {
+  const f = await fixture();
+  await fs.writeFile(f.project, projectXml("26008000", "26.0"));
+  const request = path.join(f.root, "request.json"), response = path.join(f.root, "response.json");
+  await fs.writeFile(request, JSON.stringify({ schemaVersion: "bordeaux-ni-wrapper-references/1", projectFile: f.project }));
+  const connectionError = new Error("Test VI Server connection");
+  vi.mocked(connectMacLabview).mockRejectedValueOnce(connectionError);
+  await expect(runMacLabviewAdapter(request, response, vi.fn())).rejects.toBe(connectionError);
+  expect(connectMacLabview).toHaveBeenCalledOnce();
+});
+
+it.skipIf(process.platform !== "darwin")("checks the Mac project format before publishing a references template", async () => {
+  const f = await fixture();
+  await fs.writeFile(f.project, projectXml("25008000", "25.0"));
+  vi.mocked(connectMacLabview).mockImplementation(async () => { throw new Error("Unexpected VI Server connection"); });
+  const copy = vi.spyOn(fs, "copyFile");
+  try {
+    await expect(syncLabviewWrapperReferences(f.project, { commands: f.commands }, f.cache, f.guard))
+      .rejects.toThrow("on Windows with LabVIEW 2025");
+    expect(copy).not.toHaveBeenCalled();
+    expect(connectMacLabview).not.toHaveBeenCalled();
+    await expect(fs.stat(f.references)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { copy.mockRestore(); }
+});
+
 it("keeps a project-listed wrapper whose command is not inspected, and skips cancel wrappers and other targets", async () => {
   const f = await fixture();
   await fs.mkdir(path.join(f.root, "Support Code")); await fs.writeFile(path.join(f.root, "Support Code", "testCommand_wrapper.vi"), "wrapper");
@@ -125,7 +180,43 @@ it("keeps a project-listed wrapper whose command is not inspected, and skips can
   expect(await readWrapperReferencesDigest(f.references)).toBe(wrapperReferencesDigest([...f.wanted, "Support Code/testCommand_wrapper.vi"]));
 });
 
-it.skipIf(process.platform === "win32")("leaves an out-of-date VI for Windows without starting LabVIEW", async () => {
+it.skipIf(process.platform !== "darwin")("references the on-disk wrapper once when its project URL uses a different case", async () => {
+  const f = await fixture();
+  const file = "Drive/CALIBRATE_wrapper.vi";
+  const absolute = path.join(f.root, file);
+  const alias = await fs.lstat(absolute).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  });
+  // A case-sensitive volume can have two distinct wrappers at these paths.
+  if (!alias) await fs.writeFile(absolute, "second wrapper");
+  const item = { name: path.basename(file), type: "VI", target: "Target", projectPath: file, file, status: "present", origin: "project" } as const;
+  await syncLabviewWrapperReferences(f.project, { commands: f.commands, labviewDiscovery: { items: [item] } } as never, f.cache, f.guard, f.adapter);
+  expect(await readWrapperReferencesDigest(f.references)).toBe(wrapperReferencesDigest(alias ? f.wanted : [...f.wanted, file]));
+});
+
+it.skipIf(process.platform !== "darwin")("refuses a wrapper replaced by a symlink during Mac path resolution", async () => {
+  const f = await fixture();
+  const file = path.join(f.root, "Drive", "Calibrate_wrapper.vi");
+  const replacement = path.join(f.root, "Drive", "Other_wrapper.vi");
+  await fs.writeFile(replacement, "different wrapper");
+  const realpath = fs.realpath;
+  const resolve = vi.spyOn(fs, "realpath").mockImplementation(async (selected, options) => {
+    if (selected === file) {
+      await fs.rename(file, `${file}.saved`);
+      await fs.symlink(replacement, file);
+    }
+    return realpath(selected, options);
+  });
+  try {
+    const commands = [command("Drive/Calibrate.vi")];
+    await expect(syncLabviewWrapperReferences(f.project, { commands }, f.cache, f.guard, f.adapter)).rejects.toThrow("Symbolic links");
+    expect(f.adapter).not.toHaveBeenCalled();
+    await expect(fs.stat(f.references)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { resolve.mockRestore(); }
+});
+
+it.skipIf(process.platform === "win32" || process.platform === "darwin")("leaves an out-of-date VI on platforms without live LabVIEW scripting", async () => {
   const f = await fixture();
   expect(await syncLabviewWrapperReferences(f.project, { commands: f.commands }, f.cache, f.guard)).toBeNull();
   await expect(fs.stat(f.references)).rejects.toMatchObject({ code: "ENOENT" });

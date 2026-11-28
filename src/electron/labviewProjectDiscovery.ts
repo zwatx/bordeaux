@@ -9,6 +9,7 @@ const MAX_DEPTH = 48;
 const MAX_XML_TOTAL_BYTES = 16 * 1024 * 1024;
 const CONTAINERS = new Set([".lvlib", ".lvclass"]);
 const SOURCE_EXTENSIONS = new Set([".vi", ".vit", ".ctl", ".ctt", ...CONTAINERS]);
+export const MAC_WRAPPER_STAGING_NAME = /^Bordeaux-[a-f0-9-]+-temporary-wrapper\.vi$/;
 type Item = LabviewProjectDiscovery["items"][number];
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const portable = (file: string) => file.split(path.sep).join("/");
@@ -79,6 +80,30 @@ export function parseLabviewXml(contents: string): XElement {
   return document;
 }
 
+async function readLabviewDocument(file: string, expected: string, countBytes?: (bytes: number) => void) {
+  const stat = await statLabviewLocalPath(file);
+  if (!stat.isFile()) throw new Error("LabVIEW document is not a regular file");
+  if (stat.size > MAX_XML_BYTES) throw new Error("LabVIEW XML exceeds the read limit");
+  countBytes?.(stat.size);
+  const document = parseLabviewXml(await fs.readFile(file, "utf8"));
+  if (document.name !== expected) throw new Error(`Expected LabVIEW ${expected} XML`);
+  return document;
+}
+
+/** The Mac references helper saves in LabVIEW 2026 format. Check the project on disk before letting it write. */
+export async function assertMacLabviewReferenceSaveVersion(projectFile: string): Promise<void> {
+  const project = await readLabviewDocument(projectFile, "Project").catch(() => null);
+  const format = project?.attributes?.LVVersion ?? "";
+  const versions = project?.getElements("Property")
+    .filter(property => property.attributes?.Name === "NI.LV.All.SaveVersion") ?? [];
+  const saveVersion = versions.length === 1 ? versions[0].value.trim() : "";
+  if (/^26\d{6}$/.test(format) && (versions.length === 0 || /^26\.\d+$/.test(saveVersion))) return;
+  if (/^25\d{6}$/.test(format) || /^25\.\d+$/.test(saveVersion)) {
+    throw new Error("Update Bordeaux Command Wrappers.vi in Bordeaux on Windows with LabVIEW 2025.");
+  }
+  throw new Error("Updating Bordeaux Command Wrappers.vi on macOS requires a project saved in LabVIEW 2026 format.");
+}
+
 /** Read project declarations and auto-populating folders. Never load or execute VI binaries. */
 export async function scanLabviewProject(projectFile: string): Promise<{ discovery: LabviewProjectDiscovery; warnings: string[] }> {
   const root = path.dirname(projectFile);
@@ -95,14 +120,9 @@ export async function scanLabviewProject(projectFile: string): Promise<{ discove
     return true;
   };
   const warn = (text: string) => { if (warnings.length < 40) warnings.push(text); };
-  const readDocument = async (file: string, expected: string) => {
-    const stat = await statLabviewLocalPath(file);
-    if (!stat.isFile()) throw new Error("LabVIEW document is not a regular file");
-    if (stat.size > MAX_XML_BYTES || (xmlBytes += stat.size) > MAX_XML_TOTAL_BYTES) throw new Error("LabVIEW XML exceeds the read limit");
-    const document = parseLabviewXml(await fs.readFile(file, "utf8"));
-    if (document.name !== expected) throw new Error(`Expected LabVIEW ${expected} XML`);
-    return document;
-  };
+  const readDocument = (file: string, expected: string) => readLabviewDocument(file, expected, bytes => {
+    if ((xmlBytes += bytes) > MAX_XML_TOTAL_BYTES) throw new Error("LabVIEW XML exceeds the read limit");
+  });
   const fail = (item: Item, error: unknown) => {
     item.status = (error as NodeJS.ErrnoException)?.code === "ENOENT" ? "missing" : "unsupported";
     item.reason = item.status === "missing" ? "Referenced file or folder is missing" : message(error);

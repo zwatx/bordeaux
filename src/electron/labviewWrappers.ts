@@ -26,8 +26,13 @@ export async function ensureLabviewCommandWrapper(projectFile: string, command: 
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const terminals = command.labviewConnector!.terminalNumbers;
   if (!terminals?.length || new Set(terminals).size !== terminals.length || terminals.some(number => !Number.isInteger(number) || number < 0 || number > 255)) throw new Error("Rescan command inputs before creating this wrapper.");
-  if (!VALIDATED_WRAPPER_LABVIEW_VERSION.test(command.labviewConnector!.labviewVersion ?? "")) throw new Error(WRAPPER_LABVIEW_VERSION_ERROR);
-  if (process.platform !== "win32" && adapter === runLabviewNiAdapter) throw new Error("Open this robot project in LabVIEW on Windows to create its missing command wrapper.");
+  const version = command.labviewConnector!.labviewVersion ?? "";
+  if (process.platform === "darwin" && adapter === runLabviewNiAdapter) {
+    if (!/^26\./.test(version)) throw new Error("Rescan command inputs in LabVIEW 2026 to create this wrapper on macOS.");
+  } else {
+    if (!VALIDATED_WRAPPER_LABVIEW_VERSION.test(version)) throw new Error(WRAPPER_LABVIEW_VERSION_ERROR);
+    if (process.platform !== "win32" && adapter === runLabviewNiAdapter) throw new Error("Open this robot project in LabVIEW on Windows or macOS to create its missing command wrapper.");
+  }
   const sourceHash = async () => {
     const stat = await statLabviewLocalPath(source);
     if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error("Command wrapper source must be a bounded regular VI file.");
@@ -36,7 +41,10 @@ export async function ensureLabviewCommandWrapper(projectFile: string, command: 
   const before = await sourceHash(); assertCurrent();
   await fs.mkdir(cacheDirectory, { recursive: true });
   const temporary = await fs.mkdtemp(path.join(cacheDirectory, "wrapper-"));
-  const staged = path.join(path.dirname(source), `.bordeaux-wrapper-${randomUUID()}.vi`);
+  // LabVIEW on macOS refuses dot-prefixed VI filenames. Keep staging distinct from installed wrapper names.
+  const nonce = randomUUID();
+  const stageName = process.platform === "darwin" && adapter === runLabviewNiAdapter ? `Bordeaux-${nonce}-temporary-wrapper.vi` : `.bordeaux-wrapper-${nonce}.vi`;
+  const staged = path.join(path.dirname(source), stageName);
   try {
     const request = path.join(temporary, "request.json"), response = path.join(temporary, "response.json");
     const terminalCount = terminals.length;
