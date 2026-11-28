@@ -8,7 +8,9 @@ import { PointerDrag } from "../hooks/usePointerDrag";
 import { PM } from "../lib/pathMath";
 import { tangentHandleUse } from "../lib/pathEditing";
 import { keyCommand } from "../lib/keyBindings";
-import { wheelZoomFactor } from "../lib/zoom";
+import { fieldWheelAction, fieldZoomLimits, pinchView, zoomViewAbout } from "../lib/zoom";
+import { useFieldScrollMode } from "../lib/fieldScroll";
+import { CENTRED_HANDLE_ROLES, SECONDARY_DRAG_ROLES, TOUCH_HANDLE_ROLES, TOUCH_REACH_PX, TOUCH_SLOP_PX, isDirectPointer, isHandleSized, pickTouchHandle } from "../lib/fieldTouch";
 import { UI } from "./ui";
 import { isWholeIssue, plainProblem } from './planProblems';
 import { placeProblemBadges, placeFieldLabel, fieldTextWidth, problemBadgeIndexes, problemCaption } from './fieldProblems';
@@ -24,6 +26,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
   const { x: CX, y: CY } = FIELD_IMAGE_CENTER;
   /** The fitted view, shown as 100%: the field image with a 90 px margin. */
   const FIT_VIEW = { x: X0 - 90, y: Y0 - 90, w: X1 - X0 + 180, h: Y1 - Y0 + 180 };
+  const ZOOM_LIMITS = fieldZoomLimits(IMG_W);
 
   // muted semantic colors (reserved for meaning, low saturation)
   /** Length of each camera wedge drawn at the playhead, meters. It shows direction, not how far the camera reads. */
@@ -162,6 +165,15 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
     const routineView = Boolean(routine);
     contextRef.current = { pathId: doc.id, selectionKey, tool, routine: routineView };
     const lastInspectPress = useRef({ key: null, at: 0 });
+    const scrollMode = useFieldScrollMode();
+    const viewRef = useRef(view);
+    viewRef.current = view;
+    // Fingers on the field, and the two-finger pinch they make (or a lift that ends one, until every finger is up).
+    const touches = useRef(new Map());
+    const pinch = useRef(null);
+    const pinchFrame = useRef(0);
+    // Where a finger or long press grabbed a handle, from the pointer to the handle's centre in screen pixels.
+    const pressGrab = useRef(null);
     const isTank = drive === 'tank';
 
     const W2P = worldToFieldImage;
@@ -400,14 +412,46 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       return true;
     };
 
+    // A fingertip covers more than a 13 px waypoint, so a finger beside a handle takes the nearest one.
+    const touchHandleAt = (event) => {
+      const svg = svgRef.current;
+      if (!svg) return null;
+      const candidates = [];
+      svg.querySelectorAll('[data-role]').forEach((item) => {
+        const role = item.getAttribute('data-role');
+        if (!TOUCH_HANDLE_ROLES.has(role)) return;
+        const box = item.getBoundingClientRect();
+        candidates.push({ item, role, left: box.left, top: box.top, width: box.width, height: box.height });
+      });
+      return pickTouchHandle(candidates, event.clientX, event.clientY, Math.max(TOUCH_REACH_PX, (event.width || 0) / 2));
+    };
+
     const onDown = (e) => {
-      if (e.button !== 0 && e.button !== 1) return;
+      if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
       if (!interactionReady) return;
       if (document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) return;
+      let t = e.target.closest?.('[data-role]') || e.target;
+      let role = t.getAttribute && t.getAttribute('data-role');
+      pressGrab.current = null;
+      // A finger, or a long press (a right press on a touchscreen Mac), beside a handle takes the nearest one, unless it
+      // landed squarely on a handle, on the heading control (whose menu a right press opens), or a placement tool is
+      // placing on empty field or a path.
+      const held = !routine && ((e.button === 2 && role !== 'head') || (e.button === 0 && e.pointerType === 'touch'));
+      const placing = tool !== 'select' && (!role || role === 'bg' || role === 'seg' || role === 'ins');
+      if (held && !placing && !(TOUCH_HANDLE_ROLES.has(role) && t.getBoundingClientRect && isHandleSized(t.getBoundingClientRect()))) {
+        const handle = touchHandleAt(e);
+        if (handle) { t = handle.item; role = handle.role; }
+      }
+      // Fingers and long presses keep hold where they grabbed, so the handle does not jump under the fingertip.
+      if (!routine && (e.button === 2 || isDirectPointer(e)) && CENTRED_HANDLE_ROLES.has(role) && t.getBoundingClientRect) {
+        const box = t.getBoundingClientRect();
+        pressGrab.current = { dx: box.left + box.width / 2 - e.clientX, dy: box.top + box.height / 2 - e.clientY };
+      }
+      // A touchscreen Mac sends a long press as a right-button press, so a held finger can drag a handle. Elsewhere a
+      // right press only opens the heading menu (see onCtx).
+      if (e.button === 2 && (routine || !SECONDARY_DRAG_ROLES.has(role))) return;
       e.preventDefault();
       pointerDrag.cancel();
-      const t = e.target.closest?.('[data-role]') || e.target;
-      const role = t.getAttribute && t.getAttribute('data-role');
       if (role === 'issue') {
         // A badge owns every primary press, including its children, Shift and placement tools.
         if (e.button === 0) {
@@ -429,7 +473,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         startPointer(e, { role: 'bg', start: { cx: e.clientX, cy: e.clientY }, vb0: { ...view }, moved: false, mid: true });
         return;
       }
-      const world = clientToWorld(e.clientX, e.clientY);
+      const world = clientToWorld(e.clientX + (pressGrab.current?.dx || 0), e.clientY + (pressGrab.current?.dy || 0));
       if (e.button === 0 && e.shiftKey) {
         const idx = parseInt(t.getAttribute && t.getAttribute('data-idx'), 10);
         let removed = false;
@@ -472,7 +516,7 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         let cycleWaypoint = false;
         if (role === 'wp' && tool === 'select') {
           const preferred = sel.kind === 'wp' ? sel.idx : idx;
-          cycleWaypoint = sel.kind === 'wp' && sel.idx === idx;
+          cycleWaypoint = e.button === 0 && sel.kind === 'wp' && sel.idx === idx;
           const visit = resolveWaypointVisit(world, false, preferred);
           if (visit && Number.isInteger(visit.wp)) idx = visit.wp;
         }
@@ -509,7 +553,9 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
     const startPointer = (event, next) => {
       pointerDrag.start(event, { move: applyMove, coalesce: true, end: onUp, cancel: onInterrupted });
       const context = contextRef.current;
-      drag.current = { ...context, pressSelection: context.selectionKey, ...next };
+      // A finger, pen or long press must travel a little before it moves anything, so a tap never nudges what it selects.
+      drag.current = { ...context, pressSelection: context.selectionKey, press: { cx: event.clientX, cy: event.clientY },
+        slop: isDirectPointer(event) || event.button === 2 ? TOUCH_SLOP_PX : 0, grab: pressGrab.current, ...next };
       drag.current.owner = createFieldGestureOwner(editStore, doc.id, () => pointerDrag.cancel({ flush: false }));
     };
     const ownsContext = (d) => {
@@ -535,7 +581,8 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
     const applyMove = (e) => {
       const d = drag.current; if (!d) return;
       if (!ownsContext(d) || !d.owner.current() || document.querySelector('dialog:modal, [role="dialog"][aria-modal="true"]')) { pointerDrag.cancel({ flush: false }); return; }
-      const world = clientToWorld(e.clientX, e.clientY, d.role !== 'ct');
+      const grab = d.grab;
+      const world = clientToWorld(e.clientX + (grab?.dx || 0), e.clientY + (grab?.dy || 0), d.role !== 'ct');
       if (d.role === 'inspect') {
         const dx = e.clientX - d.start.cx, dy = e.clientY - d.start.cy;
         if (Math.hypot(dx, dy) > 4) d.moved = true;
@@ -544,9 +591,12 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       if (d.role === 'bg') {
         const dx = e.clientX - d.start.cx, dy = e.clientY - d.start.cy;
         if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
-        if (d.moved) setView({ x: d.vb0.x - dx * upp, y: d.vb0.y - dy * upp, w: d.vb0.w, h: d.vb0.h });
+        // The field letterboxes, so its true scale is the rendered one, not width per pixel. Read before the first change.
+        if (!d.unitsPerPixel) d.unitsPerPixel = 1 / (svgRef.current?.getScreenCTM()?.a || 1 / upp);
+        if (d.moved) setView({ x: d.vb0.x - dx * d.unitsPerPixel, y: d.vb0.y - dy * d.unitsPerPixel, w: d.vb0.w, h: d.vb0.h });
         return;
       }
+      if (!d.moved && d.slop && Math.hypot(e.clientX - d.press.cx, e.clientY - d.press.cy) < d.slop) return;
       if (d.role === 'newrange') { const visit = projectVisit(world, d.lastF); d.f1 = visit ? visit.f : PM.nearestFraction(world.x, world.y, pts); d.lastF = d.f1; d.moved = true; setPreview({ f0: d.f0, f1: d.f1 }); return; }
       if (d.role === 'head') {
         const w = doc.waypoints[d.idx];
@@ -653,16 +703,81 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
       if (d && d.role === 'newrange') setPreview(null);
       if (owned) resolveEdit(d);
     };
+    // Pinch and Ctrl/⌘+scroll zoom about the pointer; plain scrolling pans or zooms as "Scrolling on the field" says.
     const onWheel = (e) => {
       e.preventDefault();
-      const svg = svgRef.current; const ctm = svg.getScreenCTM();
+      const svg = svgRef.current, ctm = svg?.getScreenCTM();
+      if (!ctm) return;
+      const action = fieldWheelAction(e, scrollMode, svg.clientHeight || window.innerHeight);
+      if (action.kind === 'pan') {
+        if (!action.dx && !action.dy) return;
+        setView((current) => ({ ...current, x: current.x + action.dx / ctm.a, y: current.y + action.dy / ctm.d }));
+        return;
+      }
       const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
       const u = pt.matrixTransform(ctm.inverse());
-      const factor = wheelZoomFactor(e.deltaY, e.deltaMode, svg.clientHeight || window.innerHeight);
-      let nw = view.w * factor;
-      nw = Math.max(IMG_W * 0.12, Math.min(IMG_W * 1.6, nw)); const nh = nw * (IMG_H / IMG_W);
-      const k = nw / view.w;
-      setView({ x: u.x - (u.x - view.x) * k, y: u.y - (u.y - view.y) * k, w: nw, h: nh });
+      setView((current) => zoomViewAbout(current, { x: u.x, y: u.y }, action.factor, ZOOM_LIMITS));
+    };
+    const wheelRef = useRef(onWheel);
+    wheelRef.current = onWheel;
+    // React registers wheel listeners as passive; a pinch must not reach Chromium's page zoom, so this one is not.
+    useEffect(() => {
+      const svg = svgRef.current;
+      if (!svg) return undefined;
+      const listener = (event) => wheelRef.current(event);
+      svg.addEventListener('wheel', listener, { passive: false });
+      return () => svg.removeEventListener('wheel', listener);
+    }, []);
+
+    // Two fingers pan and zoom the field together. A drag that already moved something keeps its single finger.
+    const startPinch = () => {
+      const d = drag.current;
+      if (d && d.moved && d.role !== 'bg' && d.role !== 'inspect') return false;
+      const svg = svgRef.current, ctm = svg?.getScreenCTM();
+      if (!ctm) return false;
+      if (d) pointerDrag.cancel({ flush: false });
+      const [[idA, a], [idB, b]] = Array.from(touches.current.entries()).slice(-2);
+      for (const id of [idA, idB]) { try { svg.setPointerCapture(id); } catch (_) {} }
+      const center = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const pt = svg.createSVGPoint(); pt.x = center.x; pt.y = center.y;
+      const anchor = pt.matrixTransform(ctm.inverse());
+      pinch.current = { ids: [idA, idB], start: { view: viewRef.current, center, spread: Math.hypot(a.x - b.x, a.y - b.y), anchor: { x: anchor.x, y: anchor.y }, pixelsPerUnit: ctm.a } };
+      setTagHover(null); hoverStore?.clear('field', hoverContext);
+      return true;
+    };
+    const applyPinch = () => {
+      pinchFrame.current = 0;
+      const active = pinch.current;
+      if (!active?.ids) return;
+      const a = touches.current.get(active.ids[0]), b = touches.current.get(active.ids[1]);
+      if (!a || !b) return;
+      setView(pinchView(active.start, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, Math.hypot(a.x - b.x, a.y - b.y), ZOOM_LIMITS));
+    };
+    useEffect(() => () => { if (pinchFrame.current) cancelAnimationFrame(pinchFrame.current); }, []);
+    const onFieldPointerDown = (event) => {
+      setTagHover(null);
+      if (event.pointerType !== 'touch') { onDown(event); return; }
+      if (event.isPrimary) { touches.current.clear(); pinch.current = null; }
+      touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (touches.current.size === 1 && !pinch.current) { onDown(event); return; }
+      event.preventDefault();
+      if (!pinch.current?.ids && touches.current.size >= 2) startPinch();
+    };
+    const onFieldPointerMove = (event) => {
+      if (event.pointerType === 'touch' && touches.current.has(event.pointerId)) {
+        touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (pinch.current) {
+          if (pinch.current.ids?.includes(event.pointerId) && !pinchFrame.current) pinchFrame.current = requestAnimationFrame(applyPinch);
+          return;
+        }
+      }
+      onHoverMove(event);
+    };
+    const onFieldPointerEnd = (event) => {
+      if (event.pointerType !== 'touch') return;
+      touches.current.delete(event.pointerId);
+      if (pinch.current?.ids?.includes(event.pointerId)) pinch.current = { ended: true };
+      if (!touches.current.size) pinch.current = null;
     };
 
     const onDbl = (e) => {
@@ -1107,6 +1222,8 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
             if (!tangentHandleUse(doc.waypoints, i, key).direction) return;
             const cc = W2P(w[key]);
             group.push(h('line', { key: 'hl' + b, x1: c.x, y1: c.y, x2: cc.x, y2: cc.y, stroke: accent, strokeWidth: P(1.2), strokeOpacity: 0.65 }));
+            // A wider transparent target than the drawn handle, for fingertips and touchscreen long presses.
+            group.push(h('circle', { key: 'hh' + b, cx: cc.x, cy: cc.y, r: P(10), fill: 'transparent', 'data-role': 'ct', 'data-idx': i * 2 + b, style: { cursor: 'grab' } }));
             group.push(h('circle', { key: 'hc' + b, cx: cc.x, cy: cc.y, r: P(5), fill: '#0c0d10', stroke: accent, strokeWidth: P(1.8), 'data-role': 'ct', 'data-idx': i * 2 + b, style: { cursor: 'grab' } }));
           });
           group.push(h('rect', { key: 'selring', x: c.x - P(11), y: c.y - P(11), width: P(22), height: P(22), rx: P(2), fill: 'none', stroke: accent, strokeWidth: P(1.4), strokeOpacity: 0.55 }));
@@ -1118,6 +1235,8 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
         if (w.turnInPlace) group.push(h('g', { key: 'turn', transform: `translate(${c.x + P(13)} ${c.y - P(13)})`, style: { pointerEvents: 'none' } },
           h('path', { d: `M ${-P(4)} ${P(2)} A ${P(6)} ${P(6)} 0 1 1 ${P(4)} ${P(2)}`, fill: 'none', stroke: '#aeb6c2', strokeWidth: P(1.5), strokeLinecap: 'round' }),
           h('path', { d: `M ${P(3)} ${-P(1)} L ${P(6)} ${P(2)} L ${P(2)} ${P(3)} Z`, fill: '#aeb6c2' })));
+        // The 13 px square is hard to hit with a finger; a transparent 22 px target under it takes every pointer.
+        group.push(h('circle', { key: 'hit', cx: c.x, cy: c.y, r: P(11), fill: 'transparent', 'data-role': 'wp', 'data-idx': i, style: { cursor: 'grab' } }));
         group.push(h('rect', { key: 'node', x: c.x - s, y: c.y - s, width: s * 2, height: s * 2, rx: P(1.5), fill: '#14161a', stroke: col, strokeWidth: P(2), 'data-role': 'wp', 'data-idx': i, style: { cursor: 'grab' } }));
         els.push(h('g', { key: 'w' + i }, group));
       });
@@ -1394,11 +1513,11 @@ import { TAGS_SEEN_FULL, tagSightingsAt, tagsSeenAt } from '../lib/tagCoverage';
 
     return h('svg', {
       ref: svgRef, className: 'fieldsvg', tabIndex: routine ? undefined : 0, 'aria-label': 'Path field', onKeyDown: onFieldKeyDown, viewBox: vb, preserveAspectRatio: 'xMidYMid meet',
-      onPointerDown: (event) => { setTagHover(null); onDown(event); }, onPointerMove: onHoverMove,
+      onPointerDown: onFieldPointerDown, onPointerMove: onFieldPointerMove, onPointerUp: onFieldPointerEnd,
       onPointerLeave: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
-      onPointerCancel: () => { setTagHover(null); hoverStore?.clear('field', hoverContext); },
+      onPointerCancel: (event) => { onFieldPointerEnd(event); setTagHover(null); hoverStore?.clear('field', hoverContext); },
       onLostPointerCapture: () => hoverStore?.clear('field', hoverContext),
-      onWheel: onWheel, onDoubleClick: onDbl,
+      onDoubleClick: onDbl,
       style: { cursor, userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' },
       onContextMenu: onCtx, onDragStart: (e) => e.preventDefault(), draggable: false,
     },

@@ -203,7 +203,7 @@ input,select,textarea{font-family:inherit}
 .fieldlabel{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 6px;overflow-wrap:anywhere}
 .fieldlabel.first{margin-top:2px}
 .numrow{display:flex;flex-direction:column;gap:6px;min-width:0}
-.numlbl{cursor:ew-resize;user-select:none}
+.numlbl{cursor:ew-resize;user-select:none;touch-action:pan-y}
 .textinput,.numbox{height:34px;border:1px solid var(--ctl-line);border-radius:var(--r);background:var(--ctl);transition:border-color .12s,background-color .12s,box-shadow .12s}
 .textinput{width:100%;min-width:0;padding:0 10px;color:var(--txt);font-size:13px;line-height:1.25;outline:none}
 .textinput::placeholder{color:var(--txt-3);opacity:1}
@@ -762,6 +762,9 @@ details[open]>summary::after{transform:translateY(-2px) rotate(45deg)}
   .featgrip{opacity:.72}
   .featdel,.library-more{opacity:1}
 }
+/* After a finger or pen press (data-input, see inputModality.ts) hover-only row controls stay visible, as on a coarse
+   primary pointer; a touchscreen Mac still reports a fine one. Sizes stay put so nothing reflows mid-gesture. */
+[data-input=touch] :is(.featgrip,.featdel,.library-more,.rt-more,.rt-grip,.pj-remove,.pj-more,.rt-block .rt-addwrap .rt-add){opacity:1}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;scroll-behavior:auto!important;transition:none!important}
 }
